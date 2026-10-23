@@ -10,6 +10,70 @@ Render should let a human take an uncertain idea through design, explicit commit
 
 The intended journey is **Ground → Seams → Modules → Proposal → Record → implementation/Audit → independent Watchdog → human final merge**, including annotated checkpoints, challengers, competing candidates, protocol-first isolated experiments, retained negative evidence, and explicit product decisions.
 
+<!-- render-figure: 01 -->
+**Figure 1 — Journey and human gates.** Proposed workflow, not an executed end-to-end trace. Lanes distinguish responsibility, not deployment. CALL requests work; DATA returns retained information; AUTH requests an explicit human decision that the host must validate. Independent roles have separate assignments/contexts even when sharing a lane. Rework repeats the affected phase; it is not approval.
+
+```mermaid
+sequenceDiagram
+    actor H as Human
+    participant R as Render host
+    participant C as Coordinator
+    participant I as Independent role<br/>assignments
+    H->>R: CALL start from an uncertain<br/>idea
+    R->>C: CALL Ground investigation
+    C-->>R: DATA goal, facts, constraints,<br/>task shape
+    R-->>H: DATA proposed shape and<br/>escalation
+    H->>R: AUTH confirm task shape
+    loop Current checkpoint until accepted, in order Seams then Modules then Proposal
+        R->>C: CALL draft the current phase
+        opt Required candidates or observable uncertainty
+            C->>R: CALL request bounded independent<br/>work
+            R->>I: CALL candidates or<br/>protocol-first experiments
+            I-->>R: DATA alternatives and sealed<br/>evidence, including negatives
+            R-->>C: DATA retained results for<br/>synthesis
+        end
+        C->>R: CALL submit draft for<br/>independent review
+        R->>I: CALL fresh challenge and<br/>required fidelity review
+        I-->>R: DATA objections and findings
+        R-->>C: DATA findings requiring<br/>dispositions
+        C->>R: CALL emit exact revision with<br/>dispositions
+        Note over R,I: Gate emission on exact reviewed<br/>bytes and manifest
+        Note over C,I: Substantive changes return to<br/>required review before approval
+        R-->>H: DATA immutable checkpoint and<br/>decision basis
+        alt Human requests rework or must resolve a product choice
+            H->>R: AUTH save direction and request<br/>revision
+            R->>C: CALL repeat affected work, do<br/>not advance
+        else Human accepts exact basis
+            H->>R: AUTH checkpoint approval or<br/>Contract acceptance
+            R->>R: CALL validate and record the<br/>accepted transition
+        end
+    end
+    R->>I: CALL reviewed Record outputs,<br/>gate implementation on baseline
+    loop Implementation / review, bounded automatic rework
+        R->>I: CALL implementer with fresh<br/>Audit contexts
+        I-->>R: DATA sealed source and evidence
+        R->>I: CALL independent Watchdog on<br/>exact source
+        I-->>R: DATA pass, rework, or Needs<br/>Human
+    end
+    Note over R,I: Two completed reviews budget<br/>automatic rework, never reject a<br/>valid pass
+    alt Exact-source pass and all local integration gates satisfied
+        Note over H,R: Local integration needs verified<br/>machinery and human delegation
+        R->>R: CALL guarded local integration<br/>and separate publication
+        R-->>H: DATA source mapping, final<br/>package and required manual<br/>checks
+        H->>R: AUTH record required manual<br/>attestations
+        alt Current canonical head published and all final gates satisfied
+            R-->>H: DATA final merge readiness
+            H->>H: AUTH human-only main merge
+            R->>R: CALL observe actual merge, never<br/>invent evidence
+        else Publication or other final gate remains unsatisfied
+            R-->>H: DATA not merge-ready, precise<br/>next action
+        end
+    else Needs Human, exhausted rework budget or other blockage
+        R-->>H: DATA actionable blocker, await<br/>recorded direction
+    end
+```
+<!-- /render-figure -->
+
 Recommended initial product defaults:
 
 - A small Render web client, accessible privately, with a workflow overview, coordinator conversation, editable review documents, evidence viewer, and explicit approval/cancellation controls.
@@ -95,6 +159,64 @@ Mandatory integrity/authorization rules belong in pure Commitments transformatio
 
 Scheduling policy chooses among legal actions: eligible Slice order, WIP limits, model choice within required separation, extra candidates, bounded retry/backoff, and attended waiting. Policy changes are versioned; they cannot waive obligations, manufacture consent, or substitute missing evidence. The initial automatic rework budget is two completed reviews, counting Needs Human and excluding interruptions/duplicate recording; further rework requires human direction, while a valid pass is always admissible.
 
+<!-- render-figure: 02 -->
+**Figure 2 — Evidence and decision relationships.** Proposed conceptual data model, not a database schema. Every link is a DATA reference, not a call, lifecycle transition, or permission. Approvals record authenticated exact-basis decisions; artifacts and review verdicts cannot grant human authority. Multiple evidence records can support multiple obligations.
+
+```mermaid
+classDiagram
+    direction LR
+    class ContractRevision {
+        immutableObligations
+        acceptedDigest
+    }
+    class Assignment {
+        role
+        generation
+        pinnedInputs
+    }
+    class Attempt {
+        attemptIdentity
+        executionProvenance
+    }
+    class Artifact {
+        contentDigest
+        retainedBytes
+    }
+    class EvidenceReceipt {
+        sourceDigest
+        verifierRevision
+        observedOutcome
+    }
+    class Review {
+        independentIdentity
+        contractDigest
+        sourceDigest
+        verdict
+    }
+    class CheckpointEmission {
+        immutableBytesDigest
+        typedManifestDigest
+        annotationRevision
+    }
+    class Approval {
+        authenticatedPrincipal
+        exactDecisionBasis
+        policyVersion
+    }
+    Assignment --> ContractRevision : pins delivery obligations
+    Assignment --> Attempt : retains execution history
+    Attempt --> Artifact : produces retained outputs
+    EvidenceReceipt --> Artifact : identifies checked source and results
+    EvidenceReceipt --> ContractRevision : supports named obligations
+    Review --> EvidenceReceipt : assesses and independently verifies
+    Review --> Artifact : binds exact reviewed source
+    Review --> ContractRevision : judges accepted obligations
+    CheckpointEmission --> Artifact : retains bytes and manifest
+    Approval --> CheckpointEmission : binds exact checkpoint basis
+    Approval --> ContractRevision : binds accepted intake when applicable
+```
+<!-- /render-figure -->
+
 ### 3.3 Deliberate redesigns
 
 | Historical choice | Render choice and consequence |
@@ -139,6 +261,38 @@ Initially these are five modules in one application, not separately deployed pro
 
 A small method count must not conceal a generic interface. `command` is a closed union of actual Render operations: create design, save annotations, emit/rework/approve checkpoint, accept/amend/supersede work, assign, submit result, cancel, decide, admit effect and record observation. It accepts no scripts, user-defined reducers, arbitrary task types, SQL or caller-selected paths. Internally it dispatches to ordinary named pure domain functions, not a compulsory generic event reducer.
 
+<!-- render-figure: 03 -->
+**Figure 3 — Modules and authority.** Proposed logical module view—not a deployment or task graph. Solid arrows labeled CALL are invocations; dotted arrows labeled DATA carry values; thick AUTH arrows represent checked permits, not general trust. Record is the accepting authority; Commitments defines domain legality without I/O. Durable executes work but does not define its legitimacy. Transaction-local task staging is detailed in §5.4, not another scheduler here.
+
+```mermaid
+flowchart TB
+    Client["Human clients<br/>no writable authority"]
+    subgraph Host["One authoritative Render host — logical modules"]
+        R["Record<br/>principal establishment, authorization, transactions"]
+        C["Commitments<br/>pure domain transformations"]
+        W["Work<br/>policy, instruction rendering, supervision"]
+        S["Sandboxes<br/>execution, capture, quiescence"]
+        E["Effects<br/>private refs, publication, reconciliation"]
+        DB[("Durable SQLite<br/>accepted state, facts, receipts, tasks")]
+        D["Pi Durable runtime<br/>execution facility, not domain authority"]
+        R -->|"CALL change with resolved values"| C
+        C -.->|"DATA decision and domain intents"| R
+        R -->|"CALL atomic commit"| DB
+        W -->|"CALL authorized domain commands"| R
+        W -->|"CALL schedule and reconcile"| D
+        W -->|"CALL prepare / execute / seal / stop"| S
+        E -->|"CALL request admission; record observation"| R
+        R ==>|"AUTH scoped operation permit"| E
+    end
+    Client -->|"CALL command / observe / artifact"| R
+    R -.->|"DATA scoped receipts and views"| Client
+    classDef pure fill:#eef6ff,stroke:#2764a5,color:#172b4d
+    classDef authority fill:#fff3d6,stroke:#8a6200,color:#382800
+    class C pure
+    class R authority
+```
+<!-- /render-figure -->
+
 ## 5. Host, client, authentication and records
 
 ### 5.1 Concrete initial deployment
@@ -164,6 +318,31 @@ The web client presents five facts without requiring a transcript: **accepted co
 Agent-authored documents and logs are **inert, plaintext-first**. Initial rendering does not execute Markdown HTML, scripts, embedded images, external resource loads or command links. Escape all content; safe links require explicit navigation and cannot trigger an authenticated mutation. Downloads use attachment disposition and safe content types/nosniff. Apply a restrictive CSP and frame protection. Artifact viewing is a separate attack surface from shell isolation; fixture-token tests alone do not verify it.
 
 **Ordinary Pi CLI/TUI 1.4.0 cannot be assumed to attach.** Pi Durable is the host library, with a different extension interface from ordinary Pi. A future Pi client adapter would speak Record/observation, handle approvals and documents explicitly, and never run a local workflow engine. Existing Pi tools/extensions are not loaded automatically. This initial product deliberately favors correct remote control over an unverified promise of familiar TUI attachment.
+
+<!-- render-figure: 04 -->
+**Figure 4 — Reconnecting without reconstructing chat.** Illustrative proposed screen wireframe, not implemented UI or measured usability. Blocks represent screen regions, not calls or processing stages. DATA is a scoped host snapshot; LOCAL content is not acknowledged; ACTION controls submit commands and confer no authority themselves. The example is an implementation waiting on a human choice, so approval remains unavailable.
+
+```mermaid
+block-beta
+    columns 2
+    title["RENDER / Proposal P — reconnected device B"]:2
+    freshness["DATA — snapshot sequence 84; authenticated scope; last synchronized now"]:2
+    commitment["ACCEPTED COMMITMENT<br/>Contract K4; approved design references"]
+    owner["ACTIVE OWNER<br/>Implementer assignment A12<br/>human-blocked; execution quiescent"]
+    evidence["LATEST EVIDENCE<br/>Source X; verifier receipts<br/>independent review still required"]
+    blocker["BLOCKER<br/>Consequential choice outside delegated scope<br/>ownership is retained"]
+    next["NEXT HUMAN ACTION<br/>Read options and record an explicit decision"]:2
+    document["SAVED ON HOST<br/>Emission r4 and acknowledged annotations<br/>history and exact basis available"]
+    draft["LOCAL ONLY<br/>Unsaved editor changes<br/>not present on another device"]
+    source["SOURCE STATUS<br/>Canonical head R; published head T<br/>publication behind; not merge-ready"]:2
+    actions["ACTION CONTROLS<br/>Open decision / Save draft / Cancel assignment<br/>Approve unavailable for this state"]:2
+    chat["COORDINATOR CHAT — optional context, never approval authority"]:2
+    classDef local fill:#fff3d6,stroke:#8a6200,color:#382800
+    classDef data fill:#eef6ff,stroke:#2764a5,color:#172b4d
+    class draft local
+    class commitment,owner,evidence,blocker,source data
+```
+<!-- /render-figure -->
 
 ### 5.3 Command, receipt and snapshot contract
 
@@ -246,6 +425,49 @@ Keep receipts/facts as individually addressable records, not an ever-growing JSO
 
 Small checkpoint documents, protocols, reports and command receipts belong in the store. Large retained snapshots/logs use host-owned immutable content-addressed files: write and sync, atomic rename and directory sync, then commit the reference. Before-reference crashes leave only an orphan; accepted references must never point to missing bytes. Upload size quotas and hash checks are mandatory. Inputs needed by active assignments cannot be garbage-collected. Missing/corrupt required content blocks with a named restore/re-upload action, not a guessed replacement.
 
+<!-- render-figure: 05 -->
+**Figure 5 — Atomic handoff and a lost reply.** Proposed command sequence. CALL invokes behavior, AUTH denotes checked authority, and DATA carries values/results. The shaded region is one Record transaction; the later tool-result commit is not part of it. Atomic handoff has a bounded witness; stable agent-tool replay and same-human cross-device command recovery remain unrun gates. Replays return receipts only if current receipt-access authorization permits.
+
+```mermaid
+sequenceDiagram
+    participant A as Trusted client<br/>or tool adapter
+    participant R as Record
+    participant C as Pure Commitments
+    participant S as Durable SQLite
+    Note over A,R: Human retains original ID, agent<br/>ID binds durable scope, taskId<br/>and callId
+    A->>R: CALL command with stable<br/>envelope and trusted context
+    rect rgb(239, 246, 255)
+        Note over R,S: One serialized transaction — no<br/>shell, model or network effects
+        R->>R: AUTH check identity, revocation<br/>and receipt scope
+        R->>S: CALL lookup scoped command ID<br/>and fingerprint
+        alt Authorized duplicate with matching payload
+            S-->>R: DATA original receipt
+        else New command
+            R->>R: AUTH validate current assignment<br/>and relevant basis
+            R->>C: CALL change with state, command<br/>and resolved facts
+            C-->>R: DATA decision or refusal
+            alt Legal transition
+                R->>S: CALL stage state, facts,<br/>receipt, references, handoff and<br/>next task
+                S-->>R: DATA atomic commit visible
+            else Refused
+                Note over R,S: No staged writes become visible
+            end
+        end
+    end
+    alt Reply or tool-result storage succeeds
+        R-->>A: DATA receipt or refusal
+        Note over A,S: Agent tool result is stored<br/>separately after Record returns
+    else Host dies after accepted commit, before reply or tool-result commit
+        Note over A,S: Outcome unknown to caller,<br/>accepted work is already durable
+        A->>R: CALL same envelope after<br/>recovery
+        R->>R: AUTH recheck receipt access<br/>before lookup
+        R->>S: CALL retrieve existing scoped<br/>receipt
+        S-->>R: DATA original accepted result<br/>and task identity
+        R-->>A: DATA original receipt, no second<br/>accepted handoff
+    end
+```
+<!-- /render-figure -->
+
 ## 6. Work execution, roles and lifecycle
 
 ### 6.1 Domain ownership is not task parentage
@@ -283,6 +505,48 @@ Cancellation commits a generation fence and prohibits new effect admissions/tool
 
 No new writer reuses the workspace until quiescence is established. A surviving/uninspectable process quarantines it. An explicitly authorized replacement uses a new generation/workspace and does not inherit permission to repeat uncertain effects. Heartbeat expiry is diagnostic only. Runtime `orphaned` after aborting a blocked/missing definition means unresolved cleanup/effect risk, not clean cancellation. Late worker output can be retained as quarantined evidence; only trusted reconciliation records observations of already admitted effects.
 
+<!-- render-figure: 06 -->
+**Figure 6 — Authority is fenced before execution is known to have stopped.** Proposed lifecycle sequence, separating durable ownership from physical execution. CALL requests behavior, AUTH changes legal authority, DATA reports observations. Cancellation is not instant process death; a blocked label is not quiescence. The two branches are alternatives, not consecutive phases. The four-executing-attempt default remains a policy proposal.
+
+```mermaid
+sequenceDiagram
+    actor H as Human
+    participant R as Record /<br/>assignment authority
+    participant W as Work /<br/>execution budget
+    participant S as Sandboxes /<br/>physical processes
+    participant E as Effects /<br/>admitted operations
+    Note over R,S: Assignment g1 owns work, attempt<br/>a1 may have live processes
+    alt Consequential human choice blocks work
+        W->>R: CALL record blocker and pending<br/>human decision
+        Note over R: Ownership stays<br/>Basis retained<br/>Evidence retained
+        W->>S: CALL stop processes before<br/>releasing execution slot
+        S-->>W: DATA confirmed quiescence, or<br/>quarantine
+        opt Quiescence confirmed
+            W->>W: CALL release executing slot,<br/>retain bounded workspace
+            H->>R: AUTH record explicit decision on<br/>current basis
+            R-->>W: DATA legal continuation or<br/>revised-work requirement
+            W->>R: CALL fence prior attempt and<br/>authorize current attempt
+            W->>S: CALL resume only with current<br/>authority and safe workspace
+        end
+    else Human cancels assignment
+        H->>R: AUTH cancel current generation
+        R->>R: AUTH commit fence, no new tool<br/>starts or effect admissions
+        R-->>W: DATA cancel requested, cleanup<br/>still outstanding
+        W->>S: CALL whole-container stop, force<br/>after grace if needed
+        Note over R,E: An already admitted effect may<br/>still complete
+        E->>R: CALL record observation of prior<br/>admitted effect
+        S-->>W: DATA not-running confirmation or<br/>unresolved process
+        alt Processes quiescent and outstanding effects reconciled
+            W->>R: CALL record canceled and<br/>quiescent
+            Note over R,S: Workspace reuse now eligible,<br/>not automatic authorization
+        else Process or effect remains unresolved
+            W->>R: CALL record quarantine /<br/>unresolved cleanup
+            Note over R,S: No reuse, replacement needs<br/>explicit authority and safe new<br/>scope
+        end
+    end
+```
+<!-- /render-figure -->
+
 ## 7. Sandboxes and trustworthy source identity
 
 ### 7.1 Concrete execution profile and tool flow
@@ -309,6 +573,44 @@ Source identity is host-produced, never accepted from a worker's branch name or 
 The literal collector demonstrated byte equality, bypassed clean filters (none executed), CRLF preservation, symlink-as-data and FIFO/size rejection for narrow fixtures. Unusual filenames, collision/fsck constraints, hardlink/sparse behavior, quotas and subsequent consumers remain production acceptance checks. Initial collection defaults can start at the tested 64 MiB/10,000 entries; larger repositories require an explicit profile, not truncation.
 
 Review materialization uses the same literal ingress. Build/install/merge working-tree interpretation occurs only in a sandbox. Publication transports validated objects without host checkout. Attribute/module changes are surfaced prominently to reviewers and the human; the host never activates them as configuration. Human final checkout/merge remains an explicitly separate operation, not covered by the collector's assurance.
+
+<!-- render-figure: 07 -->
+**Figure 7 — Containment, credentials and literal source flow.** Proposed deployment/data-flow view, distinct from the logical modules in Figure 3. Solid CALL edges invoke trusted handlers; dotted DATA edges transport bytes; thick AUTH edges denote scoped permission. Crossed DENIED edges are forbidden access, not usable paths; the denial box lists absent access, not mounted resources. Narrow containment/egress witnesses exist; production profiles and byte-true ingress remain gates. Host OS, VM/daemon and operator are trusted.
+
+```mermaid
+flowchart TB
+    Provider["External model provider<br/>source privacy policy required"]
+    Forge["GitHub<br/>publication projection"]
+    subgraph Host["Trusted host — secrets and authoritative storage stay here"]
+        W["Work<br/>host-side model calls<br/>provider credentials"]
+        R["Record / Durable store<br/>scope and generation authority"]
+        E["Effects<br/>forge credentials and guarded Git operations"]
+        G[("Host-private bare Git objects<br/>trusted metadata; canonical refs")]
+        S["Sandboxes trusted controller<br/>literal materializer and frozen collector"]
+        W -->|"CALL execute validated coding request"| S
+        S -->|"CALL check current execution authority"| R
+        R ==>|"AUTH current scoped execution only"| S
+        E -->|"CALL guarded object and ref operations"| G
+        G -.->|"DATA exact input tree and blobs"| S
+        S -.->|"DATA literal sealed objects and capture witness"| G
+    end
+    subgraph Worker["Restricted container — no network or host credentials"]
+        P["Processes<br/>non-root; resource limits"]
+        F["Own writable workspace<br/>independent local Git only"]
+        I["Read-only evidence / candidate inputs"]
+        Denied["DENIED resources<br/>host store and Git metadata<br/>credentials and control sockets<br/>direct network access"]
+        P -->|"CALL local file operations"| F
+        I -.->|"DATA immutable inputs"| P
+    end
+    S -->|"CALL constrained container exec / whole-container stop"| P
+    S -.->|"DATA literal input bytes"| F
+    F -.->|"DATA collect only after confirmed freeze"| S
+    P --x|"DENIED by profile and handlers"| Denied
+W -->|"CALL model request"| Provider
+Provider -.->|"DATA model output, never permission"| W
+E -->|"CALL resolve / publish with trusted configuration"| Forge
+```
+<!-- /render-figure -->
 
 ## 8. The full design journey
 
@@ -348,7 +650,71 @@ The next emission must map every annotation to acted on, considered, or dismisse
 
 Concurrent edits retain both submissions and produce an explicit conflict; no last-writer-wins loss. Approval binds the annotation-set revision. If edits win the race, the old approval is refused; if approval wins, later edits become retained change requests, not edits to accepted bytes. Unsaved editor buffers are not durable; clients say so. Reattachment promises all acknowledged records, not unsubmitted keystrokes.
 
+<!-- render-figure: 08 -->
+**Figure 8 — Two orderings, no lost acknowledged edits.** Proposed checkpoint protocol; both race orderings have bounded E-CLIENT witnesses. CALL saves data; AUTH requests approval over an exact basis; DATA returns receipts/views. The final note is stricter product policy, not the fixture's direct-draft approval. The alternative branches start from the same initial state.
+
+```mermaid
+sequenceDiagram
+    participant A as Human client A
+    participant R as Record
+    participant B as Human client B
+    Note over A,B: Both read emitted r4, intake K4,<br/>annotation set v2
+    alt B's save commits first
+        B->>R: CALL save edited bytes based on<br/>r4
+        R-->>B: DATA retained edit, annotation<br/>set now v3
+        A->>R: AUTH approve r4 / K4 / v2
+        R-->>A: DATA stale_basis, show v3 and<br/>changed concerns
+        Note over A,R: No auto-rebase or inferred<br/>approval
+    else A's approval commits first
+        A->>R: AUTH approve r4 / K4 / v2
+        R-->>A: DATA accepted exact-basis<br/>receipt
+        B->>R: CALL save edited bytes based on<br/>r4
+        R-->>B: DATA retained later change<br/>request
+        Note over A,B: Approved r4 bytes and historical<br/>decision stay immutable
+    end
+    Note over A,B: Edits are never directly<br/>approvable
+    Note over A,B: New emission + manifest +<br/>required exact-revision reviews<br/>precede new approval
+    Note over A,B: Approve-with-notes accepts<br/>original emitted bytes, notes<br/>remain nonbinding
+```
+<!-- /render-figure -->
+
 Experiments retain their original protocol, candidate identity, sealed inputs, decisive raw measurements, report and limitations before cleanup. The comparison parent cannot rewrite candidate originals. Negative/inconclusive evidence remains available, and result selection never itself accepts a product choice.
+
+<!-- render-figure: 09 -->
+**Figure 9 — What a change invalidates—and what it does not erase.** Proposed impact map. Arrows mean CONSEQUENCE or REQUIRED GATE, never calls or automatic edits. Each row is a separate change scenario. New authority requires the corresponding explicit decision/review; old artifacts, verdicts and approvals remain historical evidence. A consumed Contract is superseded/replaced, not silently amended.
+
+```mermaid
+flowchart LR
+    subgraph Design["Accepted design changes"]
+        A["Proposed change to an accepted seam"]
+        B["GATE: human revised checkpoint decision"]
+        C["Reconsider affected Modules decisions,<br/>approvals, assignments and commitments"]
+        A -->|"REQUIRED GATE"| B
+        B -->|"CONSEQUENCE: invalidate dependent current authority"| C
+    end
+    subgraph Annotation["Saved concerns change"]
+        D["Annotation set v2 becomes v3"]
+        E["Pending approval using v2 is stale"]
+        F["GATE: review current concerns and submit exact new basis"]
+        D -->|"CONSEQUENCE"| E
+        E -->|"REQUIRED GATE"| F
+    end
+    subgraph Source["Source changes"]
+        G["Reviewed source X changes to Y"]
+        H["Pass on X cannot authorize Y"]
+        I["GATE: checks and independent review bound to Y"]
+        G -->|"CONSEQUENCE"| H
+        H -->|"REQUIRED GATE"| I
+    end
+    subgraph Target["Integration target changes"]
+        J["Expected canonical head T moves"]
+        K["Expected-old integration refuses"]
+        L["GATE: include current target and obtain required fresh review"]
+        J -->|"CONSEQUENCE"| K
+        K -->|"REQUIRED GATE"| L
+    end
+```
+<!-- /render-figure -->
 
 ## 9. Git/forge effects and reconciliation
 
@@ -382,6 +748,43 @@ If a human explicitly authorizes another attempt while an earlier create is unkn
 
 Independent local design/review proceeds while unrelated publication is uncertain. The blockage names operation, attempts, last observations, affected dependent actions, and safe choices: inspect, recheck, associate verified object, or explicit risk resolution. No direct store edits are required.
 
+<!-- render-figure: 10 -->
+**Figure 10 — Unknown external creation is a real state.** Proposed operation state machine for non-idempotent remote creates, not local-ref recovery. Transition labels distinguish AUTH admission from CALL dispatch and DATA observation; arrows are state transitions. The effects probe supports bounded reconciliation and exposes listing lag, not exactly-once delivery. Negative lookup has deliberately no retry edge; sticky-risk resolution follows §9.2.
+
+```mermaid
+stateDiagram-v2
+    state "Planned intent — no dispatch permission" as Planned
+    state "Admitted attempt — may already have been sent" as Admitted
+    state "Awaiting remote outcome" as Awaiting
+    state "Uncertain — retain attempts and observations" as Unknown
+    state "Verified outcome recorded" as Observed
+    state "No admission — canceled or unauthorized" as Refused
+    state "Explicitly authorized reissue, sticky duplicate risk" as Risk
+    state "Risk remains, transient unique listing is insufficient" as RiskHeld
+    [*] --> Planned
+    Planned --> Admitted: AUTH current scope / generation / delegation checks commit
+    Planned --> Refused: AUTH cancellation or revocation wins ordering
+    Admitted --> Awaiting: CALL single executor consumes permit once
+    Admitted --> Unknown: DATA crash or lost admission reply
+    Awaiting --> Unknown: DATA response lost or ambiguous
+    Awaiting --> Observed: DATA verified response and recorded outcome
+    Unknown --> Unknown: DATA negative or incomplete listing
+    Unknown --> Observed: DATA verified exact association, no unresolved duplicate risk
+    Unknown --> Risk: AUTH human permits another attempt despite uncertainty
+    Risk --> RiskHeld: CALL separately admitted attempt, risk covers all attempts
+    RiskHeld --> RiskHeld: DATA one visible object does not clear risk
+    note right of Admitted
+        Later cancellation cannot retract
+        this already admitted attempt.
+    end note
+    note right of RiskHeld
+        Block irreversible dependent work.
+        Explicit resolution must account
+        for attempts and remaining risk.
+    end note
+```
+<!-- /render-figure -->
+
 ### 9.3 Proposal integration versus final merge
 
 **Recommended, unverified default:** the host-private proposal ref is canonical; the GitHub proposal branch is a publication projection. This avoids making the human or forge availability the scheduler for every same-proposal dependency. It requires human acceptance, not merely challenger agreement. Local integration remains disabled until its own targeted checks pass and the human grants a versioned delegation scoped to proposal, repository ID, canonical ref, permitted effects and validity. Revocation participates in admission ordering; no delegation includes main or permits branch/fork substitution.
@@ -396,6 +799,45 @@ Publication is an independent operation with expected-old remote protection, can
 
 Human alone performs final main merge and resolves any later conflicts. The final package maps commitments to canonical and published source/evidence, remaining findings, deviations, manual checks and uncertainties. Human merge is an observed external fact; if it used older/different source or lacked recorded manual evidence, Render records the actual mapping and gap rather than inventing satisfaction.
 
+<!-- render-figure: 11 -->
+**Figure 11 — Local progress is separate from publication and final merge.** Proposed, unverified local-integration mechanism. CALL invokes an operation, DATA reports identities/observations, AUTH is scoped human delegation or a checked permit. Each SQLite commit and Git ref update is separate; no cross-store transaction is implied. Only same-proposal dependency clearance is shown. Cross-proposal and main-delivery requirements remain as specified above.
+
+```mermaid
+sequenceDiagram
+    actor H as Human
+    participant R as Record / SQLite
+    participant E as Effects
+    participant L as Canonical<br/>local Git ref
+    participant G as GitHub projection<br/>/ main
+    Note over R,L: Required evidence passes for<br/>exact source X including target<br/>T
+    H->>R: AUTH versioned proposal-scoped<br/>integration delegation
+    E->>R: CALL record intent with T, R,<br/>exact tree and fixed commit<br/>metadata
+    R-->>E: AUTH admit current scoped<br/>attempt
+    E->>L: CALL expected-old CAS from T to<br/>R
+    L-->>E: DATA ref, commit, parent and<br/>tree readback
+    alt Exact R is verified
+        E->>R: CALL commit qualifying<br/>integration observation
+        Note over R,L: Crash before this commit leaves<br/>a journal gap, not recorded<br/>success
+        R->>R: CALL clear eligible<br/>same-proposal dependencies
+    else Target moved or result is uncertain
+        E->>R: CALL record divergence or<br/>uncertainty, block this<br/>proposal's next integration
+    end
+    opt Qualifying integration recorded, publication independently authorized
+        E->>R: CALL request separate<br/>publication admission
+        R-->>E: AUTH publication permit after<br/>current checks
+        E->>G: CALL expected-old guarded<br/>projection update
+        G-->>E: DATA exact published head or<br/>divergence / uncertainty
+        E->>R: CALL record canonical versus<br/>published mapping
+    end
+    Note over R,G: Local work may continue during<br/>publication lag, final readiness<br/>may not
+    R-->>H: DATA merge package only when<br/>current head is published and<br/>gates satisfied
+    H->>G: AUTH final main merge with human<br/>identity
+    E->>G: CALL read-only observation of<br/>actual merge
+    G-->>E: DATA actual source / target<br/>mapping
+    E->>R: CALL record observed merge and<br/>any evidence gaps
+```
+<!-- /render-figure -->
+
 ## 10. Recovery, persistence guarantees and evolution
 
 ### Recovery sequence
@@ -403,6 +845,41 @@ Human alone performs final main merge and resolves any later conflicts. The fina
 Acquire the exclusive store lock; verify supported schemas/definitions and storage health; open runtime without dispatching unchecked work; inspect assignments/containers/operations; fence old executor epochs and establish OS quiescence or quarantine. Before explicit `resume()`, use **reads and safe commits only** (fences, epoch rotation, quarantine marks), never scheduling-enabling submit, abort, wait or compact calls. Containment/termination can be established without those runtime calls. Once unchecked work is fenced, explicitly resume compatible handlers; then abort/wait as needed and reconcile uncertain effects, including §9.3's canonical-ref/Record gap, before admitting dependent work. Evidence and receipt views remain available where the understood schema permits. Pinned 1.4.0 has no documented read-only Harness option: do not invent one to bypass startup compatibility or ownership.
 
 Interrupted work resumes only with compatible task meaning and current assignment authority. Missing required source is retrieved from retained objects or blocked with a precise input request. Missing workspace does not reset ownership, review count or decisions. Unsupported/corrupt content is preserved and quarantined, not silently normalized. Supported recovery commands record their reason/basis; manual ledger repair is not the tested recovery procedure.
+
+<!-- render-figure: 12 -->
+**Figure 12 — Recovery enables work in guarded stages.** Proposed recovery activity diagram, not a claim of a completed restore test. Arrows mean control order, not data transfer. CALL steps operate the runtime/OS; AUTH gates constrain what may run; DATA steps inspect observations. Blockages are scoped where safe: an uncertain operation need not halt unrelated work. Before explicit resume, no submit, abort, wait or compact call may enable scheduling.
+
+```mermaid
+flowchart TD
+    Start(["Host startup or restart"])
+    Lock{"AUTH: owner lock acquired?"}
+    Refuse["Refuse second owner before Harness.open"]
+    Compat{"DATA: safe to open?"}
+    Diagnose["Preserve diagnostic state;<br/>block unsafe startup or affected incompatible work"]
+    Open["CALL Harness.open without scheduling unchecked work"]
+    Inspect["DATA inspect assignments, containers, operations and artifacts"]
+    Fence["AUTH safe commits: fence old epochs and quarantine unchecked work"]
+    Stop["CALL establish OS quiescence or isolate unresolved processes"]
+    Safe{"AUTH: execution fenced<br/>and reuse safe?"}
+    Hold["Visible blockage; retain evidence and ownership"]
+    Resume["CALL explicit resume for compatible handlers"]
+    Reconcile["CALL recovery handlers, abort/wait as needed;<br/>DATA reconcile uncertain operations and canonical refs"]
+    Eligible{"AUTH: this work eligible?"}
+    Run["CALL admit eligible work"]
+    Block["Visible scoped blocker;<br/>unrelated eligible work may proceed"]
+    Start --> Lock
+    Lock -->|"No"| Refuse
+    Lock -->|"Yes"| Compat
+    Compat -->|"No safe open"| Diagnose
+    Compat -->|"Yes; incompatible work identified for blocking"| Open
+    Open --> Inspect --> Fence --> Stop --> Safe
+    Safe -->|"No"| Hold
+    Safe -->|"Yes"| Resume
+    Resume --> Reconcile --> Eligible
+    Eligible -->|"Yes"| Run
+    Eligible -->|"No"| Block
+```
+<!-- /render-figure -->
 
 **Failure models:**
 
@@ -475,6 +952,29 @@ All probes were disposable and separate from Render implementation. Initial prot
 | Isolation, follow-up independent rerun `results/20261023T153631Z` | **17/17**, ~**29.39 s**. Restricted profiles versus unsafe cwd; default network reached host loopback; shared `.git` rewrote refs/hooks; host status ran planted fsmonitor; `git add` ran a host clean filter and altered CRLF. Literal collector preserved six checked blobs, symlink data and base parent; refused live writer/FIFO/oversize. Whole-container stop halted tested exec-launched detached child. | Narrow OrbStack profile, synthetic secrets/faux provider. Two-second post-stop observation, not arbitrary-runtime proof. No kernel/VM escape protection, production quotas, complete filename/filesystem handling or byte-true ingress demonstration. Original add-based collector is rejected. |
 | Client/control, independent rerun `experiments/client/results/parent-review` | **17/17**, **10.55 s**; **128 fixed seeds × 32 = 4,096 scheduled actions**, **4,220 HTTP commands**, **416 concurrent pairs**, **292 reattachments**, **0 monitor violations**; **8/8 mutants detected**. Both annotation/approval race orderings passed **20× each**. SIGKILL of separate client, scripted coordinator and host preserved exact saved bytes and two concerns through restart/fresh B attachment. Actual Durable `render_command`, with a faux provider and server-bound conversation identity, refused forged human approval; an allowed intake positive control passed and an unbound conversation failed. | One terminal checkpoint, not full manifest/annotation/final-acceptance machinery or E-JOURNEY. Actual Durable tool invocation is demonstrated, not arbitrary nested-tool composition. No live-model quality, human comprehension, production TLS/enrollment/browser security or physical second-machine proof. Reattachment timing excludes host startup. Specific architectural deltas below remain open. |
 | Full product acceptance | Proposed tests in §13, not executed Render behavior; the final design challenge is separately dispositioned below. | Full design-to-delivery journey, tool replay, local integration/recovery, enrollment/renewal/browser security, live-model quality, power loss/restore and actual second device remain unverified. Passing independent probes cannot be added into an end-to-end proof. |
+
+<!-- render-figure: 13 -->
+**Figure 13 — Evidence coverage, not a product-completion score.** Observed-evidence matrix; cells are DATA classifications, not calls or authority. **D** means a direct bounded witness for the named narrow claim; **P** means partial support only; **—** means no adopted evidence from that probe for that row. D does not mean production acceptance. Full journey, new tool replay, local integration/recovery, enrollment/renewal, browser security, power-loss/restore and physical second-device gates remain unverified. The detailed table and V1–V9 remain authoritative about scope.
+
+```mermaid
+block-beta
+    columns 5
+    h0["CLAIM / PROBE"] h1["DURABILITY"] h2["EFFECTS"] h3["ISOLATION"] h4["CLIENT"]
+    r1["Atomic state / fact<br/>/ task handoff"] a1["D<br/>toy workflow"] a2["—"] a3["—"] a4["—"]
+    r2["Uncertain-create<br/>reconciliation"] b1["—"] b2["D<br/>bounded forge cases"] b3["—"] b4["—"]
+    r3["Confinement and<br/>literal egress"] c1["—"] c2["—"] c3["D<br/>narrow OS / blob<br/>fixtures"] c4["—"]
+    r4["Saved edits / races /<br/>fresh attachment"] d1["—"] d2["—"] d3["—"] d4["D<br/>loopback checkpoint"]
+    r5["Pure-core / runtime<br/>independence"] e1["P<br/>eleven-command<br/>equivalence"] e2["—"] e3["—"] e4["—"]
+    r6["Target cross-device<br/>command recovery"] f1["—"] f2["—"] f3["—"] f4["P<br/>attach only;<br/>retry differs"]
+    r7["Full journey / new<br/>production mechanisms"] g1["—"] g2["—"] g3["—"] g4["—"]
+    classDef header fill:#e9edf2,stroke:#52606d,color:#17212b
+    classDef direct fill:#e7f3ea,stroke:#356b43,color:#173c21
+    classDef partial fill:#fff3d6,stroke:#8a6200,color:#382800
+    class h0,h1,h2,h3,h4 header
+    class a1,b2,c3,d4 direct
+    class e1,f4 partial
+```
+<!-- /render-figure -->
 
 **E-CLIENT evidence does not replace the target design:**
 
