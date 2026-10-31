@@ -1,0 +1,746 @@
+{
+  "$schema_note": "Render client tokens, Ember palette (MIT, Hossam Saraya). Variant keys match ui.theme values.",
+  "variants": {
+    "ember": {
+      "surface": {
+        "read": "#151412",
+        "side": "#1c1b19",
+        "bar": "#252422",
+        "cursor.read": "#242320",
+        "cursor.side": "#2e2d2a",
+        "code": "#242320",
+        "readback": "#252422",
+        "selection": "#3e3c38"
+      },
+      "border": {
+        "subtle": "#2e2d2a",
+        "strong": "#3e3c38"
+      },
+      "rule": {
+        "focus": "#908a7e"
+      },
+      "fg": {
+        "default": "#d8d0c0",
+        "alt": "#b0a898",
+        "muted": "#999489"
+      },
+      "state": {
+        "attn": "#e08060",
+        "blocked": "#b07878",
+        "stale": "#7890a0",
+        "unknown": "#988090",
+        "local": "#80a090",
+        "ok": "#8a9868"
+      },
+      "kind": {
+        "you": "#7890a0",
+        "coordinator": "#d8d0c0",
+        "reviewer": "#9b8493",
+        "worker": "#80a090",
+        "code": "#c09058",
+        "reference": "#c8b468",
+        "link_underline": "#c8b468"
+      },
+      "tint": {
+        "human": "#1d1e1d",
+        "tool_ok": "#212615",
+        "tool_fail": "#321f1e",
+        "tool_unknown": "#2a2226",
+        "tool_run": "#2e2d2a",
+        "tool_cancelled": "#1c1b19",
+        "diff_add": "#27281f",
+        "diff_del": "#2c2321"
+      },
+      "syntax": {
+        "keyword": {
+          "color": "#c09058",
+          "style": "bold",
+          "captures": "@keyword @keyword.* @type.qualifier"
+        },
+        "modifier": {
+          "color": "#c09058",
+          "style": "italic",
+          "captures": "@keyword.modifier"
+        },
+        "function": {
+          "color": "#c8b468",
+          "style": "regular",
+          "captures": "@function @function.call @function.builtin(italic) @constructor"
+        },
+        "type": {
+          "color": "#c8b468",
+          "style": "bold",
+          "captures": "@type @type.definition @type.builtin(italic, not bold)"
+        },
+        "method": {
+          "color": "#80a090",
+          "style": "regular",
+          "captures": "@function.method @function.method.call"
+        },
+        "string": {
+          "color": "#8a9868",
+          "style": "regular",
+          "captures": "@string @character"
+        },
+        "constant": {
+          "color": "#9b8493",
+          "style": "regular",
+          "captures": "@constant @constant.builtin(bold) @number @number.float @boolean"
+        },
+        "escape": {
+          "color": "#9b8493",
+          "style": "bold",
+          "captures": "@string.escape @string.regexp @string.special @string.special.symbol @character.special"
+        },
+        "builtin": {
+          "color": "#b37d7d",
+          "style": "italic",
+          "captures": "@variable.builtin @module.builtin @function.macro @constant.macro @keyword.directive"
+        },
+        "tag": {
+          "color": "#b37d7d",
+          "style": "regular",
+          "captures": "@tag @tag.builtin @label"
+        },
+        "attribute": {
+          "color": "#7890a0",
+          "style": "regular",
+          "captures": "@attribute @attribute.builtin(italic) @string.special.url(underline) @markup.link.url"
+        },
+        "tagattr": {
+          "color": "#c8b468",
+          "style": "regular",
+          "captures": "@tag.attribute"
+        },
+        "comment": {
+          "color": "#999489",
+          "style": "italic",
+          "captures": "@comment"
+        },
+        "doc": {
+          "color": "#b0a898",
+          "style": "italic",
+          "captures": "@comment.documentation @string.documentation"
+        },
+        "operator": {
+          "color": "#999489",
+          "style": "regular",
+          "captures": "@operator @punctuation.special"
+        },
+        "punct": {
+          "color": "#b0a898",
+          "style": "regular",
+          "captures": "@punctuation.bracket @punctuation.delimiter @tag.delimiter"
+        },
+        "variable": {
+          "color": "#b0a898",
+          "style": "regular",
+          "captures": "@variable @variable.member @property @module"
+        },
+        "parameter": {
+          "color": "#d8d0c0",
+          "style": "italic",
+          "captures": "@variable.parameter"
+        },
+        "todo": {
+          "color": "#d8d0c0",
+          "style": "bold",
+          "captures": "@comment.todo (Ember: coral)"
+        },
+        "note": {
+          "color": "#7890a0",
+          "style": "bold",
+          "captures": "@comment.note"
+        },
+        "warning": {
+          "color": "#c8b468",
+          "style": "bold",
+          "captures": "@comment.warning"
+        },
+        "error": {
+          "color": "#b37d7d",
+          "style": "bold",
+          "captures": "@comment.error"
+        },
+        "diff.plus": {
+          "color": "#8a9868",
+          "style": "regular",
+          "captures": "@diff.plus"
+        },
+        "diff.minus": {
+          "color": "#b37d7d",
+          "style": "regular",
+          "captures": "@diff.minus (Ember: coral)"
+        },
+        "diff.delta": {
+          "color": "#c8b468",
+          "style": "regular",
+          "captures": "@diff.delta"
+        },
+        "md.heading": {
+          "color": "#d8d0c0",
+          "style": "bold",
+          "captures": "@markup.heading.* inside md fences (Ember: coral-to-steel ramp)"
+        },
+        "md.raw": {
+          "color": "#c09058",
+          "style": "regular",
+          "captures": "@markup.raw"
+        },
+        "md.list": {
+          "color": "#999489",
+          "style": "regular",
+          "captures": "@markup.list @markup.list.unchecked; @markup.list.checked -> fg.alt"
+        }
+      }
+    },
+    "ember-soft": {
+      "surface": {
+        "read": "#1c1b19",
+        "side": "#242320",
+        "bar": "#2c2b28",
+        "cursor.read": "#2a2927",
+        "cursor.side": "#353430",
+        "code": "#2a2927",
+        "readback": "#2c2b28",
+        "selection": "#444240"
+      },
+      "border": {
+        "subtle": "#353430",
+        "strong": "#444240"
+      },
+      "rule": {
+        "focus": "#908a7e"
+      },
+      "fg": {
+        "default": "#d8d0c0",
+        "alt": "#b0a898",
+        "muted": "#a19c92"
+      },
+      "state": {
+        "attn": "#e08060",
+        "blocked": "#b07878",
+        "stale": "#7890a0",
+        "unknown": "#988090",
+        "local": "#80a090",
+        "ok": "#8a9868"
+      },
+      "kind": {
+        "you": "#7d94a3",
+        "coordinator": "#d8d0c0",
+        "reviewer": "#a08a98",
+        "worker": "#80a090",
+        "code": "#c09058",
+        "reference": "#c8b468",
+        "link_underline": "#c8b468"
+      },
+      "tint": {
+        "human": "#232424",
+        "tool_ok": "#292d1b",
+        "tool_fail": "#3a2625",
+        "tool_unknown": "#32292d",
+        "tool_run": "#353430",
+        "tool_cancelled": "#242320",
+        "diff_add": "#2d2e25",
+        "diff_del": "#322927"
+      },
+      "syntax": {
+        "keyword": {
+          "color": "#c09058",
+          "style": "bold",
+          "captures": "@keyword @keyword.* @type.qualifier"
+        },
+        "modifier": {
+          "color": "#c09058",
+          "style": "italic",
+          "captures": "@keyword.modifier"
+        },
+        "function": {
+          "color": "#c8b468",
+          "style": "regular",
+          "captures": "@function @function.call @function.builtin(italic) @constructor"
+        },
+        "type": {
+          "color": "#c8b468",
+          "style": "bold",
+          "captures": "@type @type.definition @type.builtin(italic, not bold)"
+        },
+        "method": {
+          "color": "#80a090",
+          "style": "regular",
+          "captures": "@function.method @function.method.call"
+        },
+        "string": {
+          "color": "#8a9868",
+          "style": "regular",
+          "captures": "@string @character"
+        },
+        "constant": {
+          "color": "#a08a98",
+          "style": "regular",
+          "captures": "@constant @constant.builtin(bold) @number @number.float @boolean"
+        },
+        "escape": {
+          "color": "#a08a98",
+          "style": "bold",
+          "captures": "@string.escape @string.regexp @string.special @string.special.symbol @character.special"
+        },
+        "builtin": {
+          "color": "#b78484",
+          "style": "italic",
+          "captures": "@variable.builtin @module.builtin @function.macro @constant.macro @keyword.directive"
+        },
+        "tag": {
+          "color": "#b78484",
+          "style": "regular",
+          "captures": "@tag @tag.builtin @label"
+        },
+        "attribute": {
+          "color": "#7d94a3",
+          "style": "regular",
+          "captures": "@attribute @attribute.builtin(italic) @string.special.url(underline) @markup.link.url"
+        },
+        "tagattr": {
+          "color": "#c8b468",
+          "style": "regular",
+          "captures": "@tag.attribute"
+        },
+        "comment": {
+          "color": "#a19c92",
+          "style": "italic",
+          "captures": "@comment"
+        },
+        "doc": {
+          "color": "#b0a898",
+          "style": "italic",
+          "captures": "@comment.documentation @string.documentation"
+        },
+        "operator": {
+          "color": "#a19c92",
+          "style": "regular",
+          "captures": "@operator @punctuation.special"
+        },
+        "punct": {
+          "color": "#b0a898",
+          "style": "regular",
+          "captures": "@punctuation.bracket @punctuation.delimiter @tag.delimiter"
+        },
+        "variable": {
+          "color": "#b0a898",
+          "style": "regular",
+          "captures": "@variable @variable.member @property @module"
+        },
+        "parameter": {
+          "color": "#d8d0c0",
+          "style": "italic",
+          "captures": "@variable.parameter"
+        },
+        "todo": {
+          "color": "#d8d0c0",
+          "style": "bold",
+          "captures": "@comment.todo (Ember: coral)"
+        },
+        "note": {
+          "color": "#7d94a3",
+          "style": "bold",
+          "captures": "@comment.note"
+        },
+        "warning": {
+          "color": "#c8b468",
+          "style": "bold",
+          "captures": "@comment.warning"
+        },
+        "error": {
+          "color": "#b78484",
+          "style": "bold",
+          "captures": "@comment.error"
+        },
+        "diff.plus": {
+          "color": "#8a9868",
+          "style": "regular",
+          "captures": "@diff.plus"
+        },
+        "diff.minus": {
+          "color": "#b78484",
+          "style": "regular",
+          "captures": "@diff.minus (Ember: coral)"
+        },
+        "diff.delta": {
+          "color": "#c8b468",
+          "style": "regular",
+          "captures": "@diff.delta"
+        },
+        "md.heading": {
+          "color": "#d8d0c0",
+          "style": "bold",
+          "captures": "@markup.heading.* inside md fences (Ember: coral-to-steel ramp)"
+        },
+        "md.raw": {
+          "color": "#c09058",
+          "style": "regular",
+          "captures": "@markup.raw"
+        },
+        "md.list": {
+          "color": "#a19c92",
+          "style": "regular",
+          "captures": "@markup.list @markup.list.unchecked; @markup.list.checked -> fg.alt"
+        }
+      }
+    },
+    "ember-light": {
+      "surface": {
+        "read": "#f0e8d8",
+        "side": "#e6dac4",
+        "bar": "#d8ccb0",
+        "cursor.read": "#e6dac4",
+        "cursor.side": "#ddd0b8",
+        "code": "#e6dac4",
+        "readback": "#ddd0b8",
+        "selection": "#b8ac96"
+      },
+      "border": {
+        "subtle": "#cec2a8",
+        "strong": "#b8ac96"
+      },
+      "rule": {
+        "focus": "#787060"
+      },
+      "fg": {
+        "default": "#282418",
+        "alt": "#585040",
+        "muted": "#5e5646"
+      },
+      "state": {
+        "attn": "#b84c30",
+        "blocked": "#905050",
+        "stale": "#3a6080",
+        "unknown": "#706070",
+        "local": "#386858",
+        "ok": "#4a6830"
+      },
+      "kind": {
+        "you": "#3a6080",
+        "coordinator": "#282418",
+        "reviewer": "#6b5b6b",
+        "worker": "#386858",
+        "code": "#83552b",
+        "reference": "#67581b",
+        "link_underline": "#7a6820"
+      },
+      "tint": {
+        "human": "#e1ddd1",
+        "tool_ok": "#cfd5b6",
+        "tool_fail": "#e8cbc1",
+        "tool_unknown": "#dacfcb",
+        "tool_run": "#d8ccb0",
+        "tool_cancelled": "#e6dac4",
+        "diff_add": "#d7d5bf",
+        "diff_del": "#e2d1c4"
+      },
+      "syntax": {
+        "keyword": {
+          "color": "#83552b",
+          "style": "bold",
+          "captures": "@keyword @keyword.* @type.qualifier"
+        },
+        "modifier": {
+          "color": "#83552b",
+          "style": "italic",
+          "captures": "@keyword.modifier"
+        },
+        "function": {
+          "color": "#6f5f1d",
+          "style": "regular",
+          "captures": "@function @function.call @function.builtin(italic) @constructor"
+        },
+        "type": {
+          "color": "#6f5f1d",
+          "style": "bold",
+          "captures": "@type @type.definition @type.builtin(italic, not bold)"
+        },
+        "method": {
+          "color": "#386858",
+          "style": "regular",
+          "captures": "@function.method @function.method.call"
+        },
+        "string": {
+          "color": "#4a6830",
+          "style": "regular",
+          "captures": "@string @character"
+        },
+        "constant": {
+          "color": "#6b5b6b",
+          "style": "regular",
+          "captures": "@constant @constant.builtin(bold) @number @number.float @boolean"
+        },
+        "escape": {
+          "color": "#6b5b6b",
+          "style": "bold",
+          "captures": "@string.escape @string.regexp @string.special @string.special.symbol @character.special"
+        },
+        "builtin": {
+          "color": "#8d4e4e",
+          "style": "italic",
+          "captures": "@variable.builtin @module.builtin @function.macro @constant.macro @keyword.directive"
+        },
+        "tag": {
+          "color": "#8d4e4e",
+          "style": "regular",
+          "captures": "@tag @tag.builtin @label"
+        },
+        "attribute": {
+          "color": "#3a6080",
+          "style": "regular",
+          "captures": "@attribute @attribute.builtin(italic) @string.special.url(underline) @markup.link.url"
+        },
+        "tagattr": {
+          "color": "#6f5f1d",
+          "style": "regular",
+          "captures": "@tag.attribute"
+        },
+        "comment": {
+          "color": "#5e5646",
+          "style": "italic",
+          "captures": "@comment"
+        },
+        "doc": {
+          "color": "#585040",
+          "style": "italic",
+          "captures": "@comment.documentation @string.documentation"
+        },
+        "operator": {
+          "color": "#5e5646",
+          "style": "regular",
+          "captures": "@operator @punctuation.special"
+        },
+        "punct": {
+          "color": "#585040",
+          "style": "regular",
+          "captures": "@punctuation.bracket @punctuation.delimiter @tag.delimiter"
+        },
+        "variable": {
+          "color": "#585040",
+          "style": "regular",
+          "captures": "@variable @variable.member @property @module"
+        },
+        "parameter": {
+          "color": "#282418",
+          "style": "italic",
+          "captures": "@variable.parameter"
+        },
+        "todo": {
+          "color": "#282418",
+          "style": "bold",
+          "captures": "@comment.todo (Ember: coral)"
+        },
+        "note": {
+          "color": "#3a6080",
+          "style": "bold",
+          "captures": "@comment.note"
+        },
+        "warning": {
+          "color": "#6f5f1d",
+          "style": "bold",
+          "captures": "@comment.warning"
+        },
+        "error": {
+          "color": "#8d4e4e",
+          "style": "bold",
+          "captures": "@comment.error"
+        },
+        "diff.plus": {
+          "color": "#4a6830",
+          "style": "regular",
+          "captures": "@diff.plus"
+        },
+        "diff.minus": {
+          "color": "#8d4e4e",
+          "style": "regular",
+          "captures": "@diff.minus (Ember: coral)"
+        },
+        "diff.delta": {
+          "color": "#6f5f1d",
+          "style": "regular",
+          "captures": "@diff.delta"
+        },
+        "md.heading": {
+          "color": "#282418",
+          "style": "bold",
+          "captures": "@markup.heading.* inside md fences (Ember: coral-to-steel ramp)"
+        },
+        "md.raw": {
+          "color": "#83552b",
+          "style": "regular",
+          "captures": "@markup.raw"
+        },
+        "md.list": {
+          "color": "#5e5646",
+          "style": "regular",
+          "captures": "@markup.list @markup.list.unchecked; @markup.list.checked -> fg.alt"
+        }
+      }
+    }
+  },
+  "type": {
+    "ui.label": [
+      "Iosevka Etoile",
+      11,
+      14,
+      700,
+      "uppercase, +0.06em"
+    ],
+    "ui.small": [
+      "Iosevka Etoile",
+      12,
+      16,
+      400,
+      ""
+    ],
+    "ui": [
+      "Iosevka Etoile",
+      13,
+      18,
+      400,
+      ""
+    ],
+    "ui.strong": [
+      "Iosevka Etoile",
+      13,
+      18,
+      600,
+      "pane titles, author names, unseen rows"
+    ],
+    "ui.title": [
+      "Iosevka Etoile",
+      15,
+      20,
+      600,
+      ""
+    ],
+    "ui.quote": [
+      "Iosevka Etoile",
+      13,
+      18,
+      400,
+      "italic, fg.alt, ≤3 lines"
+    ],
+    "mono.small": [
+      "Iosevka",
+      12,
+      16,
+      500,
+      "keys, numbers, fixed numeric columns"
+    ],
+    "mono": [
+      "Iosevka",
+      14,
+      20,
+      400,
+      "code blocks, diffs, digests"
+    ],
+    "prose": [
+      "Iosevka Etoile",
+      15,
+      24,
+      400,
+      ""
+    ],
+    "prose.small": [
+      "Iosevka Etoile",
+      15,
+      24,
+      400,
+      "side-pane content, with the content bar"
+    ],
+    "prose.table": [
+      "Iosevka Etoile",
+      14,
+      22,
+      400,
+      "header 700"
+    ],
+    "prose.h1": [
+      "Iosevka Etoile",
+      24,
+      32,
+      700,
+      "rule under"
+    ],
+    "prose.h2": [
+      "Iosevka Etoile",
+      20,
+      28,
+      700,
+      "rule under"
+    ],
+    "prose.h3": [
+      "Iosevka Etoile",
+      17,
+      26,
+      700,
+      ""
+    ],
+    "prose.h4": [
+      "Iosevka Etoile",
+      15,
+      24,
+      700,
+      ""
+    ],
+    "prose.h5": [
+      "Iosevka Etoile",
+      13,
+      20,
+      700,
+      "uppercase, +0.04em, fg.alt"
+    ],
+    "prose.h6": [
+      "Iosevka Etoile",
+      13,
+      20,
+      600,
+      "italic, fg.alt"
+    ],
+    "prose.code": [
+      "Iosevka",
+      14,
+      24,
+      400,
+      "inline code chip"
+    ],
+    "prose.ref": [
+      "Iosevka",
+      14,
+      24,
+      500,
+      "references, solid underline"
+    ]
+  },
+  "measure": {
+    "prose": "68 × mean advance of tools/measure-sample.txt, floored to 4 px (548 px at 15 px Etoile)",
+    "mono_columns": 100
+  },
+  "space": {
+    "1": 2,
+    "2": 4,
+    "3": 8,
+    "4": 12,
+    "5": 16,
+    "6": 24,
+    "7": 32
+  },
+  "radius": {
+    "panes": 0,
+    "chips_blocks": 2,
+    "floats": 4
+  },
+  "motion_ms": {
+    "state_change_tint": 600,
+    "float_fade": 90
+  },
+  "mermaid": {
+    "pele_font_size": 16,
+    "font_family": "Iosevka Etoile",
+    "min_label_px": 12
+  }
+}
