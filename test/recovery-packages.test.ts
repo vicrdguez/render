@@ -10,7 +10,7 @@ import { openNodeSqliteDatabase } from "@earendil-works/chord/sqlite/node";
 import { Harness } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
 import { runtimeOptions } from "../src/engine/runtime.ts";
-import { Device, Receipt, Workflow } from "../src/ledger/records.ts";
+import { Device, Meta, Receipt, Workflow } from "../src/ledger/records.ts";
 import {
 	adminRequest,
 	assertNoDisclosure,
@@ -277,7 +277,10 @@ test("package-validation: checksummed but semantically invalid retained relation
 	try {
 		const p = await adminCommand(f.h, "createRecoveryPackage");
 		assert.equal(p.body.status, "packaged", p.text);
-		for (const kind of ["pointer", "receipt", "receipt-result", "device", "parent", "schema", "unknown-kind", "future-fact"]) {
+		for (const kind of [
+			"pointer", "receipt", "receipt-result", "device", "parent", "schema", "unknown-kind", "future-fact",
+			"message-text", "message-digest", "message-length", "message-partial",
+		]) {
 			const bad = join(f.dir.path, `semantic-${kind}`);
 			await cp(String(p.body.path), bad, { recursive: true });
 			const dbPath = join(bad, "render.db");
@@ -309,6 +312,18 @@ test("package-validation: checksummed but semantically invalid retained relation
 			}, BACKGROUND_CONTEXT);
 			await harness.close(BACKGROUND_CONTEXT);
 			const sql = new DatabaseSync(dbPath);
+			if (kind.startsWith("message-")) {
+				const row = sql.prepare("SELECT id, record FROM entries WHERE json_extract(record, '$.kind') = 'render.message'").get() as { id: number; record: string };
+				const record = JSON.parse(row.record);
+				// Independent literal SHA-256/UTF-8 length for "hello"; also exercises pre-slice2 fixtures.
+				record.data.digest = "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+				record.data.byteLength = 5;
+				if (kind === "message-text") record.data.text = "wrong";
+				if (kind === "message-digest") record.data.digest = "sha256:bad";
+				if (kind === "message-length") record.data.byteLength = 6;
+				if (kind === "message-partial") delete record.data.digest;
+				sql.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(record), row.id);
+			}
 			if (kind === "future-fact") {
 				sql.exec(
 					"UPDATE entries SET record = json_set(record, '$.data.command', 'admitEffect') WHERE json_extract(record, '$.kind') = 'render.fact' AND json_extract(record, '$.data.sequence') = 4",
@@ -351,6 +366,69 @@ test("package-validation: checksummed but semantically invalid retained relation
 		await f.h.stop();
 		await f.dir.remove();
 	}
+});
+
+test("package-clean-restore / restore-newer-world: history scope, secret exclusion and restricted uncertainty", async () => {
+	const f = await fixture();
+	const key = "private-history-key-must-not-travel-in-package";
+	try {
+		await f.h.stop();
+		const adapter = await openNodeSqliteDatabase(join(f.data, "render.db"));
+		const storage = await SqliteStorage.open(adapter);
+		const harness = await Harness.open(storage, runtimeOptions(() => undefined), BACKGROUND_CONTEXT);
+		await harness.commit(async (tx) => { (await tx.doc(Meta)).historyCursorKey = key; }, BACKGROUND_CONTEXT);
+		await harness.close(BACKGROUND_CONTEXT);
+		f.h = await startHost(f.data);
+		const original = await http(f.h.url, "GET", "/v1/history?limit=1", { bearer: f.device.bearer });
+		assert.equal(original.status, 200, original.text);
+		const oldCursor = String(original.body.next);
+		assert.notEqual(oldCursor, "null");
+		const p = await adminCommand(f.h, "createRecoveryPackage");
+		assert.equal(p.body.status, "packaged", p.text);
+		assert.equal((await readFile(join(String(p.body.path), "render.db"))).includes(Buffer.from(key)), false,
+			"package bytes must exclude the raw history cursor key, including old bases and deltas");
+		const livePage = await http(f.h.url, "GET", `/v1/history?cursor=${encodeURIComponent(oldCursor)}`, { bearer: f.device.bearer });
+		assert.equal(livePage.status, 200, "packaging must preserve live cursor authority");
+		await f.h.stop();
+		await rm(f.data, { recursive: true });
+		const data = join(f.dir.path, "history-restored");
+		assert.equal(restore(data, String(p.body.path)).status, 0);
+		let h = await startHost(data);
+		try {
+			for (const route of ["history", "export"]) {
+				const blocked = await http(h.url, "GET", `/v1/${route}`, { bearer: f.device.bearer });
+				assert.equal(blocked.body.code, "recovery_required");
+				assertNoDisclosure(blocked.body);
+			}
+			assert.equal((await adminCommand(h, "repairRecovery")).body.status, "accepted");
+			const status = await adminRequest(h.admin, "GET", "/v1/admin/status");
+			const fresh = await enroll({ admin: h.admin, ready: { event: "ready", authorityEpoch: status.body.authorityEpoch } }, "history reader", [f.workflow]);
+			const empty = await enroll(h, "no history", []);
+			for (const route of ["history", "export"]) {
+				assert.equal((await http(h.url, "GET", `/v1/${route}`, { bearer: f.device.bearer })).body.code, "unauthorized");
+				assert.equal((await http(h.url, "GET", `/v1/${route}?cursor=${encodeURIComponent(oldCursor)}`, { bearer: fresh.bearer })).body.code, "invalid_cursor");
+				const hidden = await http(h.url, "GET", `/v1/${route}?workflow=workflow%3A3`, { bearer: empty.bearer });
+				const absent = await http(h.url, "GET", `/v1/${route}?workflow=workflow%3A999`, { bearer: empty.bearer });
+				assert.equal(hidden.status, absent.status);
+				assert.equal(hidden.text, absent.text, "history selectors must not disclose hidden workflow existence");
+				const allowed = await http(h.url, "GET", `/v1/${route}?workflow=workflow%3A3`, { bearer: fresh.bearer });
+				assert.equal(allowed.status, 200, allowed.text);
+				assert.deepEqual(allowed.body.recovery, { mode: "recovery-reconciling", restoredCutoff: 6, newerWorld: "unreconciled" }, "history must declare lost-newer-world uncertainty");
+				const records = route === "history" ? allowed.body.records as { workflow: string }[] : String(allowed.body.jsonl).trim().split("\n").map((line) => JSON.parse(line));
+				assert(records.every((r) => r.workflow === "workflow:3"));
+				if (route === "export") {
+					assert.equal((allowed.body.content as Record<string, string>)["revision:4"], "Zmlyc3QNCg==");
+					assert.equal((allowed.body.content as Record<string, string>)["message:5"], "aGVsbG8=");
+				}
+			}
+			const page = await http(h.url, "GET", "/v1/history?limit=1", { bearer: fresh.bearer });
+			const cursor = String(page.body.next);
+			assert.notEqual(cursor, "null");
+			await h.stop();
+			h = await startHost(data);
+			assert.equal((await http(h.url, "GET", `/v1/history?cursor=${encodeURIComponent(cursor)}`, { bearer: fresh.bearer })).status, 200, "repaired cursors survive ordinary restricted restart");
+		} finally { await h.stop(); }
+	} finally { await f.h.stop(); await f.dir.remove(); }
 });
 
 test("repair-crash: transaction barriers retain either marker or rotated restricted recovery", async () => {
