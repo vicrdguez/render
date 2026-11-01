@@ -142,7 +142,49 @@ test("package-origin-auth-fence / restore-newer-world: direct DB copy predates r
 			assert.notEqual(h.ready.executorEpoch, s.body.executorEpoch);
 			assert.equal((await http(h.url, "GET", "/v1/commands/first", { bearer: fresh.bearer })).body.sequence, 4);
 			const scoped = await enroll(h, "no workflows", []);
-			assert.notEqual((await http(h.url, "GET", "/v1/commands/first", { bearer: scoped.bearer })).body.status, "accepted");
+			for (const [bearer, commandIds] of [
+				[scoped.bearer, ["first", "repairRecovery"]],
+				[fresh.bearer, ["repairRecovery"]],
+			] as const) {
+				const absent = await http(h.url, "GET", "/v1/commands/never-used", { bearer });
+				assert.equal(absent.body.code, "outcome_unknown_after_restore");
+				for (const commandId of commandIds) {
+					const hidden = await http(h.url, "GET", `/v1/commands/${commandId}`, { bearer });
+					assert.equal(hidden.status, absent.status, "restricted receipt status must not disclose out-of-scope existence");
+					assert.equal(hidden.text, absent.text, "restricted receipt body must not disclose out-of-scope existence");
+					assertNoDisclosure(hidden.body);
+				}
+			}
+		} finally {
+			await h.stop();
+		}
+	} finally {
+		await f.h.stop();
+		await f.dir.remove();
+	}
+});
+
+test("package-validation / managed-restore: nonclean refusal leaves the existing store usable", async () => {
+	const f = await fixture();
+	try {
+		const p = await adminCommand(f.h, "createRecoveryPackage");
+		assert.equal(p.body.status, "packaged", p.text);
+		await f.h.stop();
+		const before = await readFile(join(f.data, "render.db"));
+		const refused = restore(f.data, String(p.body.path));
+		assert.equal(refused.status, 2, refused.stderr);
+		assert.match(refused.stderr, /restore needs a clean destination; existing data preserved/);
+		assert.deepEqual(await readFile(join(f.data, "render.db")), before, "refused restore must not overwrite existing bytes");
+		const h = await startHost(f.data);
+		try {
+			const status = await adminRequest(h.admin, "GET", "/v1/admin/status");
+			assert.equal(status.body.hostMode, "active", "nonclean refusal must not disable an untouched store");
+			assert.equal(status.body.authorityEpoch, f.h.ready.authorityEpoch);
+			assert.equal((await http(h.url, "GET", "/v1/commands/first", { bearer: f.device.bearer })).body.sequence, 4);
+			assert.equal((await http(h.url, "GET", "/v1/artifacts/revision%3A4", { bearer: f.device.bearer })).body.content, "Zmlyc3QNCg==");
+			const saved = await save(h, f.device.bearer, f.workflow, "ground", Buffer.from("still usable"), "revision:4");
+			assert.equal(saved.body.status, "accepted", saved.text);
+			assert.equal((await adminCommand(h, "createRecoveryPackage")).body.status, "packaged");
 		} finally {
 			await h.stop();
 		}
