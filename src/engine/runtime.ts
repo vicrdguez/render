@@ -172,7 +172,9 @@ export class Engine {
 		});
 		this.#run = defineTask<
 			{ assignment: string },
-			{ phase: "run"; round: number } | { phase: "resume"; round: number } | { phase: "wait"; submission: number; round: number },
+			({ phase: "run"; round: number } | { phase: "resume"; round: number } | { phase: "wait"; submission: number; round: number }) & {
+				consumed?: string[];
+			},
 			null
 		>({
 			name: "render.role-work",
@@ -180,32 +182,56 @@ export class Engine {
 			initial: () => ({ phase: "run", round: 0 }),
 			phases: {
 				run: async (task, runtime, context) => {
-					const a = this.#assignment(task.input.assignment);
-					if (!a || a.status === "submitted" || a.status === "canceled")
-						return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
 					const round = task.state.checkpoint.round;
-					if (a.status !== "queued" && a.status !== "running")
-						return runtime.sleepUntil(runtime.now() + 100, { phase: "run", round }, context);
-					const blocker = this.#configurationBlocker(a);
-					let prompt: string;
-					try {
-						prompt = blocker ? "" : await this.render(a);
-					} catch {
-						prompt = "";
+					for (;;) {
+						await this.#waitUntil(runtime.signal, () => {
+							const a = this.#assignment(task.input.assignment);
+							return (
+								!a ||
+								a.status === "submitted" ||
+								a.status === "canceled" ||
+								a.status === "running" ||
+								(a.status === "queued" && this.#assignments().filter((a) => a.executing).length < 4)
+							);
+						});
+						const a = this.#assignment(task.input.assignment);
+						if (!a || a.status === "submitted" || a.status === "canceled")
+							return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
+						const blocker = this.#configurationBlocker(a);
+						let prompt: string;
+						try {
+							prompt = blocker ? "" : await this.render(a);
+						} catch {
+							prompt = "";
+						}
+						if (blocker || !prompt || Buffer.byteLength(prompt) > a.packet.maxInputBytes) {
+							await this.#command(a, { type: "recordBlocker", reason: blocker ?? "required_inputs_do_not_fit" });
+							return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
+						}
+						if (a.status !== "running") {
+							const started = await this.#command(a, { type: "stageTask", executorEpoch: this.#ledger!.status().executorEpoch });
+							if (started.status !== "accepted") {
+								if (started.code !== "capacity_exhausted" && this.#assignment(a.id)?.status === "queued")
+									await this.#command(a, { type: "recordBlocker", reason: started.code });
+								continue;
+							}
+						}
+						const conversation = await runtime.conversation(a.conversation as ConversationId, context);
+						if (!conversation) throw new Error("Missing role conversation");
+						const input = await conversation.submit({ type: "input", requestId: `role:${a.attempt}:${round}`, content: prompt }, context);
+						return runtime.commit(
+							() => ({
+								status: "running",
+								checkpoint: {
+									phase: "wait",
+									submission: input.id,
+									round,
+									consumed: task.state.checkpoint.consumed ?? [],
+								},
+							}),
+							context,
+						);
 					}
-					if (blocker || !prompt || Buffer.byteLength(prompt) > a.packet.maxInputBytes) {
-						await this.#command(a, { type: "recordBlocker", reason: blocker ?? "required_inputs_do_not_fit" });
-						return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
-					}
-					const started =
-						a.status === "running"
-							? { status: "accepted" }
-							: await this.#command(a, { type: "stageTask", executorEpoch: this.#ledger!.status().executorEpoch });
-					if (started.status !== "accepted") return runtime.sleepUntil(runtime.now() + 100, { phase: "run", round }, context);
-					const conversation = await runtime.conversation(a.conversation as ConversationId, context);
-					if (!conversation) throw new Error("Missing role conversation");
-					const input = await conversation.submit({ type: "input", requestId: `role:${a.attempt}:${round}`, content: prompt }, context);
-					return runtime.commit(() => ({ status: "running", checkpoint: { phase: "wait", submission: input.id, round } }), context);
 				},
 				wait: async (task, runtime, context) => {
 					if (task.state.checkpoint.phase !== "wait") throw new Error("wrong phase");
@@ -213,33 +239,67 @@ export class Engine {
 					if (!submission) throw new Error("Missing role submission");
 					await submission.wait(context);
 					const a = this.#assignment(task.input.assignment);
-					const children = this.#assignments().filter((child) => child.parent === a?.id);
+					// Results already delivered to a prior round cannot trigger another continuation.
+					const children = this.#assignments().filter(
+						(child) => child.parent === a?.id && !task.state.checkpoint.consumed?.includes(child.id),
+					);
 					if (a) {
 						if (a.status === "running")
 							await this.#command(a, { type: "recordBlocker", reason: children.length ? "awaiting_role_results" : "role_did_not_submit" });
 						await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "absent", effects: "reconciled" });
 					}
 					if (a && children.length && this.#assignment(a.id)?.blocker === "awaiting_role_results")
-						return runtime.sleepUntil(runtime.now() + 100, { phase: "resume", round: task.state.checkpoint.round }, context);
+						return runtime.commit(
+							() => ({ status: "running", checkpoint: { phase: "resume", round: task.state.checkpoint.round } }),
+							context,
+						);
 					return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
 				},
 				resume: async (task, runtime, context) => {
-					const a = this.#assignment(task.input.assignment);
-					if (!a || a.status === "canceled")
-						return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
-					const children = this.#assignments().filter((child) => child.parent === a.id);
-					const round = task.state.checkpoint.round;
-					if (children.some((child) => child.status !== "submitted"))
-						return runtime.sleepUntil(runtime.now() + 100, { phase: "resume", round }, context);
-					const rebound = await this.#command(a, {
-						type: "rebindAttempt",
-						providerIdle: true,
-						environment: "absent",
-						effects: "reconciled",
-						executorEpoch: this.#ledger!.status().executorEpoch,
+					await this.#waitUntil(runtime.signal, () => {
+						const a = this.#assignment(task.input.assignment);
+						return (
+							!a ||
+							a.status === "canceled" ||
+							a.status === "submitted" ||
+							a.status === "queued" ||
+							a.status === "running" ||
+							(a.status === "blocked" &&
+								a.blocker === "awaiting_role_results" &&
+								!a.executing &&
+								this.#assignments()
+									.filter((child) => child.parent === a.id)
+									.every((child) => child.status === "submitted"))
+						);
 					});
-					if (rebound.status !== "accepted") return runtime.sleepUntil(runtime.now() + 100, { phase: "resume", round }, context);
-					return runtime.commit(() => ({ status: "running", checkpoint: { phase: "run", round: round + 1 } }), context);
+					const a = this.#assignment(task.input.assignment);
+					if (!a || a.status === "canceled" || a.status === "submitted")
+						return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
+					const round = task.state.checkpoint.round;
+					// A crash may leave the accepted rebind ahead of this task's checkpoint.
+					if (a.status !== "queued" && a.status !== "running") {
+						const rebound = await this.#command(a, {
+							type: "rebindAttempt",
+							providerIdle: true,
+							environment: "absent",
+							effects: "reconciled",
+							executorEpoch: this.#ledger!.status().executorEpoch,
+						});
+						if (rebound.status !== "accepted") throw new Error(`Role continuation refused: ${rebound.code}`);
+					}
+					return runtime.commit(
+						() => ({
+							status: "running",
+							checkpoint: {
+								phase: "run",
+								round: round + 1,
+								consumed: this.#assignments()
+									.filter((child) => child.parent === a.id)
+									.map((child) => child.id),
+							},
+						}),
+						context,
+					);
 				},
 			},
 			abort: (_task, runtime, context) =>
@@ -394,6 +454,28 @@ export class Engine {
 				this.#reconcileAgain = false;
 				void this.reconcile().catch(() => {});
 			}
+		}
+	}
+	async #waitUntil(signal: AbortSignal, ready: () => boolean): Promise<void> {
+		// The task's existing run/resume checkpoint is durable. Observation is only a wakeup hint:
+		// after reopen the phase rechecks committed state and subscribes again, without polling writes.
+		const { promise, resolve, reject } = Promise.withResolvers<void>();
+		const observation = this.#ledger!.observe(scheduling, {
+			send: () => {
+				if (ready()) resolve();
+			},
+			end: () => reject(new Error("Role observation ended.")),
+		});
+		if (!("snapshot" in observation)) throw new Error(`Role observation refused: ${observation.code}`);
+		const abort = () => reject(signal.reason);
+		try {
+			signal.addEventListener("abort", abort, { once: true });
+			if (signal.aborted) abort();
+			else if (ready()) resolve();
+			await promise;
+		} finally {
+			signal.removeEventListener("abort", abort);
+			observation.stop();
 		}
 	}
 	#assignments(): RoleAssignment[] {

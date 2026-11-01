@@ -20,9 +20,9 @@ let releaseParent!: () => void;
 const parentGate = new Promise<void>((resolve) => {
 	releaseParent = resolve;
 });
-function provider() {
+function provider(parentAlreadyRan = false) {
 	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
-	let parentCalls = 0;
+	let parentCalls = parentAlreadyRan ? 1 : 0;
 	p.setResponses(
 		Array.from({ length: 100 }, () => async (transcript, options) => {
 			active++;
@@ -85,7 +85,7 @@ async function idleAndResponsive() {
 	assert.ok("snapshot" in observer);
 	try {
 		const start = performance.now();
-		assert.equal((await f.command({ type: "appendMessage", text: "Human remains in control." }, admin)).status, "accepted");
+		assert.equal((await f.command({ type: "postCoordinatorMessage", text: "Human remains in control." }, admin)).status, "accepted");
 		const ackMs = performance.now() - start;
 		assert.ok(ackMs < 1000, `human command remains responsive: ${ackMs} ms`);
 		assert.equal(observed.length, 1, "human observer sees its acknowledged change while roles wait");
@@ -138,6 +138,7 @@ try {
 			delivery: true,
 			packet: packet({
 				expectedOutput: "Parent report",
+				maxInputBytes: 262144,
 				requests: Array.from({ length: childCount }, (_, i) => ({ key: `child:${i}`, packet: packet({ role: "challenger" }) })),
 			}),
 		});
@@ -168,7 +169,7 @@ try {
 		await until(() => active === 4);
 		await idleAndResponsive();
 		if (mode === "load-restart") {
-			p = provider();
+			p = provider(true);
 			await f.reopen(engine(p));
 			await until(() => active === 4);
 			assert.equal(assignments().length, 33, "workflow-owned parent and all 32 accepted children survive reopen");

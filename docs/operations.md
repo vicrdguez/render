@@ -125,6 +125,14 @@ provider/runtime work establishes their absence. Linux-writer profiles block wit
 there is no host fallback. No worker workspace is provisioned or retained in this slice; workspace-storage quotas and
 container execution/stop remain unavailable prerequisites, separate from the four-slot policy.
 
+Queued roles and parents awaiting child results suspend their existing durable task phases on Ledger observation;
+waiting does not repeatedly commit sleeps or retry admission. The watch is an in-memory wakeup hint, not authority or
+retained evidence. Its initial check plus postcommit observations avoid a missed state change; cancellation/host close
+ends the invocation's watch. Reopen resumes the retained run/resume checkpoint and checks committed state before waiting
+again. The task checkpoint records consumed child identities so an already-delivered result cannot cause an endless
+continuation when the resumed role does not submit. Older checkpoints without that optional list start with no consumed
+results. Admission still passes through Kernel/Ledger, and only confirmed quiescence frees an executing slot.
+
 `cancelWork` must name the current assignment, generation and Attempt. Ledger commits the new generation before Engine
 cancels/joins the role conversation. An unavailable whole-environment stop stays visible as a blocker and cannot release
 capacity. Late old-generation report text, when received, is retained as a quarantined artifact, never the role's

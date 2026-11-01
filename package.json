@@ -21,7 +21,7 @@
 		"verify:durable-tool-replay": "node --test test/durable-tool-replay.test.ts",
 		"verify:workflow-task-survival": "node --test test/workflow-task-survival.test.ts",
 		"verify:role-capability-refusal": "node --test test/role-capability-refusal.test.ts",
-		"verify:cancellation-capacity": "node --test test/cancellation-capacity.test.ts test/role-recovery-startup.test.ts"
+		"verify:cancellation-capacity": "node --test test/cancellation-capacity.test.ts test/role-recovery-startup.test.ts test/role-waiting.test.ts"
 	},
 	"dependencies": {
 		"@earendil-works/chord": "1.4.0",
