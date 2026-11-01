@@ -1,0 +1,11 @@
+# Standards — continuation Audit
+
+Audited A: `dd02ed746bb0f20202c2543eed311813d933f8ef`. Target/fixed point: `4044eb75986df676ade3c01e83aa674c28113dfc`. Compared `git diff 4044eb75986df676ade3c01e83aa674c28113dfc...dd02ed746bb0f20202c2543eed311813d933f8ef` and the corresponding commit list. Inspection reports those identities. Full Gate on A: `npm test` 109/109 (110.680 s); typecheck exit 0; lint exit 0 (111 warnings, 8 infos; not warning-free).
+
+Reviewer: implementer in the current context, Standards first. Tool discovery exposed no Agent launcher, so this uses the procedure's serial fallback, not an independent/fresh-context claim. Read AGENTS.md, testing guidance, accepted Contract/decision, acceptance criteria and Fowler smell baseline; inspected changed product hunks, public callers, current tests/control mutations and retained chronology. Unchanged target recovery/off-host implementation is outside this review; merge composition is included.
+
+No new HARD or JUDGEMENT finding. The mandatory existing list is simpler than an additional reliance flag with contradictory states. It keeps enforcement at tool/parser/Kernel acceptance boundaries and byte integrity at Ledger. Explicit `none|retained` receipt metadata is not treated as an artifact identity. The omission-label fix reuses existing revision storage, without a new evidence framework or prose classifier. Test setup uses actual runtime/SQLite and external HTTP/provider/clock variation; SQL writes are labeled fault injection, observations use public commands/export. No production dependency upgrade: every preexisting lock path retains its version/resolved/integrity tuple; Webfox and its 53 newly required lock entries are pinned.
+
+Historical F1 remains true and is not reclassified as test-first. The human decision explicitly permits continuation. The continuation's failure cases/tests/controls were committed in `ffc5a7b`/`2596546` before product `8ed44ea`; the subsequent control adjustment strengthens the already-written deadline fault injection, and formatter repairs add no behavior. No history rewrite or new waiver is claimed.
+
+**Counts: HARD 0, JUDGEMENT 0; worst new issue: none; Full Gate PASS.** This report is complete before starting the Contracts axis.
