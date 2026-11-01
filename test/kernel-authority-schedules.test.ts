@@ -176,7 +176,7 @@ function toCommand(m: Model, step: Step): Record<string, unknown> {
 		case "postCoordinatorMessage":
 			return { type, workflow: c.workflow, text: "hello" };
 		case "enrollDevice":
-			return { type, label: "phone", workflows: "all" };
+			return { type, label: "phone", scope: { workflows: "all" } };
 		case "revokeDevice":
 			return { type, device: c.device };
 		case "recordStartup":

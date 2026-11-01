@@ -372,6 +372,54 @@ describe("B2 acknowledgement is immutable and atomic (literal cases)", () => {
 	});
 });
 
+describe("B2-10 corrupt referenced bytes", () => {
+	test("tampered stored bytes are refused with an exact restoration ref and never substituted", async () => {
+		const dir = await tempDir("v2-corrupt");
+		try {
+			let host = await startHost(dir.path);
+			const dev = await enroll(host, "corrupt");
+			const w = await createWorkflow(host, dev.bearer, "corrupt");
+			const g = await save(host, dev.bearer, w, "ground", G1.bytes, null);
+			const r0 = String((g.body.result as Record<string, unknown>).revision);
+			const a = await save(host, dev.bearer, w, "ground", A1.bytes, r0);
+			const ra = String((a.body.result as Record<string, unknown>).revision);
+			await host.stop();
+			// Offline fault injection: alter the retained text of revision ra inside the stored record.
+			const { DatabaseSync } = await import("node:sqlite");
+			const db = new DatabaseSync(join(dir.path, "render.db"));
+			const rows = db.prepare("SELECT id, record FROM entries").all() as { id: number; record: string }[];
+			const target = rows.filter((r) => r.record.includes("Saved by A: first exact revision"));
+			assert.equal(target.length, 1);
+			const tampered = (target[0] as { record: string }).record.replace("first exact", "forged exact");
+			db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(tampered, (target[0] as { id: number }).id);
+			db.close();
+
+			host = await startHost(dir.path);
+			try {
+				const before = Number((await snapshot(host, dev.bearer)).body.sequence);
+				const art = await artifact(host, dev.bearer, ra);
+				assert.equal(art.status, 409, art.text);
+				assert.equal(art.body.code, "content_corrupt");
+				assert.deepEqual(art.body.refs, { restore: ra });
+				assert.ok(!("content" in art.body));
+				assert.ok(!art.text.includes("forged"));
+				const blocked = await save(host, dev.bearer, w, "ground", B2.bytes, ra);
+				assert.equal(blocked.status, 409, blocked.text);
+				assert.equal(blocked.body.code, "content_corrupt");
+				assert.deepEqual(blocked.body.refs, { restore: ra });
+				assert.equal(Number((await snapshot(host, dev.bearer)).body.sequence), before);
+				// The intact older revision is still served exactly; it is not offered in place of ra.
+				const old = await artifact(host, dev.bearer, r0);
+				assert.ok(Buffer.from(String(old.body.content), "base64").equals(G1.bytes));
+			} finally {
+				await host.stop();
+			}
+		} finally {
+			await dir.remove();
+		}
+	});
+});
+
 // Seeded schedules. The oracle is a test-owned model of devices, receipts and current revisions.
 type Op =
 	| { kind: "save"; device: number; document: string; basis: "current" | "stale" | "null"; reuse: "new" | "same" | "changed" }
