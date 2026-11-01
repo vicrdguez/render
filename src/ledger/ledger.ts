@@ -83,6 +83,7 @@ export type Artifact = {
 	readonly source: null;
 	readonly policy: null;
 	readonly assignment: string | null;
+	readonly generation: number | null;
 	readonly attempt: string | null;
 	readonly decisionRefs: readonly string[];
 	readonly outcomeRefs: readonly string[];
@@ -760,6 +761,7 @@ export class Ledger {
 				source: null,
 				policy: null,
 				assignment: data.roleBinding?.assignment ?? null,
+				generation: data.roleBinding?.generation ?? null,
 				attempt: data.roleBinding?.attempt ?? null,
 				decisionRefs: [],
 				outcomeRefs: [],
@@ -1086,6 +1088,7 @@ function messageArtifact(ref: string, workflow: string, d: Record<string, unknow
 		source: null,
 		policy: null,
 		assignment: null,
+		generation: null,
 		attempt: null,
 		decisionRefs: [],
 		outcomeRefs: [],
