@@ -160,6 +160,7 @@ new work. An old envelope reports `authority_epoch_mismatch`. Current-epoch writ
 available in this target. A future checked reconciliation and explicit recovery decision must permit affected writes;
 neither an operator retry nor an empty dedup table supplies that evidence. Ordinary live restarts still preserve
 existing enrollment/authority; restricted restarts preserve the rotated epoch and replacement credentials.
+
 ## Durable role work
 
 The `durable-role-work` slice adds workflow-owned role requests, independent non-fork conversations, immutable packet
