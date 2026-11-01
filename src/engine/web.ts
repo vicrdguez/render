@@ -44,6 +44,7 @@ export function webTextDigest(text: string): string {
 	return `sha256:${createHash("sha256").update(text).digest("hex")}`;
 }
 function fallbackEligible(code: string | undefined, retryable: boolean | undefined): boolean {
+	// The pinned root drops HTTP status: upstream allowance/key refusals cannot yet be distinguished from invalid/page failures.
 	return code === "PROVIDER_UNAVAILABLE" || (code === "PROVIDER_FAILURE" && retryable === true);
 }
 function duration(value: number | undefined, fallback: number): number {
@@ -144,7 +145,6 @@ export async function research(
 				if (!value.ok) {
 					observation.error = value.error.code;
 					eligible = fallbackEligible(value.error.code, value.error.retryable);
-					if (value.error.code === "TIMEOUT") observation.outcome = "uncertain";
 				} else {
 					observation.outcome = "success";
 					const raw = value.value;
@@ -161,16 +161,16 @@ export async function research(
 				const e = error as { code?: string; options?: { retryable?: boolean } };
 				observation.error = e.code ?? "UNKNOWN_FAILURE";
 				eligible = fallbackEligible(e.code, e.options?.retryable);
-				if (e.code === "TIMEOUT") observation.outcome = "uncertain";
 			} finally {
 				observation.observedAt = new Date().toISOString();
 			}
 			// Webfox races SDK promises against its deadline; Exa/Tavily do not expose SDK settlement.
-			// A TIMEOUT is therefore not evidence of settlement. Never overlap a fallback with it.
-			if (observation.outcome === "uncertain") {
+			// TIMEOUT and CANCELLED are not evidence of settlement. Never overlap another attempt with them.
+			if (observation.error === "TIMEOUT" || observation.error === "CANCELLED") {
+				observation.outcome = "uncertain";
 				unsettled = true;
 				observation.uncertainty = "Local SDK settlement unconfirmed; possibly charged. Remote termination or refund is not promised.";
-				item.fallback = provider === "exa" ? "primary_unsettled" : "fallback_unsettled";
+				item.fallback = observation.error === "CANCELLED" ? "canceled" : provider === "exa" ? "primary_unsettled" : "fallback_unsettled";
 				break;
 			}
 			if (provider === "tavily") {
