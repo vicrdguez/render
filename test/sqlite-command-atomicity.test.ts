@@ -449,6 +449,142 @@ describe("B2-10 corrupt referenced bytes", () => {
 	});
 });
 
+describe("B2 supported document sizes and encoding boundaries", () => {
+	for (const [size, digest] of [
+		[4_194_304, "sha256:a58789e910e5f939afc433a00fef5930702927dc192cb237fd9e7449bd6ffe1d"],
+		[16_777_216, "sha256:e6c907c2d418fa03118465063701b759c4f0f0a9d70ae90aa7cec552e2d33931"],
+	] as const) {
+		test(`${size} exact UTF-8 bytes save and survive restart`, async () => {
+			const dir = await tempDir("v2-size");
+			let host = await startHost(dir.path);
+			try {
+				const dev = await enroll(host, "sizes");
+				const w = await createWorkflow(host, dev.bearer, "supported sizes");
+				const bytes = Buffer.alloc(size, "A");
+				const reply = await save(host, dev.bearer, w, "ground", bytes, null);
+				assert.equal(reply.status, 200, `supported-size save must be accepted: ${reply.text}`);
+				assert.equal((reply.body.result as Record<string, unknown>).digest, digest);
+				assert.equal((reply.body.result as Record<string, unknown>).byteLength, size);
+				const ref = String((reply.body.result as Record<string, unknown>).revision);
+				await host.stop();
+				host = await startHost(dir.path);
+				const art = await artifact(host, dev.bearer, ref);
+				assert.equal(art.status, 200);
+				assert.equal(art.body.digest, digest);
+				assert.equal(art.body.byteLength, size);
+				assert.ok(Buffer.from(String(art.body.content), "base64").equals(bytes));
+				assert.equal(currentRevision((await snapshot(host, dev.bearer)).body, w, "ground"), ref);
+			} finally {
+				await host.stop();
+				await dir.remove();
+			}
+		});
+	}
+
+	test("oversized and malformed complete bytes refuse without advancing state", async () => {
+		const dir = await tempDir("v2-encoding");
+		const host = await startHost(dir.path);
+		try {
+			const dev = await enroll(host, "encoding");
+			const w = await createWorkflow(host, dev.bearer, "encoding limits");
+			const before = Number((await snapshot(host, dev.bearer)).body.sequence);
+			const oversized = await save(host, dev.bearer, w, "ground", Buffer.alloc(16_777_217, "A"), null);
+			assert.equal(oversized.status, 400, `oversized document must deliberately refuse: ${oversized.text}`);
+			assert.equal(oversized.body.code, "malformed_envelope");
+			assert.match(String(oversized.body.reason), /content exceeds 16777216 bytes/);
+			for (const content of ["A", "AAA", "A===", "====", "AA=A", "AA==AAAA", "AA-_", "AA\n=", `${"QUFB".repeat(1_048_576)}!`]) {
+				const bad = await http(host.url, "POST", "/v1/commands", {
+					bearer: dev.bearer,
+					body: envelope(String(host.ready.authorityEpoch), { type: "saveDocument", document: "ground", mediaType: "text/plain", content }, {
+						workflow: w, expected: { document: null },
+					}),
+				});
+				assert.equal(bad.status, 400, `malformed base64 must deliberately refuse: ${bad.text}`);
+				assert.equal(bad.body.code, "malformed_envelope");
+			}
+			assert.equal(Number((await snapshot(host, dev.bearer)).body.sequence), before);
+			for (const [document, bytes] of [["empty", Buffer.alloc(0)], ["pad2", Buffer.from("A")], ["pad1", Buffer.from("AA")]] as const) {
+				const ok = await save(host, dev.bearer, w, document, bytes, null);
+				assert.equal(ok.status, 200, ok.text);
+				const art = await artifact(host, dev.bearer, String((ok.body.result as Record<string, unknown>).revision));
+				assert.ok(Buffer.from(String(art.body.content), "base64").equals(bytes));
+			}
+		} finally {
+			await host.stop();
+			await dir.remove();
+		}
+	});
+});
+
+describe("B4 retained application schema compatibility", () => {
+	test("unknown revision and message schemas block affected reads and saves without changing retained records", async () => {
+		const dir = await tempDir("v2-record-schema");
+		let host = await startHost(dir.path);
+		try {
+			const dev = await enroll(host, "schemas");
+			const w = await createWorkflow(host, dev.bearer, "retained schemas");
+			const g = await save(host, dev.bearer, w, "ground", G1.bytes, null);
+			const ref = String((g.body.result as Record<string, unknown>).revision);
+			const message = await http(host.url, "POST", "/v1/commands", {
+				bearer: dev.bearer,
+				body: envelope(String(host.ready.authorityEpoch), { type: "postCoordinatorMessage", text: "retained message literal" }, { workflow: w }),
+			});
+			assert.equal(message.status, 200);
+			await host.stop();
+			const { DatabaseSync } = await import("node:sqlite");
+			// Controlled offline compatibility injection, not an outcome oracle. Change only application schema.
+			const db = new DatabaseSync(join(dir.path, "render.db"));
+			const injected: { id: number; record: string }[] = [];
+			try {
+				for (const row of db.prepare("SELECT id, record FROM entries").all() as { id: number; record: string }[]) {
+					const record = JSON.parse(row.record);
+					if (record.kind !== "render.revision" && record.kind !== "render.message") continue;
+					record.data.schema = 99;
+					const text = JSON.stringify(record);
+					db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(text, row.id);
+					injected.push({ id: row.id, record: text });
+				}
+			} finally {
+				db.close();
+			}
+			assert.equal(injected.length, 2);
+			host = await startHost(dir.path);
+			const before = Number((await snapshot(host, dev.bearer)).body.sequence);
+			const art = await artifact(host, dev.bearer, ref);
+			assert.equal(art.status, 409, `unsupported artifact schema must refuse: ${art.text}`);
+			assert.equal(art.body.code, "unsupported_schema");
+			assert.deepEqual(art.body.refs, { record: ref });
+			assert.deepEqual(art.body.supported, [1]);
+			assert.match(String(art.body.reason), /99.*compatible Render version/);
+			assert.ok(!("content" in art.body));
+			const blocked = await save(host, dev.bearer, w, "ground", B2.bytes, ref);
+			assert.equal(blocked.status, 409, `unsupported save basis must refuse: ${blocked.text}`);
+			assert.equal(blocked.body.code, "unsupported_schema");
+			assert.deepEqual(blocked.body.refs, { record: ref });
+			const messages = await http(host.url, "GET", `/v1/workflows/${encodeURIComponent(w)}/messages`, { bearer: dev.bearer });
+			assert.equal(messages.status, 409, `unsupported message schema must refuse: ${messages.text}`);
+			assert.equal(messages.body.code, "unsupported_schema");
+			assert.ok(!("messages" in messages.body));
+			assert.equal(Number((await snapshot(host, dev.bearer)).body.sequence), before);
+			assert.equal(currentRevision((await snapshot(host, dev.bearer)).body, w, "ground"), ref);
+			const outside = await enroll(host, "outside", []);
+			assert.equal((await artifact(host, outside.bearer, ref)).status, 404);
+			const unaffected = await save(host, dev.bearer, w, "notes", A1.bytes, null);
+			assert.equal(unaffected.status, 200, unaffected.text);
+			await host.stop();
+			const retained = new DatabaseSync(join(dir.path, "render.db"), { readOnly: true });
+			try {
+				for (const row of injected) assert.equal((retained.prepare("SELECT record FROM entries WHERE id = ?").get(row.id) as { record: string }).record, row.record);
+			} finally {
+				retained.close();
+			}
+		} finally {
+			await host.stop();
+			await dir.remove();
+		}
+	});
+});
+
 // Seeded schedules. The oracle is a test-owned model of devices, receipts and current revisions.
 type Op =
 	| { kind: "save"; device: number; document: string; basis: "current" | "stale" | "null"; reuse: "new" | "same" | "changed" }
