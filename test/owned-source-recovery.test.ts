@@ -103,9 +103,12 @@ test("failure before runtime creation releases capacity, survives reopen and can
 		repositories: { owned: source.repo },
 		checks: {
 			"revision:3": {
-				repository: "owned", commit: source.commit,
+				repository: "owned",
+				commit: source.commit,
 				profile: { ...source.profile, image: `sha256:${"0".repeat(64)}` },
-				argv: ["true"], timeoutMs: 10000, verifierRevision: source.commit,
+				argv: ["true"],
+				timeoutMs: 10000,
+				verifierRevision: source.commit,
 			},
 		},
 	};
@@ -116,9 +119,17 @@ test("failure before runtime creation releases capacity, survives reopen and can
 		return (value.assignments as RoleAssignment[])[0]!;
 	};
 	try {
-		assert.equal((await f.command({
-			type: "assignTask", slice: "prepare:failure", delivery: true, packet: packet({ execution: "linux-writer" }),
-		})).status, "accepted");
+		assert.equal(
+			(
+				await f.command({
+					type: "assignTask",
+					slice: "prepare:failure",
+					delivery: true,
+					packet: packet({ execution: "linux-writer" }),
+				})
+			).status,
+			"accepted",
+		);
 		const deadline = Date.now() + 10000;
 		while (snapshot().status !== "blocked" || snapshot().executing) {
 			assert.ok(Date.now() < deadline, JSON.stringify(snapshot()));
@@ -129,17 +140,37 @@ test("failure before runtime creation releases capacity, survives reopen and can
 		await f.reopen(new Engine({ ownedChecks: config }));
 		assert.equal(snapshot().executing, false);
 		const a = snapshot();
-		assert.equal((await f.command({
-			type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt,
-		}, admin)).status, "accepted");
+		assert.equal(
+			(
+				await f.command(
+					{
+						type: "cancelWork",
+						assignment: a.id,
+						generation: a.generation,
+						attempt: a.attempt,
+					},
+					admin,
+				)
+			).status,
+			"accepted",
+		);
 		while (snapshot().status !== "canceled") {
 			assert.ok(Date.now() < deadline, JSON.stringify(snapshot()));
 			await setTimeout(20);
 		}
 		assert.equal(snapshot().executing, false);
-		assert.equal((await f.command({
-			type: "assignTask", slice: "prepare:failure", delivery: true, packet: packet({ execution: "linux-writer" }),
-		})).status, "accepted", "a canceled writer must not keep Slice ownership");
+		assert.equal(
+			(
+				await f.command({
+					type: "assignTask",
+					slice: "prepare:failure",
+					delivery: true,
+					packet: packet({ execution: "linux-writer" }),
+				})
+			).status,
+			"accepted",
+			"a canceled writer must not keep Slice ownership",
+		);
 	} finally {
 		await f.close();
 		await source.close();

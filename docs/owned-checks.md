@@ -64,10 +64,13 @@ the owned Render fixture returned unauthorized without credentials. No private-r
 
 Collection is bounded to at most 64 MiB and 10,000 entries. Sparse files count by literal length; hardlinks become
 independent blobs. Special files, non-UTF8/non-NFC names, reserved/trailing-dot names, case-fold collisions, gitlinks,
-unsupported modes, and bounds fail closed. Worker ignores never govern collection. Exclusions overlapping the base
-refuse; nonempty extra excluded paths also refuse because no delivered generated-output declaration can establish that
-they contain no intended deliverables. Only encountered exclusions are in the capture manifest. Empty directories are
-not Git content; they still count toward traversal bounds.
+unsupported modes, and bounds fail closed. Worker ignores never govern collection. The host-owned profile explicitly
+declares disposable generated/dependency/cache paths (for example `.git`, `node_modules`, `.pytest_cache`). Collection
+skips those exact encountered paths without following symlinks or traversing excluded trees, and records each skipped
+root in the receipt's exclusion manifest. Absent exclusions are not reported as encountered. Exclusions overlapping
+accepted-base files refuse before preparation. Intended deliverables belong outside declared disposable paths; correct
+a conflicting host profile rather than hiding source or granting authority to worker ignores. Unexcluded new files
+remain source. Empty collected directories are not Git content but still count toward traversal bounds.
 
 ## Interruption, quarantine and recovery limits
 
@@ -89,8 +92,13 @@ directly; its result includes original source, executions and the retained quara
 execution or reuses the workspace. `seal(handle)` may then collect the stopped original workspace; invalid content
 still refuses. Quarantine reasons remain in the private journal after successful containment.
 
-Missing/uninspectable or identity-mismatched runtimes remain blocked; do not replace them by name or delete the journal.
-No supported operation declares an unknown runtime dead. Keep its ownership/capacity until exact containment can be
+Preparation journals whether runtime creation may have been issued. After preparation settles under a stop fence,
+an explicit durable never-issued record confirms absence: a missing image, failed materialization or cancellation
+before create releases execution capacity without permitting workspace reuse. Cancellation can then release Slice
+writer ownership. The original failure remains recorded, and there is no execution/source-pass receipt. A possible
+create is recorded durably before dispatch; lost responses and older journals without this marker remain uncertain.
+Missing/uninspectable or identity-mismatched possibly-created runtimes remain blocked; do not replace them by name
+or delete the journal. No supported operation declares an unknown runtime dead. Keep its ownership/capacity until exact containment can be
 established. No capacity is released merely because a timer elapsed. Automated deletion/retention is not introduced.
 
 Trusted source objects live under the configured private root and are pinned by `refs/render/sources/<commit>` before
@@ -117,9 +125,9 @@ continue unchanged. Keep private source roots/journals with the original authori
 
 Preimplementation cases: `docs/verification/owned-source-check-failure-cases.md`.
 
-- `verify:linux-profile-owned-check`: owned services, scope/profile refusals, containment and actual Linux execution; receipt/history/reopen, failure diagnostics and honest package refusal.
+- `verify:linux-profile-owned-check`: owned services, scope/profile refusals, containment and actual Linux execution; receipt/history/reopen, unchanged-source `passed`/`failed` with declared caches, failure diagnostics, pre-create capacity/writer release and honest package refusal.
 - `verify:literal-source-roundtrip`: literal attributes/CRLF/symlink/executable/unusual-name bytes, actual deletion, hardlinks, FIFO/sparse/mode/representation/collision/entry/exclusion refusals; unsafe archive comparison and source-control oracles.
-- `verify:whole-container-quiescence`: background writer stopped, new execute refused, missing-runtime quarantine/no reuse, transient outage reconciliation, and cancellation while a rooted source effect remains admitted.
+- `verify:whole-container-quiescence`: background writer stopped, new execute refused, missing-runtime quarantine/no reuse, never-issued create absence (including stop racing prepare and reopen), transient outage reconciliation, and cancellation while a rooted source effect remains admitted.
 - `verify:source-root-crash`: SIGKILL before/after source rooting, after freeze and before/after Ledger receipt commit; actual diagnostics survive, missing receipts block, committed receipts survive, exact retry and wrong-source refusal.
 - `verify:unsafe-controls`: baseline-green mutations of follow-symlink collection, host-shell fallback, hidden accepted-base loss and early workspace reuse, plus the inherited authority/storage/recovery controls.
 

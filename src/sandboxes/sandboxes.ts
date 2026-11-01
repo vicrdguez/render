@@ -28,6 +28,8 @@ type State = {
 	profile: LinuxProfile;
 	source: Source;
 	cpu: string;
+	// Only an explicit durable false proves create was never admitted; older journals remain uncertain.
+	createIssued?: boolean;
 	capture?: Capture;
 	reason?: string;
 };
@@ -94,7 +96,7 @@ export class Sandboxes {
 			scope: structuredClone(scope),
 			runtime: `render-owned-${createHash("sha256").update(this.#root).digest("hex").slice(0, 16)}-${id.slice(0, 32)}`,
 		};
-		const state: State = { handle, phase: "preparing", profile: structuredClone(profile), source, cpu: "unknown" };
+		const state: State = { handle, phase: "preparing", profile: structuredClone(profile), source, cpu: "unknown", createIssued: false };
 		await this.#save(state);
 		try {
 			const image = JSON.parse(await docker(["image", "inspect", profile.image]))[0];
@@ -124,6 +126,9 @@ export class Sandboxes {
 				const key = String(item).split("=")[0]!;
 				if (!["PATH", "HOME", "LANG"].includes(key)) env.push("--env", `${key}=`);
 			}
+			// Persist possible creation before dispatch, so a lost response can never be mistaken for absence.
+			state.createIssued = true;
+			await this.#save(state);
 			const runtime = (
 				await docker([
 					"create",
@@ -294,15 +299,18 @@ export class Sandboxes {
 		const state = await this.#load("id" in handle ? handle : { id, scope: handle.scope });
 		// Retry only containment of the exact journaled runtime. A quarantine is never permission to restart it.
 		try {
-			await this.#inspect(state);
-			try {
-				await docker(["stop", "--time", "1", state.handle.runtime], 10000);
-			} catch {
-				await docker(["kill", state.handle.runtime], 10000);
+			// Preparation has settled under the synchronous fence. A never-issued create needs no runtime inspection.
+			if (state.createIssued !== false) {
+				await this.#inspect(state);
+				try {
+					await docker(["stop", "--time", "1", state.handle.runtime], 10000);
+				} catch {
+					await docker(["kill", state.handle.runtime], 10000);
+				}
+				const observed = await this.#inspect(state);
+				if (observed.State.Running || observed.State.Restarting || observed.State.Paused)
+					throw new Error("Whole-container not-running confirmation failed.");
 			}
-			const observed = await this.#inspect(state);
-			if (observed.State.Running || observed.State.Restarting || observed.State.Paused)
-				throw new Error("Whole-container not-running confirmation failed.");
 			if (state.phase !== "sealed") {
 				state.phase = "stopped";
 				await this.#save(state);
@@ -387,7 +395,7 @@ async function collect(
 			const name = raw.toString("utf8");
 			if (!Buffer.from(name).equals(raw)) throw new Error("Unsupported source filename representation.");
 			const relative = `${prefix}${name}`;
-			if (relative === ".git" && egress) {
+			if (egress && profile.exclusions.includes(relative)) {
 				exclusions.push(relative);
 				continue;
 			}
@@ -395,13 +403,6 @@ async function collect(
 			if (++count > profile.maxEntries) throw new Error("Collection entries bound exceeded.");
 			const path = join(dir, name);
 			const before = await lstat(path);
-			if (profile.exclusions.slice(1).includes(relative)) {
-				// Without a delivered generated-output declaration seam, never guess that new bytes are disposable.
-				if (!before.isDirectory() || (await readdir(path)).length)
-					throw new Error(`Exclusion may hide intended deliverables: ${relative}; correct the profile.`);
-				exclusions.push(relative);
-				continue;
-			}
 			if (before.isDirectory()) {
 				await walk(path, `${relative}/`);
 				continue;

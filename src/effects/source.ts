@@ -223,6 +223,7 @@ export class Effects {
 		const listing = await this.#git(store.path, store.cwd, ["ls-tree", "-r", "-z", "--full-tree", commit]);
 		const entries: LiteralEntry[] = [];
 		let bytes = 0;
+		// Debt: per-blob Git processes make large manifests slow; batch object reads while preserving literal size checks.
 		for (const record of listing.toString("binary").split("\0").filter(Boolean)) {
 			const tab = record.indexOf("\t");
 			const [mode, type, hash] = record.slice(0, tab).split(" ") as [LiteralEntry["mode"], string, string];
@@ -242,6 +243,7 @@ export class Effects {
 		return { repository, objectFormat: store.format, commit, tree, root: `refs/render/sources/${commit}`, entries };
 	}
 	async #writeTree(store: { path: string; cwd: string }, entries: LiteralEntry[], prefix = ""): Promise<string> {
+		// Debt: immediate-child grouping duplicates treeOid; share grouping without coupling independent Git fixture oracles.
 		const children = new Map<string, LiteralEntry[]>();
 		for (const entry of entries) {
 			const name = entry.path.slice(prefix.length).split("/")[0]!;

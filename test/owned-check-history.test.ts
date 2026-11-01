@@ -85,7 +85,10 @@ test("owned check exact command/source/platform receipt survives history, export
 	}
 });
 
-for (const [exitCode, status] of [[0, "passed"], [7, "failed"]] as const)
+for (const [exitCode, status] of [
+	[0, "passed"],
+	[7, "failed"],
+] as const)
 	test(`owned check unchanged source with declared generated caches records ${status} for exit ${exitCode}`, async () => {
 		const source = await sourceFixture();
 		const config = {
@@ -96,7 +99,11 @@ for (const [exitCode, status] of [[0, "passed"], [7, "failed"]] as const)
 					repository: "owned",
 					commit: source.commit,
 					profile: { ...source.profile, exclusions: [".git", "node_modules", "cache", "absent"] },
-					argv: ["sh", "-c", `mkdir node_modules cache; echo dependency > node_modules/package; echo generated > cache/data; exit ${exitCode}`],
+					argv: [
+						"sh",
+						"-c",
+						`mkdir node_modules cache; echo dependency > node_modules/package; echo generated > cache/data; exit ${exitCode}`,
+					],
 					timeoutMs: 10000,
 					verifierRevision: source.commit,
 				},
@@ -104,9 +111,17 @@ for (const [exitCode, status] of [[0, "passed"], [7, "failed"]] as const)
 		};
 		const f = await roleFixture(new Engine({ ownedChecks: config }));
 		try {
-			assert.equal((await f.command({
-				type: "assignTask", slice: "cache:check", delivery: true, packet: packet({ execution: "linux-writer" }),
-			})).status, "accepted");
+			assert.equal(
+				(
+					await f.command({
+						type: "assignTask",
+						slice: "cache:check",
+						delivery: true,
+						packet: packet({ execution: "linux-writer" }),
+					})
+				).status,
+				"accepted",
+			);
 			let a: RoleAssignment;
 			const deadline = Date.now() + 20000;
 			for (;;) {
@@ -126,8 +141,10 @@ for (const [exitCode, status] of [[0, "passed"], [7, "failed"]] as const)
 			assert.equal(receipt.verification.inputTree, receipt.verification.resultTree);
 			assert.deepEqual(receipt.source.exclusions.sort(), ["cache", "node_modules"]);
 			assert.deepEqual(receipt.source.deleted, []);
-			assert.deepEqual(receipt.source.source.entries.map((entry: { path: string }) => entry.path),
-				[".gitattributes", "crlf", "ignored", "link", "run", "subst"]);
+			assert.deepEqual(
+				receipt.source.source.entries.map((entry: { path: string }) => entry.path),
+				[".gitattributes", "crlf", "ignored", "link", "run", "subst"],
+			);
 		} finally {
 			await f.close();
 			await source.close();

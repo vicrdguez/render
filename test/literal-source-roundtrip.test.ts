@@ -89,9 +89,15 @@ test("literal-source-roundtrip: declared caches are excluded, base conflicts ref
 		});
 		const capture = await f.sandboxes.seal(handle);
 		assert.deepEqual(capture.exclusions, ["cache"]);
-		assert.equal(capture.entries.some((entry) => entry.path.startsWith("cache/")), false);
+		assert.equal(
+			capture.entries.some((entry) => entry.path.startsWith("cache/")),
+			false,
+		);
 		assert.equal(capture.entries.find((entry) => entry.path === "new.txt")?.content, Buffer.from("deliverable\n").toString("base64"));
-		assert.equal(capture.entries.find((entry) => entry.path === "ignored")?.content, Buffer.from("must not disappear\n").toString("base64"));
+		assert.equal(
+			capture.entries.find((entry) => entry.path === "ignored")?.content,
+			Buffer.from("must not disappear\n").toString("base64"),
+		);
 	} finally {
 		if (handle) await f.sandboxes.stop(handle).catch(() => {});
 		await f.close();
