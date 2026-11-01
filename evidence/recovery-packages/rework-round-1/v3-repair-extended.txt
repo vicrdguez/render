@@ -1,0 +1,14 @@
+12a7a2174ce21b83ad374ff11051b23bcfe46466
+
+> render@0.0.0 verify:repair-crash
+> node --test --test-name-pattern=repair-crash test/recovery-packages.test.ts
+
+✔ repair-crash: transaction barriers retain either marker or rotated restricted recovery (111947.935541ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 112108.080083

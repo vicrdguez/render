@@ -1,7 +1,7 @@
 // `render serve --data <dir> [--port <n>] [--host <addr>]`. Events are one JSON object per line: `ready` on stdout,
 // startup refusals and failures on stderr. Exit codes: 0 stopped, 1 host failure, 2 startup blocked, 3 store owned.
 import { parseArgs } from "node:util";
-import { StartupFailure } from "../ledger/startup.ts";
+import { managedRestore, StartupFailure } from "../ledger/startup.ts";
 import { type Host, openHost } from "./host.ts";
 
 function emit(stream: NodeJS.WriteStream, event: Record<string, unknown>): void {
@@ -11,8 +11,26 @@ function emit(stream: NodeJS.WriteStream, event: Record<string, unknown>): void 
 async function main(): Promise<void> {
 	const { positionals, values } = parseArgs({
 		allowPositionals: true,
-		options: { data: { type: "string" }, port: { type: "string" }, host: { type: "string" } },
+		options: { data: { type: "string" }, port: { type: "string" }, host: { type: "string" }, package: { type: "string" } },
 	});
+	if (positionals[0] === "restore" && values.data !== undefined && values.package !== undefined) {
+		try {
+			await managedRestore(values.data, values.package);
+			emit(process.stdout, {
+				event: "restored",
+				mode: "admission-disabled",
+				action: "Start the host; validate/repair through local admin. No remote admission is enabled.",
+			});
+		} catch (error) {
+			emit(process.stderr, {
+				event: "restore_refused",
+				reason: String(error),
+				action: "Preserve existing data and the package; retry in a clean directory. Failed imports remain admission-disabled.",
+			});
+			process.exitCode = 2;
+		}
+		return;
+	}
 	if (positionals[0] !== "serve" || values.data === undefined) {
 		process.stderr.write("usage: render serve --data <dir> [--port <n>] [--host <addr>]\n");
 		process.exit(64);

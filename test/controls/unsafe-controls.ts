@@ -83,6 +83,51 @@ const CONTROLS: Control[] = [
 		pattern: "completed Watchdog",
 	},
 	{
+		name: "repair-empty-cursor-key",
+		expect: /repaired cursors must use a fresh private secret/,
+		behavior: "repair omits key rotation and restored history signs with the public empty fallback",
+		edits: [{ file: "src/ledger/ledger.ts", find: "meta.historyCursorKey = randomUUID();", replace: "delete meta.historyCursorKey;" }],
+		test: "test/recovery-packages.test.ts",
+		pattern: "history scope, secret exclusion",
+	},
+	{
+		name: "restricted-role-resume",
+		expect: /restricted recovery must skip both Engine resume hooks/,
+		behavior: "restricted startup calls Engine resume hooks and resumes retained tasks",
+		edits: [{ file: "src/ledger/startup.ts", find: "if (!restricted) {", replace: "if (true) {" }],
+		test: "test/recovery-role-work.test.ts",
+		pattern: "role work explicitly",
+	},
+	{
+		name: "package-origin-ignored",
+		expect: /package-origin fence must reject backed-up credentials/,
+		behavior: "package verifiers revive when startup ignores the offline marker",
+		edits: [
+			{
+				file: "src/ledger/startup.ts",
+				find: 'const restricted = recovery !== undefined && recovery.mode !== "active";',
+				replace:
+					'await harness.commit(async tx => Object.assign(await tx.doc(Recovery), { mode: "active", restoreRequired: false }), ctx);\n\t\trecovery = await harness.snapshot(Recovery, ctx);\n\t\tconst restricted = recovery !== undefined && recovery.mode !== "active";',
+			},
+		],
+		test: "test/recovery-packages.test.ts",
+		pattern: "package-origin-auth-fence",
+	},
+	{
+		name: "missing-restored-receipt-is-unsent",
+		expect: /missing restored receipt must retain uncertainty/,
+		behavior: "a missing post-cutoff receipt is treated as ordinary not-found",
+		edits: [
+			{
+				file: "src/ledger/ledger.ts",
+				find: 'if (this.#recovery?.mode === "recovery-reconciling")',
+				replace: "if (false)",
+			},
+		],
+		test: "test/recovery-packages.test.ts",
+		pattern: "package-origin-auth-fence",
+	},
+	{
 		name: "blocked-slot-release",
 		expect: /capacity_exhausted/,
 		behavior: "a human-blocked but still executing Attempt releases its slot",
