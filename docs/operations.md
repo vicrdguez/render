@@ -89,7 +89,7 @@ No automatic migration or package recovery is available in this Slice.
 
 ## Content integrity
 
-Every document revision artifact read re-verifies the stored bytes against their SHA-256 digest and length. Message artifact reads compute a digest/length from the retained text; legacy messages have no independently stored digest. A mismatch answers
+Every document revision artifact read re-verifies the stored bytes against their SHA-256 digest and length. Newly saved messages also retain and verify their original digest/length. Legacy message reads compute a digest/length from retained text and explicitly report `integrity: unverified_legacy`; no independent original digest is invented. A mismatch answers
 `content_corrupt`, with `refs.restore` naming the exact revision. A save over that revision is refused the same way.
 The host never substitutes other bytes. Supported restore of an exact revision needs recovery packages, which a later
 Slice delivers. Until then there is no supported restore: the corrupt bytes stay preserved and the affected document

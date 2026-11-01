@@ -9,4 +9,9 @@ Authored before product implementation. Observe real Ledger HTTP/SQLite seams, n
 - H5: Offline controlled corruption/unknown schema/deletion in owned stores must yield named exact-read refusal and export missing-data declaration, incomplete, never replacement bytes. Existing slice1 corruption/unknown-schema fixtures are extended rather than used as a correctness side channel.
 - H6: Human saved strings mentioning rejected/abandoned/unknown or runner success remain literal text, not classified domain outcomes or runner receipts. Future assignment, Attempt, decision, policy, retained packet, execution and runtime transcript kinds are explicitly unavailable, not fabricated test passes.
 
+## Audit repair oracles (authored before their product fixes)
+
+- F3/F6: delete an acknowledged message, set its text to null, or replace it with different string bytes in an owned stopped store. Exact reads refuse missing_content/content_corrupt and exports declare the exact missing ref, incomplete, with no invented bytes or external-link substitution. New message saves must retain digest/length atomically with the original text; pre-slice messages cannot retroactively acquire a trustworthy original digest and are explicitly legacy-unverified.
+- F4/F5: a default broad-scope page declares administrative receipt redactions and unavailable future kinds. Create another workflow after page one; every continuation/export retains the original workflow set and cutoff.
+
 Unsafe latest-only-export and cutoff-drift mutations must fail their own literal assertions after the unmodified checks pass. Setup/import failures do not count. Full applicable V1/V2/V3/V4/V7/early-V9 rows remain cumulative; V5/V6 and full V8/V9 cannot be claimed before their owning features exist. No human/model/service trial is run by this slice.

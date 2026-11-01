@@ -73,6 +73,7 @@ export type Artifact = {
 	readonly mediaType: string;
 	readonly digest: string;
 	readonly byteLength: number;
+	readonly integrity: "verified" | "unverified_legacy";
 	readonly parents: readonly string[];
 	readonly supersedes: readonly string[];
 	readonly source: null;
@@ -398,6 +399,8 @@ export class Ledger {
 							message: write.message,
 							workflow: write.workflow,
 							text: (command as { text: string }).text,
+							digest: sha256(Buffer.from((command as { text: string }).text, "utf8")),
+							byteLength: Buffer.byteLength((command as { text: string }).text, "utf8"),
 							commandId: env.commandId,
 							recordedAtSequence: sequence,
 							createdBy: by,
@@ -585,6 +588,7 @@ export class Ledger {
 				mediaType: data.mediaType,
 				digest: data.digest,
 				byteLength: data.byteLength,
+				integrity: "verified",
 				parents: data.parent === null ? [] : [data.parent],
 				supersedes: data.parent === null ? [] : [data.parent],
 				source: null,
@@ -656,6 +660,9 @@ export class Ledger {
 					if (unsupported) return unsupported;
 					if (typeof d.text !== "string") return refusal("content_corrupt", `Restore exact message ${ref}.`);
 					const bytes = Buffer.from(d.text, "utf8");
+					const legacy = d.digest === undefined && d.byteLength === undefined;
+					if (!legacy && (d.digest !== sha256(bytes) || d.byteLength !== bytes.length))
+						return refusal("content_corrupt", `Restore exact message ${ref}.`);
 					return {
 						artifact: ref,
 						kind: "message",
@@ -665,6 +672,7 @@ export class Ledger {
 						mediaType: "text/plain",
 						digest: sha256(bytes),
 						byteLength: bytes.length,
+						integrity: legacy ? "unverified_legacy" : "verified",
 						parents: [],
 						supersedes: [],
 						source: null,
@@ -705,7 +713,7 @@ export class Ledger {
 			const missing: Missing[] = [];
 			const redactions: string[] = [];
 			const content: Record<string, string> = {};
-			const revisions = new Set<string>();
+			const artifacts = new Set<string>();
 			const wanted = (kind: string) => state.scope.kinds.length === 0 || state.scope.kinds.includes(kind);
 			const add = (r: HistoryRecord) => {
 				if (wanted(r.kind)) records.push(r);
@@ -750,8 +758,8 @@ export class Ledger {
 						const sequence = Number(d.recordedAtSequence ?? d.sequence);
 						if (sequence > state.cutoff) continue;
 						const ref = String(d.revision ?? d.message ?? d.fact ?? `entry:${entry.id}`);
-						if (entry.kind === RevisionEntry.kind) {
-							revisions.add(ref);
+						if (entry.kind === RevisionEntry.kind || entry.kind === MessageEntry.kind) {
+							if (wanted(entry.kind === MessageEntry.kind ? "message" : String(d.kind))) artifacts.add(ref);
 							continue;
 						}
 						const kind = entry.kind === FactEntry.kind ? "fact" : entry.kind === MessageEntry.kind ? "message" : entry.kind;
@@ -760,21 +768,10 @@ export class Ledger {
 							missing.push({ ref, code: "unsupported_schema" });
 							continue;
 						}
-						if (kind === "message") {
-							const bytes = Buffer.from(String(d.text), "utf8");
-							add({
-								...base(ref, kind, owner.workflow, sequence, String(d.commandId)),
-								createdBy: d.createdBy,
-								claimType: "human_text",
-								content: true,
-								digest: sha256(bytes),
-								byteLength: bytes.length,
-								mediaType: "text/plain",
-							});
-							content[ref] = bytes.toString("base64");
-						} else if (kind === "fact") {
+						if (kind === "fact") {
 							const refs = d.refs as Record<string, string>;
-							if (refs.revision) revisions.add(refs.revision);
+							if (refs.revision && (wanted("ground") || wanted("document"))) artifacts.add(refs.revision);
+							if (refs.message && wanted("message")) artifacts.add(refs.message);
 							add({ ...base(ref, kind, owner.workflow, sequence, String(d.commandId)), command: d.command, refs, createdBy: d.by });
 							const namespace = (d.by as AcceptedBy).principal === "human" ? this.#meta.human : "host:recovery";
 							const receipt = await this.#harness.snapshot(Receipt, `${namespace} ${String(d.commandId)}`, ctx);
@@ -802,10 +799,10 @@ export class Ledger {
 					cursor = page.next;
 				}
 			}
-			for (const ref of revisions) {
+			for (const ref of artifacts) {
 				const artifact = await this.artifact(context, { read: ref });
 				if ("status" in artifact) {
-					missing.push({ ref, code: artifact.code });
+					missing.push({ ref, code: artifact.code === "unauthorized" ? "missing_content" : artifact.code });
 					continue;
 				}
 				if (artifact.recordedAtSequence > state.cutoff) continue;
@@ -817,13 +814,15 @@ export class Ledger {
 					parents: [...artifact.parents],
 					supersedes: [...artifact.supersedes],
 					content: true,
+					claimType: artifact.kind === "message" ? "human_text" : null,
 				});
+				for (const parent of artifact.parents) artifacts.add(parent);
 				content[id] = bytes.toString("base64");
 			}
 			records.sort((a, b) => a.sequence - b.sequence || a.ref.localeCompare(b.ref));
 			return exporting
 				? exportHistory(records, missing, redactions, state, content)
-				: historyPage(records, missing, state, limit, this.#meta.historyCursorKey ?? "", this.#meta.sequence);
+				: historyPage(records, missing, redactions, state, limit, this.#meta.historyCursorKey ?? "");
 		});
 	}
 

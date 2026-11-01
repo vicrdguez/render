@@ -41,6 +41,8 @@ export type HistoryPage = {
 	next: string | null;
 	complete: boolean;
 	missing: Missing[];
+	redactions: string[];
+	omittedKinds: string[];
 	exclusions: string[];
 };
 export type HistoryExport = {
@@ -141,12 +143,11 @@ export function cursorFor(state: HistoryState, key: string): string {
 export function historyPage(
 	records: HistoryRecord[],
 	missing: Missing[],
+	redactions: string[],
 	state: HistoryState,
 	limit: number,
 	key: string,
-	currentSequence: number,
 ): HistoryPage {
-	void currentSequence; // The live head is deliberately not the traversal cutoff (unsafe-control seam).
 	const end = Math.min(records.length, state.offset + limit);
 	return {
 		version: 1,
@@ -156,6 +157,8 @@ export function historyPage(
 		next: end < records.length ? cursorFor({ ...state, offset: end }, key) : null,
 		complete: end === records.length && missing.length === 0,
 		missing,
+		redactions,
+		omittedKinds: UNAVAILABLE_KINDS,
 		exclusions: EXCLUSIONS,
 	};
 }
@@ -188,7 +191,10 @@ export function exportHistory(
 				...new Set(
 					included
 						.flatMap((r) => [...r.parents, ...r.supersedes, ...Object.values(r.refs)])
-						.filter((ref) => /^(workflow|revision|fact|message|receipt):/.test(ref) && !includedRefs.has(ref)),
+						.filter(
+							(ref) =>
+								/^(workflow|revision|fact|message|receipt):/.test(ref) && !includedRefs.has(ref) && !missing.some((m) => m.ref === ref),
+						),
 				),
 			].sort(),
 		},

@@ -163,6 +163,9 @@ export type MessageData = {
 	message: string;
 	workflow: string;
 	text: string;
+	/** Absent only on records acknowledged before historical-export. */
+	digest?: string;
+	byteLength?: number;
 	commandId: string;
 	recordedAtSequence: number;
 	createdBy: AcceptedBy;

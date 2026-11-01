@@ -17,7 +17,7 @@
 		"verify:two-client-reattach": "node --test test/two-client-reattach.test.ts test/history-cutoff-export.test.ts",
 		"verify:persistence-startup": "node --test test/persistence-startup.test.ts",
 		"verify:local-command-load": "node --test test/local-command-load.test.ts",
-		"verify:history-cutoff-export": "node --test test/history-cutoff-export.test.ts test/history-missing-data.test.ts test/history-message.test.ts",
+		"verify:history-cutoff-export": "node --test test/history-cutoff-export.test.ts test/history-missing-data.test.ts test/history-message.test.ts test/history-completeness.test.ts",
 		"verify:independent-export-reader": "node --test test/independent-export-reader.test.ts",
 		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts"
 	},
