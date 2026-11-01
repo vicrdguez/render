@@ -1,6 +1,6 @@
 # Render host protocol, version 1
 
-This is the client-facing wire contract delivered by `durable-workspace` and extended by `historical-export`. It implements the semantic envelope of
+This is the client-facing wire contract delivered by `durable-workspace` and extended by `durable-role-work` and `historical-export`. It implements the semantic envelope of
 [spec §5.2–5.3](spec.md#53-command-receipt-and-snapshot-contract) on a loopback HTTP listener. Route names are
 implementation choices; the envelope, receipt, refusal and frame semantics are the contract.
 
@@ -48,10 +48,18 @@ Ordinary restart preserves them, and revocation takes effect at once.
 | `postCoordinatorMessage` | `text` (1–65,536 chars) | required | absent | device or local admin |
 | `enrollDevice` | `label` (1–100 chars), `scope`: `{ "workflows": "all" }` or `{ "workflows": ["workflow:1", …] }` | absent | absent | local admin only |
 | `revokeDevice` | `device` | absent | absent | local admin only |
+| `cancelWork` | `assignment`, current `generation` and `attempt` | required | absent | scoped device or local admin |
 
-Other command families named in spec §4 are known to this host and refuse with `capability_unavailable`, or with
-`forbidden_principal` when the principal is wrong. That covers human checkpoint/intake/cancel/local-prompt decisions, role
-work, scheduling and source/effect work. Unknown types refuse with `unknown_command`.
+The trusted in-process Engine can schedule `assignTask`, `stageTask`, `fenceAttempt`, `recordBlocker`,
+`recordQuiescence` and checked `rebindAttempt`; none is a device/admin scheduling override. Assignment tools admit only
+`requestRole` for a predefined packet key, `submitRoleResult` for their own report, and `requestOwnStop`. Recovery alone
+can retain fenced late results with `recordRecoveryState`; they are quarantined artifacts, not accepted role reports.
+These commands require a workflow and strict typed fields; task names, principals and transaction callbacks are never
+command fields. See [role operations](operations.md#durable-role-work).
+
+Other command families named in spec §4 remain known and refuse with `capability_unavailable`, or with
+`forbidden_principal` when the principal is wrong. This includes checkpoint/intake/local-prompt decisions and source/effect
+work. Unknown types refuse with `unknown_command`.
 
 ## Receipts
 
@@ -135,7 +143,7 @@ node src/client/read-export.ts export.json > inspected.json
 
 The standalone reader validates format/schema, scope/cutoff/order/count, links and exact byte digests/lengths, and returns normalized records and literal text. Nonzero exit returns named refusal JSON. Missing-data exports can be read as incomplete; they never contain substituted bytes. `externalRefs` declares links outside the included records (for example a kind filter); `redactions` declares inaccessible receipts; `omittedKinds` names unavailable future kinds. `complete` means all selected, delivered, non-redacted records are present, **not** every possible future kind or complete runtime evidence. Outcomes remain null where no domain classification exists; saved claims are human text, not runner receipts. Chronology alone adds no causal links. Equal bytes retain distinct identities/provenance and predecessor links.
 
-The manifest always excludes `unsaved_client_buffers`, `uncommitted_provider_streams`, `unsnapshotted_worker_files`. No assignment/Attempt, retained packet, decision/policy, classified outcome, execution/effect or runtime transcript capability is fabricated. When introduced, those owners must extend this versioned protocol and reader. This export is inspection/history, **not a supported recovery backup**.
+The manifest always excludes `unsaved_client_buffers`, `uncommitted_provider_streams`, `unsnapshotted_worker_files`. Role packets, submitted reports and quarantined evidence use delivered `document` records, including exact bytes and trusted assignment/generation/Attempt fields on newly retained entries. Original acceptance receipts retain task bindings; packet refs participate in declared export relationships and missing-data checks. Older entries without role provenance keep null metadata, not inferred bindings. These records do not constitute standalone assignment/Attempt chronologies: those selectors, decision/policy, classified outcome, execution/effect and runtime transcript export remain unavailable. This export is inspection/history, **not a supported recovery backup**.
 
 Engineering bound: every page and export scans selected retained conversations and assembles results in memory; page size bounds returned records, not scan cost or export size. Message entries are located and validated once per scan, rather than rescanning conversations for each message; sorting and serialization still grow with the selection. The shared SQLite runtime and host event loop mean scan/validation/serialization work can delay concurrent command acknowledgements. There is no snapshot-isolation worker or fixed latency guarantee for arbitrarily large selections; use workflow/kind filters to reduce work, and measure the actual store. `verify:history-command-load` exercises 300/1,200 retained messages over ten workflows and concurrent page/export writes; it is a bounded local regression, not full V9. This intentionally avoids a new history index/storage migration. Legacy message records lack independently stored digest metadata: export/read computes their digest and labels them `unverified_legacy`, while immutable document revisions and newly saved messages verify their original stored digest. No new integrity guarantee for arbitrary filesystem/database replacement is claimed.
 
@@ -160,6 +168,14 @@ stream begins with a fresh snapshot.
 
 Each workflow view carries `ground`, `documents`, `messages`, `commitment`, `owner`, `evidence`, `blocker`,
 `nextHumanAction` and `unavailable`. `unavailable` names the capabilities this host version does not deliver yet, for
-example coordinator replies, checkpoints, assignments and recovery packages. They are reported as
+example full coordinator replies, checkpoints and recovery packages. They are reported as
 absent, never as empty successes. The snapshot also reports `hostMode`, `executorEpoch`, the persistence readback and
-the backup state. Off-host protection is reported `unavailable` until it is delivered. Snapshot `history.completeThroughSequence` identifies the acknowledged history head available for traversal; it is not an integrity scan or certification that all retained content is intact. Page/export `missing` and `complete` report content completeness when that selection is actually read.
+the backup state. Off-host protection is reported `unavailable` until it is delivered.
+
+Role-aware snapshots add scoped `assignments`, including exact packet/report refs, generation/Attempt, ownership,
+executing capacity and visible blockers. Workflow owner/evidence summaries reflect these assignments. A blocked owner
+may still consume a slot; `executing: false` does not surrender ownership. Assignment-agent reads expose only their own
+packet and explicitly granted immutable inputs/results, not the workflow's general document listing. Accepted packets
+and reports use the same exact-byte artifact route and integrity checks as other retained revisions.
+
+Snapshot `history.completeThroughSequence` identifies the acknowledged traversal head, not an integrity scan. Page/export `missing` and `complete` report completeness when read.

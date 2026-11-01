@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId, EntryId, Harness } from "@earendil-works/pi-durable";
+import type { RoleTaskStaging } from "../engine/runtime.ts";
 import {
 	change,
 	type DocumentSummary,
@@ -14,6 +15,7 @@ import {
 	view,
 	type WorkflowState,
 } from "../kernel/kernel.ts";
+import { packetRefs, type RoleAssignment, type RolePacket, type RoleWorkState, sameAgent } from "../kernel/roles.ts";
 import { faultBarrier } from "./barrier.ts";
 import { decodeUtf8, type Envelope, PROTOCOL_VERSION, parseEnvelope } from "./envelope.ts";
 import {
@@ -42,6 +44,8 @@ import {
 	type RevisionData,
 	RevisionEntry,
 	RevisionLocation,
+	RoleBinding,
+	RoleWork,
 	STORE_SCHEMA,
 	Workflow,
 	type WorkflowRecord,
@@ -78,8 +82,9 @@ export type Artifact = {
 	readonly supersedes: readonly string[];
 	readonly source: null;
 	readonly policy: null;
-	readonly assignment: null;
-	readonly attempt: null;
+	readonly assignment: string | null;
+	readonly generation: number | null;
+	readonly attempt: string | null;
 	readonly decisionRefs: readonly string[];
 	readonly outcomeRefs: readonly string[];
 	readonly createdBy: AcceptedBy;
@@ -157,6 +162,8 @@ export class Ledger {
 	readonly #workflows = new Map<string, Present<WorkflowRecord>>();
 	readonly #devices = new Map<string, Present<DeviceRecord>>();
 	#mode: HostMode = "active";
+	#roleWork: RoleWorkState = { assignments: [] };
+	#roleTasks: RoleTaskStaging | undefined;
 
 	private constructor(harness: Harness, meta: MetaState, persistence: Persistence, onFatal: (error: unknown) => void) {
 		this.#harness = harness;
@@ -169,10 +176,17 @@ export class Ledger {
 	}
 
 	/** Loads committed state into the read model. Called by startup after the store and runtime are validated. */
-	static async load(harness: Harness, persistence: Persistence, onFatal: (error: unknown) => void): Promise<Ledger> {
+	static async load(
+		harness: Harness,
+		persistence: Persistence,
+		onFatal: (error: unknown) => void,
+		roleTasks?: RoleTaskStaging,
+	): Promise<Ledger> {
 		const meta = await harness.snapshot(Meta, ctx);
 		if (meta === undefined || !meta.initialized) throw new Error("Render store is not initialized");
 		const ledger = new Ledger(harness, plain(meta) as MetaState, persistence, onFatal);
+		ledger.#roleTasks = roleTasks;
+		ledger.#roleWork = plain((await harness.snapshot(RoleWork, ctx)) ?? { assignments: [] });
 		for (const id of meta.workflows) {
 			const w = await harness.snapshot(Workflow, id, ctx);
 			if (w?.exists) ledger.#workflows.set(id, plain(w) as Present<WorkflowRecord>);
@@ -242,9 +256,9 @@ export class Ledger {
 				reason: "Storage failed while committing; the host is stopping. Retry the original command ID after restart.",
 			};
 		}
+		if (!outcome.duplicate) this.#adopt(outcome);
 		await faultBarrier("after-commit", env.commandId);
 		if (outcome.duplicate) return { ...outcome.body, duplicate: true };
-		this.#adopt(outcome);
 		const result = outcome.body.result;
 		const credential =
 			enrollment !== undefined && typeof result.device === "string" ? { bearer: bearerOf(result.device, enrollment.secret) } : undefined;
@@ -267,6 +281,9 @@ export class Ledger {
 			if (env.workflow !== null && workflows !== "all" && !workflows.includes(env.workflow))
 				throw new Abort({ status: "refused", code: "forbidden_scope", reason: `${env.workflow} is outside this device's scope.` });
 		}
+		const roles = await tx.doc(RoleWork);
+		if (current.kind === "assignment-agent" && !roles.assignments.some((a) => sameAgent(a as RoleAssignment, current)))
+			throw new Abort(UNAUTHORIZED);
 		const namespace = namespaceOf(current);
 		const receipt = await tx.doc(Receipt, `${namespace} ${env.commandId}`, null);
 		if (receipt.exists) {
@@ -293,13 +310,46 @@ export class Ledger {
 				document = { name: pointer.document, current: pointer.revision, integrity };
 			}
 		}
+		const packets: RolePacket[] =
+			command.type === "assignTask"
+				? [(command as { packet: RolePacket }).packet]
+				: command.type === "requestRole" && current.kind === "assignment-agent"
+					? roles.assignments
+							.filter((a) => a.id === current.assignment)
+							.flatMap((a) => a.packet.requests.filter((r) => r.key === (command as { key: string }).key).map((r) => plain(r.packet)))
+					: [];
+		const allPackets = (p: RolePacket): RolePacket[] => [p, ...p.requests.flatMap((r) => allPackets(r.packet))];
+		for (const packet of packets.flatMap(allPackets))
+			for (const ref of packetRefs(packet)) {
+				const location = await tx.doc(RevisionLocation, ref, null);
+				if (!location.exists || location.workflow !== env.workflow)
+					throw new Abort({
+						status: "refused",
+						code: "missing_content",
+						reason: `Restore exact role input ${ref}.`,
+						refs: { restore: ref },
+					});
+				const input = await tx.entry(RevisionEntry, location.entry as EntryId);
+				if (!input || !intact(input.data.text, input.data.digest, input.data.byteLength))
+					throw new Abort({
+						status: "refused",
+						code: "content_corrupt",
+						reason: `Restore exact role input ${ref}.`,
+						refs: { restore: ref },
+					});
+				const unsupported = unsupportedRecordSchema(input.data.schema, ref);
+				if (unsupported) throw new Abort(unsupported);
+			}
 		const target = command.type === "revokeDevice" ? await tx.doc(Device, (command as { device: string }).device, null) : undefined;
 		const text = env.content === undefined ? undefined : decodeUtf8(env.content);
 		const facts: VerifiedFacts = {
 			principal: current,
 			sequence,
+			executorEpoch: meta.executorEpoch,
 			ids: {
 				fact: `fact:${sequence}`,
+				assignment: `assignment:${sequence}`,
+				attempt: `attempt:${sequence}`,
 				workflow: `workflow:${sequence}`,
 				revision: `revision:${sequence}`,
 				device: `device:${sequence}`,
@@ -310,6 +360,7 @@ export class Ledger {
 				: { content: { digest: sha256(env.content), byteLength: env.content.length, validUtf8: text !== undefined } }),
 		};
 		const state: KernelState = {
+			roleWork: plain(roles),
 			workflow: workflow?.exists ? { id: workflow.id, messageCount: workflow.messageCount } : null,
 			document,
 			device: target?.exists ? { id: target.device, revoked: target.revokedAtSequence !== null } : null,
@@ -322,12 +373,73 @@ export class Ledger {
 				? current.route === "device"
 					? { principal: "human", route: "device", device: current.device }
 					: { principal: "human", route: "local-admin" }
-				: { principal: "host", route: "host" };
+				: current.kind === "assignment-agent"
+					? {
+							principal: "assignment-agent",
+							route: "role",
+							assignment: current.assignment,
+							generation: current.generation,
+							attempt: current.attempt,
+							role: current.role,
+						}
+					: { principal: "host", route: "host" };
 		meta.sequence = sequence;
 		let revisionEntry = 0;
 		let changedDevice: string | undefined;
 		for (const write of decision.writes) {
 			switch (write.type) {
+				case "roles.replace": {
+					if (!this.#roleTasks)
+						throw new Abort({ status: "refused", code: "capability_unavailable", reason: "Role runtime is not installed." });
+					const priorIds = new Set(roles.assignments.map((a) => a.id));
+					Object.assign(roles, plain(write.state));
+					for (const a of roles.assignments) {
+						if (priorIds.has(a.id)) continue;
+						const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
+						a.conversation = conversation.id;
+						Object.assign(await tx.doc(RoleBinding, conversation.id), {
+							assignment: a.id,
+							generation: a.generation,
+							attempt: a.attempt,
+							role: a.packet.role,
+						});
+						await this.#retainRoleText(tx, env, by, sequence, a.packetRef, `role-packet/${a.id}`, JSON.stringify(a.packet), {
+							assignment: a.id,
+							generation: a.generation,
+							attempt: a.attempt,
+						});
+					}
+					if (command.type === "submitRoleResult" && current.kind === "assignment-agent") {
+						const a = roles.assignments.find((a) => a.id === current.assignment);
+						if (!a?.report) throw new Error("role report identity omitted");
+						await this.#retainRoleText(tx, env, by, sequence, a.report, `role-report/${a.id}`, (command as { text: string }).text, {
+							assignment: a.id,
+							generation: a.generation,
+							attempt: a.attempt,
+						});
+					}
+					if (command.type === "recordRecoveryState" && typeof decision.result.quarantined === "string")
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							decision.result.quarantined,
+							`quarantined-role-result/${(command as { assignment: string }).assignment}`,
+							JSON.stringify(command),
+							command as NonNullable<RevisionData["roleBinding"]>,
+						);
+					for (const intent of write.intents) {
+						const a = roles.assignments.find((a) => a.id === intent.assignment);
+						if (!a) throw new Error("role intent without assignment");
+						const task = await this.#roleTasks.stage(tx, intent, plain(a));
+						if (intent.kind === "run-role") {
+							a.task = task;
+							Object.assign(decision.result, { task });
+						}
+					}
+					break;
+				}
 				case "workflow.create": {
 					const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
 					Object.assign(workflow ?? (await tx.doc(Workflow, write.workflow, null)), {
@@ -473,6 +585,7 @@ export class Ledger {
 		return {
 			duplicate: false as const,
 			body,
+			roles: plain(roles),
 			meta: plain(meta) as MetaState,
 			workflow: workflowDoc?.exists ? (plain(workflowDoc) as Present<WorkflowRecord>) : undefined,
 			device: changedDevice === undefined ? undefined : (plain(await tx.doc(Device, changedDevice, null)) as DeviceRecord),
@@ -480,8 +593,15 @@ export class Ledger {
 	}
 
 	/** Installs committed values in the read model and notifies observers. Runs after the commit resolved. */
-	#adopt(outcome: { meta: MetaState; workflow?: Present<WorkflowRecord> | undefined; device?: DeviceRecord | undefined }): void {
+	#adopt(outcome: {
+		meta: MetaState;
+		roles?: RoleWorkState;
+		workflow?: Present<WorkflowRecord> | undefined;
+		device?: DeviceRecord | undefined;
+	}): void {
 		this.#meta = outcome.meta;
+		if (outcome.roles) this.#roleWork = outcome.roles;
+		this.#roleTasks?.committed();
 		if (outcome.workflow !== undefined) this.#workflows.set(outcome.workflow.id, outcome.workflow);
 		if (outcome.device?.exists) {
 			this.#devices.set(outcome.device.device, outcome.device);
@@ -498,7 +618,7 @@ export class Ledger {
 				kind: "change",
 				base: o.last,
 				sequence: this.#meta.sequence,
-				workflows: view({ workflows: [workflowState(changed)] }, scopeOf(o.principal)).workflows,
+				workflows: view({ workflows: [workflowState(changed, this.#roleWork)] }, scopeOf(o.principal)).workflows,
 			};
 			o.last = this.#meta.sequence;
 			o.send(frame);
@@ -544,6 +664,45 @@ export class Ledger {
 		});
 	}
 
+	async #retainRoleText(
+		tx: Parameters<Parameters<Harness["commit"]>[0]>[0],
+		env: Envelope,
+		by: AcceptedBy,
+		sequence: number,
+		revision: string,
+		document: string,
+		text: string,
+		binding: NonNullable<RevisionData["roleBinding"]>,
+	) {
+		const w = await tx.doc(Workflow, env.workflow as string, null);
+		if (!w.exists) throw new Error("role text without workflow");
+		const bytes = Buffer.from(text, "utf8");
+		const entry = await tx.appendEntry(RevisionEntry, w.conversation as ConversationId, {
+			data: {
+				schema: 1,
+				roleBinding: { assignment: binding.assignment, generation: binding.generation, attempt: binding.attempt },
+				revision,
+				workflow: w.id,
+				document,
+				kind: "document",
+				mediaType: "text/plain",
+				text,
+				digest: sha256(bytes),
+				byteLength: bytes.length,
+				parent: null,
+				commandId: env.commandId,
+				recordedAtSequence: sequence,
+				createdBy: by,
+			},
+		});
+		Object.assign(await tx.doc(RevisionLocation, revision, null), {
+			exists: true,
+			workflow: w.id,
+			conversation: w.conversation,
+			entry: entry.id,
+		});
+	}
+
 	/** Immutable content reads. Uploads are not a separate capability in this version: saves carry complete bytes. */
 	artifact(context: AuthenticatedContext, request: { export: HistoryQuery }): Promise<HistoryExport | LedgerRefusal>;
 	artifact(context: AuthenticatedContext, request: { read: string } | { upload: unknown }): Promise<Artifact | LedgerRefusal>;
@@ -562,7 +721,15 @@ export class Ledger {
 			const ref = request.read;
 			if (ref.startsWith("message:")) return this.#messageArtifact(principal, ref);
 			const location = await this.#harness.snapshot(RevisionLocation, ref, ctx);
-			if (!location?.exists || !visible(principal, location.workflow)) return UNAUTHORIZED;
+			if (!location?.exists || !visible(principal, location.workflow, this.#roleWork))
+				return principal.kind === "assignment-agent" ? NOT_FOUND : UNAUTHORIZED;
+			if (principal.kind === "assignment-agent") {
+				const own = this.#roleWork.assignments.find((a) => sameAgent(a, principal));
+				const results = this.#roleWork.assignments
+					.filter((child) => child.parent === own?.id && child.status === "submitted")
+					.map((child) => child.report);
+				if (!own || ![...packetRefs(own.packet), own.packetRef, own.report, ...results].includes(ref)) return NOT_FOUND;
+			}
 			const entry = await this.#entry(location.conversation, location.entry);
 			const restore = { restore: ref };
 			if (entry === undefined || entry.kind !== RevisionEntry.kind)
@@ -593,8 +760,9 @@ export class Ledger {
 				supersedes: data.parent === null ? [] : [data.parent],
 				source: null,
 				policy: null,
-				assignment: null,
-				attempt: null,
+				assignment: data.roleBinding?.assignment ?? null,
+				generation: data.roleBinding?.generation ?? null,
+				attempt: data.roleBinding?.attempt ?? null,
 				decisionRefs: [],
 				outcomeRefs: [],
 				createdBy: data.createdBy,
@@ -749,9 +917,21 @@ export class Ledger {
 							const refs = d.refs as Record<string, string>;
 							if (refs.revision && (wanted("ground") || wanted("document"))) artifacts.add(refs.revision);
 							if (refs.message && wanted("message")) artifacts.add(refs.message);
+							if (wanted("document")) for (const key of ["packet", "report", "quarantined"]) if (refs[key]) artifacts.add(refs[key]);
 							add({ ...base(ref, kind, owner.workflow, sequence, String(d.commandId)), command: d.command, refs, createdBy: d.by });
-							const namespace = (d.by as AcceptedBy).principal === "human" ? this.#meta.human : "host:recovery";
-							const receipt = await this.#harness.snapshot(Receipt, `${namespace} ${String(d.commandId)}`, ctx);
+							const by = d.by as AcceptedBy;
+							const namespaces =
+								by.principal === "human"
+									? [this.#meta.human]
+									: by.principal === "assignment-agent"
+										? [`agent:${by.assignment}:${by.generation}:${by.attempt}`]
+										: ["host:recovery", "host:scheduling"];
+							// Older host facts omit scope. Match the actual receipt to this unique committed fact,
+							// never another scope that happened to reuse its command ID.
+							const candidates = await Promise.all(
+								namespaces.map((namespace) => this.#harness.snapshot(Receipt, `${namespace} ${String(d.commandId)}`, ctx)),
+							);
+							const receipt = candidates.find((r) => r?.exists && r.body.sequence === sequence && r.body.facts.includes(ref));
 							if (!receipt?.exists) {
 								missing.push({ ref: `receipt:${sequence}`, code: "missing_content" });
 								continue;
@@ -821,6 +1001,7 @@ export class Ledger {
 	}
 
 	#current(principal: Principal): boolean {
+		if (principal.kind === "assignment-agent") return this.#roleWork.assignments.some((a) => sameAgent(a, principal));
 		if (principal.kind !== "human" || principal.route !== "device") return true;
 		const device = this.#devices.get(principal.device);
 		return device !== undefined && device.revokedAtSequence === null;
@@ -833,7 +1014,7 @@ export class Ledger {
 	#snapshotFrame(principal: Principal): Frame {
 		const workflows = this.#meta.workflows.flatMap((id) => {
 			const w = this.#workflows.get(id);
-			return w === undefined ? [] : [workflowState(w)];
+			return w === undefined ? [] : [workflowState(w, this.#roleWork)];
 		});
 		return {
 			...this.#frameHeader(principal),
@@ -855,7 +1036,12 @@ export class Ledger {
 				exportVersion: 1,
 				backup: false,
 			},
-			workflows: view({ workflows }, scopeOf(principal)).workflows,
+			assignments: plain(
+				this.#roleWork.assignments.filter((a) =>
+					principal.kind === "assignment-agent" ? sameAgent(a, principal) : visible(principal, a.workflow, this.#roleWork),
+				),
+			),
+			workflows: principal.kind === "assignment-agent" ? [] : view({ workflows }, scopeOf(principal, this.#roleWork)).workflows,
 		};
 	}
 
@@ -902,6 +1088,7 @@ function messageArtifact(ref: string, workflow: string, d: Record<string, unknow
 		source: null,
 		policy: null,
 		assignment: null,
+		generation: null,
 		attempt: null,
 		decisionRefs: [],
 		outcomeRefs: [],
@@ -922,26 +1109,35 @@ function intact(text: string, digest: string, byteLength: number): boolean {
 	return bytes.length === byteLength && sha256(bytes) === digest;
 }
 
-function scopeOf(principal: Principal): { device?: string; workflows: "all" | readonly string[] } {
+function scopeOf(principal: Principal, roles?: RoleWorkState): { device?: string; workflows: "all" | readonly string[] } {
+	if (principal.kind === "assignment-agent")
+		return { workflows: roles?.assignments.filter((a) => sameAgent(a, principal)).map((a) => a.workflow) ?? [] };
 	if (principal.kind === "human" && principal.route === "device") return { device: principal.device, workflows: principal.workflows };
 	return { workflows: "all" };
 }
 
-function visible(principal: Principal, workflow: string): boolean {
-	const scope = scopeOf(principal).workflows;
+function visible(principal: Principal, workflow: string, roles?: RoleWorkState): boolean {
+	const scope = scopeOf(principal, roles).workflows;
 	return scope === "all" || scope.includes(workflow);
 }
 
 /** Who may read a receipt: the scope it concerns, never merely the namespace. */
 function readable(body: ReceiptBody, principal: Principal): boolean {
 	if (principal.kind === "host") return body.acceptedBy.principal === "host";
+	if (principal.kind === "assignment-agent")
+		return (
+			body.acceptedBy.assignment === principal.assignment &&
+			body.acceptedBy.generation === principal.generation &&
+			body.acceptedBy.attempt === principal.attempt &&
+			body.acceptedBy.role === principal.role
+		);
 	if (principal.kind !== "human") return false;
 	if (principal.route === "local-admin") return true;
 	if (body.workflow !== null) return visible(principal, body.workflow);
 	return body.acceptedBy.route === "device" && principal.workflows === "all";
 }
 
-function workflowState(w: Present<WorkflowRecord>): WorkflowState {
+function workflowState(w: Present<WorkflowRecord>, roles: RoleWorkState): WorkflowState {
 	const documents: DocumentSummary[] = Object.values(w.documents)
 		.sort((a, b) => a.document.localeCompare(b.document))
 		.map((d) => ({
@@ -955,12 +1151,18 @@ function workflowState(w: Present<WorkflowRecord>): WorkflowState {
 			revisionCount: d.revisionCount,
 			savedBy: d.savedBy,
 		}));
-	return { id: w.id, title: w.title, documents, messageCount: w.messageCount };
+	return {
+		id: w.id,
+		title: w.title,
+		documents,
+		messageCount: w.messageCount,
+		assignments: plain(roles.assignments.filter((a) => a.workflow === w.id)),
+	};
 }
 
 /** Command IDs are namespaced by principal: one human across devices, or one host scope. */
 function namespaceOf(principal: Principal): string {
 	if (principal.kind === "human") return principal.human;
 	if (principal.kind === "host") return `host:${principal.scope}`;
-	return `agent:${principal.assignment}:${principal.generation}`;
+	return `agent:${principal.assignment}:${principal.generation}:${principal.attempt}`;
 }

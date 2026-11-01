@@ -2,6 +2,7 @@
 // pointers, receipts and credentials are session documents committed in the same transaction.
 import { defineDoc, defineDocFamily, defineEntry } from "@earendil-works/pi-durable";
 import type { MediaType, Persistence } from "../kernel/kernel.ts";
+import type { RoleWorkState } from "../kernel/roles.ts";
 
 /** SQLite `application_id` identifying a Render store ("REND"). */
 export const APPLICATION_ID = 0x52454e44;
@@ -91,7 +92,33 @@ export const RevisionLocation = defineDocFamily<RevisionIndex, null>({
 	checkpointWhen: () => true,
 });
 
-export type AcceptedBy = { principal: "human" | "host"; route: "device" | "local-admin" | "host"; device?: string };
+export const RoleWork = defineDoc<RoleWorkState>({
+	kind: "render.role-work",
+	version: 1,
+	scope: "session",
+	initial: () => ({ assignments: [] }),
+	checkpointWhen,
+});
+
+export const RoleBinding = defineDoc<{ assignment: string; generation: number; attempt: string; role: string }>({
+	kind: "render.role-binding",
+	version: 1,
+	scope: "conversation",
+	fork: "initial",
+	history: "latest",
+	initial: () => ({ assignment: "", generation: 0, attempt: "", role: "" }),
+	checkpointWhen: () => true,
+});
+
+export type AcceptedBy = {
+	principal: "human" | "host" | "assignment-agent";
+	route: "device" | "local-admin" | "host" | "role";
+	device?: string;
+	assignment?: string;
+	generation?: number;
+	attempt?: string;
+	role?: string;
+};
 
 export type ReceiptBody = {
 	status: "accepted";
@@ -140,6 +167,8 @@ export const Device = defineDocFamily<DeviceRecord, null>({
 });
 
 export type RevisionData = {
+	/** Trusted immutable role provenance, absent on older revisions; never inferred from a document name. */
+	roleBinding?: { assignment: string; generation: number; attempt: string };
 	schema: number;
 	revision: string;
 	workflow: string;

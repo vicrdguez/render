@@ -8,8 +8,9 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type NodeSqliteDatabase, openNodeSqliteDatabase } from "@earendil-works/chord/sqlite/node";
-import { Harness, type HarnessOptions, type ReportInfo } from "@earendil-works/pi-durable";
+import { Harness, type ReportInfo } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
+import type { RenderRuntimeOptions } from "../engine/runtime.ts";
 import type { Persistence } from "../kernel/kernel.ts";
 import { Ledger } from "./ledger.ts";
 import { mintContext } from "./principals.ts";
@@ -48,7 +49,7 @@ export type OpenedLedger = {
 
 export async function openLedger(options: {
 	readonly data: string;
-	readonly runtime: (onReport: (error: unknown, info: ReportInfo) => void) => HarnessOptions;
+	readonly runtime: (onReport: (error: unknown, info: ReportInfo) => void) => RenderRuntimeOptions;
 	readonly onFatal: (error: unknown) => void;
 }): Promise<OpenedLedger> {
 	await mkdir(options.data, { recursive: true, mode: 0o700 });
@@ -68,13 +69,10 @@ export async function openLedger(options: {
 				"Run a Render version that supports this store.",
 			);
 		});
-		harness = await Harness.open(
-			storage,
-			options.runtime((error, info) => {
-				if (info.type === "session_failed") options.onFatal(error);
-			}),
-			ctx,
-		);
+		const runtime = options.runtime((error, info) => {
+			if (info.type === "session_failed") options.onFatal(error);
+		});
+		harness = await Harness.open(storage, runtime, ctx);
 		// Read-only inspection: nothing is scheduled, aborted or migrated here.
 		const inspection = await harness.inspect(ctx);
 		const unsupported = inspection.tasks.filter((t) => t.state.kind === "blocked");
@@ -87,6 +85,31 @@ export async function openLedger(options: {
 				"Start the Render version that owns these tasks, or resolve them with a supported recovery procedure. The store was left unchanged.",
 			);
 		}
+		// Orphaned state and an interrupted unsafe tool are uncertainty, not permission to replay.
+		const uncertain = await harness.commit(async (tx) => {
+			let cursor: Parameters<typeof tx.scanTasks>[2];
+			for (;;) {
+				const page = await tx.scanTasks({}, 200, cursor);
+				for (const task of page.items) {
+					if (task.state.status === "terminal" && task.state.outcome.status === "orphaned") return `orphaned task ${task.id}`;
+					if (
+						task.kind === "pi.tool" &&
+						"checkpoint" in task.state &&
+						(task.state.checkpoint as { phase?: string; replay?: string }).phase === "execute" &&
+						(task.state.checkpoint as { replay?: string }).replay !== "safe"
+					)
+						return `uncertain tool ${task.id}`;
+				}
+				if (!page.next) return undefined;
+				cursor = page.next;
+			}
+		}, ctx);
+		if (uncertain)
+			throw blocked(
+				"uncertain_execution",
+				uncertain,
+				"Reconcile original execution and effects before explicit resume; no automatic replay.",
+			);
 		const meta = await harness.snapshot(Meta, ctx).catch((error: unknown) => {
 			throw blocked(
 				"unsupported_schema",
@@ -116,7 +139,14 @@ export async function openLedger(options: {
 				current.historyCursorKey ??= randomUUID();
 			}, ctx);
 		}
-		const ledger = await Ledger.load(harness, opened.persistence, options.onFatal);
+		const ledger = await Ledger.load(harness, opened.persistence, options.onFatal, runtime.roleTasks).catch((error: unknown) => {
+			throw blocked(
+				"unsupported_schema",
+				`Retained Ledger records are unreadable: ${message(error)}`,
+				"Run a compatible Render version; no tasks were dispatched.",
+			);
+		});
+		runtime.bindLedger?.(ledger, harness);
 		const executorEpoch = `executor-${randomUUID()}`;
 		const fence = await ledger.command(
 			{
@@ -130,7 +160,9 @@ export async function openLedger(options: {
 		if (fence.status !== "accepted")
 			throw blocked("startup_fence_refused", `${fence.code}: ${fence.reason}`, "Inspect the store; nothing was dispatched.");
 		// Unchecked work is fenced by the new executorEpoch; only now may scheduling start.
+		await runtime.beforeResume?.();
 		harness.resume();
+		runtime.afterResume?.();
 		return {
 			ledger,
 			persistence: opened.persistence,
