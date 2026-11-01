@@ -14,6 +14,56 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "blocked-slot-release",
+		expect: /capacity_exhausted/,
+		behavior: "a human-blocked but still executing Attempt releases its slot",
+		edits: [{ file: "src/kernel/roles.ts", find: "a.blocker = c.reason;", replace: "a.blocker = c.reason; a.executing = false;" }],
+		test: "test/cancellation-capacity.test.ts",
+		pattern: "R05",
+	},
+	{
+		name: "inherited-role-tools",
+		expect: /role must not inherit broad tools/,
+		behavior: "role configuration inherits broad coding tools from the host",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: "import { anthropicProvider }",
+				replace: 'import { CodingTools } from "@earendil-works/pi-durable/tools";\nimport { anthropicProvider }',
+			},
+			{
+				file: "src/engine/runtime.ts",
+				find: "registry.install(this.#roles);",
+				replace: "registry.install(this.#roles); registry.install(CodingTools);",
+			},
+			{ file: "src/engine/runtime.ts", find: "extensions: [this.#roles],", replace: "extensions: [this.#roles, CodingTools]," },
+			{ file: "src/engine/runtime.ts", find: "tools: this.#roles.tools ?? [],", replace: "tools: null," },
+			{ file: "src/engine/runtime.ts", find: "modelTools: this.#roles.tools ?? [],", replace: "modelTools: null," },
+		],
+		test: "test/role-capability-refusal.test.ts",
+		pattern: "R03 explicit",
+	},
+	{
+		name: "tool-owned-role-child",
+		expect: /role did not settle within 5s/,
+		behavior: "accepted child runs under the submitting tool instead of a workflow-owned task",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: "return tx.createTask(\n\t\t\t\t\t\tthis.#run,",
+				replace: "if (a.parent) return 0;\n\t\t\t\t\treturn tx.createTask(\n\t\t\t\t\t\tthis.#run,",
+			},
+			{
+				file: "src/engine/runtime.ts",
+				find: "const reply = await this.#ledger!.command(envelope, identity.context);",
+				replace:
+					'const reply = await this.#ledger!.command(envelope, identity.context);\n\t\tif (command.type === "requestRole" && reply.status === "accepted") await api.createTask(this.#run, { assignment: reply.result.assignment as string }, { ownership: { kind: "task", taskId: api.taskId } }, ctx);',
+			},
+		],
+		test: "test/workflow-task-survival.test.ts",
+		pattern: "R01/R07",
+	},
+	{
 		name: "principal-forgery-header",
 		expect: /enrollDevice: \{"status":"accepted"/,
 		behavior: "a request header raises a device to the local-admin route",

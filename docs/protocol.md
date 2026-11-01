@@ -1,6 +1,6 @@
 # Render host protocol, version 1
 
-This is the client-facing wire contract delivered by the `durable-workspace` Slice. It implements the semantic envelope of
+This is the client-facing wire contract delivered by `durable-workspace` and extended by `durable-role-work`. It implements the semantic envelope of
 [spec §5.2–5.3](spec.md#53-command-receipt-and-snapshot-contract) on a loopback HTTP listener. Route names are
 implementation choices; the envelope, receipt, refusal and frame semantics are the contract.
 
@@ -48,10 +48,18 @@ Ordinary restart preserves them, and revocation takes effect at once.
 | `postCoordinatorMessage` | `text` (1–65,536 chars) | required | absent | device or local admin |
 | `enrollDevice` | `label` (1–100 chars), `scope`: `{ "workflows": "all" }` or `{ "workflows": ["workflow:1", …] }` | absent | absent | local admin only |
 | `revokeDevice` | `device` | absent | absent | local admin only |
+| `cancelWork` | `assignment`, current `generation` and `attempt` | required | absent | scoped device or local admin |
 
-Other command families named in spec §4 are known to this host and refuse with `capability_unavailable`, or with
-`forbidden_principal` when the principal is wrong. That covers human checkpoint/intake/cancel/local-prompt decisions, role
-work, scheduling and source/effect work. Unknown types refuse with `unknown_command`.
+The trusted in-process Engine can schedule `assignTask`, `stageTask`, `fenceAttempt`, `recordBlocker`,
+`recordQuiescence` and checked `rebindAttempt`; none is a device/admin scheduling override. Assignment tools admit only
+`requestRole` for a predefined packet key, `submitRoleResult` for their own report, and `requestOwnStop`. Recovery alone
+can retain fenced late results with `recordRecoveryState`; they are quarantined artifacts, not accepted role reports.
+These commands require a workflow and strict typed fields; task names, principals and transaction callbacks are never
+command fields. See [role operations](operations.md#durable-role-work).
+
+Other command families named in spec §4 remain known and refuse with `capability_unavailable`, or with
+`forbidden_principal` when the principal is wrong. This includes checkpoint/intake/local-prompt decisions and source/effect
+work. Unknown types refuse with `unknown_command`.
 
 ## Receipts
 
@@ -140,6 +148,12 @@ stream begins with a fresh snapshot.
 
 Each workflow view carries `ground`, `documents`, `messages`, `commitment`, `owner`, `evidence`, `blocker`,
 `nextHumanAction` and `unavailable`. `unavailable` names the capabilities this host version does not deliver yet, for
-example coordinator replies, checkpoints, assignments, historical export and recovery packages. They are reported as
+example full coordinator replies, checkpoints, historical export and recovery packages. They are reported as
 absent, never as empty successes. The snapshot also reports `hostMode`, `executorEpoch`, the persistence readback and
 the backup state. Off-host protection is reported `unavailable` until it is delivered.
+
+Role-aware snapshots add scoped `assignments`, including exact packet/report refs, generation/Attempt, ownership,
+executing capacity and visible blockers. Workflow owner/evidence summaries reflect these assignments. A blocked owner
+may still consume a slot; `executing: false` does not surrender ownership. Assignment-agent reads expose only their own
+packet and explicitly granted immutable inputs/results, not the workflow's general document listing. Accepted packets
+and reports use the same exact-byte artifact route and integrity checks as other retained revisions.

@@ -199,7 +199,7 @@ describe("V4 two stateless clients", () => {
 			assert.ok(field in view, `snapshot lacks ${field}`);
 		}
 		assert.equal((view.ground as Record<string, unknown>).revision, ra);
-		for (const absent of ["coordinator-replies", "checkpoints", "assignments", "historical-export", "recovery-packages"]) {
+		for (const absent of ["coordinator-replies", "checkpoints", "historical-export", "recovery-packages"]) {
 			assert.ok((view.unavailable as string[]).includes(absent), absent);
 		}
 		assert.ok(!snap.stdout.includes(B1.digest), "unacknowledged bytes must not appear");

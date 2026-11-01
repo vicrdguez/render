@@ -2,7 +2,7 @@
 
 Render's own repository verification asset (spec §8.2). Rows prove behavior only when they execute against the actual
 source; scaffolding rows (build, lint) prove only what their command claims. Failure cases and their literal expected
-outcomes are in `docs/verification/durable-workspace-failure-cases.md`.
+outcomes are in `docs/verification/durable-workspace-failure-cases.md` and `docs/verification/durable-role-work-failure-cases.md`.
 
 ## Ranks
 
@@ -49,7 +49,11 @@ Strongest first. Render's ladder replaces the generic tests → build → inspec
 | two-client-reattach | Driven surface | executed | `npm run verify:two-client-reattach` | V4: two device clients (separate CLI processes), stale-write race, cross-device lost-reply retry, revocation closing reads and streams, fresh attach ≤ 5 s with exact bytes and handover fields, frame version/gap/slow-consumer rules (B1, B3). | process |
 | persistence-startup | Process | executed | `npm run verify:persistence-startup` | V7: owner lock before runtime open, WAL/FULL/fullfsync/checkpoint_fullfsync readback, incompatible stores blocked with bytes retained, fresh executorEpoch, preserved authorityEpoch and enrollment (B4). | process |
 | local-command-load | Process | executed | `npm run verify:local-command-load` | V9 (early slice-1 measurement, not the full V9 workload): two clients, 100 workflows, saves at FULL/fullfsync; p95 acknowledgement < 250 ms, snapshot < 1 s. Prints measured values. | process |
-| unsafe-controls | Tests | executed | `npm run verify:unsafe-controls` | Each of 13 named mutations makes its targeted check fail with that control's own assertion message, after the check passed unmutated: header and matrix principal forgery, stale-write acceptance, dedup before auth, dedup ignoring payload, device-bound dedup, lock after open, weakened synchronous, latest-only history, substituted corrupt bytes, revoked stream left open, Kernel mutating its inputs, slow consumer kept. Any other failure is reported as `failedOtherwise`, never as detection. | tests |
+| unsafe-controls | Tests | executed | `npm run verify:unsafe-controls` | Each of 16 named mutations makes its targeted check fail with that control's own assertion message, after the check passed unmutated: blocked-live slot release, inherited role tools, tool-owned role child, header and matrix principal forgery, stale-write acceptance, dedup before auth, dedup ignoring payload, device-bound dedup, lock after open, weakened synchronous, latest-only history, substituted corrupt bytes, revoked stream left open, Kernel mutating its inputs, slow consumer kept. Any other failure is reported as `failedOtherwise`, never as detection. | tests |
+| durable-tool-replay | Process/tests | executed | `npm run verify:durable-tool-replay` | R02/R03: host-derived invocation identity, real SQLite commit-before-result interruption (extended: `RENDER_V3_REPETITIONS=100`), safe/unsafe nested-wrapper refusals. Not a live-provider authorization. | process |
+| workflow-task-survival | Tests | executed | `npm run verify:workflow-task-survival` | R01/R07/R09: workflow-owned child survives turn abort; exact report/packet and handoff persist after reopen. | tests |
+| role-capability-refusal | Tests | executed | `npm run verify:role-capability-refusal` | R03/R04: real handler scope, explicit tools/model/family/budget, no host fallback, visible missing prerequisites. | tests |
+| cancellation-capacity | Tests | executed | `npm run verify:cancellation-capacity` | R05/R06: four executing attempts, blocked ownership versus quiescence, generation fence and stale cleanup refusal. | tests |
 | full-suite | Tests | executed | `npm test` | All rows with cheap counts (V1 10,000, V2 sampled 32, V3 one repetition per barrier) in < 5 min. | tests |
 | typecheck | Static | executed | `npm run typecheck` | `tsc --noEmit` clean. | build |
 | lint | Static | executed | `npm run lint` | `biome check` clean. | build |

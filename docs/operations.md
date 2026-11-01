@@ -96,6 +96,48 @@ Slice delivers. Until then there is no supported restore: the corrupt bytes stay
 stays blocked. Do not roll the data directory back to an older file copy. Unmarked file-level rollback is unsupported
 (spec §5.3.1) and can bring revoked devices back.
 
+## Durable role work
+
+The `durable-role-work` slice adds workflow-owned role requests, independent non-fork conversations, immutable packet
+and report artifacts, atomic result notifications, and current-assignment tool enforcement. Full design/delivery
+playbooks are not installed: there is no model-controlled scheduler, coding shell, source publication or live-provider
+authorization. Human/device routes cannot schedule assignments by impersonating the host.
+
+The trusted composition uses `Engine.options` with explicit `apiKey` and a model-ID-to-family map; production uses the
+pinned native `anthropicProvider` from Pi AI 1.4.0. A scripted provider may be supplied at that external seam for owned
+fixtures. The ordinary CLI intentionally supplies no provider credentials: role work reports
+`native_provider_configuration_missing`, not ambient home/config discovery. No credential is a packet input. Required
+models/families must match exactly; an unavailable family blocks. Packets pin exact immutable input, full principles,
+instructions, policy and profile refs, model/family/thinking, input-byte/output-token/turn budgets, expected output and
+submission method. Only host-authored predefined request keys can create child role work. Packet request trees are
+bounded to four levels, 32 children per packet and 256 additional input refs per packet; reports are at most 1 MiB.
+These are engineering bounds, not silently truncated content.
+
+Role tools are exactly `read_artifact`, `request_role`, `submit_role_result` and `request_own_stop`. The handlers check the
+real Durable task/call, conversation binding, effective current role, generation and Attempt. All nested mutation
+wrappers are initially unverified and refused, even if a wrapper declares safe replay. Tool envelopes are captured in
+a Durable memo before the first Ledger command; identity includes workflow/conversation, assignment/generation/Attempt,
+task ID and call ID. Accepted work belongs to the workflow conversation, not the requesting tool or turn.
+
+Four executing Attempts across all roles is a separate limit from Slice delivery ownership. A human-blocked live Attempt
+continues consuming its slot. Read-only conversations have no execution environment or external effect tools; joining
+provider/runtime work establishes their absence. Linux-writer profiles block with `sandbox_capability_unavailable`:
+there is no host fallback. No worker workspace is provisioned or retained in this slice; workspace-storage quotas and
+container execution/stop remain unavailable prerequisites, separate from the four-slot policy.
+
+`cancelWork` must name the current assignment, generation and Attempt. Ledger commits the new generation before Engine
+cancels/joins the role conversation. An unavailable whole-environment stop stays visible as a blocker and cannot release
+capacity. Late old-generation report text, when received, is retained as a quarantined artifact, never the role's
+accepted report or authority over a newer owner. A previously admitted provider response may still arrive.
+
+On restart, compatible read-only work resumes its own conversation/Attempt only after the store-owner lock, definition
+and uncertainty inspection and fresh executor fence. Unsafe interrupted tools or orphaned tasks block startup with
+`uncertain_execution`; timeout does not establish death. There is no generic repair/replay override: retain the store,
+inspect original task/effect evidence, and use a compatible, explicitly authorized recovery implementation. Do not delete
+task records or issue a new command to guess away an unknown effect. Missing/corrupt packet inputs require restoration
+of those exact refs. Full history/export/package/restore are not delivered by the prepared dependency; packet/report
+revisions and their binding identities are retained for those later owners, not advertised as a supported package.
+
 ## Evidence limits
 
 - Checks run on darwin-arm64 (Node 24.21.0, SQLite bundled with `node:sqlite`). Persistence readback shows the
