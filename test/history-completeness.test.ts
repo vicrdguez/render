@@ -43,7 +43,7 @@ test("history-cutoff-export: default selection never widens and pages declare re
 	}
 });
 
-for (const failure of ["missing_content", "content_corrupt"]) {
+for (const failure of ["missing_content", "content_corrupt", "invalid_content_type"]) {
 	test(`history-cutoff-export: acknowledged message ${failure} cannot become an external link or replacement text`, async () => {
 		const dir = await tempDir("history-message-loss");
 		let host = await startHost(dir.path);
@@ -68,7 +68,7 @@ for (const failure of ["missing_content", "content_corrupt"]) {
 					if (record.kind !== "render.message") continue;
 					if (failure === "missing_content") db.prepare("DELETE FROM entries WHERE id = ?").run(row.id);
 					else {
-						record.data.text = null;
+						record.data.text = failure === "invalid_content_type" ? null : "forged literal";
 						db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(record), row.id);
 					}
 				}
@@ -77,12 +77,14 @@ for (const failure of ["missing_content", "content_corrupt"]) {
 			}
 			host = await startHost(dir.path);
 			const exact = await http(host.url, "GET", `/v1/artifacts/${ref}`, { bearer: dev.bearer });
-			assert.equal(exact.body.code, failure);
+			assert.equal(exact.body.code, failure === "invalid_content_type" ? "content_corrupt" : failure);
 			const exported = await http(host.url, "GET", `/v1/export?workflow=${encodeURIComponent(w)}`, { bearer: dev.bearer });
 			assert.equal(exported.status, 200);
 			const manifest = exported.body.manifest as { complete: boolean; missing: { ref: string; code: string }[] };
 			assert.equal(manifest.complete, false, "missing/corrupt acknowledged messages must make export incomplete");
-			assert.ok(manifest.missing.some((m) => m.ref === ref && m.code === failure));
+			assert.ok(
+				manifest.missing.some((m) => m.ref === ref && m.code === (failure === "invalid_content_type" ? "content_corrupt" : failure)),
+			);
 			assert.equal(ref in (exported.body.content as object), false);
 		} finally {
 			await host.stop();
