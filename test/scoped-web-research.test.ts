@@ -11,10 +11,10 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { ConversationId, JsonObject } from "@earendil-works/pi-durable";
 import { Engine } from "../src/engine/runtime.ts";
-import type { HistoryExport } from "../src/ledger/history.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
-import { mintContext } from "../src/ledger/principals.ts";
+import type { HistoryExport } from "../src/ledger/history.ts";
 import type { LedgerRefusal } from "../src/ledger/ledger.ts";
+import { mintContext } from "../src/ledger/principals.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
 
 // Owned HTTP responses are the external variability. Engine, root Webfox, Durable and SQLite stay real.

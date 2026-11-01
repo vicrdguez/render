@@ -48,7 +48,9 @@ test("R03 explicit role configuration does not inherit tools; model IDs cannot o
 	p.setResponses([
 		(ctx) => {
 			visibleTools = ctx.messages.flatMap((m) => (m.role === "system" ? (m.toolsAdded ?? []).map((t) => t.name) : [])).sort();
-			return fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "forged", commandId: "model-id" }), { stopReason: "toolUse" });
+			return fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "forged", commandId: "model-id" }), {
+				stopReason: "toolUse",
+			});
 		},
 		fauxAssistantMessage("No submission"),
 	]);
