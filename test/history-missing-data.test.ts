@@ -27,7 +27,9 @@ for (const failure of ["missing_content", "content_corrupt", "unsupported_schema
 						db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(record), row.id);
 					}
 				}
-			} finally { db.close(); }
+			} finally {
+				db.close();
+			}
 			host = await startHost(dir.path);
 			const read = await http(host.url, "GET", `/v1/artifacts/${ref}`, { bearer: dev.bearer });
 			assert.equal(read.body.code, failure);
@@ -38,6 +40,9 @@ for (const failure of ["missing_content", "content_corrupt", "unsupported_schema
 			assert.ok(manifest.missing.some((m) => m.ref === ref && m.code === failure));
 			assert.equal(ref in (exported.body.content as object), false);
 			assert.ok(!String(exported.body.text).includes("forged bytes"));
-		} finally { await host.stop(); await dir.remove(); }
+		} finally {
+			await host.stop();
+			await dir.remove();
+		}
 	});
 }

@@ -1,6 +1,6 @@
 # Render host protocol, version 1
 
-This is the client-facing wire contract delivered by the `durable-workspace` Slice. It implements the semantic envelope of
+This is the client-facing wire contract delivered by `durable-workspace` and extended by `historical-export`. It implements the semantic envelope of
 [spec §5.2–5.3](spec.md#53-command-receipt-and-snapshot-contract) on a loopback HTTP listener. Route names are
 implementation choices; the envelope, receipt, refusal and frame semantics are the contract.
 
@@ -112,12 +112,32 @@ after the client gave up. Retry the original ID and payload. Do not mint a new I
 ## Reads
 
 - `GET /v1/snapshot?version=1`: one snapshot frame (below).
-- `GET /v1/artifacts/<revision>`: exact bytes and provenance:
+- `GET /v1/artifacts/<revision-or-message>`: exact bytes and provenance:
   `{ artifact, kind, schema, workflow, document, mediaType, digest, byteLength, parents, createdBy, commandId, recordedAtSequence, content }`.
-  `content` is base64. Schema compatibility is checked before interpreting content; the digest and length are re-verified on every read.
+  `content` is base64. Also includes `supersedes`, `source`, `policy`, `assignment`, `attempt`, `decisionRefs`, `outcomeRefs` (null/empty when not applicable). A document save supersedes its previous revision, not a domain decision. Schema compatibility is checked before interpreting content; revision digest/length are re-verified on every read. Message digests/lengths are computed from retained UTF-8 text. Absent and out-of-scope immutable refs both answer `401 unauthorized`, without distinguishing existence.
 - `GET /v1/workflows/<workflow>/messages?cursor=<next>&limit=<n>`: scoped coordinator messages, oldest first,
   `{ messages, next, complete }`. Pass `next` back as `cursor` for the following page; `complete: true` means there are
   no more.
+
+## Fixed-cutoff history and portable export
+
+`GET /v1/history` and `GET /v1/export` accept the same selectors: `workflow`, optional `kind`, optional opaque `cursor`, `limit` (integer 1–500, default 100), `version=1`. Unknown/duplicate selectors or invalid limits refuse `invalid_query`; unsupported versions refuse `unsupported_version`. `proposal`, `assignment`, `outcome` and not-yet-delivered kinds refuse `capability_unavailable`, never empty success. Delivered kinds: `workflow`, `ground`, `document`, `message`, `fact`, `receipt`.
+
+Without a workflow selector, scope is the exact set of workflows currently visible to the caller; local admin and all-workflow devices also select global facts. Narrow devices never select global administration. Receipt authorization is unchanged: receipts inaccessible to the reader are explicitly redacted. Credentials, verifiers and cursor signing keys are never exported. History currently admits human readers only; future assignment/host reads require their own delivered scope semantics.
+
+A page is `{ version, cutoff, scope, records, next, complete, missing, exclusions }`. `next` is null when traversal ends; `complete` additionally requires no missing data. Cursors are HMAC-bound to authority epoch, human, selected workflow set, filters, cutoff and position. They survive ordinary restart and can move between currently authorized devices of that human. A cursor is not authority: scope and revocation are checked again, including before final disclosure. Changed selectors, tampering or insufficient scope refuse `invalid_cursor`. New writes cannot enter an existing traversal; start without a cursor to see them. Live message pagination remains a legacy current read, not this history protocol.
+
+An export with a page cursor exports the **whole selected traversal**, not just its remaining pages, at that cursor’s original cutoff. Without a cursor it selects a new cutoff. The JSON envelope is `{ version: 1, manifest, jsonl, text, content }`: `manifest` is a versioned `render-history` object; `jsonl` is normalized record-per-line text; `text` is a human-readable rendering; `content` maps immutable refs to base64 exact bytes. It is self-contained and can be saved as one JSON file. No SQLite/Git access or Render runtime is needed to read it:
+
+```sh
+node src/client/read-export.ts export.json > inspected.json
+```
+
+The standalone reader validates format/schema, scope/cutoff/order/count, links and exact byte digests/lengths, and returns normalized records and literal text. Nonzero exit returns named refusal JSON. Missing-data exports can be read as incomplete; they never contain substituted bytes. `externalRefs` declares links outside the included records (for example a kind filter); `redactions` declares inaccessible receipts; `omittedKinds` names unavailable future kinds. `complete` means all selected, delivered, non-redacted records are present, **not** every possible future kind or complete runtime evidence. Outcomes remain null where no domain classification exists; saved claims are human text, not runner receipts. Chronology alone adds no causal links. Equal bytes retain distinct identities/provenance and predecessor links.
+
+The manifest always excludes `unsaved_client_buffers`, `uncommitted_provider_streams`, `unsnapshotted_worker_files`. No assignment/Attempt, retained packet, decision/policy, classified outcome, execution/effect or runtime transcript capability is fabricated. When introduced, those owners must extend this versioned protocol and reader. This export is inspection/history, **not a supported recovery backup**.
+
+Engineering bound: pages and exports scan selected retained conversations and assemble results in memory; page size bounds returned records, not scan cost or export size. This intentionally avoids a new history index/storage migration. Old message records lack independently stored digest metadata: export/read computes their digest, while immutable document revisions verify their original stored digest. No new integrity guarantee for arbitrary filesystem/database replacement is claimed.
 
 ## Observation
 
@@ -140,6 +160,6 @@ stream begins with a fresh snapshot.
 
 Each workflow view carries `ground`, `documents`, `messages`, `commitment`, `owner`, `evidence`, `blocker`,
 `nextHumanAction` and `unavailable`. `unavailable` names the capabilities this host version does not deliver yet, for
-example coordinator replies, checkpoints, assignments, historical export and recovery packages. They are reported as
+example coordinator replies, checkpoints, assignments and recovery packages. They are reported as
 absent, never as empty successes. The snapshot also reports `hostMode`, `executorEpoch`, the persistence readback and
 the backup state. Off-host protection is reported `unavailable` until it is delivered.

@@ -16,6 +16,17 @@ import {
 } from "../kernel/kernel.ts";
 import { faultBarrier } from "./barrier.ts";
 import { decodeUtf8, type Envelope, PROTOCOL_VERSION, parseEnvelope } from "./envelope.ts";
+import {
+	exportHistory,
+	type HistoryExport,
+	type HistoryPage,
+	type HistoryQuery,
+	type HistoryRecord,
+	historyPage,
+	type Missing,
+	refusal,
+	selectHistory,
+} from "./history.ts";
 import { type AuthenticatedContext, bearerOf, mintContext, newSecret, parseBearer, principalOf, verifies } from "./principals.ts";
 import {
 	type AcceptedBy,
@@ -55,14 +66,21 @@ export type Frame = Readonly<Record<string, unknown>> & { readonly version: numb
 
 export type Artifact = {
 	readonly artifact: string;
-	readonly kind: "ground" | "document";
+	readonly kind: "ground" | "document" | "message";
 	readonly schema: number;
 	readonly workflow: string;
-	readonly document: string;
+	readonly document: string | null;
 	readonly mediaType: string;
 	readonly digest: string;
 	readonly byteLength: number;
 	readonly parents: readonly string[];
+	readonly supersedes: readonly string[];
+	readonly source: null;
+	readonly policy: null;
+	readonly assignment: null;
+	readonly attempt: null;
+	readonly decisionRefs: readonly string[];
+	readonly outcomeRefs: readonly string[];
 	readonly createdBy: AcceptedBy;
 	readonly commandId: string;
 	readonly recordedAtSequence: number;
@@ -491,10 +509,16 @@ export class Ledger {
 	}
 
 	/** Starts an observation: a complete snapshot, then change frames delivered without ever delaying commits. */
+	observe(context: AuthenticatedContext, request: { history: HistoryQuery }): Promise<HistoryPage | LedgerRefusal>;
 	observe(
 		context: AuthenticatedContext,
 		sink: { send(frame: Frame): void; end(frame: Frame): void },
-	): { snapshot: Frame; stop(): void } | LedgerRefusal {
+	): { snapshot: Frame; stop(): void } | LedgerRefusal;
+	observe(
+		context: AuthenticatedContext,
+		sink: { send(frame: Frame): void; end(frame: Frame): void } | { history: HistoryQuery },
+	): { snapshot: Frame; stop(): void } | LedgerRefusal | Promise<HistoryPage | LedgerRefusal> {
+		if ("history" in sink) return this.#history(context, sink.history, false);
 		const principal = principalOf(context);
 		if (principal === undefined || !this.#current(principal)) return UNAUTHORIZED;
 		if (this.#mode !== "active") return { status: "refused", code: "host_unavailable", reason: `The host is ${this.#mode}.` };
@@ -518,7 +542,13 @@ export class Ledger {
 	}
 
 	/** Immutable content reads. Uploads are not a separate capability in this version: saves carry complete bytes. */
-	artifact(context: AuthenticatedContext, request: { read: string } | { upload: unknown }): Promise<Artifact | LedgerRefusal> {
+	artifact(context: AuthenticatedContext, request: { export: HistoryQuery }): Promise<HistoryExport | LedgerRefusal>;
+	artifact(context: AuthenticatedContext, request: { read: string } | { upload: unknown }): Promise<Artifact | LedgerRefusal>;
+	artifact(
+		context: AuthenticatedContext,
+		request: { read: string } | { upload: unknown } | { export: HistoryQuery },
+	): Promise<Artifact | HistoryExport | LedgerRefusal> {
+		if ("export" in request) return this.#history(context, request.export, true);
 		return this.#read(context, async (principal) => {
 			if (!("read" in request))
 				return {
@@ -527,8 +557,9 @@ export class Ledger {
 					reason: "Separate artifact uploads are not available; saves carry bytes.",
 				};
 			const ref = request.read;
+			if (ref.startsWith("message:")) return this.#messageArtifact(principal, ref);
 			const location = await this.#harness.snapshot(RevisionLocation, ref, ctx);
-			if (!location?.exists || !visible(principal, location.workflow)) return NOT_FOUND;
+			if (!location?.exists || !visible(principal, location.workflow)) return UNAUTHORIZED;
 			const entry = await this.#entry(location.conversation, location.entry);
 			const restore = { restore: ref };
 			if (entry === undefined || entry.kind !== RevisionEntry.kind)
@@ -555,6 +586,13 @@ export class Ledger {
 				digest: data.digest,
 				byteLength: data.byteLength,
 				parents: data.parent === null ? [] : [data.parent],
+				supersedes: data.parent === null ? [] : [data.parent],
+				source: null,
+				policy: null,
+				assignment: null,
+				attempt: null,
+				decisionRefs: [],
+				outcomeRefs: [],
 				createdBy: data.createdBy,
 				commandId: data.commandId,
 				recordedAtSequence: data.recordedAtSequence,
@@ -601,11 +639,201 @@ export class Ledger {
 		});
 	}
 
+	async #messageArtifact(principal: Principal, ref: string): Promise<Artifact | LedgerRefusal> {
+		let acknowledged = false;
+		for (const w of this.#workflows.values()) {
+			if (!visible(principal, w.id)) continue;
+			const conversation = await this.#harness.conversation(w.conversation as ConversationId, ctx);
+			if (!conversation) continue;
+			let cursor: Parameters<typeof conversation.entries>[2];
+			for (;;) {
+				const page = await conversation.entries({ order: "ascending" }, 200, cursor, ctx);
+				for (const entry of page.items) {
+					const d = entry.data as Record<string, unknown>;
+					if (entry.kind === FactEntry.kind && (d.refs as Record<string, string>)?.message === ref) acknowledged = true;
+					if (entry.kind !== MessageEntry.kind || d.message !== ref) continue;
+					const unsupported = unsupportedRecordSchema(d.schema, ref);
+					if (unsupported) return unsupported;
+					if (typeof d.text !== "string") return refusal("content_corrupt", `Restore exact message ${ref}.`);
+					const bytes = Buffer.from(d.text, "utf8");
+					return {
+						artifact: ref,
+						kind: "message",
+						schema: 1,
+						workflow: w.id,
+						document: null,
+						mediaType: "text/plain",
+						digest: sha256(bytes),
+						byteLength: bytes.length,
+						parents: [],
+						supersedes: [],
+						source: null,
+						policy: null,
+						assignment: null,
+						attempt: null,
+						decisionRefs: [],
+						outcomeRefs: [],
+						createdBy: d.createdBy as AcceptedBy,
+						commandId: String(d.commandId),
+						recordedAtSequence: Number(d.recordedAtSequence),
+						content: bytes,
+					};
+				}
+				if (page.next === undefined) break;
+				cursor = page.next;
+			}
+		}
+		return acknowledged ? refusal("missing_content", `Restore exact message ${ref}.`) : UNAUTHORIZED;
+	}
+
+	#history(context: AuthenticatedContext, query: HistoryQuery, exporting: false): Promise<HistoryPage | LedgerRefusal>;
+	#history(context: AuthenticatedContext, query: HistoryQuery, exporting: true): Promise<HistoryExport | LedgerRefusal>;
+	#history(context: AuthenticatedContext, query: HistoryQuery, exporting: boolean): Promise<HistoryPage | HistoryExport | LedgerRefusal> {
+		return this.#read(context, async (principal) => {
+			if (principal.kind !== "human") return refusal("forbidden_principal", "History requires a scoped human reader in this version.");
+			const selected = selectHistory(query, {
+				epoch: this.#meta.authorityEpoch,
+				owner: namespaceOf(principal),
+				key: this.#meta.historyCursorKey ?? "",
+				sequence: this.#meta.sequence,
+				workflows: [...this.#workflows.keys()].filter((w) => visible(principal, w)),
+				global: principal.route === "local-admin" || principal.workflows === "all",
+			});
+			if ("status" in selected) return selected;
+			const { state, limit } = selected;
+			const records: HistoryRecord[] = [];
+			const missing: Missing[] = [];
+			const redactions: string[] = [];
+			const content: Record<string, string> = {};
+			const revisions = new Set<string>();
+			const wanted = (kind: string) => state.scope.kinds.length === 0 || state.scope.kinds.includes(kind);
+			const add = (r: HistoryRecord) => {
+				if (wanted(r.kind)) records.push(r);
+			};
+			const base = (ref: string, kind: string, workflow: string | null, sequence: number, commandId: string | null): HistoryRecord => ({
+				ref,
+				kind,
+				schema: 1,
+				workflow,
+				sequence,
+				commandId,
+				parents: [],
+				supersedes: [],
+				refs: {},
+				outcome: null,
+				source: null,
+				policy: null,
+				assignment: null,
+				attempt: null,
+				decisionRefs: [],
+				outcomeRefs: [],
+			});
+			const conversations: { id: number; workflow: string | null }[] = [];
+			for (const id of state.scope.workflows) {
+				const w = this.#workflows.get(id);
+				if (!w || w.createdAtSequence > state.cutoff) continue;
+				add({ ...base(id, "workflow", id, w.createdAtSequence, null), title: w.title });
+				conversations.push({ id: w.conversation, workflow: id });
+			}
+			if (state.scope.global) conversations.push({ id: this.#meta.ledgerConversation, workflow: null });
+			for (const owner of conversations) {
+				const conversation = await this.#harness.conversation(owner.id as ConversationId, ctx);
+				if (!conversation) {
+					missing.push({ ref: owner.workflow ?? "ledger", code: "missing_content" });
+					continue;
+				}
+				let cursor: Parameters<typeof conversation.entries>[2];
+				for (;;) {
+					const page = await conversation.entries({ order: "ascending" }, 200, cursor, ctx);
+					for (const entry of page.items) {
+						const d = entry.data as Record<string, unknown>;
+						const sequence = Number(d.recordedAtSequence ?? d.sequence);
+						if (sequence > state.cutoff) continue;
+						const ref = String(d.revision ?? d.message ?? d.fact ?? `entry:${entry.id}`);
+						if (entry.kind === RevisionEntry.kind) {
+							revisions.add(ref);
+							continue;
+						}
+						const kind = entry.kind === FactEntry.kind ? "fact" : entry.kind === MessageEntry.kind ? "message" : entry.kind;
+						if (!wanted(kind) && kind !== "fact") continue;
+						if (d.schema !== 1) {
+							missing.push({ ref, code: "unsupported_schema" });
+							continue;
+						}
+						if (kind === "message") {
+							const bytes = Buffer.from(String(d.text), "utf8");
+							add({
+								...base(ref, kind, owner.workflow, sequence, String(d.commandId)),
+								createdBy: d.createdBy,
+								claimType: "human_text",
+								content: true,
+								digest: sha256(bytes),
+								byteLength: bytes.length,
+								mediaType: "text/plain",
+							});
+							content[ref] = bytes.toString("base64");
+						} else if (kind === "fact") {
+							const refs = d.refs as Record<string, string>;
+							if (refs.revision) revisions.add(refs.revision);
+							add({ ...base(ref, kind, owner.workflow, sequence, String(d.commandId)), command: d.command, refs, createdBy: d.by });
+							const namespace = (d.by as AcceptedBy).principal === "human" ? this.#meta.human : "host:recovery";
+							const receipt = await this.#harness.snapshot(Receipt, `${namespace} ${String(d.commandId)}`, ctx);
+							if (!receipt?.exists) {
+								missing.push({ ref: `receipt:${sequence}`, code: "missing_content" });
+								continue;
+							}
+							if (!readable(receipt.body, principal)) {
+								redactions.push(receipt.body.receipt);
+								continue;
+							}
+							add({
+								...base(receipt.body.receipt, "receipt", owner.workflow, sequence, receipt.body.commandId),
+								acceptedBy: receipt.body.acceptedBy,
+								status: "accepted",
+								authorityEpoch: receipt.body.authorityEpoch,
+								result: receipt.body.result,
+								refs: Object.fromEntries(receipt.body.facts.map((f, i) => [`fact${i}`, f])),
+							});
+						} else {
+							missing.push({ ref, code: "unsupported_schema" });
+						}
+					}
+					if (page.next === undefined) break;
+					cursor = page.next;
+				}
+			}
+			for (const ref of revisions) {
+				const artifact = await this.artifact(context, { read: ref });
+				if ("status" in artifact) {
+					missing.push({ ref, code: artifact.code });
+					continue;
+				}
+				if (artifact.recordedAtSequence > state.cutoff) continue;
+				if (!wanted(artifact.kind)) continue;
+				const { content: bytes, artifact: id, recordedAtSequence: sequence, ...metadata } = artifact;
+				records.push({
+					...base(id, artifact.kind, artifact.workflow, sequence, artifact.commandId),
+					...metadata,
+					parents: [...artifact.parents],
+					supersedes: [...artifact.supersedes],
+					content: true,
+				});
+				content[id] = bytes.toString("base64");
+			}
+			records.sort((a, b) => a.sequence - b.sequence || a.ref.localeCompare(b.ref));
+			return exporting
+				? exportHistory(records, missing, redactions, state, content)
+				: historyPage(records, missing, state, limit, this.#meta.historyCursorKey ?? "", this.#meta.sequence);
+		});
+	}
+
 	async #read<T>(context: AuthenticatedContext, read: (principal: Principal) => Promise<T | LedgerRefusal>): Promise<T | LedgerRefusal> {
 		const principal = principalOf(context);
 		if (principal === undefined || !this.#current(principal)) return UNAUTHORIZED;
 		if (this.#mode === "failed") return { status: "refused", code: "host_unavailable", reason: "The host failed." };
-		return read(principal);
+		const result = await read(principal);
+		// Revocation during a multi-read page/export must also prevent its final disclosure.
+		return this.#current(principal) ? result : UNAUTHORIZED;
 	}
 
 	async #entry(conversation: number, id: number) {
@@ -642,7 +870,13 @@ export class Ledger {
 				targetExposedWorkSeconds: 300,
 				verifiedOffHostCutoffSequence: null,
 			},
-			history: { status: "unavailable", reason: "Historical export is not available in this host version." },
+			history: {
+				status: "available",
+				head: `history:${this.#meta.sequence}`,
+				completeThroughSequence: this.#meta.sequence,
+				exportVersion: 1,
+				backup: false,
+			},
 			workflows: view({ workflows }, scopeOf(principal)).workflows,
 		};
 	}

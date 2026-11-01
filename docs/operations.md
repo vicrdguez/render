@@ -89,12 +89,20 @@ No automatic migration or package recovery is available in this Slice.
 
 ## Content integrity
 
-Every artifact read re-verifies the stored bytes against their SHA-256 digest and length. A mismatch answers
+Every document revision artifact read re-verifies the stored bytes against their SHA-256 digest and length. Message artifact reads compute a digest/length from the retained text; legacy messages have no independently stored digest. A mismatch answers
 `content_corrupt`, with `refs.restore` naming the exact revision. A save over that revision is refused the same way.
 The host never substitutes other bytes. Supported restore of an exact revision needs recovery packages, which a later
 Slice delivers. Until then there is no supported restore: the corrupt bytes stay preserved and the affected document
 stays blocked. Do not roll the data directory back to an older file copy. Unmarked file-level rollback is unsupported
 (spec §5.3.1) and can bring revoked devices back.
+
+## Historical browsing and export
+
+Use authenticated `GET /v1/history?workflow=<ref>&limit=100`; retain its opaque `next` cursor and fixed `cutoff` for continuation. `GET /v1/export` with the same selectors/cursor returns the whole selection at that cutoff, including superseded revisions, normalized facts/receipts and exact bytes. Save the response JSON as `export.json`; inspect with `node src/client/read-export.ts export.json`. Use the same paired transport/admin socket as other reads. Handle refusal responses before treating a downloaded file as an export. See [protocol](protocol.md#fixed-cutoff-history-and-portable-export) for version, completeness, redaction and exclusion semantics.
+
+Ordinary restart preserves enrollment, epoch and a private cursor HMAC key. Existing schema-1 stores acquire that optional housekeeping key atomically before admission; immutable records/receipt identities and Render sequence are not rewritten. Never export the live Meta document or cursor key. A cursor is not a credential: revoked/narrowed devices cannot use it to recover broader history. Start a new traversal for later writes or a changed selection.
+
+Missing/corrupt or unknown-schema content appears in `manifest.missing` with its exact ref and makes the export incomplete; exact reads refuse with the corresponding named outcome. Preserve the store and use a compatible version for unsupported schemas. Exact-content restore/package repair is not delivered yet: do not fabricate replacement bytes, silently drop the declaration, edit the DB as a repair, or claim export is a backup. Unsaved buffers/uncommitted streams/unsnapshotted files are always outside history. Classified outcomes, retained role packets and runtime records are not yet produced; their unavailable kinds are explicit. No external service, worker, model or human trial is required for these local history checks.
 
 ## Evidence limits
 

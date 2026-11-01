@@ -19,6 +19,8 @@ export type MetaState = {
 	sequence: number;
 	/** Conversation holding facts that belong to no workflow. */
 	ledgerConversation: number;
+	/** Private persistent HMAC key; cursors remain valid across restart and same-human devices. */
+	historyCursorKey?: string;
 	workflows: string[];
 	devices: string[];
 	startups: { executorEpoch: string; sequence: number; persistence: Persistence }[];
