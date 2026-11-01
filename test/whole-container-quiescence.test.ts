@@ -56,3 +56,29 @@ test("whole-container-quiescence: missing runtime quarantines durably and cannot
 		await f.close();
 	}
 });
+
+for (const trigger of ["absent image", "canceled preparation"] as const)
+	test(`whole-container-quiescence: ${trigger} confirms no runtime without allowing workspace reuse`, async () => {
+		const f = await sourceFixture();
+		try {
+			const source = await f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit });
+			const profile = trigger === "absent image" ? { ...f.profile, image: `sha256:${"0".repeat(64)}` } : f.profile;
+			const preparing = f.sandboxes.prepare(f.scope, profile, source);
+			const rejected = assert.rejects(preparing, trigger === "absent image" ? /image.*failed/i : /fenced before create/i);
+			if (trigger === "canceled preparation") {
+				const stopped = await f.sandboxes.stop({ scope: f.scope });
+				assert.equal(stopped.running, false);
+				assert.deepEqual(stopped.executions, []);
+			}
+			await rejected;
+			const reopened = new Sandboxes({ root: join(f.root, "sandboxes"), authorize: () => true });
+			const stopped = await reopened.stop({ scope: f.scope });
+			assert.equal(stopped.running, false);
+			assert.deepEqual(stopped.executions, []);
+			assert.equal(stopped.source.commit, f.commit);
+			await assert.rejects(reopened.prepare(f.scope, f.profile, source), /reuse|exist/i);
+			await assert.rejects(f.sandboxes.prepare(f.scope, f.profile, source), /reuse|exist/i);
+		} finally {
+			await f.close();
+		}
+	});

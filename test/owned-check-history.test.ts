@@ -84,3 +84,52 @@ test("owned check exact command/source/platform receipt survives history, export
 		await source.close();
 	}
 });
+
+for (const [exitCode, status] of [[0, "passed"], [7, "failed"]] as const)
+	test(`owned check unchanged source with declared generated caches records ${status} for exit ${exitCode}`, async () => {
+		const source = await sourceFixture();
+		const config = {
+			root: join(source.root, "owned"),
+			repositories: { owned: source.repo },
+			checks: {
+				"revision:3": {
+					repository: "owned",
+					commit: source.commit,
+					profile: { ...source.profile, exclusions: [".git", "node_modules", "cache", "absent"] },
+					argv: ["sh", "-c", `mkdir node_modules cache; echo dependency > node_modules/package; echo generated > cache/data; exit ${exitCode}`],
+					timeoutMs: 10000,
+					verifierRevision: source.commit,
+				},
+			},
+		};
+		const f = await roleFixture(new Engine({ ownedChecks: config }));
+		try {
+			assert.equal((await f.command({
+				type: "assignTask", slice: "cache:check", delivery: true, packet: packet({ execution: "linux-writer" }),
+			})).status, "accepted");
+			let a: RoleAssignment;
+			const deadline = Date.now() + 20000;
+			for (;;) {
+				const snapshot = f.ledger.snapshot(admin);
+				assert.ok("assignments" in snapshot);
+				a = (snapshot.assignments as RoleAssignment[])[0]!;
+				if (!a.executing && (a.report || a.status === "blocked")) break;
+				assert.ok(Date.now() < deadline, JSON.stringify(a));
+				await setTimeout(20);
+			}
+			assert.equal(a.status, "submitted", a.blocker ?? "expected retained receipt");
+			const read = await f.ledger.artifact(admin, { read: a.report! });
+			assert.ok("content" in read);
+			const receipt = JSON.parse(read.content.toString());
+			assert.equal(receipt.execution.exitCode, exitCode);
+			assert.equal(receipt.verification.status, status);
+			assert.equal(receipt.verification.inputTree, receipt.verification.resultTree);
+			assert.deepEqual(receipt.source.exclusions.sort(), ["cache", "node_modules"]);
+			assert.deepEqual(receipt.source.deleted, []);
+			assert.deepEqual(receipt.source.source.entries.map((entry: { path: string }) => entry.path),
+				[".gitattributes", "crlf", "ignored", "link", "run", "subst"]);
+		} finally {
+			await f.close();
+			await source.close();
+		}
+	});

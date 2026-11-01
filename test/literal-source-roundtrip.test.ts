@@ -75,7 +75,7 @@ test("literal-source-roundtrip: gitlinks refuse rather than fetch modules", asyn
 	}
 });
 
-test("literal-source-roundtrip: exclusions cannot hide base or potential deliverables", async () => {
+test("literal-source-roundtrip: declared caches are excluded, base conflicts refuse and undeclared deliverables survive", async () => {
 	const f = await sourceFixture();
 	let handle: Awaited<ReturnType<typeof f.sandboxes.prepare>> | undefined;
 	try {
@@ -84,10 +84,14 @@ test("literal-source-roundtrip: exclusions cannot hide base or potential deliver
 		handle = await f.sandboxes.prepare(f.scope, { ...f.profile, exclusions: [".git", "cache"] }, base);
 		await f.sandboxes.execute(handle, {
 			scope: f.scope,
-			argv: ["sh", "-c", "mkdir cache; echo deliverable > cache/new.txt"],
+			argv: ["sh", "-c", "mkdir cache; echo generated > cache/new.txt; echo deliverable > new.txt"],
 			timeoutMs: 10000,
 		});
-		await assert.rejects(f.sandboxes.seal(handle), /exclu|deliverable/i);
+		const capture = await f.sandboxes.seal(handle);
+		assert.deepEqual(capture.exclusions, ["cache"]);
+		assert.equal(capture.entries.some((entry) => entry.path.startsWith("cache/")), false);
+		assert.equal(capture.entries.find((entry) => entry.path === "new.txt")?.content, Buffer.from("deliverable\n").toString("base64"));
+		assert.equal(capture.entries.find((entry) => entry.path === "ignored")?.content, Buffer.from("must not disappear\n").toString("base64"));
 	} finally {
 		if (handle) await f.sandboxes.stop(handle).catch(() => {});
 		await f.close();
