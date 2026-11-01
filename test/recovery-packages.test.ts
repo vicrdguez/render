@@ -174,6 +174,11 @@ test("package-validation / managed-restore: nonclean refusal leaves the existing
 		const refused = restore(f.data, String(p.body.path));
 		assert.equal(refused.status, 2, refused.stderr);
 		assert.match(refused.stderr, /restore needs a clean destination; existing data preserved/);
+		assert.equal(
+			JSON.parse(refused.stderr).action,
+			"Preserve existing data and the package; retry in a clean directory. Failed imports remain admission-disabled.",
+			"restore refusal guidance must not claim an untouched store was disabled",
+		);
 		assert.deepEqual(await readFile(join(f.data, "render.db")), before, "refused restore must not overwrite existing bytes");
 		const h = await startHost(f.data);
 		try {

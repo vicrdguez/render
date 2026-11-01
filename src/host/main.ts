@@ -25,7 +25,7 @@ async function main(): Promise<void> {
 			emit(process.stderr, {
 				event: "restore_refused",
 				reason: String(error),
-				action: "Destination remains admission-disabled; preserve the package and use a clean directory.",
+				action: "Preserve existing data and the package; retry in a clean directory. Failed imports remain admission-disabled.",
 			});
 			process.exitCode = 2;
 		}
