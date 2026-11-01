@@ -63,6 +63,7 @@ test("R12 retained role packets, reports, task receipts and uncertainty export a
 			const retained = records.find((r) => r.ref === a.packetRef);
 			assert.equal(retained.assignment, a.id);
 			assert.equal(retained.attempt, a.attempt);
+			assert.equal(retained.generation, 1, "export must preserve the original generation, not discard retained role provenance");
 			assert.ok(
 				records.some((r) => r.kind === "receipt" && r.result.task === a.task),
 				"accepted task binding must be exported",
