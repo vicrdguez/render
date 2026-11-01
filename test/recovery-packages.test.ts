@@ -278,8 +278,18 @@ test("package-validation: checksummed but semantically invalid retained relation
 		const p = await adminCommand(f.h, "createRecoveryPackage");
 		assert.equal(p.body.status, "packaged", p.text);
 		for (const kind of [
-			"pointer", "receipt", "receipt-result", "device", "parent", "schema", "unknown-kind", "future-fact",
-			"message-text", "message-digest", "message-length", "message-partial",
+			"pointer",
+			"receipt",
+			"receipt-result",
+			"device",
+			"parent",
+			"schema",
+			"unknown-kind",
+			"future-fact",
+			"message-text",
+			"message-digest",
+			"message-length",
+			"message-partial",
 		]) {
 			const bad = join(f.dir.path, `semantic-${kind}`);
 			await cp(String(p.body.path), bad, { recursive: true });
@@ -313,7 +323,10 @@ test("package-validation: checksummed but semantically invalid retained relation
 			await harness.close(BACKGROUND_CONTEXT);
 			const sql = new DatabaseSync(dbPath);
 			if (kind.startsWith("message-")) {
-				const row = sql.prepare("SELECT id, record FROM entries WHERE json_extract(record, '$.kind') = 'render.message'").get() as { id: number; record: string };
+				const row = sql.prepare("SELECT id, record FROM entries WHERE json_extract(record, '$.kind') = 'render.message'").get() as {
+					id: number;
+					record: string;
+				};
 				const record = JSON.parse(row.record);
 				// Independent literal SHA-256/UTF-8 length for "hello"; also exercises pre-slice2 fixtures.
 				record.data.digest = "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
@@ -348,7 +361,7 @@ test("package-validation: checksummed but semantically invalid retained relation
 				.digest("hex");
 			await writeFile(join(bad, "manifest.json"), JSON.stringify(manifest));
 			assert.notEqual(restore(join(f.dir.path, `reject-${kind}`), bad).status, 0, `${kind} semantics must be validated beyond checksums`);
-			const direct = join(f.dir.path, `direct-${kind}`);
+			const direct = join(f.dir.path, `d${kind.indexOf("message-") === 0 ? kind.slice(8) : kind}`);
 			await mkdir(direct);
 			await cp(dbPath, join(direct, "render.db"));
 			const h = await startHost(direct);
@@ -375,8 +388,14 @@ test("package-clean-restore / restore-newer-world: history scope, secret exclusi
 		await f.h.stop();
 		const adapter = await openNodeSqliteDatabase(join(f.data, "render.db"));
 		const storage = await SqliteStorage.open(adapter);
-		const harness = await Harness.open(storage, runtimeOptions(() => undefined), BACKGROUND_CONTEXT);
-		await harness.commit(async (tx) => { (await tx.doc(Meta)).historyCursorKey = key; }, BACKGROUND_CONTEXT);
+		const harness = await Harness.open(
+			storage,
+			runtimeOptions(() => undefined),
+			BACKGROUND_CONTEXT,
+		);
+		await harness.commit(async (tx) => {
+			(await tx.doc(Meta)).historyCursorKey = key;
+		}, BACKGROUND_CONTEXT);
 		await harness.close(BACKGROUND_CONTEXT);
 		f.h = await startHost(f.data);
 		const original = await http(f.h.url, "GET", "/v1/history?limit=1", { bearer: f.device.bearer });
@@ -385,36 +404,69 @@ test("package-clean-restore / restore-newer-world: history scope, secret exclusi
 		assert.notEqual(oldCursor, "null");
 		const p = await adminCommand(f.h, "createRecoveryPackage");
 		assert.equal(p.body.status, "packaged", p.text);
-		assert.equal((await readFile(join(String(p.body.path), "render.db"))).includes(Buffer.from(key)), false,
-			"package bytes must exclude the raw history cursor key, including old bases and deltas");
+		assert.equal(
+			(await readFile(join(String(p.body.path), "render.db"))).includes(Buffer.from(key)),
+			false,
+			"package bytes must exclude the raw history cursor key, including old bases and deltas",
+		);
 		const livePage = await http(f.h.url, "GET", `/v1/history?cursor=${encodeURIComponent(oldCursor)}`, { bearer: f.device.bearer });
 		assert.equal(livePage.status, 200, "packaging must preserve live cursor authority");
+		const retained = join(f.dir.path, "pkg");
+		await cp(String(p.body.path), retained, { recursive: true });
 		await f.h.stop();
 		await rm(f.data, { recursive: true });
-		const data = join(f.dir.path, "history-restored");
-		assert.equal(restore(data, String(p.body.path)).status, 0);
+		const data = join(f.dir.path, "hr");
+		const imported = restore(data, retained);
+		assert.equal(imported.status, 0, imported.stderr);
 		let h = await startHost(data);
 		try {
 			for (const route of ["history", "export"]) {
 				const blocked = await http(h.url, "GET", `/v1/${route}`, { bearer: f.device.bearer });
 				assert.equal(blocked.body.code, "recovery_required");
 				assertNoDisclosure(blocked.body);
+				const diagnostic = await adminRequest(h.admin, "GET", `/v1/${route}?workflow=workflow%3A3`);
+				assert.deepEqual(
+					diagnostic.body.recovery,
+					{ mode: "admission-disabled", restoredCutoff: 6, newerWorld: "unreconciled" },
+					"admin diagnostics must also declare restored uncertainty before repair",
+				);
 			}
 			assert.equal((await adminCommand(h, "repairRecovery")).body.status, "accepted");
 			const status = await adminRequest(h.admin, "GET", "/v1/admin/status");
-			const fresh = await enroll({ admin: h.admin, ready: { event: "ready", authorityEpoch: status.body.authorityEpoch } }, "history reader", [f.workflow]);
-			const empty = await enroll(h, "no history", []);
+			const fresh = await enroll(
+				{ admin: h.admin, ready: { event: "ready", authorityEpoch: status.body.authorityEpoch } },
+				"history reader",
+				[f.workflow],
+			);
+			const empty = await enroll(
+				{ admin: h.admin, ready: { event: "ready", authorityEpoch: status.body.authorityEpoch } },
+				"no history",
+				[],
+			);
 			for (const route of ["history", "export"]) {
 				assert.equal((await http(h.url, "GET", `/v1/${route}`, { bearer: f.device.bearer })).body.code, "unauthorized");
-				assert.equal((await http(h.url, "GET", `/v1/${route}?cursor=${encodeURIComponent(oldCursor)}`, { bearer: fresh.bearer })).body.code, "invalid_cursor");
+				assert.equal(
+					(await http(h.url, "GET", `/v1/${route}?cursor=${encodeURIComponent(oldCursor)}`, { bearer: fresh.bearer })).body.code,
+					"invalid_cursor",
+				);
 				const hidden = await http(h.url, "GET", `/v1/${route}?workflow=workflow%3A3`, { bearer: empty.bearer });
 				const absent = await http(h.url, "GET", `/v1/${route}?workflow=workflow%3A999`, { bearer: empty.bearer });
 				assert.equal(hidden.status, absent.status);
 				assert.equal(hidden.text, absent.text, "history selectors must not disclose hidden workflow existence");
 				const allowed = await http(h.url, "GET", `/v1/${route}?workflow=workflow%3A3`, { bearer: fresh.bearer });
 				assert.equal(allowed.status, 200, allowed.text);
-				assert.deepEqual(allowed.body.recovery, { mode: "recovery-reconciling", restoredCutoff: 6, newerWorld: "unreconciled" }, "history must declare lost-newer-world uncertainty");
-				const records = route === "history" ? allowed.body.records as { workflow: string }[] : String(allowed.body.jsonl).trim().split("\n").map((line) => JSON.parse(line));
+				assert.deepEqual(
+					allowed.body.recovery,
+					{ mode: "recovery-reconciling", restoredCutoff: 6, newerWorld: "unreconciled" },
+					"history must declare lost-newer-world uncertainty",
+				);
+				const records =
+					route === "history"
+						? (allowed.body.records as { workflow: string }[])
+						: String(allowed.body.jsonl)
+								.trim()
+								.split("\n")
+								.map((line) => JSON.parse(line));
 				assert(records.every((r) => r.workflow === "workflow:3"));
 				if (route === "export") {
 					assert.equal((allowed.body.content as Record<string, string>)["revision:4"], "Zmlyc3QNCg==");
@@ -426,9 +478,18 @@ test("package-clean-restore / restore-newer-world: history scope, secret exclusi
 			assert.notEqual(cursor, "null");
 			await h.stop();
 			h = await startHost(data);
-			assert.equal((await http(h.url, "GET", `/v1/history?cursor=${encodeURIComponent(cursor)}`, { bearer: fresh.bearer })).status, 200, "repaired cursors survive ordinary restricted restart");
-		} finally { await h.stop(); }
-	} finally { await f.h.stop(); await f.dir.remove(); }
+			assert.equal(
+				(await http(h.url, "GET", `/v1/history?cursor=${encodeURIComponent(cursor)}`, { bearer: fresh.bearer })).status,
+				200,
+				"repaired cursors survive ordinary restricted restart",
+			);
+		} finally {
+			await h.stop();
+		}
+	} finally {
+		await f.h.stop();
+		await f.dir.remove();
+	}
 });
 
 test("repair-crash: transaction barriers retain either marker or rotated restricted recovery", async () => {

@@ -3,6 +3,7 @@
 import { chmod, rm } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { PROTOCOL_VERSION } from "./envelope.ts";
+import type { HistoryQuery } from "./history.ts";
 import type { Artifact, Frame, Ledger, LedgerRefusal } from "./ledger.ts";
 import { type AuthenticatedContext, mintContext } from "./principals.ts";
 
@@ -16,6 +17,8 @@ const STATUS: Record<string, number> = {
 	forbidden_principal: 403,
 	forbidden_scope: 403,
 	malformed_envelope: 400,
+	invalid_query: 400,
+	invalid_cursor: 400,
 	unknown_command: 400,
 	invalid_content: 400,
 	unsupported_version: 400,
@@ -134,6 +137,19 @@ async function route(ledger: Ledger, context: AuthenticatedContext, req: Incomin
 		if (version !== null && version !== String(PROTOCOL_VERSION)) return send(res, UNSUPPORTED_VERSION);
 		if (path === "/v1/snapshot") return send(res, ledger.snapshot(context));
 		return observe(ledger, context, req, res);
+	}
+	if (req.method === "GET" && (path === "/v1/history" || path === "/v1/export")) {
+		const query: Record<string, string> = {};
+		for (const [key, value] of url.searchParams) {
+			if (Object.hasOwn(query, key)) return send(res, { status: "refused", code: "invalid_query", reason: "Duplicate history selector." });
+			query[key] = value;
+		}
+		return send(
+			res,
+			path === "/v1/history"
+				? await ledger.observe(context, { history: query as HistoryQuery })
+				: await ledger.artifact(context, { export: query as HistoryQuery }),
+		);
 	}
 	const receipt = /^\/v1\/commands\/([^/]+)$/.exec(path);
 	if (req.method === "GET" && receipt) return send(res, await ledger.receipt(context, decodeURIComponent(receipt[1] as string)));

@@ -144,6 +144,7 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 				typeof recovery.restoreRequired === "boolean",
 			"recovery schema",
 		);
+		check(!recovery.restoreRequired || meta.historyCursorKey === undefined, "raw history cursor key in package");
 		if (recovery.origin !== null)
 			check(
 				/^package-[a-f0-9-]{36}$/.test(recovery.origin.id) &&
@@ -237,6 +238,11 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 			factConversations.set(d.sequence, Number(e.conversationId));
 		} else if (e.kind === "render.message") {
 			check(d.message === `message:${d.recordedAtSequence}` && typeof d.text === "string", "message");
+			check(
+				(d.digest === undefined && d.byteLength === undefined) ||
+					(d.digest === `sha256:${digest(Buffer.from(d.text))}` && d.byteLength === Buffer.byteLength(d.text)),
+				`message content ${d.message}`,
+			);
 			messages.push(d);
 			messageConversations.set(d.message, Number(e.conversationId));
 		} else check(false, `unsupported entry ${e.kind}`);
@@ -490,6 +496,13 @@ export async function createRecoveryPackage(
 			const { meta, recovery } = await validateRecoveryState(storage);
 			check(recovery === undefined || recovery.mode === "active", "cannot package restricted recovery");
 			const origin = { id, cutoff: meta.sequence, priorAuthorityEpoch: meta.authorityEpoch };
+			// Session documents are current-only in pinned Durable 1.4.0: a base replaces every old base/delta.
+			// Do this before opening a Harness, so no cached Meta can reintroduce the private live cursor key.
+			const record = await storage.findDocument({ kind: "render.meta", scope: { kind: "session" } }, "current", ctx);
+			check(record, "meta document");
+			const sanitized = { ...meta };
+			delete sanitized.historyCursorKey;
+			await storage.commit([{ type: "document.change", id: record.id, content: { kind: "base", version: 1, value: sanitized } }], ctx);
 			const harness = await Harness.open(storage, runtime, ctx);
 			try {
 				await harness.commit(
@@ -501,6 +514,13 @@ export async function createRecoveryPackage(
 			}
 			return origin;
 		});
+		// Compact only the closed offline DB: deleted pages must not carry the excluded raw key either.
+		const compact = new DatabaseSync(path);
+		try {
+			compact.exec("VACUUM");
+		} finally {
+			compact.close();
+		}
 		const manifest: Manifest = {
 			...origin,
 			format: 1,

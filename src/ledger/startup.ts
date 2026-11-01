@@ -123,6 +123,12 @@ export async function openLedger(options: {
 			}, ctx);
 			recovery = await harness.snapshot(Recovery, ctx);
 		}
+		if ((recovery === undefined || recovery.mode === "active") && meta?.historyCursorKey === undefined) {
+			await harness.commit(async (tx) => {
+				const current = await tx.doc(Meta);
+				current.historyCursorKey ??= randomUUID();
+			}, ctx);
+		}
 		const executorEpoch = `executor-${randomUUID()}`;
 		const restricted = recovery !== undefined && recovery.mode !== "active";
 		if (restricted)
