@@ -14,6 +14,35 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "package-origin-ignored",
+		expect: /package-origin fence must reject backed-up credentials/,
+		behavior: "package verifiers revive when startup ignores the offline marker",
+		edits: [
+			{
+				file: "src/ledger/startup.ts",
+				find: 'const restricted = recovery !== undefined && recovery.mode !== "active";',
+				replace:
+					'await harness.commit(async tx => Object.assign(await tx.doc(Recovery), { mode: "active", restoreRequired: false }), ctx);\n\t\trecovery = await harness.snapshot(Recovery, ctx);\n\t\tconst restricted = recovery !== undefined && recovery.mode !== "active";',
+			},
+		],
+		test: "test/recovery-packages.test.ts",
+		pattern: "package-origin-auth-fence",
+	},
+	{
+		name: "missing-restored-receipt-is-unsent",
+		expect: /missing restored receipt must retain uncertainty/,
+		behavior: "a missing post-cutoff receipt is treated as ordinary not-found",
+		edits: [
+			{
+				file: "src/ledger/ledger.ts",
+				find: 'if (!record?.exists && this.#recovery?.mode === "recovery-reconciling")',
+				replace: "if (false)",
+			},
+		],
+		test: "test/recovery-packages.test.ts",
+		pattern: "package-origin-auth-fence",
+	},
+	{
 		name: "principal-forgery-header",
 		expect: /enrollDevice: \{"status":"accepted"/,
 		behavior: "a request header raises a device to the local-admin route",

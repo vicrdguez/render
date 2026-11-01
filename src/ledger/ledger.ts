@@ -1,8 +1,8 @@
 // Ledger: the accepting authority. command/observe/artifact are its interface; adapters in this directory are the
 // only places that establish principals.
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { ConversationId, EntryId, Harness } from "@earendil-works/pi-durable";
+import type { ConversationId, EntryId, Harness, HarnessOptions, Storage } from "@earendil-works/pi-durable";
 import {
 	change,
 	type DocumentSummary,
@@ -35,6 +35,7 @@ import {
 	Workflow,
 	type WorkflowRecord,
 } from "./records.ts";
+import { createRecoveryPackage, Recovery, type RecoveryState, validateRecoveryState } from "./recovery.ts";
 
 const ctx = BACKGROUND_CONTEXT;
 
@@ -48,6 +49,7 @@ export type LedgerRefusal = {
 };
 
 export type CommandReply =
+	| { readonly status: "packaged"; readonly path: string; readonly cutoff: number }
 	| (ReceiptBody & { readonly duplicate: boolean; readonly credential?: { readonly bearer: string } })
 	| LedgerRefusal;
 
@@ -72,6 +74,11 @@ export type Artifact = {
 export type HostMode = "active" | "failed" | "closing";
 
 const UNAUTHORIZED: LedgerRefusal = { status: "refused", code: "unauthorized", reason: "Authentication required." };
+const RECOVERY_REQUIRED: LedgerRefusal = {
+	status: "refused",
+	code: "recovery_required",
+	reason: "Local-admin validation/repair or newer-world reconciliation is required. Dispatch and mutation admission remain disabled.",
+};
 const NOT_FOUND: LedgerRefusal = { status: "refused", code: "not_found", reason: "Not found." };
 const CONFLICT: LedgerRefusal = {
 	status: "refused",
@@ -135,11 +142,22 @@ export class Ledger {
 	readonly #onFatal: (error: unknown) => void;
 	readonly #observers = new Set<Observer>();
 	#meta: MetaState;
+	#recovery: RecoveryState | undefined;
+	readonly #management: { data: string; runtime: HarnessOptions; storage: Storage };
 	readonly #workflows = new Map<string, Present<WorkflowRecord>>();
 	readonly #devices = new Map<string, Present<DeviceRecord>>();
 	#mode: HostMode = "active";
 
-	private constructor(harness: Harness, meta: MetaState, persistence: Persistence, onFatal: (error: unknown) => void) {
+	private constructor(
+		harness: Harness,
+		meta: MetaState,
+		persistence: Persistence,
+		onFatal: (error: unknown) => void,
+		management: { data: string; runtime: HarnessOptions; storage: Storage },
+		recovery: RecoveryState | undefined,
+	) {
+		this.#management = management;
+		this.#recovery = recovery;
 		this.#harness = harness;
 		this.#meta = meta;
 		this.#persistence = persistence;
@@ -150,10 +168,23 @@ export class Ledger {
 	}
 
 	/** Loads committed state into the read model. Called by startup after the store and runtime are validated. */
-	static async load(harness: Harness, persistence: Persistence, onFatal: (error: unknown) => void): Promise<Ledger> {
+	static async load(
+		harness: Harness,
+		persistence: Persistence,
+		onFatal: (error: unknown) => void,
+		management: { data: string; runtime: HarnessOptions; storage: Storage },
+	): Promise<Ledger> {
 		const meta = await harness.snapshot(Meta, ctx);
 		if (meta === undefined || !meta.initialized) throw new Error("Render store is not initialized");
-		const ledger = new Ledger(harness, plain(meta) as MetaState, persistence, onFatal);
+		const recovery = await harness.snapshot(Recovery, ctx);
+		const ledger = new Ledger(
+			harness,
+			plain(meta) as MetaState,
+			persistence,
+			onFatal,
+			management,
+			recovery === undefined ? undefined : (plain(recovery) as RecoveryState),
+		);
 		for (const id of meta.workflows) {
 			const w = await harness.snapshot(Workflow, id, ctx);
 			if (w?.exists) ledger.#workflows.set(id, plain(w) as Present<WorkflowRecord>);
@@ -168,7 +199,8 @@ export class Ledger {
 	status() {
 		const m = this.#meta;
 		return {
-			hostMode: this.#mode,
+			hostMode: this.#hostMode(),
+			recovery: this.#recovery ?? null,
 			human: m.human,
 			authorityEpoch: m.authorityEpoch,
 			executorEpoch: m.executorEpoch,
@@ -188,6 +220,7 @@ export class Ledger {
 
 	/** Establishes a device context from an Authorization header against current, unrevoked credentials. */
 	authenticate(header: string | undefined): AuthenticatedContext | undefined {
+		if (this.remoteRecoveryRequired()) return undefined;
 		const bearer = parseBearer(header);
 		const device = bearer === undefined ? undefined : this.#devices.get(bearer.device);
 		if (bearer === undefined || device === undefined || device.revokedAtSequence !== null || !verifies(bearer.secret, device.verifier))
@@ -210,6 +243,25 @@ export class Ledger {
 				reason: "The envelope names a different authority epoch; take a fresh snapshot.",
 				refs: { current: this.#meta.authorityEpoch, expected: env.authorityEpoch },
 			};
+		const localAdmin = principal.kind === "human" && principal.route === "local-admin";
+		if (env.command.type === "createRecoveryPackage" || env.command.type === "repairRecovery") {
+			if (!localAdmin) return { status: "refused", code: "forbidden_principal", reason: "Local-admin only." };
+			if (env.workflow !== null || Object.keys((raw as { command: object }).command).join() !== "type")
+				return { status: "refused", code: "malformed_envelope", reason: "Recovery management takes only a command type." };
+			if (env.command.type === "repairRecovery") return this.#repair(env, principal);
+			if (this.#recovery?.mode !== undefined && this.#recovery.mode !== "active") return RECOVERY_REQUIRED;
+			try {
+				return await createRecoveryPackage(this.#management.data, this.#management.runtime, env.commandId);
+			} catch (error) {
+				return { status: "refused", code: "invalid_recovery_package", reason: String(error) };
+			}
+		}
+		if (
+			this.#recovery !== undefined &&
+			this.#recovery.mode !== "active" &&
+			!(localAdmin && this.#recovery.mode === "recovery-reconciling" && ["enrollDevice", "revokeDevice"].includes(env.command.type))
+		)
+			return RECOVERY_REQUIRED;
 		const enrollment = env.command.type === "enrollDevice" ? newSecret() : undefined;
 		let outcome: Awaited<ReturnType<Ledger["stage"]>>;
 		try {
@@ -232,6 +284,72 @@ export class Ledger {
 		return { ...outcome.body, duplicate: false, ...(credential ? { credential } : {}) };
 	}
 
+	/** Checked before remote credential interpretation, not after receipt lookup. */
+	remoteRecoveryRequired(): boolean {
+		return this.#recovery?.restoreRequired === true || this.#recovery?.mode === "admission-disabled";
+	}
+
+	#hostMode(): string {
+		return this.#mode === "active" ? (this.#recovery?.mode ?? "active") : this.#mode;
+	}
+
+	async #repair(env: Envelope, principal: Principal): Promise<CommandReply> {
+		if (!this.#recovery?.restoreRequired) return RECOVERY_REQUIRED;
+		try {
+			await validateRecoveryState(this.#management.storage);
+		} catch (error) {
+			return { status: "refused", code: "invalid_recovery_package", reason: String(error) };
+		}
+		try {
+			const outcome = await this.#harness.commit(async (tx) => {
+				const recovery = await tx.doc(Recovery);
+				if (!recovery.restoreRequired) throw new Abort(RECOVERY_REQUIRED);
+				const meta = await tx.doc(Meta);
+				if (meta.authorityEpoch !== env.authorityEpoch) throw new Abort(RECOVERY_REQUIRED);
+				const sequence = meta.sequence + 1;
+				for (const id of meta.devices) {
+					const d = await tx.doc(Device, id, null);
+					if (d.exists && d.revokedAtSequence === null) d.revokedAtSequence = sequence;
+				}
+				meta.authorityEpoch = `authority-${randomUUID()}`;
+				meta.sequence = sequence;
+				recovery.restoreRequired = false;
+				recovery.mode = "recovery-reconciling";
+				const by: AcceptedBy = { principal: "human", route: "local-admin" };
+				await tx.appendEntry(FactEntry, meta.ledgerConversation as ConversationId, {
+					data: { schema: 1, fact: `fact:${sequence}`, sequence, command: "repairRecovery", commandId: env.commandId, refs: {}, by },
+				});
+				const body: ReceiptBody = {
+					status: "accepted",
+					commandId: env.commandId,
+					receipt: `receipt:${sequence}`,
+					sequence,
+					authorityEpoch: meta.authorityEpoch,
+					workflow: null,
+					result: { recovery: "recovery-reconciling" },
+					facts: [`fact:${sequence}`],
+					acceptedBy: by,
+				};
+				const receipt = await tx.doc(Receipt, `${namespaceOf(principal)} ${env.commandId}`, null);
+				if (receipt.exists) throw new Abort(CONFLICT);
+				Object.assign(receipt, { exists: true, namespace: namespaceOf(principal), fingerprint: env.fingerprint, body });
+				await faultBarrier("repair-before-commit", env.commandId);
+				return { body, meta: plain(meta) as MetaState, recovery: plain(recovery) as RecoveryState };
+			}, ctx);
+			await faultBarrier("repair-after-commit", env.commandId);
+			this.#meta = outcome.meta;
+			this.#recovery = outcome.recovery;
+			for (const [id, d] of this.#devices) {
+				if (d.revokedAtSequence === null) this.#devices.set(id, { ...d, revokedAtSequence: outcome.body.sequence });
+			}
+			return { ...outcome.body, duplicate: false };
+		} catch (error) {
+			if (error instanceof Abort) return error.refusal;
+			this.#fail(error);
+			return { status: "refused", code: "outcome_unknown", reason: "Repair failed; restart remains restricted." };
+		}
+	}
+
 	/** One Ledger transaction: authorization, dedup, Kernel decision and every staged record. */
 	private async stage(
 		tx: Parameters<Parameters<Harness["commit"]>[0]>[0],
@@ -248,6 +366,17 @@ export class Ledger {
 			if (env.workflow !== null && workflows !== "all" && !workflows.includes(env.workflow))
 				throw new Abort({ status: "refused", code: "forbidden_scope", reason: `${env.workflow} is outside this device's scope.` });
 		}
+		const recovery = await tx.doc(Recovery);
+		if (
+			recovery.mode !== "active" &&
+			!(
+				current.kind === "human" &&
+				current.route === "local-admin" &&
+				recovery.mode === "recovery-reconciling" &&
+				["enrollDevice", "revokeDevice"].includes(env.command.type)
+			)
+		)
+			throw new Abort(RECOVERY_REQUIRED);
 		const namespace = namespaceOf(current);
 		const receipt = await tx.doc(Receipt, `${namespace} ${env.commandId}`, null);
 		if (receipt.exists) {
@@ -513,7 +642,15 @@ export class Ledger {
 	receipt(context: AuthenticatedContext, commandId: string): Promise<ReceiptBody | LedgerRefusal> {
 		return this.#read(context, async (principal) => {
 			const record = await this.#harness.snapshot(Receipt, `${namespaceOf(principal)} ${commandId}`, ctx);
-			return record?.exists && readable(record.body, principal) ? plain(record.body) : NOT_FOUND;
+			if (record?.exists && readable(record.body, principal)) return plain(record.body);
+			if (!record?.exists && this.#recovery?.mode === "recovery-reconciling")
+				return {
+					status: "refused",
+					code: "outcome_unknown_after_restore",
+					reason:
+						"Missing history after restore does not establish that this command was unsent; newer-world reconciliation and an explicit recovery decision are required.",
+				};
+			return NOT_FOUND;
 		});
 	}
 
@@ -615,6 +752,12 @@ export class Ledger {
 	}
 
 	#current(principal: Principal): boolean {
+		if (
+			this.remoteRecoveryRequired() &&
+			!(principal.kind === "human" && principal.route === "local-admin") &&
+			!(principal.kind === "host" && principal.scope === "recovery")
+		)
+			return false;
 		if (principal.kind !== "human" || principal.route !== "device") return true;
 		const device = this.#devices.get(principal.device);
 		return device !== undefined && device.revokedAtSequence === null;
@@ -633,7 +776,8 @@ export class Ledger {
 			...this.#frameHeader(principal),
 			kind: "snapshot",
 			sequence: this.#meta.sequence,
-			hostMode: this.#mode,
+			hostMode: this.#hostMode(),
+			recovery: this.#recovery ?? null,
 			executorEpoch: this.#meta.executorEpoch,
 			persistence: this.#persistence,
 			backup: {

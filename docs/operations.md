@@ -85,16 +85,70 @@ also checked at their read/use boundary: an unknown schema returns `409 unsuppor
 supported versions and compatible-version guidance, without returning content. Saves over an unsupported current
 revision are blocked without a receipt or sequence advance. Unaffected documents remain usable. The host preserves the
 record rather than migrating it or relabeling it as version 1; run a Render version that supports its actual schema.
-No automatic migration or package recovery is available in this Slice.
+No automatic migration is available. Local recovery packages and restricted repair are described below.
 
 ## Content integrity
 
 Every artifact read re-verifies the stored bytes against their SHA-256 digest and length. A mismatch answers
 `content_corrupt`, with `refs.restore` naming the exact revision. A save over that revision is refused the same way.
-The host never substitutes other bytes. Supported restore of an exact revision needs recovery packages, which a later
-Slice delivers. Until then there is no supported restore: the corrupt bytes stay preserved and the affected document
-stays blocked. Do not roll the data directory back to an older file copy. Unmarked file-level rollback is unsupported
+The host never substitutes other bytes. Restore a validated complete package into a clean directory to recover retained\nbytes at its declared cutoff; no partial revision import is supported. Preserve the original corrupt store for diagnostics.\nDo not roll the data directory back to an older live-file copy. Unmarked file-level rollback is unsupported
 (spec §5.3.1) and can bring revoked devices back.
+
+## Local recovery packages
+
+While the host is running, the OS owner creates a package through the owner-only socket:
+
+```sh
+node src/client/cli.ts admin --data ~/.render/data package
+```
+
+The reply is `status: packaged`, with an immutable generation directory under `data/recovery-packages`, a package ID,
+snapshot cutoff, prior authority epoch, database checksum and explicit source roots. This management operation does
+not add a domain receipt/sequence or mark the live store. Repeating it makes a new independent generation, not a
+replacement. A hidden `.incomplete` directory after a crash is not a package; remove it only after stopping the host.
+The format is a closed directory containing exactly `manifest.json` and `render.db`, not a tar/zip archive. Checksums
+provide integrity, not authentication against a malicious package author. Use an operator-controlled source.
+
+The snapshot uses SQLite `VACUUM INTO`, including committed WAL content, and all retained document/history/runtime
+bytes at its own cutoff. SQLite holds the read snapshot while collecting those roots; there is no separately pruned
+content store. Only the offline copy gets `restoreRequired`. The current version has **no source Git, assignment,
+effect or executing-task owner**; `sourceRoots` is explicitly empty. Unknown records or nonempty future roots refuse,
+rather than copying a mutable HEAD or unsafe worker configuration. Those owners must extend validation, rooted
+collection and recovery before their retained types can be packaged. Raw bearer/provider/forge secrets are not
+stored in this version and are not added to the format. Files and the published directory are synchronized before
+success. This is local recovery, not a verified off-host generation or a physical power-loss guarantee.
+
+Stop the destination host, preserve its old data separately, and restore to a **clean** directory:
+
+```sh
+node src/host/main.ts restore --data ~/.render/restored --package /safe/path/package-ID
+node src/host/main.ts serve --data ~/.render/restored --port 7420
+node src/client/cli.ts admin --data ~/.render/restored status
+node src/client/cli.ts admin --data ~/.render/restored repair
+node src/client/cli.ts admin --data ~/.render/restored enroll --label replacement-laptop
+```
+
+Restore takes the owner lock and synchronizes `recovery-disabled` **before reading the input**. Existing data is never
+overwritten. Even a malformed-input refusal leaves the destination admission-disabled across restart; retry in a new
+clean directory rather than deleting its fence and trusting partial data. A running destination refuses at the owner
+lock without importing. A direct copy of the package DB, even without its manifest, is detected by the embedded marker.
+Remote requests receive `recovery_required` before bearer authentication or receipt disclosure. Do not remove the
+marker or edit SQL manually.
+
+Repair validates supported schemas, SQLite integrity, exact content digests, indexes, revision chains, current
+pointers, facts/receipts/provenance, workflow/message/device relationships and the origin cutoff. One transaction
+revokes all backed-up devices, rotates authority, records the repair receipt/fact, clears the marker and retains
+`recovery-reconciling`. Kill-before-commit leaves the marker; kill-after-commit leaves the rotated restricted state.
+Every start mints a fresh executor fence without resuming runtime work in restricted recovery. The filesystem fence
+remains as a fail-closed record of the managed import attempt; committed restricted state takes precedence over it.
+
+Re-pair devices once through local admin. Reads then use current scoped authorization: cutoff receipts and exact
+artifacts remain available. A missing receipt reports `outcome_unknown_after_restore`, not an invitation to retry as
+new work. An old envelope reports `authority_epoch_mismatch`. Current-epoch writes report `recovery_required`.
+**There is intentionally no automatic recovery exit or replay:** Effects/newer-world/workspace reconciliation is not
+available in this target. A future checked reconciliation and explicit recovery decision must permit affected writes;
+neither an operator retry nor an empty dedup table supplies that evidence. Ordinary live restarts still preserve
+existing enrollment/authority; restricted restarts preserve the rotated epoch and replacement credentials.
 
 ## Evidence limits
 

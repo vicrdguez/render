@@ -1,17 +1,28 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { cp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { test } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openNodeSqliteDatabase } from "@earendil-works/chord/sqlite/node";
 import { Harness } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
 import { runtimeOptions } from "../src/engine/runtime.ts";
 import { Device, Receipt, Workflow } from "../src/ledger/records.ts";
-import { cp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { test } from "node:test";
-import { adminRequest, assertNoDisclosure, createWorkflow, enroll, envelope, HOST_MAIN, http, save, startHost, tempDir } from "./support/host.ts";
+import {
+	adminRequest,
+	assertNoDisclosure,
+	createWorkflow,
+	enroll,
+	envelope,
+	HOST_MAIN,
+	http,
+	save,
+	startHost,
+	tempDir,
+} from "./support/host.ts";
 
 async function adminCommand(host: Awaited<ReturnType<typeof startHost>>, type: string, commandId = type) {
 	const status = await adminRequest(host.admin, "GET", "/v1/admin/status");
@@ -31,7 +42,10 @@ async function fixture() {
 	assert.equal(workflow, "workflow:3");
 	const first = await save(h, device.bearer, workflow, "ground", Buffer.from("first\r\n"), null, "first");
 	assert.equal(first.body.sequence, 4);
-	await http(h.url, "POST", "/v1/commands", { bearer: device.bearer, body: envelope(String(h.ready.authorityEpoch), { type: "postCoordinatorMessage", text: "hello" }, { workflow, commandId: "hello" }) });
+	await http(h.url, "POST", "/v1/commands", {
+		bearer: device.bearer,
+		body: envelope(String(h.ready.authorityEpoch), { type: "postCoordinatorMessage", text: "hello" }, { workflow, commandId: "hello" }),
+	});
 	return { dir, data, h, device, workflow };
 }
 
@@ -68,8 +82,13 @@ test("package-clean-restore: snapshot cutoff, exact retained bytes, live DB unma
 			assert.equal((messages.body.messages as { text: string }[])[0]?.text, "hello");
 			const receipt = await http(h.url, "GET", "/v1/commands/first", { bearer: fresh.bearer });
 			assert.equal(receipt.body.sequence, 4);
-		} finally { await h.stop(); }
-	} finally { await f.h.stop(); await f.dir.remove(); }
+		} finally {
+			await h.stop();
+		}
+	} finally {
+		await f.h.stop();
+		await f.dir.remove();
+	}
 });
 
 test("package-origin-auth-fence / restore-newer-world: direct DB copy predates revocation and lost admissions", async () => {
@@ -79,8 +98,17 @@ test("package-origin-auth-fence / restore-newer-world: direct DB copy predates r
 		assert.equal(p.body.status, "packaged", p.text);
 		const later = await save(f.h, f.device.bearer, f.workflow, "ground", Buffer.from("newer world"), "revision:4", "lost-effect");
 		assert.equal(later.body.status, "accepted");
-		await adminRequest(f.h.admin, "POST", "/v1/admin/commands", envelope(String(f.h.ready.authorityEpoch), { type: "revokeDevice", device: f.device.device }));
-		assert.equal((await adminRequest(f.h.admin, "GET", "/v1/admin/status")).body.hostMode, "active", "packaging must never mark the live DB");
+		await adminRequest(
+			f.h.admin,
+			"POST",
+			"/v1/admin/commands",
+			envelope(String(f.h.ready.authorityEpoch), { type: "revokeDevice", device: f.device.device }),
+		);
+		assert.equal(
+			(await adminRequest(f.h.admin, "GET", "/v1/admin/status")).body.hostMode,
+			"active",
+			"packaging must never mark the live DB",
+		);
 		const data = join(f.dir.path, "direct");
 		await mkdir(data);
 		await cp(join(String(p.body.path), "render.db"), join(data, "render.db"));
@@ -98,9 +126,15 @@ test("package-origin-auth-fence / restore-newer-world: direct DB copy predates r
 			assert.equal((await http(h.url, "GET", "/v1/commands/first", { bearer: f.device.bearer })).body.code, "unauthorized");
 			const missing = await http(h.url, "GET", "/v1/commands/lost-effect", { bearer: fresh.bearer });
 			assert.equal(missing.body.code, "outcome_unknown_after_restore", "missing restored receipt must retain uncertainty");
-			const old = await http(h.url, "POST", "/v1/commands", { bearer: fresh.bearer, body: envelope(String(f.h.ready.authorityEpoch), { type: "createWorkflow", title: "old outbox" }, { commandId: "lost-effect" }) });
+			const old = await http(h.url, "POST", "/v1/commands", {
+				bearer: fresh.bearer,
+				body: envelope(String(f.h.ready.authorityEpoch), { type: "createWorkflow", title: "old outbox" }, { commandId: "lost-effect" }),
+			});
 			assert.equal(old.body.code, "authority_epoch_mismatch");
-			const replay = await http(h.url, "POST", "/v1/commands", { bearer: fresh.bearer, body: envelope(epoch, { type: "createWorkflow", title: "do not reissue" }, { commandId: "lost-effect" }) });
+			const replay = await http(h.url, "POST", "/v1/commands", {
+				bearer: fresh.bearer,
+				body: envelope(epoch, { type: "createWorkflow", title: "do not reissue" }, { commandId: "lost-effect" }),
+			});
 			assert.equal(replay.body.code, "recovery_required");
 			await h.stop();
 			h = await startHost(data);
@@ -109,8 +143,13 @@ test("package-origin-auth-fence / restore-newer-world: direct DB copy predates r
 			assert.equal((await http(h.url, "GET", "/v1/commands/first", { bearer: fresh.bearer })).body.sequence, 4);
 			const scoped = await enroll(h, "no workflows", []);
 			assert.notEqual((await http(h.url, "GET", "/v1/commands/first", { bearer: scoped.bearer })).body.status, "accepted");
-		} finally { await h.stop(); }
-	} finally { await f.h.stop(); await f.dir.remove(); }
+		} finally {
+			await h.stop();
+		}
+	} finally {
+		await f.h.stop();
+		await f.dir.remove();
+	}
 });
 
 test("package-validation / managed-restore: malformed inputs durably disable admission before import", async () => {
@@ -128,18 +167,30 @@ test("package-validation / managed-restore: malformed inputs durably disable adm
 				manifest.files = { "../render.db": "unsafe" };
 				await writeFile(join(bad, "manifest.json"), JSON.stringify(manifest));
 			}
-			if (kind === "symlink") { await rm(join(bad, "render.db")); await symlink(join(String(p.body.path), "render.db"), join(bad, "render.db")); }
+			if (kind === "symlink") {
+				await rm(join(bad, "render.db"));
+				await symlink(join(String(p.body.path), "render.db"), join(bad, "render.db"));
+			}
 			if (kind === "malformed") await writeFile(join(bad, "manifest.json"), "{");
 			const data = join(f.dir.path, `destination-${kind}`);
 			assert.notEqual(restore(data, bad).status, 0, `${kind} package must refuse`);
 			const h = await startHost(data);
 			try {
-				assert.equal((await http(h.url, "GET", "/v1/snapshot")).body.code, "recovery_required", "failed managed restore must remain durably admission-disabled");
+				assert.equal(
+					(await http(h.url, "GET", "/v1/snapshot")).body.code,
+					"recovery_required",
+					"failed managed restore must remain durably admission-disabled",
+				);
 				assert.notEqual((await adminCommand(h, "repairRecovery")).body.status, "accepted");
-			} finally { await h.stop(); }
+			} finally {
+				await h.stop();
+			}
 		}
 		assert.equal(JSON.parse(await readFile(join(String(p.body.path), "manifest.json"), "utf8")).cutoff, 5);
-	} finally { await f.h.stop(); await f.dir.remove(); }
+	} finally {
+		await f.h.stop();
+		await f.dir.remove();
+	}
 });
 
 test("package-clean-restore: concurrent later writes and interrupted generation cannot change snapshot or prior package", async () => {
@@ -165,8 +216,13 @@ test("package-clean-restore: concurrent later writes and interrupted generation 
 			await incomplete;
 			assert.equal(JSON.parse(await readFile(join(String(good.body.path), "manifest.json"), "utf8")).cutoff, 5);
 			assert.equal(restore(join(f.dir.path, "good-again"), String(good.body.path)).status, 0);
-		} finally { await h.stop(); }
-	} finally { await f.h.stop(); await f.dir.remove(); }
+		} finally {
+			await h.stop();
+		}
+	} finally {
+		await f.h.stop();
+		await f.dir.remove();
+	}
 });
 
 test("package-validation: checksummed but semantically invalid retained relationships cannot be repaired", async () => {
@@ -174,51 +230,80 @@ test("package-validation: checksummed but semantically invalid retained relation
 	try {
 		const p = await adminCommand(f.h, "createRecoveryPackage");
 		assert.equal(p.body.status, "packaged", p.text);
-		for (const kind of ["pointer", "receipt", "device", "parent", "schema", "unknown-kind"]) {
+		for (const kind of ["pointer", "receipt", "receipt-result", "device", "parent", "schema", "unknown-kind", "future-fact"]) {
 			const bad = join(f.dir.path, `semantic-${kind}`);
 			await cp(String(p.body.path), bad, { recursive: true });
 			const dbPath = join(bad, "render.db");
 			const adapter = await openNodeSqliteDatabase(dbPath);
 			const storage = await SqliteStorage.open(adapter);
-			const harness = await Harness.open(storage, runtimeOptions(() => undefined), BACKGROUND_CONTEXT);
-			await harness.commit(async tx => {
+			const harness = await Harness.open(
+				storage,
+				runtimeOptions(() => undefined),
+				BACKGROUND_CONTEXT,
+			);
+			await harness.commit(async (tx) => {
 				if (kind === "pointer") {
 					const w = await tx.doc(Workflow, "workflow:3", null);
-					if (w.exists) w.documents.ground!.revision = "revision:999";
+					assert(w.exists && w.documents.ground);
+					w.documents.ground.revision = "revision:999";
 				}
 				if (kind === "receipt") {
 					const r = await tx.doc(Receipt, "human:owner first", null);
 					if (r.exists) r.body.facts = ["fact:999"];
 				}
+				if (kind === "receipt-result") {
+					const r = await tx.doc(Receipt, "human:owner first", null);
+					if (r.exists) r.body.result.revision = "revision:999";
+				}
 				if (kind === "device") {
 					const d = await tx.doc(Device, "device:2", null);
-					if (d.exists) d.scope.workflows = ["workflow:999"];
+					if (d.exists) d.scope.workflows = [""];
 				}
 			}, BACKGROUND_CONTEXT);
 			await harness.close(BACKGROUND_CONTEXT);
 			const sql = new DatabaseSync(dbPath);
+			if (kind === "future-fact") {
+				sql.exec(
+					"UPDATE entries SET record = json_set(record, '$.data.command', 'admitEffect') WHERE json_extract(record, '$.kind') = 'render.fact' AND json_extract(record, '$.data.sequence') = 4",
+				);
+			}
 			if (kind === "parent" || kind === "schema" || kind === "unknown-kind") {
-				const row = sql.prepare("SELECT id, data FROM entries WHERE kind = 'render.revision'").get() as { id: number; data: string };
-				const data = JSON.parse(row.data);
-				if (kind === "parent") data.parent = "revision:999";
-				if (kind === "schema") data.schema = 99;
-				if (kind === "unknown-kind") sql.prepare("UPDATE entries SET kind = 'render.future' WHERE id = ?").run(row.id);
-				else sql.prepare("UPDATE entries SET data = ? WHERE id = ?").run(JSON.stringify(data), row.id);
+				const row = sql.prepare("SELECT id, record FROM entries WHERE json_extract(record, '$.kind') = 'render.revision'").get() as {
+					id: number;
+					record: string;
+				};
+				const record = JSON.parse(row.record);
+				if (kind === "parent") record.data.parent = "revision:999";
+				if (kind === "schema") record.data.schema = 99;
+				if (kind === "unknown-kind") record.kind = "render.future";
+				sql.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(record), row.id);
 			}
 			sql.exec("PRAGMA wal_checkpoint(TRUNCATE)");
 			sql.close();
 			const manifest = JSON.parse(await readFile(join(bad, "manifest.json"), "utf8"));
-			manifest.files["render.db"] = createHash("sha256").update(await readFile(dbPath)).digest("hex");
+			manifest.files["render.db"] = createHash("sha256")
+				.update(await readFile(dbPath))
+				.digest("hex");
 			await writeFile(join(bad, "manifest.json"), JSON.stringify(manifest));
 			assert.notEqual(restore(join(f.dir.path, `reject-${kind}`), bad).status, 0, `${kind} semantics must be validated beyond checksums`);
 			const direct = join(f.dir.path, `direct-${kind}`);
 			await mkdir(direct);
 			await cp(dbPath, join(direct, "render.db"));
 			const h = await startHost(direct);
-			try { assert.notEqual((await adminCommand(h, "repairRecovery")).body.status, "accepted", `${kind} direct-copy repair must validate semantics`); }
-			finally { await h.stop(); }
+			try {
+				assert.notEqual(
+					(await adminCommand(h, "repairRecovery")).body.status,
+					"accepted",
+					`${kind} direct-copy repair must validate semantics`,
+				);
+			} finally {
+				await h.stop();
+			}
 		}
-	} finally { await f.h.stop(); await f.dir.remove(); }
+	} finally {
+		await f.h.stop();
+		await f.dir.remove();
+	}
 });
 
 test("repair-crash: transaction barriers retain either marker or rotated restricted recovery", async () => {
@@ -229,7 +314,7 @@ test("repair-crash: transaction barriers retain either marker or rotated restric
 		assert.equal(p.body.status, "packaged", p.text);
 		for (const barrier of ["repair-before-commit", "repair-after-commit"]) {
 			for (let i = 0; i < repetitions; i++) {
-				const data = join(f.dir.path, `${barrier}-${i}`);
+				const data = join(f.dir.path, `${barrier === "repair-before-commit" ? "b" : "a"}${i}`);
 				assert.equal(restore(data, String(p.body.path)).status, 0);
 				const h = await startHost(data, { RENDER_FAULT_BARRIER: barrier, RENDER_FAULT_COMMAND: "repair" });
 				const pending = adminCommand(h, "repairRecovery", "repair").catch(() => undefined);
@@ -242,9 +327,17 @@ test("repair-crash: transaction barriers retain either marker or rotated restric
 					assert.equal(status.body.hostMode, barrier === "repair-before-commit" ? "admission-disabled" : "recovery-reconciling");
 					assert.equal(status.body.authorityEpoch === f.h.ready.authorityEpoch, barrier === "repair-before-commit");
 					assert.notEqual(restarted.ready.executorEpoch, h.ready.executorEpoch);
-					assert.equal((await http(restarted.url, "GET", "/v1/commands/first", { bearer: f.device.bearer })).body.code, barrier === "repair-before-commit" ? "recovery_required" : "unauthorized");
-				} finally { await restarted.stop(); }
+					assert.equal(
+						(await http(restarted.url, "GET", "/v1/commands/first", { bearer: f.device.bearer })).body.code,
+						barrier === "repair-before-commit" ? "recovery_required" : "unauthorized",
+					);
+				} finally {
+					await restarted.stop();
+				}
 			}
 		}
-	} finally { await f.h.stop(); await f.dir.remove(); }
+	} finally {
+		await f.h.stop();
+		await f.dir.remove();
+	}
 });

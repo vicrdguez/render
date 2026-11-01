@@ -19,7 +19,7 @@ const USAGE = `usage:
   cli.ts ... observe [--frames N]
   cli.ts admin --data DIR enroll --label L [--workflows all|W1,W2]
   cli.ts admin --data DIR revoke --device D
-  cli.ts admin --data DIR devices|status`;
+  cli.ts admin --data DIR devices|status|package|repair`;
 
 function out(value: unknown): void {
 	process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -81,6 +81,16 @@ async function admin(data: string, verb: string | undefined, values: Record<stri
 		}
 		case "revoke":
 			finish(await client.request("POST", "/v1/admin/commands", envelope({ type: "revokeDevice", device: need(values, "device") })));
+			break;
+		case "package":
+		case "repair":
+			finish(
+				await client.request(
+					"POST",
+					"/v1/admin/commands",
+					envelope({ type: verb === "package" ? "createRecoveryPackage" : "repairRecovery" }),
+				),
+			);
 			break;
 		case "devices":
 			finish(await client.request("GET", "/v1/admin/devices"));

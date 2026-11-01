@@ -14,6 +14,7 @@ import type { Persistence } from "../kernel/kernel.ts";
 import { Ledger } from "./ledger.ts";
 import { mintContext } from "./principals.ts";
 import { APPLICATION_ID, Meta, STORE_SCHEMA } from "./records.ts";
+import { DISABLED_FILE, Recovery, restorePackage } from "./recovery.ts";
 
 const ctx = BACKGROUND_CONTEXT;
 
@@ -68,13 +69,10 @@ export async function openLedger(options: {
 				"Run a Render version that supports this store.",
 			);
 		});
-		harness = await Harness.open(
-			storage,
-			options.runtime((error, info) => {
-				if (info.type === "session_failed") options.onFatal(error);
-			}),
-			ctx,
-		);
+		const runtime = options.runtime((error, info) => {
+			if (info.type === "session_failed") options.onFatal(error);
+		});
+		harness = await Harness.open(storage, runtime, ctx);
 		// Read-only inspection: nothing is scheduled, aborted or migrated here.
 		const inspection = await harness.inspect(ctx);
 		const unsupported = inspection.tasks.filter((t) => t.state.kind === "blocked");
@@ -110,21 +108,43 @@ export async function openLedger(options: {
 				});
 			}, ctx);
 		}
-		const ledger = await Ledger.load(harness, opened.persistence, options.onFatal);
+		let recovery = await harness.snapshot(Recovery, ctx);
+		if (
+			recovery !== undefined &&
+			(recovery.schema !== 1 ||
+				typeof recovery.restoreRequired !== "boolean" ||
+				!["active", "admission-disabled", "recovery-reconciling"].includes(recovery.mode) ||
+				(recovery.restoreRequired && recovery.mode !== "admission-disabled"))
+		)
+			throw blocked("recovery_required", "Unsupported recovery state.", "Use a compatible Render version for local-admin repair.");
+		if (existsSync(join(options.data, DISABLED_FILE)) && (recovery === undefined || recovery.mode === "active")) {
+			await harness.commit(async (tx) => {
+				(await tx.doc(Recovery)).mode = "admission-disabled";
+			}, ctx);
+			recovery = await harness.snapshot(Recovery, ctx);
+		}
 		const executorEpoch = `executor-${randomUUID()}`;
-		const fence = await ledger.command(
-			{
-				version: 1,
-				authorityEpoch: ledger.status().authorityEpoch,
-				commandId: `startup:${executorEpoch}`,
-				command: { type: "recordStartup", executorEpoch, persistence: opened.persistence },
-			},
-			mintContext({ kind: "host", scope: "recovery" }),
-		);
-		if (fence.status !== "accepted")
-			throw blocked("startup_fence_refused", `${fence.code}: ${fence.reason}`, "Inspect the store; nothing was dispatched.");
+		const restricted = recovery !== undefined && recovery.mode !== "active";
+		if (restricted)
+			await harness.commit(async (tx) => {
+				(await tx.doc(Meta)).executorEpoch = executorEpoch;
+			}, ctx);
+		const ledger = await Ledger.load(harness, opened.persistence, options.onFatal, { data: options.data, runtime, storage });
+		const fence = restricted
+			? null
+			: await ledger.command(
+					{
+						version: 1,
+						authorityEpoch: ledger.status().authorityEpoch,
+						commandId: `startup:${executorEpoch}`,
+						command: { type: "recordStartup", executorEpoch, persistence: opened.persistence },
+					},
+					mintContext({ kind: "host", scope: "recovery" }),
+				);
+		if (fence !== null && fence.status !== "accepted")
+			throw blocked("startup_fence_refused", JSON.stringify(fence), "Inspect the store; nothing was dispatched.");
 		// Unchecked work is fenced by the new executorEpoch; only now may scheduling start.
-		harness.resume();
+		if (!restricted) harness.resume();
 		return {
 			ledger,
 			persistence: opened.persistence,
@@ -141,6 +161,18 @@ export async function openLedger(options: {
 		if (harness === undefined) await adapter?.close().catch(() => undefined);
 		lock.release();
 		throw error;
+	}
+}
+
+/** Local-OS-owner management entry point. A running host must be stopped; the lock is acquired before import. */
+export async function managedRestore(data: string, source: string): Promise<void> {
+	await mkdir(data, { recursive: true, mode: 0o700 });
+	await chmod(data, 0o700);
+	const lock = acquireOwnerLock(join(data, "owner.lock"));
+	try {
+		await restorePackage(data, source);
+	} finally {
+		lock.release();
 	}
 }
 

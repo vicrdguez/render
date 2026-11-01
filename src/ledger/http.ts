@@ -31,6 +31,9 @@ const STATUS: Record<string, number> = {
 	capability_unavailable: 501,
 	outcome_unknown: 503,
 	host_unavailable: 503,
+	recovery_required: 409,
+	outcome_unknown_after_restore: 409,
+	invalid_recovery_package: 409,
 };
 
 const UNAUTHORIZED: LedgerRefusal = { status: "refused", code: "unauthorized", reason: "Authentication required." };
@@ -158,6 +161,10 @@ function failSafe(res: ServerResponse, error: unknown): void {
 /** Device listener: bearer authentication precedes every route, so unauthenticated requests learn nothing. */
 export function deviceServer(ledger: Ledger): Server {
 	return createServer((req, res) => {
+		if (ledger.remoteRecoveryRequired()) {
+			send(res, { status: "refused", code: "recovery_required", reason: "Local-admin validated repair is required before remote access." });
+			return;
+		}
 		const context = ledger.authenticate(req.headers.authorization);
 		if (context === undefined) {
 			send(res, UNAUTHORIZED);

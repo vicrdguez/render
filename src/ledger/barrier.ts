@@ -3,8 +3,11 @@
 const barrier = process.env.RENDER_FAULT_BARRIER;
 const command = process.env.RENDER_FAULT_COMMAND;
 
-export async function faultBarrier(name: "before-commit" | "after-commit", commandId: string): Promise<void> {
+export async function faultBarrier(
+	name: "before-commit" | "after-commit" | "package-snapshot" | "package-publish" | "repair-before-commit" | "repair-after-commit",
+	commandId: string,
+): Promise<void> {
 	if (barrier !== name || command !== commandId) return;
 	process.stdout.write(`${JSON.stringify({ event: "barrier", name, commandId })}\n`);
-	await new Promise<never>(() => undefined);
+	await new Promise<void>((resolve) => process.once("SIGUSR2", resolve));
 }
