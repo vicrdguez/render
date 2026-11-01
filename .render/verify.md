@@ -77,5 +77,7 @@ Keep row names stable. Never lower an expectation to make a product change pass.
   `{"event":"barrier"}` on stdout and stop at that point so a check can SIGKILL it. It is inert unless set; never set it
   outside checks.
 - `fullfsync` makes each commit wait for the device cache flush. Expect several milliseconds per commit on macOS.
-- Recovery adds `package-snapshot`, `package-publish`, `repair-before-commit`, `repair-after-commit` barriers. SIGUSR2 releases an explicitly configured barrier for the snapshot/later-writes check. It is inert otherwise. Incomplete directories are not published packages.\n- Recovery failure cases and literal expectations: `docs/verification/recovery-packages-failure-cases.md`. Source roots are empty because this target has no retained source owner; unknown future runtime/source records refuse.\n- Do not inspect, copy or run skl tests.
+- Recovery adds `package-snapshot`, `package-publish`, `repair-before-commit`, `repair-after-commit` barriers. SIGUSR2 releases an explicitly configured barrier for the snapshot/later-writes check. It is inert otherwise. Incomplete directories are not published packages.
+- Recovery failure cases and literal expectations: `docs/verification/recovery-packages-failure-cases.md`. Source roots are empty because this target has no retained source owner; unknown future runtime/source records refuse.
+- Do not inspect, copy or run skl tests.
 - Never point a check at the user's live data directory or a live Render host.

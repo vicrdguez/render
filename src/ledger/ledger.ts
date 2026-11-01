@@ -643,7 +643,7 @@ export class Ledger {
 		return this.#read(context, async (principal) => {
 			const record = await this.#harness.snapshot(Receipt, `${namespaceOf(principal)} ${commandId}`, ctx);
 			if (record?.exists && readable(record.body, principal)) return plain(record.body);
-			if (!record?.exists && this.#recovery?.mode === "recovery-reconciling")
+			if (this.#recovery?.mode === "recovery-reconciling")
 				return {
 					status: "refused",
 					code: "outcome_unknown_after_restore",

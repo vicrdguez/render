@@ -564,6 +564,11 @@ export async function validatePackage(path: string): Promise<Manifest> {
 
 /** Called only while the destination owner lock is held. The durable fence precedes even malformed input reads. */
 export async function restorePackage(data: string, source: string): Promise<void> {
+	const entries = await readdir(data);
+	check(
+		entries.every((n) => [DISABLED_FILE, "owner.lock", "owner.lock-journal"].includes(n)),
+		"restore needs a clean destination; existing data preserved",
+	);
 	const fence = join(data, DISABLED_FILE);
 	try {
 		await durableFile(fence, "Managed restore attempted; local-admin recovery required.\n");
@@ -571,11 +576,6 @@ export async function restorePackage(data: string, source: string): Promise<void
 		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
 	}
 	await syncPath(data);
-	const entries = await readdir(data);
-	check(
-		entries.every((n) => [DISABLED_FILE, "owner.lock", "owner.lock-journal"].includes(n)),
-		"restore needs a clean destination; existing data preserved",
-	);
 	// Import into private staging first; validation never races a later re-read of caller-owned input.
 	const staging = join(data, ".restore-incomplete");
 	await mkdir(staging, { mode: 0o700 });

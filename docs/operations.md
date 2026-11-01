@@ -91,7 +91,9 @@ No automatic migration is available. Local recovery packages and restricted repa
 
 Every artifact read re-verifies the stored bytes against their SHA-256 digest and length. A mismatch answers
 `content_corrupt`, with `refs.restore` naming the exact revision. A save over that revision is refused the same way.
-The host never substitutes other bytes. Restore a validated complete package into a clean directory to recover retained\nbytes at its declared cutoff; no partial revision import is supported. Preserve the original corrupt store for diagnostics.\nDo not roll the data directory back to an older live-file copy. Unmarked file-level rollback is unsupported
+The host never substitutes other bytes. Restore a validated complete package into a clean directory to recover retained
+bytes at its declared cutoff; no partial revision import is supported. Preserve the original corrupt store for diagnostics.
+Do not roll the data directory back to an older live-file copy. Unmarked file-level rollback is unsupported
 (spec §5.3.1) and can bring revoked devices back.
 
 ## Local recovery packages
@@ -128,8 +130,10 @@ node src/client/cli.ts admin --data ~/.render/restored repair
 node src/client/cli.ts admin --data ~/.render/restored enroll --label replacement-laptop
 ```
 
-Restore takes the owner lock and synchronizes `recovery-disabled` **before reading the input**. Existing data is never
-overwritten. Even a malformed-input refusal leaves the destination admission-disabled across restart; retry in a new
+Restore takes the owner lock and checks that the destination is clean before changing recovery state. A nonclean
+destination refuses without overwriting data or disabling the existing store; restart that store normally and choose
+a different, clean destination. For a clean destination, restore synchronizes `recovery-disabled` **before reading the
+input**. Even a malformed-input refusal then leaves that destination admission-disabled across restart; retry in a new
 clean directory rather than deleting its fence and trusting partial data. A running destination refuses at the owner
 lock without importing. A direct copy of the package DB, even without its manifest, is detected by the embedded marker.
 Remote requests receive `recovery_required` before bearer authentication or receipt disclosure. Do not remove the
