@@ -57,7 +57,11 @@ test("B4 Kernel requires an explicit web reliance declaration and own promoted s
 			expected,
 			"omitted declaration must not authorize report reliance",
 		);
-		if (d.outcome === "accepted" && expected === "retained") assert.equal(d.result.support0, "revision:4");
+		if (d.outcome === "accepted") {
+			if (expected === "retained") assert.equal(d.result.support0, "revision:4");
+			for (const write of d.writes)
+				if (write.type === "fact.record") assert.equal("webEvidence" in write.refs, false, "a declaration is not an artifact ref");
+		}
 		assert.deepEqual(state, before, "Kernel remains pure");
 	}
 });
