@@ -28,7 +28,8 @@ type Fields = Record<string, unknown>;
 
 const COMMAND_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const DOCUMENT = /^[a-z0-9][a-z0-9._/-]{0,127}$/;
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+// A flat repetition avoids a regex stack frame per quartet on supported multi-MiB documents.
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 class Malformed extends Error {}
 
@@ -96,7 +97,7 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 			const document = text(c.document, "document", 128);
 			if (!DOCUMENT.test(document)) malformed("document must match [a-z0-9][a-z0-9._/-]{0,127}");
 			if (c.mediaType !== "text/markdown" && c.mediaType !== "text/plain") malformed("mediaType must be text/markdown or text/plain");
-			if (typeof c.content !== "string" || !BASE64.test(c.content)) malformed("content must be base64");
+			if (typeof c.content !== "string" || c.content.length % 4 !== 0 || !BASE64.test(c.content)) malformed("content must be base64");
 			const content = Buffer.from(c.content, "base64");
 			if (content.length > MAX_CONTENT_BYTES) malformed(`content exceeds ${MAX_CONTENT_BYTES} bytes`);
 			if (expected === undefined || !("document" in expected)) malformed("saveDocument requires expected.document (a revision or null)");
