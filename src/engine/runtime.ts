@@ -77,7 +77,16 @@ export class Engine {
 			...provider,
 			streamSimple: (model, transcript, options) =>
 				lazyStream(model, async () => {
-					const scope = options?.sessionId ? this.#sessions.get(options.sessionId) : undefined;
+					let scope = options?.sessionId ? this.#sessions.get(options.sessionId) : undefined;
+					if (!scope && this.#harness && options?.sessionId) {
+						for (const assignment of this.#assignments()) {
+							const session = await this.#harness.snapshot(ProviderDoc, assignment.conversation as ConversationId, ctx);
+							if (session?.sessionId === options.sessionId) {
+								scope = { assignment: assignment.id, task: 0 };
+								break;
+							}
+						}
+					}
 					if (!scope || !this.#harness) throw new Error("Role provider request has no trusted scope.");
 					const a = this.#assignment(scope.assignment);
 					if (!a || this.#configurationBlocker(a)) throw new Error("Role provider configuration is unavailable.");
@@ -86,7 +95,30 @@ export class Engine {
 					for (const message of transcript.messages)
 						if (message.role === "system" && message.sections && Object.hasOwn(message.sections, "role-packet"))
 							activePacket = message.sections["role-packet"];
-					if (!activePacket?.includes(JSON.stringify(a.packet)))
+					// Native compaction has a distinct summarizer prompt, not a role request. Accept it only
+					// while its actual pinned task is live under this executing assignment's conversation.
+					let nativeCompaction = false;
+					if (
+						transcript.messages[0]?.role === "system" &&
+						typeof transcript.messages[0].content === "string" &&
+						transcript.messages[0].content.startsWith("You are a context summarization assistant.")
+					) {
+						const tasks = await this.#harness.commit(
+							(tx) => tx.scanTasks({ conversationId: a.conversation as ConversationId, kind: "pi.compaction", status: "running" }, 200),
+							ctx,
+						);
+						const compact = tasks.items.find(
+							(task) =>
+								task.kind === "pi.compaction" &&
+								task.state.status !== "terminal" &&
+								(task.state.checkpoint as { phase?: string }).phase === "summarize",
+						);
+						if (compact) {
+							nativeCompaction = true;
+							scope.task = compact.id;
+						}
+					}
+					if (!nativeCompaction && !activePacket?.includes(JSON.stringify(a.packet)))
 						throw new Error("Mandatory role packet is absent from effective provider context.");
 					if (model.provider !== a.packet.provider || model.id !== a.packet.model)
 						throw new Error("Role model differs from pinned packet.");
@@ -167,6 +199,11 @@ export class Engine {
 						const session = await api.snapshot(ProviderDoc, api.conversationId, ctx);
 						if (binding && session) this.#sessions.set(session.sessionId, { assignment: binding.assignment, task: api.taskId });
 					},
+					afterTools: async (assistant, _results, api) => {
+						const binding = await api.snapshot(RoleBinding, api.conversationId, ctx);
+						const a = binding ? this.#assignment(binding.assignment) : undefined;
+						if (a) await this.#command(a, { type: "recordRuntimeHistory", key: `tools:${api.taskId}:${assistant}` });
+					},
 				}),
 			],
 		});
@@ -204,7 +241,9 @@ export class Engine {
 						});
 						const a = this.#assignment(task.input.assignment);
 						if (!a || a.status === "submitted" || a.status === "canceled")
-							return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
+							return runtime
+								.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context)
+								.then(() => this.reconcile());
 						const blocker = this.#configurationBlocker(a);
 						let prompt: string;
 						try {
@@ -214,7 +253,9 @@ export class Engine {
 						}
 						if (blocker || !prompt || Buffer.byteLength(prompt) > a.packet.maxInputBytes) {
 							await this.#command(a, { type: "recordBlocker", reason: blocker ?? "required_inputs_do_not_fit" });
-							return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
+							return runtime
+								.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context)
+								.then(() => this.reconcile());
 						}
 						if (a.status !== "running") {
 							const started = await this.#command(a, { type: "stageTask", executorEpoch: this.#ledger!.status().executorEpoch });
@@ -261,7 +302,9 @@ export class Engine {
 							() => ({ status: "running", checkpoint: { phase: "resume", round: task.state.checkpoint.round } }),
 							context,
 						);
-					return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
+					return runtime
+						.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context)
+						.then(() => this.reconcile());
 				},
 				resume: async (task, runtime, context) => {
 					await runtime.commit(async (tx, current) => {
@@ -287,7 +330,9 @@ export class Engine {
 					});
 					const a = this.#assignment(task.input.assignment);
 					if (!a || a.status === "canceled" || a.status === "submitted")
-						return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
+						return runtime
+							.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context)
+							.then(() => this.reconcile());
 					const round = task.state.checkpoint.round;
 					// A crash may leave the accepted rebind ahead of this task's checkpoint.
 					if (a.status !== "queued" && a.status !== "running") {
@@ -349,7 +394,7 @@ export class Engine {
 		return {
 			models: this.#models,
 			registry,
-			settings: { extensions: [], retry: { maxRetries: 0 }, compaction: { enabled: false } },
+			settings: { extensions: [], retry: { maxRetries: 0 }, compaction: { enabled: true } },
 			onReport: (error, info) => {
 				onReport(error, info);
 				if (info.type === "task_faulted" && this.#ready) {
@@ -417,6 +462,9 @@ export class Engine {
 
 	async render(a: RoleAssignment): Promise<string> {
 		if (!this.#ledger) throw new Error("Engine not bound");
+		const current = this.#assignment(a.id);
+		if (!current || current.generation !== a.generation || current.attempt !== a.attempt || current.packetRef !== a.packetRef)
+			throw new Error("Stale role packet or assignment; render the current binding.");
 		const context = mintContext({
 			kind: "assignment-agent",
 			assignment: a.id,
@@ -436,7 +484,22 @@ export class Engine {
 		const results = this.#assignments()
 			.filter((child) => child.parent === a.id && child.status === "submitted")
 			.map((child) => ({ assignment: child.id, report: child.report }));
-		return JSON.stringify({ assignment: a.id, generation: a.generation, attempt: a.attempt, packet: a.packet, inputs, results });
+		const frame = this.#ledger.snapshot(scheduling);
+		if (!("policy" in frame)) throw new Error("Current policy is unavailable.");
+		const policy = frame.policy as import("../kernel/policy.ts").PolicyState;
+		const binding = policy.bindings[a.workflow];
+		if (!binding || (a.policyBinding !== undefined && a.policyBinding !== binding.revision))
+			throw new Error("Stale workflow policy binding.");
+		return JSON.stringify({
+			assignment: a.id,
+			generation: a.generation,
+			attempt: a.attempt,
+			packet: a.packet,
+			executionPolicy: policy.revisions[binding.policy],
+			policyBinding: binding.revision,
+			inputs,
+			results,
+		});
 	}
 	async reconcile(_workflow?: string): Promise<void> {
 		if (!this.#ready || !this.#ledger || !this.#harness) return;
@@ -446,7 +509,11 @@ export class Engine {
 		}
 		this.#reconciling = true;
 		try {
-			for (const a of this.#assignments())
+			for (const a of this.#assignments()) {
+				if (!a.executing && !a.runtimeTaskCaptured && (a.status === "submitted" || a.status === "canceled" || a.status === "blocked")) {
+					const task = await this.#harness.getTask(a.task as TaskId, ctx);
+					if (task?.state.status === "terminal") await this.#command(a, { type: "recordRuntimeHistory", key: `settled:${a.task}` });
+				}
 				if (a.status === "canceling") {
 					if (a.packet.execution !== "read-only" && a.executing) {
 						if (a.blocker !== "whole_environment_stop_unavailable")
@@ -461,6 +528,7 @@ export class Engine {
 					await c.abort(ctx);
 					await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "absent", effects: "reconciled" });
 				}
+			}
 		} finally {
 			this.#reconciling = false;
 			if (this.#reconcileAgain) {

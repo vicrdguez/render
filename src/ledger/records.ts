@@ -2,6 +2,7 @@
 // pointers, receipts and credentials are session documents committed in the same transaction.
 import { defineDoc, defineDocFamily, defineEntry } from "@earendil-works/pi-durable";
 import type { MediaType, Persistence } from "../kernel/kernel.ts";
+import { initialPolicy, type PolicyState } from "../kernel/policy.ts";
 import type { RoleWorkState } from "../kernel/roles.ts";
 
 /** SQLite `application_id` identifying a Render store ("REND"). */
@@ -91,6 +92,39 @@ export const RevisionLocation = defineDocFamily<RevisionIndex, null>({
 	initial: () => ({ exists: false }),
 	checkpointWhen: () => true,
 });
+
+export const RuntimeHistoryEntry = defineEntry<{
+	schema: number;
+	sequence: number;
+	commandId: string;
+	ref: string;
+	assignment: string;
+	conversation: number;
+	predecessor: string | null;
+	packet: string;
+	policyBinding: string | null;
+	text: string;
+	digest: string;
+	byteLength: number;
+}>("render.runtime-history");
+
+export const Policy = defineDoc<PolicyState>({
+	kind: "render.policy",
+	version: 1,
+	scope: "session",
+	initial: initialPolicy,
+	checkpointWhen,
+});
+export const PolicyEntry = defineEntry<{
+	schema: number;
+	sequence: number;
+	commandId: string;
+	ref: string;
+	workflow: string | null;
+	binding: import("../kernel/policy.ts").PolicyBinding | null;
+	policy: import("../kernel/policy.ts").ExecutionPolicy;
+	revision: string;
+}>("render.policy");
 
 export const RoleWork = defineDoc<RoleWorkState>({
 	kind: "render.role-work",

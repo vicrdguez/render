@@ -1,6 +1,7 @@
 // Kernel: pure domain legality. No I/O, clock reads, randomness or ID minting; Ledger supplies resolved state
 // and verified facts, and stages the returned writes atomically.
 
+import { changePolicy, initialPolicy, type PolicyCommand, type PolicyState } from "./policy.ts";
 import { changeRole, ROLE_COMMANDS, type RoleAssignment, type RoleCommand, type RoleIntent, type RoleWorkState } from "./roles.ts";
 
 export type DeviceScope = { readonly workflows: "all" | readonly string[] };
@@ -34,6 +35,7 @@ export type Persistence = {
 
 export type Command =
 	| RoleCommand
+	| PolicyCommand
 	| { readonly type: "createWorkflow"; readonly title: string }
 	| {
 			readonly type: "saveDocument";
@@ -50,6 +52,7 @@ export type Command =
 
 export type KernelState = {
 	readonly roleWork?: RoleWorkState;
+	readonly policy?: PolicyState;
 	/** The envelope's workflow, when it exists. */
 	readonly workflow: { readonly id: string; readonly messageCount: number } | null;
 	/** The named document's current revision and the integrity of its retained bytes, when it exists. */
@@ -78,6 +81,7 @@ export type VerifiedFacts = {
 };
 
 export type DomainWrite =
+	| { readonly type: "policy.replace"; readonly state: PolicyState }
 	| { readonly type: "roles.replace"; readonly state: RoleWorkState; readonly intents: readonly RoleIntent[] }
 	| { readonly type: "workflow.create"; readonly workflow: string; readonly title: string }
 	| {
@@ -159,7 +163,8 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	acceptIntake: { family: "human-decision", available: false },
 	amendContract: { family: "human-decision", available: false },
 	supersedeContract: { family: "human-decision", available: false },
-	changePolicy: { family: "human-decision", available: false },
+	changePolicy: { family: "human-decision", available: true },
+	adoptPolicy: { family: "human-decision", available: true },
 	changeCheckpointSettings: { family: "human-decision", available: false },
 	cancelWork: { family: "human-decision", available: true },
 	requestLocalVerificationPrompt: { family: "human-decision", available: false },
@@ -173,6 +178,8 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	submitRoleResult: { family: "role-work", available: true },
 	advanceDelegatedCheckpoint: { family: "role-work", available: false },
 	assignTask: { family: "scheduling", available: true },
+	replaceTask: { family: "scheduling", available: true },
+	recordRuntimeHistory: { family: "scheduling", available: true },
 	stageTask: { family: "scheduling", available: true },
 	fenceAttempt: { family: "scheduling", available: true },
 	rebindAttempt: { family: "scheduling", available: true },
@@ -218,6 +225,7 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 		return refuse("forbidden_principal", `${command.type} belongs to the ${entry.family} family, which does not admit this principal.`);
 	if (!entry.available) return refuse("capability_unavailable", `${command.type} is not available in this host version.`);
 
+	if (command.type === "changePolicy" || command.type === "adoptPolicy") return changePolicy(state, command as PolicyCommand, facts);
 	if (ROLE_COMMANDS.includes(command.type)) return changeRole(state, command as RoleCommand, facts);
 
 	const c = command as Extract<
@@ -233,7 +241,18 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 			return {
 				outcome: "accepted",
 				result: { workflow },
-				writes: [{ type: "workflow.create", workflow, title: c.title }, fact(facts, c.type, { workflow })],
+				writes: [
+					{ type: "workflow.create", workflow, title: c.title },
+					{
+						type: "policy.replace",
+						state: (() => {
+							const policy = structuredClone(state.policy ?? initialPolicy());
+							policy.bindings[workflow] = { revision: `policy-binding:${facts.sequence}`, policy: policy.defaultRevision };
+							return policy;
+						})(),
+					},
+					fact(facts, c.type, { workflow, binding: `policy-binding:${facts.sequence}` }),
+				],
 				facts: [facts.ids.fact],
 			};
 		}
