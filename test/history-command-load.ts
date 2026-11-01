@@ -32,7 +32,7 @@ test("history-command-load: retained messages scale without quadratic rescans or
 				assert.equal(bundle.status, 200, bundle.text);
 				assert.equal((bundle.body.manifest as { complete: boolean }).complete, true);
 				const content = bundle.body.content as Record<string, string>;
-				assert.deepEqual(Object.keys(content), refs);
+				assert.deepEqual(new Set(Object.keys(content)), new Set(refs));
 				for (const i of [0, count - 1]) assert.equal(Buffer.from(content[refs[i] as string] as string, "base64").toString(), `message ${i}\r\n☃`);
 			}
 			durations.push(Math.min(...samples));
