@@ -1,0 +1,107 @@
+12a7a2174ce21b83ad374ff11051b23bcfe46466
+
+> render@0.0.0 test
+> node --test --test-concurrency=1 test/*.test.ts
+
+▶ V3 SIGKILL at before-commit (1 repetitions)
+  ✔ retrying the original envelope after a kill at before-commit yields exactly one accepted save (716.9405ms)
+✔ V3 SIGKILL at before-commit (1 repetitions) (717.456375ms)
+▶ V3 SIGKILL at after-commit (1 repetitions)
+  ✔ retrying the original envelope after a kill at after-commit yields exactly one accepted save (679.226083ms)
+✔ V3 SIGKILL at after-commit (1 repetitions) (679.368ms)
+▶ B2-09 real disk exhaustion
+  ✔ a save that cannot be stored is never acknowledged and earlier bytes survive (2236.846625ms)
+✔ B2-09 real disk exhaustion (2237.019042ms)
+✔ V1: 10000 seeded schedules never violate the matrix, basis or refusal rules (581.652333ms)
+✔ literal: stale save names current and expected revisions and a repair (0.387792ms)
+✔ literal: corrupt basis blocks the save with an exact restoration ref (0.081041ms)
+✔ literal: accepted first save records revision, pointer and fact writes (0.08275ms)
+✔ literal: the workflow view reports handover fields and absent capabilities explicitly (0.147125ms)
+{"measure":"v9_slice1","saves":400,"ackMs":{"p50":48.23174999999992,"p95":114.37958400000002,"max":143.47745800000007},"snapshotMs":{"p50":1.0896250000005239,"p95":2.8649999999997817}}
+✔ V9: two clients, 100 workflows, p95 acknowledgement < 250 ms and snapshot < 1 s (4082.092792ms)
+▶ B4 startup
+  ✔ B4-01/B4-02 the owner lock refuses a second process before it opens the store, and dies with its owner (636.146583ms)
+  ✔ B4-03/B4-09/B4-10 readback, fresh executor epochs, preserved authority epoch and enrollment (481.053209ms)
+  ✔ B4-04 a foreign SQLite file is refused with its bytes retained (178.798541ms)
+  ✔ B4-05/B4-06/B4-07 newer schema, non-SQLite and read-only stores are refused with bytes retained (769.580792ms)
+  ✔ B4-08 a pending task of an unknown definition blocks startup and is never dispatched (429.497292ms)
+✔ B4 startup (2495.922167ms)
+✔ package-clean-restore: snapshot cutoff, exact retained bytes, live DB unmarked, package only (760.65225ms)
+✔ package-origin-auth-fence / restore-newer-world: direct DB copy predates revocation and lost admissions (770.67825ms)
+✔ package-validation / managed-restore: nonclean refusal leaves the existing store usable (769.343875ms)
+✔ package-validation / managed-restore: malformed inputs durably disable admission before import (2465.050041ms)
+✔ package-clean-restore: concurrent later writes and interrupted generation cannot change snapshot or prior package (807.287625ms)
+✔ package-validation: checksummed but semantically invalid retained relationships cannot be repaired (3687.56125ms)
+✔ repair-crash: transaction barriers retain either marker or rotated restricted recovery (1554.475875ms)
+▶ B1 authority precedes disclosure (literal cases)
+  ✔ B1-01/B1-02 missing or invalid credentials disclose nothing (9.189958ms)
+  ✔ B1-03 forged principal fields in the envelope are malformed (4.952125ms)
+  ✔ B1-04/B1-05/B1-06 headers cannot raise a device to local admin or host (2.354458ms)
+  ✔ B1-07/B1-08 unknown and unavailable commands never succeed (0.988125ms)
+  ✔ B1-09 a second device retrying the original ID and bytes receives the original receipt (1.882041ms)
+  ✔ B1-10 a changed payload under the same ID conflicts without disclosure (0.679875ms)
+  ✔ B1-12/B1-13 a scoped device sees only its workflows (2.895167ms)
+  ✔ B1-16 a different authority epoch is refused (0.627167ms)
+  ✔ B1-11 a revoked device cannot recover its receipt through deduplication (18.297ms)
+  ✔ B1-14 enrollment uses the restrictive owner route and the bearer is never retained (8.980125ms)
+✔ B1 authority precedes disclosure (literal cases) (348.380417ms)
+▶ B1-15 in-process contexts cannot be hand-built
+  ✔ a context object not minted by a trusted adapter is refused (197.1855ms)
+✔ B1-15 in-process contexts cannot be hand-built (197.329334ms)
+▶ B2 acknowledgement is immutable and atomic (literal cases)
+  ✔ B2-01/B2-02/B2-03/B2-04/B2-05/B2-06/B2-11 exact bytes, stale basis and atomic visibility (261.202917ms)
+✔ B2 acknowledgement is immutable and atomic (literal cases) (518.453625ms)
+▶ B2 document names that collide with object prototype keys
+  ✔ a document named constructor is created, read and updated like any other (263.717791ms)
+✔ B2 document names that collide with object prototype keys (263.833208ms)
+▶ B2-10 corrupt referenced bytes
+  ✔ tampered stored bytes are refused with an exact restoration ref and never substituted (495.377625ms)
+✔ B2-10 corrupt referenced bytes (495.49275ms)
+▶ B2 supported document sizes and encoding boundaries
+  ✔ 4194304 exact UTF-8 bytes save and survive restart (535.387625ms)
+  ✔ 16777216 exact UTF-8 bytes save and survive restart (762.210292ms)
+  ✔ oversized and malformed complete bytes refuse without advancing state (354.221667ms)
+✔ B2 supported document sizes and encoding boundaries (1652.08375ms)
+▶ B4 retained application schema compatibility
+  ▶ unknown revision and message schemas block affected reads and saves without changing retained records
+    ✔ artifact reads refuse before disclosing unsupported content (1.683416ms)
+    ✔ save refuses without interpreting an unsupported basis (2.078083ms)
+    ✔ message reads refuse unsupported application records (1.013292ms)
+  ✔ unknown revision and message schemas block affected reads and saves without changing retained records (507.581834ms)
+✔ B4 retained application schema compatibility (507.719375ms)
+▶ V2 seeded schedules on real SQLite (32)
+  ✔ every schedule matches the literal duplicate/conflict/stale/revocation/scope rules (3163.218584ms)
+✔ V2 seeded schedules on real SQLite (32) (3163.340792ms)
+{"measure":"reattach_ms","value":153}
+▶ V4 two stateless clients
+  ✔ B2-03 race, cross-device retry, revocation of reads and streams, fresh attach within 5 s (1330.542625ms)
+  ✔ B3-01/B3-04 frames carry version, scope, epoch and sequence; reconnect starts with a snapshot (180.101459ms)
+  ✔ B3-02 unknown protocol versions are refused with upgrade guidance (2.386125ms)
+{"measure":"stalled_observer_ack_p95_ms","value":11.22}
+  ✔ B3-05 a stalled observer cannot block commits and is disconnected (12476.905833ms)
+  ✔ B3-06 a client that disconnects after sending still gets its work committed (512.9775ms)
+✔ V4 two stateless clients (14908.62525ms)
+▶ B3-02/B3-03 client frame rules against a controlled stream
+  ✔ a gap triggers a fresh snapshot; repeated and older sequences are discarded (105.942416ms)
+  ✔ an unknown frame version stops the client with upgrade guidance (74.302458ms)
+✔ B3-02/B3-03 client frame rules against a controlled stream (180.481584ms)
+▶ B1-14 admin CLI uses the restrictive owner route
+  ✔ the admin route refuses when the socket is absent rather than falling back to TCP (63.45775ms)
+✔ B1-14 admin CLI uses the restrictive owner route (63.67ms)
+ℹ tests 51
+ℹ suites 15
+ℹ pass 51
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 53997.388042
+
+> render@0.0.0 typecheck
+> tsc --noEmit -p .
+
+
+> render@0.0.0 lint
+> biome check .
+
+Checked 28 files in 17ms. No fixes applied.
