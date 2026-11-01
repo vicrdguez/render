@@ -23,7 +23,7 @@ for (const replay of ["safe", "unsafe"] as const)
 			parameters: Type.Object({}),
 			replay,
 			execute: async (_args, api, ctx) => {
-				const nested = await api.executeTool("submit_role_result", { text: "must not commit" }, ctx, { key: "stable" });
+				const nested = await api.executeTool("submit_role_result", { supports: [], text: "must not commit" }, ctx, { key: "stable" });
 				result = JSON.stringify(nested);
 				return { output: [{ type: "text", text: "wrapper finished" }] };
 			},

@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import { rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -10,6 +12,8 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import type { ConversationId, JsonObject } from "@earendil-works/pi-durable";
 import { Engine } from "../src/engine/runtime.ts";
 import type { HistoryExport } from "../src/ledger/history.ts";
+import type { RoleAssignment } from "../src/kernel/roles.ts";
+import { mintContext } from "../src/ledger/principals.ts";
 import type { LedgerRefusal } from "../src/ledger/ledger.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
 
@@ -44,9 +48,12 @@ async function fixture(
 
 type WebReply = {
 	handle?: string;
+	status: string;
+	omissions: string[];
 	inputs: {
 		input: string;
-		observations: { id: string; provider: string; outcome: string; text?: string; digest?: string; error?: string }[];
+		observations: { id: string; provider: string; outcome: string; text?: string; digest?: string; error?: string; complete: boolean }[];
+		primaryNotAttempted?: string;
 		fallback: string;
 	}[];
 };
@@ -74,10 +81,11 @@ async function run(
 			try {
 				reply = JSON.parse(output);
 			} catch {
-				reply = { inputs: [] };
+				reply = { inputs: [], status: "invalid", omissions: [] };
 			}
 			return (
-				follow?.(reply) ?? fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "No web reliance." }), { stopReason: "toolUse" })
+				follow?.(reply) ??
+				fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "No web reliance." }), { stopReason: "toolUse" })
 			);
 		},
 		(ctx) => {
@@ -261,30 +269,31 @@ test("B3/B5 identical bytes remain distinct observations; own tail paging is sco
 	}
 });
 
-test("B2 unsettled local timeout is uncertain and does not admit fallback", async () => {
-	const http = await fixture(async () => {
-		await setTimeout(200);
-		return { body: { results: [] } };
-	});
-	try {
-		const { f, reply } = await run(
-			{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: http.url, tavilyBaseUrl: http.url, attemptMs: 50, overallMs: 500 },
-			"web_search",
-			{ queries: ["slow", "later"] },
-		);
+for (const overallMs of [40, 500])
+	test(`B2 unsettled local timeout is uncertain and does not admit fallback (${overallMs}ms overall)`, async () => {
+		const http = await fixture(async () => {
+			await setTimeout(200);
+			return { body: { results: [] } };
+		});
 		try {
-			assert.equal(http.calls.length, 1, "no overlapping or repeated charged request");
-			assert.equal(reply.inputs[0]!.fallback, "primary_unsettled");
-			assert.equal(reply.inputs[0]!.observations[0]!.outcome, "uncertain");
-			assert.equal(reply.inputs[1]!.observations.length, 0);
-			assert.equal(reply.inputs[1]!.fallback, "prior_attempt_unsettled");
+			const { f, reply } = await run(
+				{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: http.url, tavilyBaseUrl: http.url, attemptMs: 50, overallMs },
+				"web_search",
+				{ queries: ["slow", "later"] },
+			);
+			try {
+				assert.equal(http.calls.length, 1, "no overlapping or repeated charged request");
+				assert.equal(reply.inputs[0]!.fallback, "primary_unsettled");
+				assert.equal(reply.inputs[0]!.observations[0]!.outcome, "uncertain");
+				assert.equal(reply.inputs[1]!.observations.length, 0);
+				assert.equal(reply.inputs[1]!.fallback, "prior_attempt_unsettled");
+			} finally {
+				await f.close();
+			}
 		} finally {
-			await f.close();
+			await http.close();
 		}
-	} finally {
-		await http.close();
-	}
-});
+	});
 
 test("B4 selected negative evidence survives expiry/reopen/export; old working handle never refetches", async () => {
 	const http = await fixture(() => ({
@@ -326,6 +335,11 @@ test("B4 selected negative evidence survives expiry/reopen/export; old working h
 			assert.ok("content" in retained);
 			assert.match(retained.content.toString(), /Context: no support for this claim. Conflicting result remains./);
 			assert.match(retained.content.toString(), /negative/);
+			assert.match(
+				retained.content.toString(),
+				/Provider metadata and secondary summary fields are omitted/,
+				"retained evidence must preserve working completeness qualifications",
+			);
 			for (let n = 0; n < 200; n++) {
 				const assignment = (f.ledger.snapshot(admin) as unknown as { assignments: { status: string }[] }).assignments[0]!;
 				if (assignment.status === "submitted") break;
@@ -347,6 +361,12 @@ test("B4 selected negative evidence survives expiry/reopen/export; old working h
 			await setTimeout(1100);
 			const expired = await f.ledger.artifact(admin, { read: reply.handle! });
 			assert.equal("code" in expired ? expired.code : "disclosed", "working_result_unavailable");
+			const assignment = (f.ledger.snapshot(admin) as unknown as { assignments: RoleAssignment[] }).assignments[0]!;
+			const conversation = await f.harness.conversation(assignment.conversation as ConversationId, BACKGROUND_CONTEXT);
+			assert.ok(conversation);
+			const entries = await conversation.entries({ order: "ascending" }, 200, undefined, BACKGROUND_CONTEXT);
+			const native = entries.items.flatMap((e) => e.model ?? []).filter((m) => m.role === "toolResult" && m.toolName === "web_contents");
+			assert.match(JSON.stringify(native), /Context: no support for this claim/, "committed output survives working expiry");
 			await f.reopen();
 			const after = await f.ledger.artifact(admin, { read: ref });
 			assert.ok("content" in after, "retained evidence remains available independently of working cache");
@@ -455,6 +475,228 @@ for (const provider of ["exa", "tavily"])
 				if (data) await rm(data, { recursive: true, force: true });
 			}
 		});
+
+test("B1/B3 mixed contents batch keeps partial success final and preserves both failures", async () => {
+	const urls = [
+		"https://example.org/success",
+		"https://example.org/partial",
+		"https://example.org/page-error",
+		"https://example.org/allowance",
+	];
+	const http = await fixture((path, body) => {
+		if (path.startsWith("/tavily")) return { status: 503, body: { error: "unavailable" } };
+		const url = (body.urls as string[])[0]!;
+		if (url.endsWith("page-error")) return { status: 404, body: { error: "missing page" } };
+		if (url.endsWith("allowance")) return { status: 429, body: { error: "allowance" } };
+		return { body: { results: [{ url, text: url.endsWith("partial") ? "x".repeat(262145) : "Exact usable content." }] } };
+	});
+	try {
+		const { f, reply } = await run(
+			{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily` },
+			"web_contents",
+			{ urls },
+		);
+		try {
+			assert.deepEqual(
+				http.calls.map((c) => c.path),
+				["/exa/contents", "/exa/contents", "/exa/contents", "/exa/contents", "/tavily/extract"],
+				"usable partial success must not be topped up",
+			);
+			assert.deepEqual(
+				reply.inputs.map((i) => i.input),
+				urls,
+			);
+			assert.equal(reply.status, "partial");
+			assert.equal(reply.inputs[0]!.observations[0]!.complete, true);
+			assert.equal(reply.inputs[1]!.observations[0]!.complete, false);
+			assert.match(reply.omissions.join("\n"), /partial\/truncated/);
+			assert.deepEqual(
+				reply.inputs[3]!.observations.map((o) => [o.provider, o.outcome]),
+				[
+					["exa", "error"],
+					["tavily", "error"],
+				],
+			);
+			assert.equal(reply.inputs[3]!.fallback, "failed");
+		} finally {
+			await f.close();
+		}
+	} finally {
+		await http.close();
+	}
+});
+
+for (const remaining of [true, false])
+	test(`B2 overall deadline checks settled primary before fallback (remaining=${remaining})`, async (t) => {
+		const epoch = Date.now();
+		t.mock.timers.enable({ apis: ["Date"], now: epoch });
+		const http = await fixture((path) => {
+			if (path.startsWith("/exa")) {
+				t.mock.timers.setTime(epoch + (remaining ? 100 : 1000));
+				return { status: 429, body: { error: "allowance" } };
+			}
+			return { body: { images: [], results: [] } };
+		});
+		try {
+			const { f, reply } = await run(
+				{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily`, overallMs: 1000 },
+				"web_search",
+				{ queries: ["deadline"] },
+			);
+			try {
+				assert.equal(http.calls.length, remaining ? 2 : 1, "overall expiry must prohibit fallback admission");
+				assert.equal(reply.inputs[0]!.fallback, remaining ? "completed" : "overall_timeout");
+			} finally {
+				await f.close();
+			}
+		} finally {
+			await http.close();
+			t.mock.timers.reset();
+		}
+	});
+
+test("B3 explicit missing credentials and echoed credentials never become retained text", async () => {
+	const http = await fixture(() => ({ body: { images: [], results: [{ url: "https://example.org", content: "fixture-secret" }] } }));
+	try {
+		for (const provisioned of [false, true]) {
+			const { f, reply, output } = await run(
+				{ ...(provisioned ? { tavilyKey: "fixture-secret" } : {}), tavilyBaseUrl: http.url },
+				"web_search",
+				{ queries: ["provision"] },
+			);
+			try {
+				assert.equal(reply.inputs[0]!.primaryNotAttempted, "credentials_missing");
+				assert.equal(reply.inputs[0]!.fallback, provisioned ? "completed" : "credentials_missing");
+				assert.doesNotMatch(output, /fixture-secret/);
+				if (provisioned) assert.match(output, /redacted/i);
+			} finally {
+				await f.close();
+			}
+		}
+		assert.equal(http.calls.length, 1);
+	} finally {
+		await http.close();
+	}
+});
+
+for (const damage of ["missing", "corrupt"])
+	test(`B4 required ${damage} support blocks reliance until exact restoration`, async () => {
+		const http = await fixture(() => ({ body: { results: [{ url: "https://example.org/negative", text: "Negative context." }] } }));
+		const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
+		let f!: Awaited<ReturnType<typeof roleFixture>>;
+		let checked = false;
+		let failure: unknown;
+		let evidence = "";
+		const last = (ctx: { messages: { role: string; content: unknown }[] }) =>
+			JSON.parse(
+				(ctx.messages.filter((m) => m.role === "toolResult").at(-1)!.content as { text: string }[]).map((c) => c.text ?? "").join(""),
+			);
+		p.setResponses([
+			fauxAssistantMessage(fauxToolCall("web_contents", { urls: ["https://example.org/negative"] }), { stopReason: "toolUse" }),
+			(ctx) => {
+				const r = last(ctx);
+				return fauxAssistantMessage(
+					fauxToolCall("retain_web_evidence", {
+						handle: r.handle,
+						observation: r.inputs[0].observations[0].id,
+						start: 0,
+						end: 17,
+						claim: "negative",
+						stance: "negative",
+					}),
+					{ stopReason: "toolUse" },
+				);
+			},
+			async (ctx) => {
+				try {
+					evidence = last(ctx).result.evidence;
+					assert.ok(evidence);
+					const a = (f.ledger.snapshot(admin) as unknown as { assignments: RoleAssignment[] }).assignments[0]!;
+					const own = mintContext({
+						kind: "assignment-agent",
+						assignment: a.id,
+						generation: a.generation,
+						attempt: a.attempt,
+						role: a.packet.role,
+					});
+					const unrelated = await f.command({ type: "submitRoleResult", text: "Claim", supports: ["revision:3"] }, own);
+					assert.equal("code" in unrelated ? unrelated.code : unrelated.status, "missing_content");
+					// Controlled disk fault only. Assertions below use Ledger commands and exported content.
+					const db = new DatabaseSync(join(f.data, "render.db"));
+					try {
+						const row = (
+							db.prepare("SELECT id, conversation_id, head, commit_seq, record FROM entries").all() as {
+								id: number;
+								conversation_id: number;
+								head: number | null;
+								commit_seq: number;
+								record: string;
+							}[]
+						).find((r) => JSON.parse(r.record).data?.document?.startsWith("web-evidence/"))!;
+						assert.ok(row);
+						if (damage === "missing") db.prepare("DELETE FROM entries WHERE id = ?").run(row.id);
+						else {
+							const record = JSON.parse(row.record);
+							record.data.text = "replacement bytes";
+							db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(record), row.id);
+						}
+						const denied = await f.command({ type: "submitRoleResult", text: "Claim", supports: [evidence] }, own);
+						assert.equal("code" in denied ? denied.code : denied.status, "content_corrupt", "damaged required support must block reliance");
+						assert.match("reason" in denied ? denied.reason : "", new RegExp(`Restore exact evidence ${evidence}`));
+						// Restore the exact retained record, not new network bytes.
+						if (damage === "missing")
+							db.prepare("INSERT INTO entries (id, conversation_id, head, commit_seq, record) VALUES (?, ?, ?, ?, ?)").run(
+								row.id,
+								row.conversation_id,
+								row.head,
+								row.commit_seq,
+								row.record,
+							);
+						else db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(row.record, row.id);
+					} finally {
+						db.close();
+					}
+					checked = true;
+				} catch (error) {
+					failure = error;
+				}
+				return fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "Negative conclusion.", supports: [evidence] }), {
+					stopReason: "toolUse",
+				});
+			},
+		]);
+		try {
+			f = await roleFixture(
+				new Engine({
+					provider: p.provider,
+					apiKey: "fixture",
+					families: { "claude-sonnet-4-6": "claude" },
+					web: { exaKey: "fixture", exaBaseUrl: http.url },
+				}),
+			);
+			try {
+				await f.command({ type: "assignTask", slice: "slice:damaged", delivery: true, packet: packet({ maxTurns: 4 }) });
+				let a!: RoleAssignment;
+				for (let n = 0; n < 300; n++) {
+					a = (f.ledger.snapshot(admin) as unknown as { assignments: RoleAssignment[] }).assignments[0]!;
+					if (!a.executing && ["submitted", "blocked"].includes(a.status)) break;
+					await setTimeout(10);
+				}
+				if (failure) throw failure;
+				assert.ok(checked, "required support verification must execute");
+				assert.equal(a.status, "submitted");
+				const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+				assert.ok("jsonl" in exported);
+				assert.match(exported.jsonl, /"webEvidence":"retained"/);
+				assert.match(exported.jsonl, new RegExp(`"support0":"${evidence}"`));
+				assert.equal(http.calls.length, 1, "restoration must never refetch");
+			} finally {
+				await f.close();
+			}
+		} finally {
+			await http.close();
+		}
+	});
 
 test("B5 model cannot select host paths, configuration or arbitrary provider semantics", async () => {
 	const http = await fixture(() => ({ body: { results: [] } }));

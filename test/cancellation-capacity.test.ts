@@ -91,9 +91,9 @@ test("R06 cancellation fences first, keeps uncertain capacity, and stale role/At
 		attempt: "attempt:1",
 		role: "coordinator",
 	};
-	refused(s, { type: "submitRoleResult", text: "foreign" }, "forbidden_scope", { ...agent, role: "challenger" });
+	refused(s, { type: "submitRoleResult", supports: [], text: "foreign" }, "forbidden_scope", { ...agent, role: "challenger" });
 	accept(s, { type: "cancelWork", assignment: "assignment:1", generation: 1, attempt: "attempt:1" }, human);
-	refused(s, { type: "submitRoleResult", text: "late" }, "stale_assignment", agent);
+	refused(s, { type: "submitRoleResult", supports: [], text: "late" }, "stale_assignment", agent);
 	refused(
 		s,
 		{

@@ -14,6 +14,53 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "web-omitted-declaration",
+		expect: /omitted declaration must not authorize report reliance/,
+		behavior: "Kernel silently treats an omitted declaration as no web reliance",
+		edits: [
+			{ file: "src/kernel/roles.ts", find: "if (!Array.isArray(c.supports))", replace: "if (false)" },
+			{ file: "src/kernel/roles.ts", find: "if (c.supports.some(", replace: "c.supports ??= []; if (c.supports.some(" },
+		],
+		test: "test/web-report-declaration.test.ts",
+		pattern: "Kernel requires",
+	},
+	{
+		name: "web-damaged-support",
+		expect: /damaged required support must block reliance/,
+		behavior: "Ledger accepts required evidence without verifying retained bytes",
+		edits: [
+			{
+				file: "src/ledger/ledger.ts",
+				find: "if (!entry || entry.data.schema !== 1 || !intact(entry.data.text, entry.data.digest, entry.data.byteLength))",
+				replace: "if (false)",
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "required corrupt support",
+	},
+	{
+		name: "web-expired-deadline",
+		expect: /overall expiry must prohibit fallback admission/,
+		behavior: "Engine admits fallback after the overall deadline",
+		edits: [{ file: "src/engine/web.ts", find: 'Date.now() >= deadline ? "overall_timeout" : undefined', replace: "undefined" }],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "remaining=false",
+	},
+	{
+		name: "web-partial-top-up",
+		expect: /usable partial success must not be topped up/,
+		behavior: "Engine tops up usable partial primary content",
+		edits: [
+			{
+				file: "src/engine/web.ts",
+				find: 'if (!eligible || observation.outcome === "success") {',
+				replace: 'if ((!eligible || observation.outcome === "success") && !(observation.outcome === "success" && !observation.complete)) {',
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "mixed contents batch",
+	},
+	{
 		name: "web-quality-top-up",
 		expect: /no provider fanout or retry/,
 		behavior: "Tavily tops up successful primary inputs",

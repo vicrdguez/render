@@ -34,7 +34,7 @@ test("R01/R07 accepted child survives submitting turn abort; own report and fixe
 		async () => {
 			await childGate;
 			return fauxAssistantMessage(
-				fauxToolCall("submit_role_result", { text: "Independent objection: retain exact bytes.\n" }, { id: "same-call-id" }),
+				fauxToolCall("submit_role_result", { supports: [], text: "Independent objection: retain exact bytes.\n" }, { id: "same-call-id" }),
 				{ stopReason: "toolUse" },
 			);
 		},
@@ -88,7 +88,7 @@ test("R02 same scoped role submission returns one receipt; new call rechecks eli
 			attempt: a.attempt,
 			role: a.packet.role,
 		});
-		const forged = await f.command({ type: "submitRoleResult", text: "not running" }, scoped, "forged");
+		const forged = await f.command({ type: "submitRoleResult", supports: [], text: "not running" }, scoped, "forged");
 		assert.equal(forged.status, "refused");
 		const canceled = await f.command({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, admin);
 		assert.equal(canceled.status, "accepted");
