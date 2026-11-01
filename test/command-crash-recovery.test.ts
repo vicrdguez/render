@@ -50,7 +50,9 @@ for (const barrier of ["before-commit", "after-commit"] as const) {
 						const retry = await save(restarted, dev.bearer, w, "ground", A1.bytes, r0, commandId);
 						assert.equal(retry.status, 200, retry.text);
 						assert.equal(retry.body.duplicate, barrier === "after-commit");
-						assert.equal(Number(retry.body.sequence), seqBefore + 1);
+						// Every host start commits one startup fence. After-commit: the faulted host's fence, then the killed
+						// command. Before-commit: the faulted fence and the restarted fence, then the retried command.
+						assert.equal(Number(retry.body.sequence), seqBefore + (barrier === "after-commit" ? 2 : 3));
 						assert.equal(await revisionCount(restarted.url, dev.bearer, w, "ground"), 2);
 						const again = await save(restarted, dev.bearer, w, "ground", A1.bytes, r0, commandId);
 						assert.equal(again.body.duplicate, true);

@@ -98,7 +98,14 @@ function generate(seed: number): Step[] {
 	const r = rng(seed);
 	const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)] as T;
 	const types = [...Object.keys(MATRIX), ...UNKNOWN];
-	const steps: Step[] = [];
+	// Ledger mints workflow:<sequence>, so two opening local-admin creations make workflow:1 and workflow:2 exist.
+	const opening = {
+		principal: PRINCIPALS.indexOf(localAdmin),
+		command: { type: "createWorkflow" },
+		corruptBasis: false,
+		invalidUtf8: false,
+	};
+	const steps: Step[] = [opening, opening];
 	for (let i = 0; i < STEPS; i++) {
 		const roll = r();
 		const type =
@@ -211,6 +218,9 @@ function inScope(p: Principal, workflow: unknown): boolean {
 	return p.workflows === "all" || p.workflows.includes(String(workflow));
 }
 
+// Outcome counts guard against a generator that never reaches the interesting cases.
+const outcomes = new Map<string, number>();
+
 // Returns a violation message, or undefined. Applies accepted writes to the model.
 function checkStep(m: Model, step: Step): string | undefined {
 	const principal = PRINCIPALS[step.principal] as Principal;
@@ -220,6 +230,8 @@ function checkStep(m: Model, step: Step): string | undefined {
 	const f = facts(m, principal, step);
 	const d: Decision = change(state, command as never, f);
 	const type = String(command.type);
+	const label = `${type}:${d.outcome === "accepted" ? "accepted" : d.code}`;
+	outcomes.set(label, (outcomes.get(label) ?? 0) + 1);
 	const row = MATRIX[type];
 	if (d.outcome === "refused") {
 		if ("writes" in d) return `refusal carried writes for ${type}`;
@@ -333,6 +345,26 @@ test(`V1: ${SCHEDULES} seeded schedules never violate the matrix, basis or refus
 		accepted++;
 	}
 	assert.equal(accepted, SCHEDULES);
+	if (SCHEDULES >= 1_000) {
+		for (const label of [
+			"saveDocument:accepted",
+			"saveDocument:stale_basis",
+			"saveDocument:content_corrupt",
+			"saveDocument:invalid_content",
+			"saveDocument:forbidden_scope",
+			"saveDocument:forbidden_principal",
+			"enrollDevice:forbidden_principal",
+			"enrollDevice:accepted",
+			"revokeDevice:accepted",
+			"revokeDevice:already_revoked",
+			"createWorkflow:forbidden_scope",
+			"approveCheckpoint:capability_unavailable",
+			"recordStartup:accepted",
+			"dropTables:unknown_command",
+		]) {
+			assert.ok((outcomes.get(label) ?? 0) >= 10, `schedules rarely reach ${label}: ${JSON.stringify(Object.fromEntries(outcomes))}`);
+		}
+	}
 });
 
 test("literal: stale save names current and expected revisions and a repair", () => {

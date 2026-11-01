@@ -539,7 +539,7 @@ describe(`V2 seeded schedules on real SQLite (${SCHEDULES})`, () => {
 						const cur = current.get(doc) ?? null;
 						const prior = used.filter((u) => u.document === doc).at(-1);
 						let id = `${seed}-${k}`;
-						let bytes = Buffer.from(`seed ${seed} op ${k}\r\nΩ ${doc} ✓\n`, "utf8");
+						let bytes: Buffer = Buffer.from(`seed ${seed} op ${k}\r\nΩ ${doc} ✓\n`, "utf8");
 						let expected: string | null =
 							op.basis === "current" ? cur : op.basis === "null" ? null : (history.get(doc)?.at(-2) ?? "revision:0");
 						if (op.reuse !== "new" && prior !== undefined) {
