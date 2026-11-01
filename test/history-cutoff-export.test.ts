@@ -73,7 +73,14 @@ test("history-cutoff-export: exact separate identities, fixed pages/export after
 		assert.equal(bundle.manifest.cutoff, cutoff, "export cutoff must not drift");
 		assert.equal(bundle.manifest.complete, true);
 		assert.deepEqual(bundle.manifest.missing, []);
-		assert.deepEqual(bundle.manifest.exclusions, ["unsaved_client_buffers", "uncommitted_provider_streams", "unsnapshotted_worker_files"]);
+		assert.deepEqual(bundle.manifest.exclusions, [
+			"unsaved_client_buffers",
+			"uncommitted_provider_streams",
+			"unsnapshotted_worker_files",
+			"latest_only_live_partials",
+			"unpromoted_nested_results",
+			"active_task_memos",
+		]);
 		const revisions = rows(bundle).filter((r) => r.kind === "ground");
 		assert.deepEqual(
 			revisions.map((r) => r.ref),

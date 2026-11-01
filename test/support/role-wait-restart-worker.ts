@@ -9,7 +9,7 @@ import { Engine } from "../../src/engine/runtime.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import type { Ledger } from "../../src/ledger/ledger.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
-import { admin, packet, scheduler } from "./roles.ts";
+import { admin, allowSameFamily, packet, scheduler } from "./roles.ts";
 
 const [data, mode, action] = process.argv.slice(2);
 assert.ok(data && mode && action);
@@ -103,6 +103,7 @@ async function saveInput() {
 if (action === "seed" && mode === "parent") {
 	await command({ type: "createWorkflow", title: "Restart waits" }, admin);
 	await saveInput();
+	await allowSameFamily(opened.ledger);
 	await command({
 		type: "assignTask",
 		slice: "parent",

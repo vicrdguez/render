@@ -14,6 +14,49 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "inherited-private-context",
+		expect: /"status":"accepted"/,
+		behavior: "an independent role inherits a candidate-private packet",
+		edits: [
+			{
+				file: "src/ledger/ledger.ts",
+				find: 'if (input.data.roleBinding && packet.role !== "coordinator" && packet.role !== "implementer")',
+				replace: 'if (false && input.data.roleBinding && packet.role !== "coordinator" && packet.role !== "implementer")',
+			},
+		],
+		test: "test/context-continuation-independence.test.ts",
+		pattern: "candidate cannot inherit",
+	},
+	{
+		name: "adopt-back-revives-basis",
+		expect: /strictly unequal/,
+		behavior: "adopting the initial policy revives its original prepared binding",
+		edits: [
+			{
+				file: "src/kernel/policy.ts",
+				find: "const revision = `policy-binding:${facts.sequence}`;",
+				replace: 'const revision = c.revision === "policy:initial" ? "policy-binding:2" : `policy-binding:${facts.sequence}`;',
+			},
+		],
+		test: "test/policy-adoption.test.ts",
+		pattern: "old pending basis",
+	},
+	{
+		name: "policy-resets-review-count",
+		expect: /completed review count must never reset/,
+		behavior: "policy adoption deletes completed Watchdog history/count",
+		edits: [
+			{
+				file: "src/kernel/policy.ts",
+				find: "const work = structuredClone(state.roleWork ?? { assignments: [] });",
+				replace:
+					'const work = structuredClone(state.roleWork ?? { assignments: [] }); work.assignments = work.assignments.filter(a => a.status !== "submitted");',
+			},
+		],
+		test: "test/policy-adoption.test.ts",
+		pattern: "completed Watchdog",
+	},
+	{
 		name: "blocked-slot-release",
 		expect: /capacity_exhausted/,
 		behavior: "a human-blocked but still executing Attempt releases its slot",

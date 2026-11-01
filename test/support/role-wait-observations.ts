@@ -7,7 +7,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import { Engine } from "../../src/engine/runtime.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
-import { admin, packet, roleFixture, scheduler } from "./roles.ts";
+import { admin, allowSameFamily, packet, roleFixture, scheduler } from "./roles.ts";
 
 const mode = process.argv[2];
 let release!: () => void;
@@ -56,6 +56,7 @@ function engine(p: ReturnType<typeof provider>) {
 }
 let p = provider();
 const f = await roleFixture(engine(p));
+await allowSameFamily(f.ledger);
 console.log(JSON.stringify({ event: "owned-data", data: f.data }));
 const assignments = () => {
 	const frame = f.ledger.snapshot(admin);
