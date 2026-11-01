@@ -142,8 +142,16 @@ test("offhost-exposure-cutoff: configured/local-copy/copy-only cannot protect; o
 			await f.wait((b) => b.phase === "failed");
 			assert.equal((await f.status()).verifiedOffHostCutoffSequence, 4, "failed transfer must retain last protected cutoff");
 			assert.equal((await f.status()).generation, first.generation);
-			assert.deepEqual(await localCopies(f.data), [`recovery-packages/${local.body.id}/render.db`], "failed or killed receiver must not retain automatic local packages");
-			assert.deepEqual(await readFile(join(String(local.body.path), "render.db")), manualBytes, "operator package must survive automatic cleanup");
+			assert.deepEqual(
+				await localCopies(f.data),
+				[`recovery-packages/${local.body.id}/render.db`],
+				"failed or killed receiver must not retain automatic local packages",
+			);
+			assert.deepEqual(
+				await readFile(join(String(local.body.path), "render.db")),
+				manualBytes,
+				"operator package must survive automatic cleanup",
+			);
 		}
 		assert.equal(
 			await readFile(join(f.dir.path, "barriers"), "utf8"),
@@ -221,7 +229,11 @@ test("offhost-exposure-cutoff: repeated sender crashes reclaim scratch before ta
 				const event = await h.waitForEvent("barrier");
 				assert.equal(event.name, barrier);
 				await h.kill();
-				assert.equal((await localCopies(f.data)).length, 1, "sender crashes must leave at most the one in-flight snapshot, not accumulate copies");
+				assert.equal(
+					(await localCopies(f.data)).length,
+					1,
+					"sender crashes must leave at most the one in-flight snapshot, not accumulate copies",
+				);
 			} finally {
 				await h.stop();
 			}

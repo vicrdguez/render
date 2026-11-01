@@ -196,13 +196,26 @@ Only the receiver's complete-package validation, file/directory synchronization,
 post-publication readback produces a `durable-verified` receipt. The sender checks identity/cutoff/database digest before
 persisting the protected fact. A scheduled job, local package, transfer exit code, partial copy, lost receipt or a restore
 exercise is not that fact. Failed or ambiguous attempts retain the last verified generation; they may leave an unclaimed
-valid remote generation. Nothing automatically removes old generations. Retain at least the last good generation and
+valid remote generation. Each protected save burst produces roughly one complete store copy at the destination, not
+an incremental delta; periodic work can add one per minute. Provision space for that rate and retained store size.
+Nothing automatically removes old remote generations. Retain at least the last good generation and
 perform retention/space management only as an explicit operator operation. Hidden `.incomplete` directories are never
 protected generations. Stop relevant writers before inspecting/removing interrupted staging.
+
+Automatic local snapshots use the private `<data>/.offhost-scratch` directory, not retained operator packages. There
+is at most one in-flight snapshot; it is removed on completion/failure. A killed host can leave that one snapshot until
+the next attempt, which must remove it before allocating another. If removal fails, the attempt warns without creating
+another copy. Keep room for the live store, one snapshot and SQLite temporary working space. Explicit local-admin
+packages in `<data>/recovery-packages` remain operator-retained and are never pruned by automatic backup. Versions
+before this correction also left automatic packages there: those old copies are indistinguishable from operator packages.
+Inspect and remove unwanted legacy copies explicitly with writers stopped; upgrading does not infer retention intent.
 
 The fixed transfer format has a 256 MiB encoded-input bound (base64 plus manifest) and buffers the package in memory;
 larger generations warn/refuse rather than truncate. Snapshot validation uses the inherited local SQLite snapshot path.
 Large retained histories can increase snapshot/validation time; reported overruns are real, not hidden by the timer.
+Snapshot SQLite work is synchronous on the host event loop, so local requests can wait during snapshot creation even
+though they never await remote success. The early saves-only V9 measurement has backup unconfigured; it does not
+establish configured-backup acknowledgement latency at large store sizes.
 This implementation does not remove the existing package refusal for nonempty role/runtime state whose restored
 execution/effect reconciliation is unavailable. Local role work can continue, but **cannot currently be newly protected**
 by this package format. Future source/effect owners must extend complete packages and verification before claiming coverage.

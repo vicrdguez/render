@@ -1,6 +1,7 @@
 // Ledger: the accepting authority. command/observe/artifact are its interface; adapters in this directory are the
 // only places that establish principals.
 import { createHash, randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId, EntryId, Harness, HarnessOptions, Storage } from "@earendil-works/pi-durable";
 import type { RoleTaskStaging } from "../engine/runtime.ts";
@@ -211,7 +212,8 @@ export class Ledger {
 				}, ctx);
 				this.#meta.backup = backup;
 			},
-			package: () => createRecoveryPackage(management.data, management.runtime, "offhost"),
+			scratch: join(management.data, ".offhost-scratch"),
+			package: (root) => createRecoveryPackage(management.data, management.runtime, "offhost", root),
 			changed: () => {
 				for (const observer of this.#observers) {
 					observer.last = this.#meta.sequence;

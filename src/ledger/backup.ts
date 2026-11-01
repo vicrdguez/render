@@ -1,4 +1,5 @@
 // Ledger's asynchronous scheduling/status. Local acknowledgement never waits for a destination.
+import { rm } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import type { BackupState } from "./backup-state.ts";
 import { type OffHostDestination, transferPackage } from "./offhost.ts";
@@ -16,7 +17,8 @@ export class Backup {
 	readonly #clock: BackupClock;
 	readonly #state: () => BackupState;
 	readonly #save: (update: (state: BackupState) => void) => Promise<void>;
-	readonly #package: () => ReturnType<typeof createRecoveryPackage>;
+	readonly #scratch: string;
+	readonly #package: (root: string) => ReturnType<typeof createRecoveryPackage>;
 	readonly #changed: () => void;
 	#timer: object | undefined;
 	#due = Infinity;
@@ -31,13 +33,15 @@ export class Backup {
 		clock: BackupClock;
 		state(): BackupState;
 		save(update: (state: BackupState) => void): Promise<void>;
-		package(): ReturnType<typeof createRecoveryPackage>;
+		scratch: string;
+		package(root: string): ReturnType<typeof createRecoveryPackage>;
 		changed(): void;
 	}) {
 		this.#destination = options.destination;
 		this.#clock = options.clock;
 		this.#state = options.state;
 		this.#save = options.save;
+		this.#scratch = options.scratch;
 		this.#package = options.package;
 		this.#changed = options.changed;
 		if (this.#state().lastAttempt?.outcome === "failed") this.#phase = "failed";
@@ -107,11 +111,20 @@ export class Backup {
 		try {
 			this.#phase = "snapshotting";
 			this.#changed();
-			const local = await this.#package();
-			const cutoffRecordedAt = this.#clock.now();
-			this.#phase = "transferring";
-			this.#changed();
-			await transferPackage(local.path, this.#destination);
+			// One attempt at a time under the host owner lock. Reclaim SIGKILL leftovers before allocating again.
+			// This directory is disposable; explicit operator recovery packages live elsewhere.
+			await rm(this.#scratch, { recursive: true, force: true });
+			let local: Awaited<ReturnType<typeof createRecoveryPackage>>;
+			let cutoffRecordedAt: number;
+			try {
+				local = await this.#package(this.#scratch);
+				cutoffRecordedAt = this.#clock.now();
+				this.#phase = "transferring";
+				this.#changed();
+				await transferPackage(local.path, this.#destination);
+			} finally {
+				await rm(this.#scratch, { recursive: true, force: true });
+			}
 			await this.#save((b) => {
 				b.verified = {
 					id: local.id,
@@ -132,6 +145,7 @@ export class Backup {
 			this.#reason = null;
 		} catch (error) {
 			this.#phase = "failed";
+			// Debt: exercise this warning with retained role work and continued saves at the backup seam.
 			this.#reason =
 				error instanceof Error && error.message.includes("invalid_recovery_package")
 					? "Package unavailable: retained state requires compatible recovery/reconciliation."

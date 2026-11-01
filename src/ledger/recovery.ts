@@ -490,14 +490,16 @@ export async function createRecoveryPackage(
 	data: string,
 	runtime: HarnessOptions,
 	commandId: string,
+	root = join(data, "recovery-packages"),
 ): Promise<Manifest & { path: string; status: "packaged" }> {
-	const root = join(data, "recovery-packages");
 	await mkdir(root, { recursive: true, mode: 0o700 });
 	const id = `package-${randomUUID()}`;
 	const staging = join(root, `.${id}.incomplete`);
 	await mkdir(staging, { mode: 0o700 });
 	try {
 		const path = join(staging, "render.db");
+		// Debt: automatic snapshots use synchronous SQLite here; measure configured-backup acknowledgement
+		// latency at larger store sizes before the full workload, or move snapshots off the host event loop.
 		const source = new DatabaseSync(join(data, "render.db"), { readOnly: true });
 		try {
 			source.exec(`VACUUM INTO '${path.replaceAll("'", "''")}'`);
