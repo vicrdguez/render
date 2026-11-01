@@ -9,11 +9,13 @@ import { join } from "node:path";
 const ROOT = new URL("../..", import.meta.url).pathname;
 
 type Edit = { file: string; find: string; replace: string };
-type Control = { name: string; edits: Edit[]; test: string; pattern: string; behavior: string };
+// `expect` is the assertion message the intended wrong behavior must produce; any other failure is not detection.
+type Control = { name: string; edits: Edit[]; test: string; pattern: string; behavior: string; expect: RegExp };
 
 const CONTROLS: Control[] = [
 	{
 		name: "principal-forgery-header",
+		expect: /enrollDevice: \{"status":"accepted"/,
 		behavior: "a request header raises a device to the local-admin route",
 		edits: [
 			{
@@ -28,6 +30,7 @@ const CONTROLS: Control[] = [
 	},
 	{
 		name: "principal-forgery-matrix",
+		expect: /(enrollDevice|revokeDevice) accepted from forbidden/,
 		behavior: "the Kernel admits any human to the local-admin family",
 		edits: [
 			{
@@ -41,6 +44,7 @@ const CONTROLS: Control[] = [
 	},
 	{
 		name: "stale-write-acceptance",
+		expect: /a stale save must be refused/,
 		behavior: "a save is accepted against a stale expected revision",
 		edits: [{ file: "src/kernel/kernel.ts", find: "if (c.expected !== current) {", replace: "if (false) {" }],
 		test: "test/sqlite-command-atomicity.test.ts",
@@ -48,6 +52,7 @@ const CONTROLS: Control[] = [
 	},
 	{
 		name: "dedup-before-auth",
+		expect: /a revoked device's retry must not disclose the receipt/,
 		behavior: "receipt deduplication runs before the current credential is checked",
 		edits: [
 			{
@@ -73,6 +78,7 @@ const CONTROLS: Control[] = [
 	},
 	{
 		name: "dedup-ignores-payload",
+		expect: /a changed payload under a used ID must conflict/,
 		behavior: "a reused command ID with a changed payload returns the original receipt",
 		edits: [
 			{
@@ -86,6 +92,7 @@ const CONTROLS: Control[] = [
 	},
 	{
 		name: "device-bound-dedup",
+		expect: /a second device's retry must return the original receipt/,
 		behavior: "command IDs are namespaced by device, so a second device's retry executes again",
 		edits: [
 			{
@@ -101,6 +108,7 @@ const CONTROLS: Control[] = [
 	},
 	{
 		name: "lock-after-open",
+		expect: /must be refused by the owner lock[\s\S]*store_unreadable/,
 		behavior: "the owner lock is taken after the store is opened",
 		edits: [
 			{
@@ -119,6 +127,7 @@ const CONTROLS: Control[] = [
 	},
 	{
 		name: "weakened-synchronous",
+		expect: /ready must report the required persistence readback/,
 		behavior: "the host runs with synchronous=NORMAL and skips readback validation",
 		edits: [
 			{
@@ -133,6 +142,7 @@ const CONTROLS: Control[] = [
 	},
 	{
 		name: "latest-only-history",
+		expect: /exact bytes of revision:\d+ after restart/,
 		behavior: "an older revision ref resolves to the newest bytes of its document",
 		edits: [
 			{
@@ -148,6 +158,7 @@ const CONTROLS: Control[] = [
 	},
 	{
 		name: "substitute-corrupt-bytes",
+		expect: /a corrupt revision must be refused, not served/,
 		behavior: "a corrupt revision read is answered with other retained bytes",
 		edits: [
 			{
@@ -161,6 +172,7 @@ const CONTROLS: Control[] = [
 	},
 	{
 		name: "revoked-stream-stays-open",
+		expect: /expected an end frame after revocation/,
 		behavior: "revocation does not close the revoked device's observation stream",
 		edits: [
 			{
@@ -173,7 +185,23 @@ const CONTROLS: Control[] = [
 		pattern: "B2-03 race",
 	},
 	{
+		name: "kernel-mutates-input",
+		expect: /Kernel mutated its inputs/,
+		behavior: "the Kernel changes the state it was given while deciding",
+		edits: [
+			{
+				file: "src/kernel/kernel.ts",
+				find: '\t\tcase "revokeDevice": {\n\t\t\tif (state.device === null)',
+				replace:
+					'\t\tcase "revokeDevice": {\n\t\t\tif (state.device !== null) (state.device as { revoked: boolean }).revoked = true;\n\t\t\tif (state.device === null)',
+			},
+		],
+		test: "test/kernel-authority-schedules.test.ts",
+		pattern: "^V1",
+	},
+	{
 		name: "slow-consumer-kept",
+		expect: /the stalled stream must have been disconnected by the host/,
 		behavior: "a stalled observer is never disconnected",
 		edits: [{ file: "src/ledger/http.ts", find: "if (++pending > MAX_PENDING_FRAMES) {", replace: "if (false) {" }],
 		test: "test/two-client-reattach.test.ts",
@@ -217,9 +245,9 @@ for (const control of CONTROLS.filter((c) => only === undefined || c.name === on
 			await writeFile(path, source.replace(edit.find, edit.replace));
 		}
 		const mutated = run(dir, control);
-		const failedOnAssertion =
-			mutated.code !== 0 && /AssertionError|ERR_ASSERTION/.test(mutated.output) && !SETUP_FAILURE.test(mutated.output);
-		const detected = baselinePassed && failedOnAssertion;
+		const failed = mutated.code !== 0;
+		const intended = failed && control.expect.test(mutated.output) && !SETUP_FAILURE.test(mutated.output);
+		const detected = baselinePassed && intended;
 		if (!detected) undetected++;
 		const assertion = /AssertionError[^\n]*\n?[^\n]*/.exec(mutated.output)?.[0]?.trim().slice(0, 300) ?? null;
 		results.push({
@@ -228,6 +256,8 @@ for (const control of CONTROLS.filter((c) => only === undefined || c.name === on
 			check: `${control.test} :: ${control.pattern}`,
 			baselinePassed,
 			detected,
+			// A failure that is not the intended assertion is reported, never counted as detection.
+			failedOtherwise: failed && !intended,
 			assertion,
 		});
 		process.stdout.write(`${JSON.stringify(results.at(-1))}\n`);

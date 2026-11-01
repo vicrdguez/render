@@ -43,7 +43,7 @@ function observeProcess(args: string[]): {
 	proc: ChildProcess;
 	frames: Record<string, unknown>[];
 	exited: Promise<number | null>;
-	waitFor(pred: (f: Record<string, unknown>) => boolean, ms?: number): Promise<Record<string, unknown>>;
+	waitFor(pred: (f: Record<string, unknown>) => boolean, what: string, ms?: number): Promise<Record<string, unknown>>;
 } {
 	const proc = track(spawn(process.execPath, [CLIENT_CLI, ...args], { stdio: ["ignore", "pipe", "pipe"] }));
 	const frames: Record<string, unknown>[] = [];
@@ -61,12 +61,12 @@ function observeProcess(args: string[]): {
 		proc,
 		frames,
 		exited,
-		waitFor: (pred, ms = 10_000) =>
+		waitFor: (pred, what, ms = 10_000) =>
 			new Promise((resolve, reject) => {
 				const hit = frames.find(pred);
 				if (hit) return resolve(hit);
 				const timer = setTimeout(
-					() => reject(new assert.AssertionError({ message: `expected frame not seen; got ${JSON.stringify(frames)}` })),
+					() => reject(new assert.AssertionError({ message: `expected ${what}; got ${JSON.stringify(frames)}` })),
 					ms,
 				);
 				waiters.push({
@@ -168,12 +168,12 @@ describe("V4 two stateless clients", () => {
 
 		// A observes, then is revoked while streaming.
 		const stream = observeProcess([...as(tokenA), "observe"]);
-		const first = await stream.waitFor((f) => f.kind === "snapshot");
+		const first = await stream.waitFor((f) => f.kind === "snapshot", "a first snapshot frame");
 		assert.equal(first.version, 1);
 		assert.equal(first.authorityEpoch, host.ready.authorityEpoch);
 		const revoke = await cli(["admin", "--data", dir.path, "revoke", "--device", deviceA]);
 		assert.equal(revoke.code, 0, revoke.stderr);
-		const end = await stream.waitFor((f) => f.kind === "end", 5_000);
+		const end = await stream.waitFor((f) => f.kind === "end", "an end frame after revocation", 5_000);
 		assert.equal(end.reason, "credential_revoked");
 		assert.equal(await stream.exited, 4);
 		const deniedSnap = await cli([...as(tokenA), "snapshot"]);
@@ -216,7 +216,7 @@ describe("V4 two stateless clients", () => {
 
 	test("B3-01/B3-04 frames carry version, scope, epoch and sequence; reconnect starts with a snapshot", async () => {
 		const stream = observeProcess([...as(tokenB), "observe", "--frames", "3"]);
-		const snap = await stream.waitFor((f) => f.kind === "snapshot");
+		const snap = await stream.waitFor((f) => f.kind === "snapshot", "a first snapshot frame");
 		const w = String(((snap.workflows as Record<string, unknown>[])[0] as Record<string, unknown>).workflow);
 		const bearer = (await readFile(tokenB, "utf8")).trim();
 		const doc = `frames-${Date.now()}`;

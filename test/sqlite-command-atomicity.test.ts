@@ -17,6 +17,7 @@ import {
 	tempDir,
 } from "./support/host.ts";
 import { A1, B1, B2, BAD, BOM, G1 } from "./support/literals.ts";
+import { seeded } from "./support/random.ts";
 
 const SCHEDULES = Number(process.env.RENDER_V2_SCHEDULES ?? 32);
 const BATCH = 32;
@@ -141,7 +142,7 @@ describe("B1 authority precedes disclosure (literal cases)", () => {
 
 	test("B1-09 a second device retrying the original ID and bytes receives the original receipt", async () => {
 		const r = await save(host, b.bearer, w2, "ground", G1.bytes, null, acceptedId);
-		assert.equal(r.status, 200, r.text);
+		assert.equal(r.status, 200, `a second device's retry must return the original receipt: ${r.text}`);
 		assert.equal(r.body.duplicate, true);
 		const { duplicate: _d1, ...original } = accepted;
 		const { duplicate: _d2, ...again } = r.body;
@@ -157,7 +158,7 @@ describe("B1 authority precedes disclosure (literal cases)", () => {
 
 	test("B1-10 a changed payload under the same ID conflicts without disclosure", async () => {
 		const r = await save(host, b.bearer, w2, "ground", A1.bytes, null, acceptedId);
-		assert.equal(r.status, 409);
+		assert.equal(r.status, 409, `a changed payload under a used ID must conflict: ${r.text}`);
 		assert.equal(r.body.code, "command_conflict");
 		assertNoDisclosure(r.body);
 	});
@@ -210,7 +211,7 @@ describe("B1 authority precedes disclosure (literal cases)", () => {
 		);
 		assert.equal(revoke.status, 200, revoke.text);
 		const retry = await save(host, c.bearer, w1, "c-doc", A1.bytes, null, id);
-		assert.equal(retry.status, 401);
+		assert.equal(retry.status, 401, `a revoked device's retry must not disclose the receipt: ${retry.text}`);
 		assertNoDisclosure(retry.body);
 		const lookup = await http(host.url, "GET", `/v1/commands/${id}`, { bearer: c.bearer });
 		assert.equal(lookup.status, 401);
@@ -325,7 +326,7 @@ describe("B2 acknowledgement is immutable and atomic (literal cases)", () => {
 
 		const staleId = "b-stale-1";
 		const stale = await save(host, b.bearer, w, "ground", B1.bytes, r0, staleId);
-		assert.equal(stale.status, 409);
+		assert.equal(stale.status, 409, `a stale save must be refused: ${stale.text}`);
 		assert.equal(stale.body.code, "stale_basis");
 		assert.deepEqual(stale.body.refs, { current: raRef, expected: r0 });
 		assert.equal(typeof stale.body.reason, "string");
@@ -356,7 +357,7 @@ describe("B2 acknowledgement is immutable and atomic (literal cases)", () => {
 			const art = await artifact(host, a.bearer, ref);
 			assert.equal(art.status, 200, art.text);
 			const bytes = Buffer.from(String(art.body.content), "base64");
-			assert.ok(bytes.equals(lit.bytes), ref);
+			assert.ok(bytes.equals(lit.bytes), `exact bytes of ${ref} after restart`);
 			assert.equal(art.body.digest, lit.digest);
 			assert.equal(art.body.byteLength, lit.byteLength);
 			assert.equal(art.body.mediaType, "text/markdown");
@@ -369,6 +370,34 @@ describe("B2 acknowledgement is immutable and atomic (literal cases)", () => {
 		// B1's stale bytes were never acknowledged anywhere.
 		const allDigests = JSON.stringify(snap.body);
 		assert.ok(!allDigests.includes(B1.digest));
+	});
+});
+
+describe("B2 document names that collide with object prototype keys", () => {
+	test("a document named constructor is created, read and updated like any other", async () => {
+		const dir = await tempDir("v2-proto");
+		const host = await startHost(dir.path);
+		try {
+			const dev = await enroll(host, "proto");
+			const w = await createWorkflow(host, dev.bearer, "prototype keys");
+			const first = await save(host, dev.bearer, w, "constructor", A1.bytes, null);
+			assert.equal(first.status, 200, `new document named constructor must be accepted: ${first.text}`);
+			const r1 = String((first.body.result as Record<string, unknown>).revision);
+			assert.equal((first.body.result as Record<string, unknown>).parent, null);
+			const second = await save(host, dev.bearer, w, "constructor", B2.bytes, r1);
+			assert.equal(second.status, 200, second.text);
+			assert.equal((second.body.result as Record<string, unknown>).parent, r1);
+			const art = await artifact(host, dev.bearer, r1);
+			assert.ok(Buffer.from(String(art.body.content), "base64").equals(A1.bytes));
+			assert.equal(
+				currentRevision((await snapshot(host, dev.bearer)).body, w, "constructor"),
+				(second.body.result as Record<string, unknown>).revision,
+			);
+			assert.equal(host.proc.exitCode, null, "the host must keep serving");
+		} finally {
+			await host.stop();
+			await dir.remove();
+		}
 	});
 });
 
@@ -398,7 +427,7 @@ describe("B2-10 corrupt referenced bytes", () => {
 			try {
 				const before = Number((await snapshot(host, dev.bearer)).body.sequence);
 				const art = await artifact(host, dev.bearer, ra);
-				assert.equal(art.status, 409, art.text);
+				assert.equal(art.status, 409, `a corrupt revision must be refused, not served: ${art.text}`);
 				assert.equal(art.body.code, "content_corrupt");
 				assert.deepEqual(art.body.refs, { restore: ra });
 				assert.ok(!("content" in art.body));
@@ -427,20 +456,8 @@ type Op =
 	| { kind: "lookup"; device: number }
 	| { kind: "revoke"; device: number };
 
-function rng(seed: number) {
-	let s = seed >>> 0 || 1;
-	return () => {
-		s ^= s << 13;
-		s >>>= 0;
-		s ^= s >>> 17;
-		s ^= s << 5;
-		s >>>= 0;
-		return s / 0x1_0000_0000;
-	};
-}
-
 function schedule(seed: number): Op[] {
-	const r = rng(seed);
+	const r = seeded(seed);
 	const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)] as T;
 	const ops: Op[] = [];
 	for (let i = 0; i < 14; i++) {

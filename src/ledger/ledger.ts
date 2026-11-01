@@ -21,6 +21,7 @@ import {
 	type AcceptedBy,
 	Device,
 	type DeviceRecord,
+	type DocumentPointer,
 	FactEntry,
 	MessageEntry,
 	Meta,
@@ -248,7 +249,7 @@ export class Ledger {
 		const command = env.command;
 		let document: KernelState["document"] = null;
 		if (command.type === "saveDocument" && workflow?.exists) {
-			const pointer = workflow.documents[(command as { document: string }).document];
+			const pointer = documentPointer(workflow.documents, (command as { document: string }).document);
 			if (pointer !== undefined) {
 				// Table read before any table write: verify the bytes this save is based on.
 				const prior = await tx.entry(RevisionEntry, pointer.entry as EntryId);
@@ -338,7 +339,7 @@ export class Ledger {
 				case "document.advance": {
 					const w = await tx.doc(Workflow, write.workflow, null);
 					if (!w.exists) throw new Error("document advance without workflow");
-					const previous = w.documents[write.document];
+					const previous = documentPointer(w.documents, write.document);
 					const save = command as { mediaType: "text/markdown" | "text/plain" };
 					w.documents[write.document] = {
 						document: write.document,
@@ -643,6 +644,11 @@ export class Ledger {
 		for (const o of [...this.#observers]) this.#endObserver(o, "host_closing");
 		await this.#harness.close(ctx);
 	}
+}
+
+/** Document names are client-chosen keys: only own properties are documents, never inherited object members. */
+function documentPointer(documents: Readonly<Record<string, DocumentPointer>>, name: string): DocumentPointer | undefined {
+	return Object.hasOwn(documents, name) ? documents[name] : undefined;
 }
 
 function intact(text: string, digest: string, byteLength: number): boolean {

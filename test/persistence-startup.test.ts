@@ -38,7 +38,7 @@ describe("B4 startup", () => {
 			await chmod(join(dir.path, "render.db"), 0o000);
 			try {
 				const second = spawnHost(dir.path);
-				assert.equal(await second.exited, 3, second.stderr.join("\n"));
+				assert.equal(await second.exited, 3, `the second process must be refused by the owner lock: ${second.stderr.join("\n")}`);
 				const refused = second.events.find((e) => e.event === "startup_refused");
 				assert.equal(refused?.code, "store_owned");
 			} finally {
@@ -63,7 +63,7 @@ describe("B4 startup", () => {
 		const dir = await tempDir("v7-epochs");
 		try {
 			const first = await startHost(dir.path);
-			assert.deepEqual(first.ready.persistence, EXPECTED_PERSISTENCE);
+			assert.deepEqual(first.ready.persistence, EXPECTED_PERSISTENCE, "ready must report the required persistence readback");
 			const dev = await enroll(first, "epoch");
 			const w = await createWorkflow(first, dev.bearer, "epochs");
 			const saved = await save(first, dev.bearer, w, "ground", G1.bytes, null);

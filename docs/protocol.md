@@ -133,6 +133,10 @@ after the client gave up. Retry the original ID and payload. Do not mint a new I
 
 A client must refuse a frame whose `version` it does not understand, and tell the user to upgrade.
 
+The bundled client reconnects by itself when a stream drops or shows a gap. If the host is unreachable when it
+reconnects, observation ends with a transport failure (CLI exit `3`). Start observing again once the host is back; the new
+stream begins with a fresh snapshot.
+
 Each workflow view carries `ground`, `documents`, `messages`, `commitment`, `owner`, `evidence`, `blocker`,
 `nextHumanAction` and `unavailable`. `unavailable` names the capabilities this host version does not deliver yet, for
 example coordinator replies, checkpoints, assignments, historical export and recovery packages. They are reported as

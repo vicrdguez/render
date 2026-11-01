@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Decision, KernelState, Principal, VerifiedFacts } from "../src/kernel/kernel.ts";
 import { change, view } from "../src/kernel/kernel.ts";
+import { seeded } from "./support/random.ts";
 
 const SCHEDULES = Number(process.env.RENDER_V1_SCHEDULES ?? 10_000);
 const STEPS = 24;
@@ -80,22 +81,10 @@ type Model = {
 	sequence: number;
 };
 
-function rng(seed: number) {
-	let s = seed >>> 0 || 1;
-	return () => {
-		s ^= s << 13;
-		s >>>= 0;
-		s ^= s >>> 17;
-		s ^= s << 5;
-		s >>>= 0;
-		return s / 0x1_0000_0000;
-	};
-}
-
 type Step = { principal: number; command: Record<string, unknown>; corruptBasis: boolean; invalidUtf8: boolean };
 
 function generate(seed: number): Step[] {
-	const r = rng(seed);
+	const r = seeded(seed);
 	const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)] as T;
 	const types = [...Object.keys(MATRIX), ...UNKNOWN];
 	// Ledger mints workflow:<sequence>, so two opening local-admin creations make workflow:1 and workflow:2 exist.
@@ -226,9 +215,11 @@ function checkStep(m: Model, step: Step): string | undefined {
 	const principal = PRINCIPALS[step.principal] as Principal;
 	const command = toCommand(m, step);
 	const state = resolve(m, step.command, step.corruptBasis);
-	const before = JSON.stringify([...m.workflows.entries()].map(([k, v]) => [k, [...v.documents.entries()], v.messages]));
 	const f = facts(m, principal, step);
+	// Kernel is pure: whatever it decides, the state, command and facts it was given must be unchanged afterwards.
+	const inputs = JSON.stringify([state, command, f]);
 	const d: Decision = change(state, command as never, f);
+	if (JSON.stringify([state, command, f]) !== inputs) return `Kernel mutated its inputs for ${String(command.type)}`;
 	const type = String(command.type);
 	const label = `${type}:${d.outcome === "accepted" ? "accepted" : d.code}`;
 	outcomes.set(label, (outcomes.get(label) ?? 0) + 1);
@@ -245,8 +236,6 @@ function checkStep(m: Model, step: Step): string | undefined {
 			d.code !== "capability_unavailable"
 		)
 			return `${type} unavailable but refused as ${d.code}`;
-		const after = JSON.stringify([...m.workflows.entries()].map(([k, v]) => [k, [...v.documents.entries()], v.messages]));
-		if (before !== after) return "refusal changed model";
 		return undefined;
 	}
 	// Accepted: every literal rule must hold.

@@ -5,7 +5,7 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { promisify } from "node:util";
-import { createWorkflow, enroll, http, save, spawnHost, startHost, tempDir } from "./support/host.ts";
+import { createWorkflow, enroll, type HostProcess, http, save, spawnHost, startHost, tempDir } from "./support/host.ts";
 import { A1, G1 } from "./support/literals.ts";
 
 const REPETITIONS = Number(process.env.RENDER_V3_REPETITIONS ?? 1);
@@ -86,12 +86,16 @@ describe("B2-09 real disk exhaustion", () => {
 		const dir = await tempDir("v3-full");
 		const image = join(dir.path, "volume.dmg");
 		const mount = join(dir.path, "render-full-mnt");
-		await mkdir(mount);
-		await run("hdiutil", ["create", "-size", "8m", "-fs", "HFS+", "-volname", "renderfull", "-layout", "NONE", image]);
-		await run("hdiutil", ["attach", "-nobrowse", "-noautoopen", "-mountpoint", mount, image]);
 		const data = join(mount, "data");
+		const hosts: HostProcess[] = [];
+		let attached = false;
 		try {
+			await mkdir(mount);
+			await run("hdiutil", ["create", "-size", "8m", "-fs", "HFS+", "-volname", "renderfull", "-layout", "NONE", image]);
+			await run("hdiutil", ["attach", "-nobrowse", "-noautoopen", "-mountpoint", mount, image]);
+			attached = true;
 			const host = await startHost(data);
+			hosts.push(host);
 			const dev = await enroll(host, "full");
 			const w = await createWorkflow(host, dev.bearer, "full");
 			const first = await save(host, dev.bearer, w, "ground", G1.bytes, null);
@@ -114,22 +118,21 @@ describe("B2-09 real disk exhaustion", () => {
 			assert.notEqual(code, "still running", "host must stop after a storage failure");
 			await unlink(filler);
 			const restarted = await startHost(data);
-			try {
-				const art = await http(restarted.url, "GET", `/v1/artifacts/${encodeURIComponent(r0)}`, { bearer: dev.bearer });
-				assert.ok(Buffer.from(String(art.body.content), "base64").equals(G1.bytes));
-				const snap = await http(restarted.url, "GET", "/v1/snapshot?version=1", { bearer: dev.bearer });
-				const wf = (snap.body.workflows as Record<string, unknown>[]).find((x) => x.workflow === w);
-				const doc = ((wf?.documents ?? []) as Record<string, unknown>[]).find((d) => d.document === "ground");
-				assert.equal(doc?.revision, r0, "current pointer must not move to unacknowledged bytes");
-				const retry = await save(restarted, dev.bearer, w, "ground", big, r0, commandId);
-				// The outcome was unknown to the client: the retry is accepted or duplicate, and exactly one revision results.
-				assert.equal(retry.status, 200, retry.text);
-				assert.equal(await revisionCount(restarted.url, dev.bearer, w, "ground"), 2);
-			} finally {
-				await restarted.stop();
-			}
+			hosts.push(restarted);
+			const art = await http(restarted.url, "GET", `/v1/artifacts/${encodeURIComponent(r0)}`, { bearer: dev.bearer });
+			assert.ok(Buffer.from(String(art.body.content), "base64").equals(G1.bytes));
+			const snap = await http(restarted.url, "GET", "/v1/snapshot?version=1", { bearer: dev.bearer });
+			const wf = (snap.body.workflows as Record<string, unknown>[]).find((x) => x.workflow === w);
+			const doc = ((wf?.documents ?? []) as Record<string, unknown>[]).find((d) => d.document === "ground");
+			assert.equal(doc?.revision, r0, "current pointer must not move to unacknowledged bytes");
+			const retry = await save(restarted, dev.bearer, w, "ground", big, r0, commandId);
+			// The outcome was unknown to the client: the retry is accepted or duplicate, and exactly one revision results.
+			assert.equal(retry.status, 200, retry.text);
+			assert.equal(await revisionCount(restarted.url, dev.bearer, w, "ground"), 2);
 		} finally {
-			await run("hdiutil", ["detach", "-force", mount]).catch(() => undefined);
+			// Hosts hold files on the volume; stop them before detaching, and surface a failed detach.
+			for (const h of hosts) await h.stop();
+			if (attached) await run("hdiutil", ["detach", "-force", mount]);
 			await dir.remove();
 		}
 	});
