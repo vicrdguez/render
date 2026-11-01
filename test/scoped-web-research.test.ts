@@ -5,8 +5,9 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import type { JsonObject } from "@earendil-works/pi-durable";
+import type { ConversationId, JsonObject } from "@earendil-works/pi-durable";
 import { Engine } from "../src/engine/runtime.ts";
 import type { HistoryExport } from "../src/ledger/history.ts";
 import type { LedgerRefusal } from "../src/ledger/ledger.ts";
@@ -186,7 +187,9 @@ test("B3/B5 identical bytes remain distinct observations; own tail paging is sco
 	}));
 	try {
 		const web = { exaKey: "fixture", exaBaseUrl: http.url };
-		const first = await run(web, "web_contents", { urls: ["https://example.org/page"] });
+		const first = await run(web, "web_contents", { urls: ["https://example.org/page"] }, (r) =>
+			fauxAssistantMessage(fauxToolCall("read_web_result", { handle: r.handle!, offset: 40000, limit: 4096 }), { stopReason: "toolUse" }),
+		);
 		const second = await run(web, "web_contents", { urls: ["https://example.org/page"] });
 		try {
 			const a = first.reply.inputs[0]!.observations[0]!;
@@ -199,6 +202,25 @@ test("B3/B5 identical bytes remain distinct observations; own tail paging is sco
 					assignments: { id: string; generation: number; attempt: string; packet: { role: string } }[];
 				}
 			).assignments[0]!;
+			const conversation = await first.f.harness.conversation(
+				(first.f.ledger.snapshot(admin) as unknown as { assignments: { conversation: number }[] }).assignments[0]!
+					.conversation as ConversationId,
+				BACKGROUND_CONTEXT,
+			);
+			assert.ok(conversation);
+			let tailOutput = "";
+			for (let n = 0; n < 200 && !tailOutput; n++) {
+				const entries = await conversation.entries({ order: "ascending" }, 200, undefined, BACKGROUND_CONTEXT);
+				tailOutput = entries.items
+					.flatMap((e) => e.model ?? [])
+					.filter((m) => m.role === "toolResult" && m.toolName === "read_web_result")
+					.flatMap((m) => (m.role === "toolResult" ? m.content : []))
+					.filter((c) => c.type === "text")
+					.map((c) => c.text)
+					.join("");
+				if (!tailOutput) await setTimeout(10);
+			}
+			assert.match(JSON.parse(tailOutput).text, /TAIL-CANARY-9281/, "registered scoped paging must retrieve the exact tail");
 			const { mintContext } = await import("../src/ledger/principals.ts");
 			const own = mintContext({
 				kind: "assignment-agent",
@@ -248,12 +270,14 @@ test("B2 unsettled local timeout is uncertain and does not admit fallback", asyn
 		const { f, reply } = await run(
 			{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: http.url, tavilyBaseUrl: http.url, attemptMs: 50, overallMs: 500 },
 			"web_search",
-			{ queries: ["slow"] },
+			{ queries: ["slow", "later"] },
 		);
 		try {
 			assert.equal(http.calls.length, 1, "no overlapping or repeated charged request");
 			assert.equal(reply.inputs[0]!.fallback, "primary_unsettled");
 			assert.equal(reply.inputs[0]!.observations[0]!.outcome, "uncertain");
+			assert.equal(reply.inputs[1]!.observations.length, 0);
+			assert.equal(reply.inputs[1]!.fallback, "prior_attempt_unsettled");
 		} finally {
 			await f.close();
 		}

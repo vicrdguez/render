@@ -43,6 +43,9 @@ export type WebWorking = {
 export function webTextDigest(text: string): string {
 	return `sha256:${createHash("sha256").update(text).digest("hex")}`;
 }
+function fallbackEligible(code: string | undefined, retryable: boolean | undefined): boolean {
+	return code === "PROVIDER_UNAVAILABLE" || (code === "PROVIDER_FAILURE" && retryable === true);
+}
 function duration(value: number | undefined, fallback: number): number {
 	if (value === undefined) return fallback;
 	if (!Number.isSafeInteger(value) || value < 1 || value > 600000) throw new Error("Invalid trusted web duration.");
@@ -71,7 +74,9 @@ export async function research(
 		request,
 		status: "failure",
 		inputs: [],
-		omissions: [],
+		omissions: [
+			"Provider metadata and secondary summary fields are omitted; completeness describes bounded normalized Webfox text, not an archive of the original page.",
+		],
 	};
 	const redact = (text: string) => [c.exaKey, c.tavilyKey].reduce<string>((s, key) => (key ? s.split(key).join("[REDACTED]") : s), text);
 	const client = createWebfox({
@@ -90,9 +95,14 @@ export async function research(
 	});
 	const blocked = () =>
 		signal.aborted ? "canceled" : !current() ? "authority_revoked" : Date.now() >= deadline ? "overall_timeout" : undefined;
+	let unsettled = false;
 	for (const [index, input] of inputs.entries()) {
 		const item: WebWorking["inputs"][number] = { index, input: redact(input), observations: [], fallback: "ineligible" };
 		result.inputs.push(item);
+		if (unsettled) {
+			item.fallback = "prior_attempt_unsettled";
+			continue;
+		}
 		for (const provider of ["exa", "tavily"] as const) {
 			const stop = blocked();
 			if (stop) {
@@ -133,8 +143,7 @@ export async function research(
 				if (!value) throw new Error("Missing provider result.");
 				if (!value.ok) {
 					observation.error = value.error.code;
-					eligible =
-						value.error.code === "PROVIDER_UNAVAILABLE" || (value.error.code === "PROVIDER_FAILURE" && value.error.retryable === true);
+					eligible = fallbackEligible(value.error.code, value.error.retryable);
 					if (value.error.code === "TIMEOUT") observation.outcome = "uncertain";
 				} else {
 					observation.outcome = "success";
@@ -151,7 +160,7 @@ export async function research(
 			} catch (error) {
 				const e = error as { code?: string; options?: { retryable?: boolean } };
 				observation.error = e.code ?? "UNKNOWN_FAILURE";
-				eligible = e.code === "PROVIDER_UNAVAILABLE" || (e.code === "PROVIDER_FAILURE" && e.options?.retryable === true);
+				eligible = fallbackEligible(e.code, e.options?.retryable);
 				if (e.code === "TIMEOUT") observation.outcome = "uncertain";
 			} finally {
 				observation.observedAt = new Date().toISOString();
@@ -159,6 +168,7 @@ export async function research(
 			// Webfox races SDK promises against its deadline; Exa/Tavily do not expose SDK settlement.
 			// A TIMEOUT is therefore not evidence of settlement. Never overlap a fallback with it.
 			if (observation.outcome === "uncertain") {
+				unsettled = true;
 				observation.uncertainty = "Local SDK settlement unconfirmed; possibly charged. Remote termination or refund is not promised.";
 				item.fallback = provider === "exa" ? "primary_unsettled" : "fallback_unsettled";
 				break;
