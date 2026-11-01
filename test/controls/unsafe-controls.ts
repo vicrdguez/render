@@ -35,7 +35,7 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/ledger/ledger.ts",
-				find: 'if (!record?.exists && this.#recovery?.mode === "recovery-reconciling")',
+				find: 'if (this.#recovery?.mode === "recovery-reconciling")',
 				replace: "if (false)",
 			},
 		],
