@@ -942,7 +942,6 @@ All questions, answers and defaults are in [`open-questions.md`](open-questions.
 
 | Q | Question | Current default |
 |---|---|---|
-| Q37 | Mono variant: Iosevka or Iosevka Term? (`— → … ⏎ ▸ ↺` are two cells in Iosevka) | Iosevka Term |
 | Q36 | Side-pane content: size step or weight? | `prose.small` 15/24 on the content bar, which the user kept; the fallback is weight (chrome 500, content 400) |
 | Q30 | Explorer defaults | `review-queue` on first open; three tabs; saved filters device-local (the user kept named filters) |
 | Q31 | Light variant and `auto` | Light's reading area is its lightest surface; `auto` maps dark → `ember` |
