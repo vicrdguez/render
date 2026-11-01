@@ -1,0 +1,18 @@
+
+> render@0.0.0 verify:offhost-exposure-cutoff
+> node --test --test-name-pattern=offhost-exposure-cutoff test/offhost-protection.test.ts
+
+✔ offhost-exposure-cutoff: configured/local-copy/copy-only cannot protect; outage preserves cutoff and local work (3121.575333ms)
+✔ offhost-exposure-cutoff: repeated outage retries and successful bursts retain no automatic local copies (4077.80325ms)
+✔ offhost-exposure-cutoff: repeated sender crashes reclaim scratch before taking another snapshot (6077.35225ms)
+✔ offhost-exposure-cutoff: whole-path target, periodic trigger, measured prompt path and idle time (1642.026ms)
+ℹ prompt snapshot/transfer/publication measured 852.1 ms plus 1000 ms coalescing
+✔ offhost-exposure-cutoff: missing provisioning warns without refusing local saves (251.836166ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 15363.828458

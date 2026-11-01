@@ -1,5 +1,9 @@
 # Off-host protection: source-bound evidence
 
+This directory records the initial implementation pass. Watchdog subsequently found unbounded automatic local package
+retention; its correction and fresh source-bound checks are in [rework/README.md](rework/README.md). The historical
+results below are retained, not rewritten as evidence for the corrected source.
+
 ## Source and ordering
 
 - Contract: accepted `render-v1/offhost-protection` intent/behavior/plan/tasks at workflow source `33d449908b20a1758423c0ece48f210a89fc35b1`; specification authority `768f43c13b0675fae553f4ad09ec754f799a19fb`.
