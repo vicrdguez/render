@@ -13,6 +13,19 @@ explicitly declare an empty source-root map, and unsupported future records must
 | repair-crash | Kill at repair-before-commit / repair-after-commit. Restart either retains marker/old epoch or cleared marker/new epoch/recovery-reconciling. No old credential, dispatch or writes. Successful rotation occurs once; executor epoch changes on every restart. |
 | restore-newer-world | Local admin repairs, re-enrolls once, and reads cutoff receipts under current scope. Missing later receipt is outcome_unknown_after_restore; old epoch envelope is authority_epoch_mismatch. Current epoch writes are recovery_required until newer-world reconciliation exists. No automatic reissue/exit is implemented. Scoped users cannot disclose other workflow receipts: restricted-mode status and response body for an out-of-scope workflow receipt or local-admin receipt equal those for a never-used command ID. An all-workflow device likewise cannot disclose local-admin receipt existence. |
 
+## Durable-role-work integration failure cases (before W5 product changes)
+
+- Empty role-work indexes remain supported. Nonempty assignments, role bindings, tasks and submissions explicitly
+  refuse packaging/import/repair because current-world task/effect reconciliation is unavailable; do not omit records.
+  Refusal preserves the previous good package and the original live role store.
+- Unsupported marked direct copies remain admission-disabled and diagnostic-only: assignment-agent contexts cannot
+  read or submit; local-admin role packet history/export retains exact bytes, provenance and recovery uncertainty.
+  Repair refuses rather than rebinds. Restricted restarts change executor epoch without changing assignments,
+  calling Engine resume hooks or dispatching tasks. Supported older packages repair without authorizing newer-world agents.
+- Repaired history cursors reject signatures under both the empty fallback and backed-up key, while genuine cursors
+  still continue after restricted restart. Workflow views omit delivered local recovery from unavailable capabilities,
+  but keep off-host protection unavailable.
+
 ## Historical-export integration failure cases (before W4 product changes)
 
 - Checksum-correct message text, digest, byte-length and partially missing integrity fields must refuse both managed

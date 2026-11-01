@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { cp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -55,6 +55,13 @@ test("package-clean-restore: snapshot cutoff, exact retained bytes, live DB unma
 		const packaged = await adminCommand(f.h, "createRecoveryPackage");
 		assert.equal(packaged.body.status, "packaged", "package creation must publish a complete package");
 		assert.equal(packaged.body.cutoff, 5);
+		const snapshot = await http(f.h.url, "GET", "/v1/snapshot", { bearer: f.device.bearer });
+		const views = snapshot.body.workflows as { unavailable: string[] }[];
+		assert(views.length > 0);
+		for (const view of views) {
+			assert(!view.unavailable.includes("recovery-packages"), "delivered local recovery must not be advertised as unavailable");
+			assert(view.unavailable.includes("off-host-protection"), "local packages do not deliver off-host protection");
+		}
 		const path = String(packaged.body.path);
 		const retained = join(f.dir.path, "only-package");
 		await cp(path, retained, { recursive: true });
@@ -476,6 +483,15 @@ test("package-clean-restore / restore-newer-world: history scope, secret exclusi
 			const page = await http(h.url, "GET", "/v1/history?limit=1", { bearer: fresh.bearer });
 			const cursor = String(page.body.next);
 			assert.notEqual(cursor, "null");
+			const cursorBody = cursor.split(".")[0]!;
+			for (const staleKey of ["", key]) {
+				const forged = `${cursorBody}.${createHmac("sha256", staleKey).update(cursorBody).digest("base64url")}`;
+				assert.equal(
+					(await http(h.url, "GET", `/v1/history?cursor=${encodeURIComponent(forged)}`, { bearer: fresh.bearer })).body.code,
+					"invalid_cursor",
+					"repaired cursors must use a fresh private secret, not an empty or backed-up signing key",
+				);
+			}
 			await h.stop();
 			h = await startHost(data);
 			assert.equal(
