@@ -128,8 +128,14 @@ container execution/stop remain unavailable prerequisites, separate from the fou
 Queued roles and parents awaiting child results suspend their existing durable task phases on Ledger observation;
 waiting does not repeatedly commit sleeps or retry admission. The watch is an in-memory wakeup hint, not authority or
 retained evidence. Its initial check plus postcommit observations avoid a missed state change; cancellation/host close
-ends the invocation's watch. Reopen resumes the retained run/resume checkpoint and checks committed state before waiting
-again. The task checkpoint records consumed child identities so an already-delivered result cannot cause an endless
+ends the invocation's watch. After explicit startup resume, each run/resume phase checkpoints the fresh executorEpoch
+before reattaching. This is one durable reattachment per phase and host start, not periodic progress: it prevents Pi
+Durable's consecutive interrupted-invocation counter from treating one healthy long wait as repeated failed execution.
+The optional `observingExecutorEpoch` checkpoint field is not an execution permit, does not release a slot, and does not
+change the runtime restart limit or retry parked tasks. Committed assignment state is rechecked after subscribing.
+An older checkpoint without this field acquires it on its next compatible run/resume invocation. The provider-turn
+`wait` phase and its inherited restart-limit behavior are unchanged; no generic parked-task repair is delivered.
+The task checkpoint records consumed child identities so an already-delivered result cannot cause an endless
 continuation when the resumed role does not submit. Older checkpoints without that optional list start with no consumed
 results. Admission still passes through Kernel/Ledger, and only confirmed quiescence frees an executing slot.
 

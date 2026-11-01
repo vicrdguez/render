@@ -174,6 +174,7 @@ export class Engine {
 			{ assignment: string },
 			({ phase: "run"; round: number } | { phase: "resume"; round: number } | { phase: "wait"; submission: number; round: number }) & {
 				consumed?: string[];
+				observingExecutorEpoch?: string;
 			},
 			null
 		>({
@@ -182,6 +183,13 @@ export class Engine {
 			initial: () => ({ phase: "run", round: 0 }),
 			phases: {
 				run: async (task, runtime, context) => {
+					// Reattaching an interrupted scheduling wait is progress, not another failed execution.
+					// Commit the fresh startup identity once; idle observation must not write heartbeats.
+					await runtime.commit(async (tx, current) => {
+						const { executorEpoch } = await tx.doc(Meta);
+						if (current.state.checkpoint.observingExecutorEpoch !== executorEpoch)
+							return { status: "running", checkpoint: { ...current.state.checkpoint, observingExecutorEpoch: executorEpoch } };
+					}, context);
 					const round = task.state.checkpoint.round;
 					for (;;) {
 						await this.#waitUntil(runtime.signal, () => {
@@ -256,6 +264,11 @@ export class Engine {
 					return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
 				},
 				resume: async (task, runtime, context) => {
+					await runtime.commit(async (tx, current) => {
+						const { executorEpoch } = await tx.doc(Meta);
+						if (current.state.checkpoint.observingExecutorEpoch !== executorEpoch)
+							return { status: "running", checkpoint: { ...current.state.checkpoint, observingExecutorEpoch: executorEpoch } };
+					}, context);
 					await this.#waitUntil(runtime.signal, () => {
 						const a = this.#assignment(task.input.assignment);
 						return (
@@ -458,7 +471,9 @@ export class Engine {
 	}
 	async #waitUntil(signal: AbortSignal, ready: () => boolean): Promise<void> {
 		// The task's existing run/resume checkpoint is durable. Observation is only a wakeup hint:
-		// after reopen the phase rechecks committed state and subscribes again, without polling writes.
+		// after reopen the phase checkpoints its new observation epoch and rechecks committed state.
+		// Debt: each waiter scans a full scheduling snapshot on every Ledger commit. Coalesce these
+		// reads when implementing the full streaming workload; larger queues can exceed the V9 ack target.
 		const { promise, resolve, reject } = Promise.withResolvers<void>();
 		const observation = this.#ledger!.observe(scheduling, {
 			send: () => {
