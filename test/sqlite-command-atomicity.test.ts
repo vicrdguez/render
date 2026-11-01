@@ -517,7 +517,7 @@ describe("B2 supported document sizes and encoding boundaries", () => {
 });
 
 describe("B4 retained application schema compatibility", () => {
-	test("unknown revision and message schemas block affected reads and saves without changing retained records", async () => {
+	test("unknown revision and message schemas block affected reads and saves without changing retained records", async (t) => {
 		const dir = await tempDir("v2-record-schema");
 		let host = await startHost(dir.path);
 		try {
@@ -550,21 +550,27 @@ describe("B4 retained application schema compatibility", () => {
 			assert.equal(injected.length, 2);
 			host = await startHost(dir.path);
 			const before = Number((await snapshot(host, dev.bearer)).body.sequence);
-			const art = await artifact(host, dev.bearer, ref);
-			assert.equal(art.status, 409, `unsupported artifact schema must refuse: ${art.text}`);
-			assert.equal(art.body.code, "unsupported_schema");
-			assert.deepEqual(art.body.refs, { record: ref });
-			assert.deepEqual(art.body.supported, [1]);
-			assert.match(String(art.body.reason), /99.*compatible Render version/);
-			assert.ok(!("content" in art.body));
-			const blocked = await save(host, dev.bearer, w, "ground", B2.bytes, ref);
-			assert.equal(blocked.status, 409, `unsupported save basis must refuse: ${blocked.text}`);
-			assert.equal(blocked.body.code, "unsupported_schema");
-			assert.deepEqual(blocked.body.refs, { record: ref });
-			const messages = await http(host.url, "GET", `/v1/workflows/${encodeURIComponent(w)}/messages`, { bearer: dev.bearer });
-			assert.equal(messages.status, 409, `unsupported message schema must refuse: ${messages.text}`);
-			assert.equal(messages.body.code, "unsupported_schema");
-			assert.ok(!("messages" in messages.body));
+			await t.test("artifact reads refuse before disclosing unsupported content", async () => {
+				const art = await artifact(host, dev.bearer, ref);
+				assert.equal(art.status, 409, `unsupported artifact schema must refuse: ${art.text}`);
+				assert.equal(art.body.code, "unsupported_schema");
+				assert.deepEqual(art.body.refs, { record: ref });
+				assert.deepEqual(art.body.supported, [1]);
+				assert.match(String(art.body.reason), /99.*compatible Render version/);
+				assert.ok(!("content" in art.body));
+			});
+			await t.test("save refuses without interpreting an unsupported basis", async () => {
+				const blocked = await save(host, dev.bearer, w, "ground", B2.bytes, ref);
+				assert.equal(blocked.status, 409, `unsupported save basis must refuse: ${blocked.text}`);
+				assert.equal(blocked.body.code, "unsupported_schema");
+				assert.deepEqual(blocked.body.refs, { record: ref });
+			});
+			await t.test("message reads refuse unsupported application records", async () => {
+				const messages = await http(host.url, "GET", `/v1/workflows/${encodeURIComponent(w)}/messages`, { bearer: dev.bearer });
+				assert.equal(messages.status, 409, `unsupported message schema must refuse: ${messages.text}`);
+				assert.equal(messages.body.code, "unsupported_schema");
+				assert.ok(!("messages" in messages.body));
+			});
 			assert.equal(Number((await snapshot(host, dev.bearer)).body.sequence), before);
 			assert.equal(currentRevision((await snapshot(host, dev.bearer)).body, w, "ground"), ref);
 			const outside = await enroll(host, "outside", []);
