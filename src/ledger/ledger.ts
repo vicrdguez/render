@@ -720,7 +720,8 @@ export class Ledger {
 			const ref = request.read;
 			if (ref.startsWith("message:")) return this.#messageArtifact(principal, ref);
 			const location = await this.#harness.snapshot(RevisionLocation, ref, ctx);
-			if (!location?.exists || !visible(principal, location.workflow, this.#roleWork)) return UNAUTHORIZED;
+			if (!location?.exists || !visible(principal, location.workflow, this.#roleWork))
+				return principal.kind === "assignment-agent" ? NOT_FOUND : UNAUTHORIZED;
 			if (principal.kind === "assignment-agent") {
 				const own = this.#roleWork.assignments.find((a) => sameAgent(a, principal));
 				const results = this.#roleWork.assignments
