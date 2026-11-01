@@ -199,7 +199,7 @@ describe("V4 two stateless clients", () => {
 			assert.ok(field in view, `snapshot lacks ${field}`);
 		}
 		assert.equal((view.ground as Record<string, unknown>).revision, ra);
-		for (const absent of ["coordinator-replies", "checkpoints", "assignments", "recovery-packages"]) {
+		for (const absent of ["coordinator-replies", "checkpoints", "recovery-packages"]) {
 			assert.ok((view.unavailable as string[]).includes(absent), absent);
 		}
 		assert.equal((snap.json.history as Record<string, unknown>).status, "available");

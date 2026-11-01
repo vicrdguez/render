@@ -292,6 +292,7 @@ test("package-validation: checksummed but semantically invalid retained relation
 			"parent",
 			"schema",
 			"unknown-kind",
+			"role-provenance",
 			"future-fact",
 			"message-text",
 			"message-digest",
@@ -349,7 +350,7 @@ test("package-validation: checksummed but semantically invalid retained relation
 					"UPDATE entries SET record = json_set(record, '$.data.command', 'admitEffect') WHERE json_extract(record, '$.kind') = 'render.fact' AND json_extract(record, '$.data.sequence') = 4",
 				);
 			}
-			if (kind === "parent" || kind === "schema" || kind === "unknown-kind") {
+			if (kind === "parent" || kind === "schema" || kind === "unknown-kind" || kind === "role-provenance") {
 				const row = sql.prepare("SELECT id, record FROM entries WHERE json_extract(record, '$.kind') = 'render.revision'").get() as {
 					id: number;
 					record: string;
@@ -358,6 +359,7 @@ test("package-validation: checksummed but semantically invalid retained relation
 				if (kind === "parent") record.data.parent = "revision:999";
 				if (kind === "schema") record.data.schema = 99;
 				if (kind === "unknown-kind") record.kind = "render.future";
+				if (kind === "role-provenance") record.data.roleBinding = { assignment: "assignment:999", generation: 1, attempt: "attempt:999" };
 				sql.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(record), row.id);
 			}
 			sql.exec("PRAGMA wal_checkpoint(TRUNCATE)");
@@ -483,9 +485,10 @@ test("package-clean-restore / restore-newer-world: history scope, secret exclusi
 			const page = await http(h.url, "GET", "/v1/history?limit=1", { bearer: fresh.bearer });
 			const cursor = String(page.body.next);
 			assert.notEqual(cursor, "null");
-			const cursorBody = cursor.split(".")[0]!;
+			const cursorBody = cursor.split(".")[0];
+			assert(cursorBody);
 			for (const staleKey of ["", key]) {
-				const forged = `${cursorBody}.${createHmac("sha256", staleKey).update(cursorBody).digest("base64url")}`;
+				const forged: string = `${cursorBody}.${createHmac("sha256", staleKey).update(cursorBody).digest("base64url")}`;
 				assert.equal(
 					(await http(h.url, "GET", `/v1/history?cursor=${encodeURIComponent(forged)}`, { bearer: fresh.bearer })).body.code,
 					"invalid_cursor",

@@ -3,6 +3,8 @@
 import { createHash } from "node:crypto";
 import { type Command, isAvailableCommand, type MediaType, type Persistence } from "../kernel/kernel.ts";
 
+import { ROLE_COMMANDS, ROLES, type RoleCommand, type RolePacket } from "../kernel/roles.ts";
+
 export const PROTOCOL_VERSION = 1;
 const MAX_CONTENT_BYTES = 16 * 1024 * 1024;
 
@@ -84,10 +86,11 @@ export function parseEnvelope(raw: unknown): Envelope | EnvelopeRefusal {
 }
 
 function available(type: string, c: Fields, workflow: string | null, expected: Fields | undefined): { command: Command; content?: Buffer } {
-	const needsWorkflow = type === "saveDocument" || type === "postCoordinatorMessage";
+	const needsWorkflow = type === "saveDocument" || type === "postCoordinatorMessage" || ROLE_COMMANDS.includes(type);
 	if (needsWorkflow && workflow === null) malformed(`${type} requires a workflow`);
 	if (!needsWorkflow && workflow !== null) malformed(`${type} takes no workflow`);
 	if (type !== "saveDocument" && expected !== undefined) malformed(`${type} takes no expected basis`);
+	if (ROLE_COMMANDS.includes(type)) return { command: roleCommand(type, c, workflow as string) };
 	switch (type) {
 		case "createWorkflow":
 			only(c, ["type", "title"], "command");
@@ -131,6 +134,115 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 		default:
 			return malformed(`unhandled command ${type}`);
 	}
+}
+
+function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
+	const base = { type, workflow };
+	switch (type) {
+		case "assignTask":
+			only(c, ["type", "slice", "delivery", "packet"], "command");
+			if (typeof c.delivery !== "boolean") malformed("delivery must be boolean");
+			return { type, workflow, slice: text(c.slice, "slice", 128), delivery: c.delivery, packet: parsePacket(c.packet) };
+		case "requestRole":
+			only(c, ["type", "key"], "command");
+			return { type, workflow, key: text(c.key, "key", 128) };
+		case "submitRoleResult":
+			only(c, ["type", "text"], "command");
+			return { type, workflow, text: text(c.text, "text", 1024 * 1024) };
+		case "requestOwnStop":
+			only(c, ["type"], "command");
+			return { type, workflow };
+	}
+	const allowed = ["type", "assignment", "generation", "attempt"];
+	if (type === "recordBlocker") allowed.push("reason");
+	if (type === "recordRecoveryState") allowed.push("text");
+	if (type === "stageTask" || type === "rebindAttempt") allowed.push("executorEpoch");
+	if (type === "recordQuiescence" || type === "rebindAttempt") allowed.push("providerIdle", "environment", "effects");
+	only(c, allowed, "command");
+	if (!Number.isSafeInteger(c.generation) || Number(c.generation) < 1) malformed("generation must be a positive integer");
+	const common = {
+		...base,
+		assignment: text(c.assignment, "assignment", 128),
+		generation: c.generation as number,
+		attempt: text(c.attempt, "attempt", 128),
+	};
+	if (type === "recordBlocker") return { ...common, type, reason: text(c.reason, "reason", 2048) };
+	if (type === "recordRecoveryState") return { ...common, type, text: text(c.text, "text", 1024 * 1024) };
+	if (type === "recordQuiescence" || type === "rebindAttempt") {
+		if (
+			typeof c.providerIdle !== "boolean" ||
+			!["absent", "stopped", "unknown"].includes(String(c.environment)) ||
+			!["reconciled", "unknown"].includes(String(c.effects))
+		)
+			malformed("invalid quiescence observation");
+		return {
+			...common,
+			type,
+			providerIdle: c.providerIdle as boolean,
+			environment: c.environment as "absent" | "stopped" | "unknown",
+			effects: c.effects as "reconciled" | "unknown",
+			...(type === "rebindAttempt" ? { executorEpoch: text(c.executorEpoch, "executorEpoch", 128) } : {}),
+		};
+	}
+	return {
+		...common,
+		type: type as "stageTask" | "cancelWork" | "fenceAttempt",
+		...(type === "stageTask" ? { executorEpoch: text(c.executorEpoch, "executorEpoch", 128) } : {}),
+	};
+}
+
+function parsePacket(raw: unknown, depth = 0): RolePacket {
+	if (depth > 4) malformed("role packet requests exceed four levels");
+	const p = object(raw, "role packet");
+	only(
+		p,
+		[
+			"role",
+			"inputs",
+			"principles",
+			"instructions",
+			"policy",
+			"profile",
+			"execution",
+			"provider",
+			"model",
+			"family",
+			"requiredFamily",
+			"thinking",
+			"maxInputBytes",
+			"maxOutputTokens",
+			"maxTurns",
+			"expectedOutput",
+			"submission",
+			"requests",
+		],
+		"role packet",
+	);
+	if (!ROLES.includes(p.role as never)) malformed("unknown role");
+	if (!Array.isArray(p.inputs) || p.inputs.length > 256 || !p.inputs.every((ref) => typeof ref === "string" && ref.length > 0))
+		malformed("inputs must be exact artifact refs");
+	if (
+		p.provider !== "anthropic" ||
+		!["read-only", "linux-writer"].includes(String(p.execution)) ||
+		!["off", "minimal", "low", "medium", "high", "xhigh"].includes(String(p.thinking)) ||
+		p.submission !== "submit_role_result"
+	)
+		malformed("unsupported role execution configuration");
+	for (const field of ["maxInputBytes", "maxOutputTokens", "maxTurns"])
+		if (!Number.isSafeInteger(p[field]) || Number(p[field]) < 1) malformed(`${field} must be a positive integer`);
+	for (const field of ["principles", "instructions", "policy", "profile", "model", "family", "requiredFamily", "expectedOutput"])
+		text(p[field], field, 2048);
+	if (!Array.isArray(p.requests) || p.requests.length > 32) malformed("requests must be a bounded list");
+	const keys = new Set<string>();
+	const requests = p.requests.map((raw) => {
+		const r = object(raw, "role request");
+		only(r, ["key", "packet"], "role request");
+		const key = text(r.key, "key", 128);
+		if (keys.has(key)) malformed("duplicate role request key");
+		keys.add(key);
+		return { key, packet: parsePacket(r.packet, depth + 1) };
+	});
+	return { ...p, requests } as RolePacket;
 }
 
 /** Strict UTF-8 decoding that preserves a leading BOM, so the stored text re-encodes to the same bytes. */

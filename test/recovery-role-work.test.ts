@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { cp, mkdir, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
@@ -26,8 +27,15 @@ test("package-validation / restore-newer-world: role work explicitly refuses rec
 		assert.equal((await f.command({ type: "assignTask", slice: "recover:role", delivery: true, packet: packet() })).status, "accepted");
 		const snapshot = f.ledger.snapshot(admin);
 		assert("assignments" in snapshot);
-		const a = (snapshot.assignments as RoleAssignment[])[0]!;
-		const own = mintContext({ kind: "assignment-agent", assignment: a.id, generation: a.generation, attempt: a.attempt, role: a.packet.role });
+		const a = (snapshot.assignments as RoleAssignment[])[0];
+		assert(a);
+		const own = mintContext({
+			kind: "assignment-agent",
+			assignment: a.id,
+			generation: a.generation,
+			attempt: a.attempt,
+			role: a.packet.role,
+		});
 		const refused = await command("createRecoveryPackage", "with-role");
 		assert.equal(refused.status, "refused");
 		assert(refused.status === "refused");
@@ -40,14 +48,26 @@ test("package-validation / restore-newer-world: role work explicitly refuses rec
 		const repaired = await openLedger({ data: clean, runtime: (report) => new Engine().options(report), onFatal: () => {} });
 		try {
 			const result = await repaired.ledger.command(
-				{ version: 1, authorityEpoch: repaired.authorityEpoch, commandId: "repair", command: { type: "repairRecovery" } }, admin,
+				{ version: 1, authorityEpoch: repaired.authorityEpoch, commandId: "repair", command: { type: "repairRecovery" } },
+				admin,
 			);
 			assert.equal(result.status, "accepted");
 			assert.equal((repaired.ledger.snapshot(own) as { code: string }).code, "unauthorized");
-			assert.equal((await repaired.ledger.command(
-				{ version: 1, authorityEpoch: repaired.ledger.status().authorityEpoch, commandId: "late", workflow: "workflow:2",
-					command: { type: "submitRoleResult", assignment: a.id, generation: a.generation, attempt: a.attempt, text: "late" } }, own,
-			) as { code: string }).code, "unauthorized");
+			assert.equal(
+				(
+					(await repaired.ledger.command(
+						{
+							version: 1,
+							authorityEpoch: repaired.ledger.status().authorityEpoch,
+							commandId: "late",
+							workflow: "workflow:2",
+							command: { type: "submitRoleResult", assignment: a.id, generation: a.generation, attempt: a.attempt, text: "late" },
+						},
+						own,
+					)) as { code: string }
+				).code,
+				"unauthorized",
+			);
 		} finally {
 			await repaired.close();
 		}
@@ -58,42 +78,72 @@ test("package-validation / restore-newer-world: role work explicitly refuses rec
 		await mkdir(direct);
 		await cp(join(f.data, "render.db"), join(direct, "render.db"));
 		const storage = await SqliteStorage.open(await openNodeSqliteDatabase(join(direct, "render.db")));
-		const offline = await Harness.open(storage, new Engine().options(() => {}), ctx);
+		const offline = await Harness.open(
+			storage,
+			new Engine().options(() => {}),
+			ctx,
+		);
 		await offline.commit(async (tx) => {
 			const meta = await tx.doc(Meta);
 			delete meta.historyCursorKey;
 			Object.assign(await tx.doc(Recovery), {
-				restoreRequired: true, mode: "admission-disabled",
+				restoreRequired: true,
+				mode: "admission-disabled",
 				origin: { id: "package-00000000-0000-0000-0000-000000000000", cutoff: meta.sequence, priorAuthorityEpoch: meta.authorityEpoch },
 			});
 		}, ctx);
 		await offline.close(ctx);
+		const unsupportedPackage = join(f.data, "unsupported-package");
+		await mkdir(unsupportedPackage);
+		await cp(join(direct, "render.db"), join(unsupportedPackage, "render.db"));
+		const manifest = JSON.parse(await readFile(join(good.path, "manifest.json"), "utf8"));
+		manifest.files["render.db"] = createHash("sha256")
+			.update(await readFile(join(direct, "render.db")))
+			.digest("hex");
+		await writeFile(join(unsupportedPackage, "manifest.json"), JSON.stringify(manifest));
+		await assert.rejects(
+			managedRestore(join(f.data, "rejected"), unsupportedPackage),
+			/role-work reconciliation unavailable/,
+			"checksum-correct role stores must refuse managed import, not silently omit role state",
+		);
 		let resumeHooks = 0;
 		const runtime = (report: Parameters<Engine["options"]>[0]) => ({
 			...new Engine().options(report),
-			beforeResume: async () => { resumeHooks++; },
-			afterResume: () => { resumeHooks++; },
+			beforeResume: async () => {
+				resumeHooks++;
+			},
+			afterResume: () => {
+				resumeHooks++;
+			},
 		});
 		let restored = await openLedger({ data: direct, runtime, onFatal: () => {} });
 		try {
 			const oldExecutor = restored.executorEpoch;
 			assert.equal(restored.ledger.status().hostMode, "admission-disabled");
-			assert.equal((restored.ledger.snapshot(own) as { code: string }).code, "unauthorized", "backed-up assignment must not read restored state");
+			assert.equal(
+				(restored.ledger.snapshot(own) as { code: string }).code,
+				"unauthorized",
+				"backed-up assignment must not read restored state",
+			);
 			for (const route of ["history", "export"] as const) {
-				const response = route === "history"
-					? await restored.ledger.observe(admin, { history: { workflow: "workflow:2" } })
-					: await restored.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+				const response =
+					route === "history"
+						? await restored.ledger.observe(admin, { history: { workflow: "workflow:2" } })
+						: await restored.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
 				assert("recovery" in response);
 				assert.equal(response.recovery?.mode, "admission-disabled");
 				if ("content" in response) {
-					assert.equal(Buffer.from(response.content[a.packetRef]!, "base64").toString(), JSON.stringify(packet()));
+					const bytes: string | undefined = response.content[a.packetRef];
+					assert(bytes);
+					assert.equal(Buffer.from(bytes, "base64").toString(), JSON.stringify(packet()));
 				} else {
 					assert("records" in response);
 					assert(response.records.some((r) => r.ref === a.packetRef && r.assignment === a.id && r.generation === 1));
 				}
 			}
 			const repair = await restored.ledger.command(
-				{ version: 1, authorityEpoch: restored.authorityEpoch, commandId: "unsupported-repair", command: { type: "repairRecovery" } }, admin,
+				{ version: 1, authorityEpoch: restored.authorityEpoch, commandId: "unsupported-repair", command: { type: "repairRecovery" } },
+				admin,
 			);
 			assert.equal(repair.status, "refused");
 			assert(repair.status === "refused");

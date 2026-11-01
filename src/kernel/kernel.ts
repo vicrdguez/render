@@ -1,6 +1,8 @@
 // Kernel: pure domain legality. No I/O, clock reads, randomness or ID minting; Ledger supplies resolved state
 // and verified facts, and stages the returned writes atomically.
 
+import { changeRole, ROLE_COMMANDS, type RoleAssignment, type RoleCommand, type RoleIntent, type RoleWorkState } from "./roles.ts";
+
 export type DeviceScope = { readonly workflows: "all" | readonly string[] };
 
 export type Principal =
@@ -31,6 +33,7 @@ export type Persistence = {
 };
 
 export type Command =
+	| RoleCommand
 	| { readonly type: "createWorkflow"; readonly title: string }
 	| {
 			readonly type: "saveDocument";
@@ -46,6 +49,7 @@ export type Command =
 	| { readonly type: string; readonly workflow?: string };
 
 export type KernelState = {
+	readonly roleWork?: RoleWorkState;
 	/** The envelope's workflow, when it exists. */
 	readonly workflow: { readonly id: string; readonly messageCount: number } | null;
 	/** The named document's current revision and the integrity of its retained bytes, when it exists. */
@@ -55,11 +59,14 @@ export type KernelState = {
 };
 
 export type VerifiedFacts = {
+	readonly executorEpoch?: string;
 	readonly principal: Principal;
 	/** The Render sequence an accepted command receives. */
 	readonly sequence: number;
 	/** Identities minted by Ledger for whatever an accepted command creates. */
 	readonly ids: {
+		readonly assignment?: string;
+		readonly attempt?: string;
 		readonly workflow?: string;
 		readonly revision?: string;
 		readonly device?: string;
@@ -71,6 +78,7 @@ export type VerifiedFacts = {
 };
 
 export type DomainWrite =
+	| { readonly type: "roles.replace"; readonly state: RoleWorkState; readonly intents: readonly RoleIntent[] }
 	| { readonly type: "workflow.create"; readonly workflow: string; readonly title: string }
 	| {
 			readonly type: "revision.append";
@@ -91,6 +99,16 @@ export type DomainWrite =
 	| { readonly type: "fact.record"; readonly fact: string; readonly command: string; readonly refs: Readonly<Record<string, string>> };
 
 export type RefusalCode =
+	| "stale_assignment"
+	| "assignment_not_running"
+	| "ownership_conflict"
+	| "role_already_requested"
+	| "assignment_not_queued"
+	| "stale_executor"
+	| "capacity_exhausted"
+	| "assignment_closed"
+	| "quiescence_unconfirmed"
+	| "recovery_required"
 	| "unknown_command"
 	| "forbidden_principal"
 	| "forbidden_scope"
@@ -143,23 +161,23 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	supersedeContract: { family: "human-decision", available: false },
 	changePolicy: { family: "human-decision", available: false },
 	changeCheckpointSettings: { family: "human-decision", available: false },
-	cancelWork: { family: "human-decision", available: false },
+	cancelWork: { family: "human-decision", available: true },
 	requestLocalVerificationPrompt: { family: "human-decision", available: false },
 	enrollDevice: { family: "local-admin", available: true },
 	revokeDevice: { family: "local-admin", available: true },
 	saveDraft: { family: "role-work", available: false },
 	emitCheckpoint: { family: "role-work", available: false },
 	reworkCheckpoint: { family: "role-work", available: false },
-	requestRole: { family: "role-work", available: false },
-	requestOwnStop: { family: "role-work", available: false },
-	submitRoleResult: { family: "role-work", available: false },
+	requestRole: { family: "role-work", available: true },
+	requestOwnStop: { family: "role-work", available: true },
+	submitRoleResult: { family: "role-work", available: true },
 	advanceDelegatedCheckpoint: { family: "role-work", available: false },
-	assignTask: { family: "scheduling", available: false },
-	stageTask: { family: "scheduling", available: false },
-	fenceAttempt: { family: "scheduling", available: false },
-	rebindAttempt: { family: "scheduling", available: false },
-	recordBlocker: { family: "scheduling", available: false },
-	recordQuiescence: { family: "scheduling", available: false },
+	assignTask: { family: "scheduling", available: true },
+	stageTask: { family: "scheduling", available: true },
+	fenceAttempt: { family: "scheduling", available: true },
+	rebindAttempt: { family: "scheduling", available: true },
+	recordBlocker: { family: "scheduling", available: true },
+	recordQuiescence: { family: "scheduling", available: true },
 	quarantineWorkspace: { family: "scheduling", available: false },
 	cleanupWorkspace: { family: "scheduling", available: false },
 	stageOperation: { family: "source-effect", available: false },
@@ -169,7 +187,7 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	recordForgeObservation: { family: "source-effect", available: false },
 	recordStartup: { family: "recovery-maintenance", available: true },
 	rotateEpoch: { family: "recovery-maintenance", available: false },
-	recordRecoveryState: { family: "recovery-maintenance", available: false },
+	recordRecoveryState: { family: "recovery-maintenance", available: true },
 };
 
 export function isKnownCommand(type: string): boolean {
@@ -199,6 +217,8 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 	if (!FAMILY_ADMITS[entry.family](facts.principal))
 		return refuse("forbidden_principal", `${command.type} belongs to the ${entry.family} family, which does not admit this principal.`);
 	if (!entry.available) return refuse("capability_unavailable", `${command.type} is not available in this host version.`);
+
+	if (ROLE_COMMANDS.includes(command.type)) return changeRole(state, command as RoleCommand, facts);
 
 	const c = command as Extract<
 		Command,
@@ -332,6 +352,7 @@ export type DocumentSummary = {
 };
 
 export type WorkflowState = {
+	readonly assignments?: readonly RoleAssignment[];
 	readonly id: string;
 	readonly title: string;
 	readonly documents: readonly DocumentSummary[];
@@ -345,7 +366,6 @@ export const UNAVAILABLE = [
 	"intake-acceptance",
 	"assignments",
 	"evidence-receipts",
-	"recovery-packages",
 	"off-host-protection",
 ] as const;
 
@@ -356,9 +376,9 @@ export type WorkflowView = {
 	readonly documents: readonly DocumentSummary[];
 	readonly messages: { readonly count: number; readonly coordinator: "unavailable" };
 	readonly commitment: { readonly status: "none"; readonly acceptedIntake: null };
-	readonly owner: { readonly status: "none"; readonly assignments: readonly never[] };
-	readonly evidence: { readonly status: "none"; readonly items: readonly never[] };
-	readonly blocker: { readonly code: "capability_unavailable"; readonly reason: string; readonly capabilities: readonly string[] } | null;
+	readonly owner: { readonly status: "none" | "active" | "blocked"; readonly assignments: readonly RoleAssignment[] };
+	readonly evidence: { readonly status: "none" | "available"; readonly items: readonly string[] };
+	readonly blocker: { readonly code: string; readonly reason: string; readonly capabilities: readonly string[] } | null;
 	readonly nextHumanAction:
 		| { readonly type: "saveGround"; readonly workflow: string; readonly document: "ground"; readonly expected: null }
 		| { readonly type: "none"; readonly reason: string };
@@ -375,6 +395,9 @@ export function view(
 
 function workflowView(w: WorkflowState): WorkflowView {
 	const ground = w.documents.find((d) => d.document === "ground") ?? null;
+	const owners = (w.assignments ?? []).filter((a) => a.delivery && a.status !== "submitted" && a.status !== "canceled");
+	const blocked = (w.assignments ?? []).filter((a) => a.blocker !== null);
+	const evidence = (w.assignments ?? []).flatMap((a) => (a.report ? [a.report] : []));
 	return {
 		workflow: w.id,
 		title: w.title,
@@ -382,18 +405,21 @@ function workflowView(w: WorkflowState): WorkflowView {
 		documents: w.documents,
 		messages: { count: w.messageCount, coordinator: "unavailable" },
 		commitment: { status: "none", acceptedIntake: null },
-		owner: { status: "none", assignments: [] },
-		evidence: { status: "none", items: [] },
-		blocker: {
-			code: "capability_unavailable",
-			reason:
-				"This host retains Ground, documents and coordinator messages. Coordinator replies, checkpoints and assignments are not available in this version.",
-			capabilities: ["coordinator-replies", "checkpoints", "assignments"],
-		},
+		owner: { status: owners.length ? (owners.some((a) => a.blocker) ? "blocked" : "active") : "none", assignments: owners },
+		evidence: { status: evidence.length ? "available" : "none", items: evidence },
+		blocker: blocked.length
+			? { code: blocked[0]?.blocker ?? "role_blocked", reason: blocked.map((a) => `${a.id}: ${a.blocker}`).join("; "), capabilities: [] }
+			: {
+					code: "capability_unavailable",
+					reason:
+						"This host retains Ground, documents, coordinator messages and scoped role work. Full coordinator replies and checkpoint playbooks are not available in this version.",
+					capabilities:
+						w.assignments === undefined ? ["coordinator-replies", "checkpoints", "assignments"] : ["coordinator-replies", "checkpoints"],
+				},
 		nextHumanAction:
 			ground === null
 				? { type: "saveGround", workflow: w.id, document: "ground", expected: null }
 				: { type: "none", reason: "No further human decision is available in this host version; saved work is retained." },
-		unavailable: UNAVAILABLE,
+		unavailable: w.assignments === undefined ? UNAVAILABLE : UNAVAILABLE.filter((name) => name !== "assignments"),
 	};
 }

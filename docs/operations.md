@@ -113,10 +113,15 @@ provide integrity, not authentication against a malicious package author. Use an
 
 The snapshot uses SQLite `VACUUM INTO`, including committed WAL content, and all retained document/history/runtime
 bytes at its own cutoff. SQLite holds the read snapshot while collecting those roots; there is no separately pruned
-content store. Only the offline copy gets `restoreRequired`. The current version has **no source Git, assignment,
-effect or executing-task owner**; `sourceRoots` is explicitly empty. Unknown records or nonempty future roots refuse,
-rather than copying a mutable HEAD or unsafe worker configuration. Those owners must extend validation, rooted
-collection and recovery before their retained types can be packaged. Raw bearer/provider/forge secrets are not
+content store. Only the offline copy gets `restoreRequired`. No source Git or external-effect owner exists;
+`sourceRoots` is explicitly empty. Empty role indexes are supported, but nonempty role work (including bindings,
+tasks and submissions) explicitly refuses packaging/import/repair because current-world role/effect reconciliation
+is unavailable. A refused generation leaves the prior good package and original store intact; do not delete role
+records to bypass it. Marked direct copies with role work stay diagnostic-only: local-admin history/export remains
+available, but repair, assignment-agent reads/submissions, both Engine resume hooks and dispatch stay fenced.
+Restricted starts mint executor epochs without rebinding assignments or claiming quiescence. A newer compatible
+implementation must reconcile original processes/effects and current assignment authority before restoring such stores.
+Unknown records or nonempty future roots likewise refuse, rather than copying a mutable HEAD or unsafe worker configuration. Raw bearer/provider/forge secrets are not
 stored in this version and are not added to the format. The private history cursor key is excluded from the offline
 Meta, including all prior current-only bases/deltas; the closed offline DB is compacted to remove deleted-page remnants.
 Live cursor authority is unchanged. Files and the published directory are synchronized before
@@ -155,13 +160,71 @@ new work. An old envelope reports `authority_epoch_mismatch`. Current-epoch writ
 available in this target. A future checked reconciliation and explicit recovery decision must permit affected writes;
 neither an operator retry nor an empty dedup table supplies that evidence. Ordinary live restarts still preserve
 existing enrollment/authority; restricted restarts preserve the rotated epoch and replacement credentials.
+## Durable role work
+
+The `durable-role-work` slice adds workflow-owned role requests, independent non-fork conversations, immutable packet
+and report artifacts, atomic result notifications, and current-assignment tool enforcement. Full design/delivery
+playbooks are not installed: there is no model-controlled scheduler, coding shell, source publication or live-provider
+authorization. Human/device routes cannot schedule assignments by impersonating the host.
+
+The trusted composition uses `Engine.options` with explicit `apiKey` and a model-ID-to-family map; production uses the
+pinned native `anthropicProvider` from Pi AI 1.4.0. A scripted provider may be supplied at that external seam for owned
+fixtures. The ordinary CLI intentionally supplies no provider credentials: role work reports
+`native_provider_configuration_missing`, not ambient home/config discovery. No credential is a packet input. Required
+models/families must match exactly; an unavailable family blocks. Packets pin exact immutable input, full principles,
+instructions, policy and profile refs, model/family/thinking, input-byte/output-token/turn budgets, expected output and
+submission method. Only host-authored predefined request keys can create child role work. Packet request trees are
+bounded to four levels, 32 children per packet and 256 additional input refs per packet; reports are at most 1 MiB.
+These are engineering bounds, not silently truncated content.
+
+Role tools are exactly `read_artifact`, `request_role`, `submit_role_result` and `request_own_stop`. The handlers check the
+real Durable task/call, conversation binding, effective current role, generation and Attempt. All nested mutation
+wrappers are initially unverified and refused, even if a wrapper declares safe replay. Tool envelopes are captured in
+a Durable memo before the first Ledger command; identity includes workflow/conversation, assignment/generation/Attempt,
+task ID and call ID. Accepted work belongs to the workflow conversation, not the requesting tool or turn.
+
+Four executing Attempts across all roles is a separate limit from Slice delivery ownership. A human-blocked live Attempt
+continues consuming its slot. Read-only conversations have no execution environment or external effect tools; joining
+provider/runtime work establishes their absence. Linux-writer profiles block with `sandbox_capability_unavailable`:
+there is no host fallback. No worker workspace is provisioned or retained in this slice; workspace-storage quotas and
+container execution/stop remain unavailable prerequisites, separate from the four-slot policy.
+
+Queued roles and parents awaiting child results suspend their existing durable task phases on Ledger observation;
+waiting does not repeatedly commit sleeps or retry admission. The watch is an in-memory wakeup hint, not authority or
+retained evidence. Its initial check plus postcommit observations avoid a missed state change; cancellation/host close
+ends the invocation's watch. After explicit startup resume, each run/resume phase checkpoints the fresh executorEpoch
+before reattaching. This is one durable reattachment per phase and host start, not periodic progress: it prevents Pi
+Durable's consecutive interrupted-invocation counter from treating one healthy long wait as repeated failed execution.
+The optional `observingExecutorEpoch` checkpoint field is not an execution permit, does not release a slot, and does not
+change the runtime restart limit or retry parked tasks. Committed assignment state is rechecked after subscribing.
+An older checkpoint without this field acquires it on its next compatible run/resume invocation. The provider-turn
+`wait` phase and its inherited restart-limit behavior are unchanged; no generic parked-task repair is delivered.
+The task checkpoint records consumed child identities so an already-delivered result cannot cause an endless
+continuation when the resumed role does not submit. Older checkpoints without that optional list start with no consumed
+results. Admission still passes through Kernel/Ledger, and only confirmed quiescence frees an executing slot.
+
+`cancelWork` must name the current assignment, generation and Attempt. Ledger commits the new generation before Engine
+cancels/joins the role conversation. An unavailable whole-environment stop stays visible as a blocker and cannot release
+capacity. Late old-generation report text, when received, is retained as a quarantined artifact, never the role's
+accepted report or authority over a newer owner. A previously admitted provider response may still arrive.
+
+On restart, compatible read-only work resumes its own conversation/Attempt only after the store-owner lock, definition
+and uncertainty inspection and fresh executor fence. Unsafe interrupted tools or orphaned tasks block startup with
+`uncertain_execution`; timeout does not establish death. There is no generic repair/replay override: retain the store,
+inspect original task/effect evidence, and use a compatible, explicitly authorized recovery implementation. Do not delete
+task records or issue a new command to guess away an unknown effect. Missing/corrupt packet inputs require restoration
+of those exact refs. Fixed-cutoff history/export includes packet, report and quarantine bytes as immutable documents,
+plus acceptance facts and receipts with original task bindings. Newly retained role documents carry trusted assignment
+and Attempt provenance; older entries keep absent provenance rather than inferring it from client-chosen names.
+Standalone assignment/Attempt chronologies and runtime transcript export are not delivered. Local recovery packages currently refuse nonempty role work because restored-task/effect reconciliation is unavailable; inspection exports are not recovery packages.
+
 ## Historical browsing and export
 
 Use authenticated `GET /v1/history?workflow=<ref>&limit=100`; retain its opaque `next` cursor and fixed `cutoff` for continuation. `GET /v1/export` with the same selectors/cursor returns the whole selection at that cutoff, including superseded revisions, normalized facts/receipts and exact bytes. Save the response JSON as `export.json`; inspect with `node src/client/read-export.ts export.json`. Use the same paired transport/admin socket as other reads. Handle refusal responses before treating a downloaded file as an export. See [protocol](protocol.md#fixed-cutoff-history-and-portable-export) for version, completeness, redaction and exclusion semantics.
 
 Ordinary restart preserves enrollment, epoch and a private cursor HMAC key. Existing schema-1 stores acquire that optional housekeeping key atomically before admission; immutable records/receipt identities and Render sequence are not rewritten. Never export the live Meta document or cursor key. A cursor is not a credential: revoked/narrowed devices cannot use it to recover broader history. Start a new traversal for later writes or a changed selection. Local-admin and device receipt views differ, so cursors cannot move between those routes: `invalid_cursor` requires starting again on the desired route. Cursors issued before receipt-view binding similarly require a fresh traversal; saved version-1 exports remain readable.
 
-Missing/corrupt or unknown-schema content appears in `manifest.missing` with its exact ref and makes the export incomplete; exact reads refuse with the corresponding named outcome. Preserve the store and use a compatible version for unsupported schemas. Use a supported complete recovery package and clean destination for exact-content restore and validated local-admin repair; never fabricate replacement bytes, silently drop a missing declaration, edit the DB as a repair, or claim a portable history export is a recovery backup. Unsaved buffers/uncommitted streams/unsnapshotted files are always outside history. Classified outcomes, retained role packets and runtime records are not yet produced; their unavailable kinds are explicit. No external service, worker, model or human trial is required for these local history checks.
+Missing/corrupt or unknown-schema content appears in `manifest.missing` with its exact ref and makes the export incomplete; exact reads refuse with the corresponding named outcome. Preserve the store and use a compatible version for unsupported schemas. Use a supported complete recovery package and clean destination for exact-content restore and validated local-admin repair; never fabricate replacement bytes, silently drop a missing declaration, edit the DB as a repair, or claim a portable history export is a recovery backup. Unsaved buffers/uncommitted streams/unsnapshotted files are always outside history. Classified outcomes and runtime transcript export remain unavailable. Role packets/reports/quarantine remain immutable documents with original task bindings and provenance; standalone assignment/Attempt chronologies remain unavailable. No external service, worker, model or human trial is required for these local history checks.
 
 During restricted recovery, pages and exports include a `recovery` declaration: current mode, original `restoredCutoff`
 (or null when no validated origin exists), and `newerWorld: unreconciled`. Their `complete` flag describes only the

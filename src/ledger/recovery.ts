@@ -111,6 +111,15 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 	const docs = await all((c) => storage.scanDocuments({ scope: { kind: "session" }, at: "current" }, 200, c, ctx));
 	const values = new Map<string, unknown>();
 	for (const d of docs) {
+		if (d.kind === "render.role-work") {
+			const state = await storage.document(d.id, "current", ctx);
+			// Restored role execution needs current-world reconciliation, which this host cannot establish.
+			check(
+				state?.version === 1 && d.key === undefined && isDeepStrictEqual(state.value, { assignments: [] }),
+				"role-work reconciliation unavailable",
+			);
+			continue;
+		}
 		check(
 			["render.meta", "render.workflow", "render.device", "render.receipt", "render.revision-location", "render.recovery"].includes(d.kind),
 			`unsupported document ${d.kind}`,
@@ -161,7 +170,7 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 			"origin cutoff/epoch",
 		);
 	}
-	// No Render task/submission owner exists yet. Preserve such records and block rather than claim reconciliation.
+	// Role runtime records cannot be safely rebound from an older cutoff. Refuse rather than omit or replay them.
 	check((await storage.scanTasks({}, 1, undefined, ctx)).items.length === 0, "task definitions/reconciliation unavailable");
 	check((await storage.scanSubmissions({}, 1, undefined, ctx)).items.length === 0, "submission reconciliation unavailable");
 	const conversations = await all((c) => storage.scanConversations({}, 200, c, ctx));
@@ -174,6 +183,7 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 			storage.scanDocuments({ scope: { kind: "conversation", conversationId: conversation.id }, at: "current" }, 100, c, ctx),
 		);
 		for (const d of localDocs) {
+			check(d.kind !== "render.role-binding", "role-work reconciliation unavailable");
 			const state = await storage.document(d.id, "current", ctx);
 			check(state?.version === 1, "runtime document schema");
 			const v = state.value;
@@ -201,6 +211,7 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 		const d = e.data as unknown as RevisionData & FactData & MessageData;
 		check(d.schema === 1, `unsupported entry schema ${e.id}`);
 		if (e.kind === "render.revision") {
+			check(d.roleBinding === undefined, "role-work reconciliation unavailable");
 			check(
 				typeof d.text === "string" && d.digest === `sha256:${digest(Buffer.from(d.text))}` && d.byteLength === Buffer.byteLength(d.text),
 				`content ${d.revision}`,
