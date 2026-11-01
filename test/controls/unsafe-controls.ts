@@ -17,7 +17,13 @@ const CONTROLS: Control[] = [
 		name: "offhost-copy-only",
 		expect: /copy-only must not advance protected cutoff/,
 		behavior: "a successful copy without a durable verified receipt establishes protection",
-		edits: [{ file: "src/ledger/offhost.ts", find: "assertReceipt(receipt, manifest);", replace: "// unsafe: accept a copy without verification" }],
+		edits: [
+			{
+				file: "src/ledger/offhost.ts",
+				find: "assertReceipt(receipt, manifest);",
+				replace: "// unsafe: accept a copy without verification",
+			},
+		],
 		test: "test/offhost-protection.test.ts",
 		pattern: "configured/local-copy",
 	},
@@ -25,7 +31,13 @@ const CONTROLS: Control[] = [
 		name: "offhost-local-copy",
 		expect: /copy-only must not advance protected cutoff/,
 		behavior: "a completed local package establishes protection despite failed transfer verification",
-		edits: [{ file: "src/ledger/backup.ts", find: "await transferPackage(local.path, this.#destination);", replace: "try { await transferPackage(local.path, this.#destination); } catch {}" }],
+		edits: [
+			{
+				file: "src/ledger/backup.ts",
+				find: "await transferPackage(local.path, this.#destination);",
+				replace: "try { await transferPackage(local.path, this.#destination); } catch {}",
+			},
+		],
 		test: "test/offhost-protection.test.ts",
 		pattern: "configured/local-copy",
 	},

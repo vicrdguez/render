@@ -60,7 +60,12 @@ test("package-clean-restore: snapshot cutoff, exact retained bytes, live DB unma
 		assert(views.length > 0);
 		for (const view of views) {
 			assert(!view.unavailable.includes("recovery-packages"), "delivered local recovery must not be advertised as unavailable");
-			assert(view.unavailable.includes("off-host-protection"), "local packages do not deliver off-host protection");
+			assert(!view.unavailable.includes("off-host-protection"), "installed backup capability is distinct from missing provisioning");
+			assert.equal(
+				(snapshot.body.backup as { phase: string }).phase,
+				"unconfigured",
+				"local packages do not provision off-host protection",
+			);
 		}
 		const path = String(packaged.body.path);
 		const retained = join(f.dir.path, "only-package");

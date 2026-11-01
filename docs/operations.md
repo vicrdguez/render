@@ -161,6 +161,86 @@ available in this target. A future checked reconciliation and explicit recovery 
 neither an operator retry nor an empty dedup table supplies that evidence. Ordinary live restarts still preserve
 existing enrollment/authority; restricted restarts preserve the rotated epoch and replacement credentials.
 
+## Off-host protection and manual recovery
+
+Local acknowledgement remains local. An operator must provision a **different host**, an existing private destination
+directory on durable storage, SSH access with a pinned/verified host key and noninteractive credentials, and this Render
+receiver with its pinned Node/runtime dependencies on that host. Neither a local path nor `localhost` is off-host protection.
+The software trusts the operator's SSH identity/location and the remote OS's synchronization semantics; it cannot prove
+physical independence or physical power-loss durability. No destination, vendor, account or credentials are provisioned by Render.
+
+Set `RENDER_BACKUP_CONFIG` to an operator-owned JSON file before starting `serve`:
+
+```json
+{"sshHost":"render-backup","receiver":"/opt/render/src/host/main.ts","directory":"/srv/render-backups"}
+```
+
+The fixed transport runs `ssh` in batch mode with strict host-key checking, and invokes
+`node <receiver> backup-receive --data <directory>`. Use an SSH host alias for port/identity configuration. Provision
+the remote `node` in the noninteractive SSH PATH. Restrict the SSH account/directory and protect package contents as
+sensitive retained work; SSH encrypts transport, but this format adds no at-rest encryption. Configuration and raw SSH
+credentials are not retained in SQLite or history exports. Missing/unreadable configuration emits a warning and leaves
+backup unconfigured; missing tool, network failure, incompatible package or failed durable verification also warns without
+refusing local work. Repair provisioning and restart to change configuration; an already-configured destination retries.
+
+The scheduler coalesces document saves and current delegation changes for one second and schedules other acknowledged
+work within 60 seconds. Every document save is conservatively important; future typed design/Contract/product decision
+producers must join the prompt trigger when introduced. Transfers have a 120-second timeout. These are scheduling
+budgets, **not** a five-minute guarantee: snapshot creation, validation, coalescing, transfer, durable publication and reply
+all count. Status reports current exposed-work age and the measured last attempt/window; an observed window over 300
+seconds remains a reported overrun even after eventual successful protection. Idle time after all acknowledged work is
+covered does not create loss exposure. Original acknowledgement times not present in legacy stores remain explicitly
+unknown until a complete generation protects them.
+
+Only the receiver's complete-package validation, file/directory synchronization, atomic generation publication and
+post-publication readback produces a `durable-verified` receipt. The sender checks identity/cutoff/database digest before
+persisting the protected fact. A scheduled job, local package, transfer exit code, partial copy, lost receipt or a restore
+exercise is not that fact. Failed or ambiguous attempts retain the last verified generation; they may leave an unclaimed
+valid remote generation. Nothing automatically removes old generations. Retain at least the last good generation and
+perform retention/space management only as an explicit operator operation. Hidden `.incomplete` directories are never
+protected generations. Stop relevant writers before inspecting/removing interrupted staging.
+
+The fixed transfer format has a 256 MiB encoded-input bound (base64 plus manifest) and buffers the package in memory;
+larger generations warn/refuse rather than truncate. Snapshot validation uses the inherited local SQLite snapshot path.
+Large retained histories can increase snapshot/validation time; reported overruns are real, not hidden by the timer.
+This implementation does not remove the existing package refusal for nonempty role/runtime state whose restored
+execution/effect reconciliation is unavailable. Local role work can continue, but **cannot currently be newly protected**
+by this package format. Future source/effect owners must extend complete packages and verification before claiming coverage.
+
+Snapshots, admin status, history/export and the standalone export reader expose an operational `backup` declaration:
+phase (including unconfigured/scheduled/snapshotting/transferring/verified/failed), health, last verified generation/cutoff/
+recorded and verified times, unprotected-work presence, exposed age or unknown time, target overrun and measured duration.
+History's backup declaration is current at read/export time, **not part of its fixed-cutoff historical record selection**.
+No destination paths or credentials are disclosed. Package copies retain the facts known at their snapshot, so a package
+does not claim its own later remote publication. `restoreVerified: false` means no owned rehearsal is being promoted into
+a per-generation production restore attestation. Re-pairing does not mark any new cutoff protected. Restricted recovery
+does not start transfers.
+
+### Manual off-host recovery checklist (best effort, no RTO)
+
+1. Record the incident/start time. Stop original writers and destination admission; preserve surviving original data
+   and uncertain external-operation evidence. Do not treat an unreachable process as confirmed dead.
+2. Obtain a complete named generation from the operator-controlled destination. Do not use a hidden staging directory
+   or infer cutoff from modification time. Transport both `manifest.json` and `render.db` unchanged. Originals need not
+   remain available. Have the matching Render/Node/runtime version, local free space and destination credentials/tools.
+3. Use the supported `restore --data <clean-directory> --package <generation>` procedure above. It validates complete
+   bytes and origin semantics, not merely the transfer exit code. Refusal leaves a clean destination fenced; preserve the
+   evidence and try a new clean directory with a complete compatible package.
+4. Start locally, inspect admin status and the declared `recovery.origin.cutoff`, then perform validated local-admin
+   repair and replacement enrollment. Read/export the retained cutoff and exact artifacts. Inspect explicit missing
+   material; compare surviving clients/external records for progress after the cutoff. Unsaved buffers, uncommitted
+   streams and unsnapshotted worker files are never promised. Missing receipts mean unknown outcome, not unsent work.
+5. Repair/rotate affected external credentials and reconcile uncertain effects and original processes against their
+   current world before any affected writes. This version has **no recovery exit/reconciliation capability**: remain
+   `recovery-reconciling`, use diagnostic reads, and obtain a compatible checked reconciliation implementation.
+   Never delete the fence, edit SQL, or replay an old outbox to resume.
+6. Record elapsed time, recovered cutoff, known missing progress, remaining prerequisites/blockers and the next human
+   action. The owned `manual-recovery-rehearsal` reports a measured local bounded duration; it does not measure real
+   disaster access, credential repair or effect reconciliation, and is not a guaranteed recovery time.
+
+During an outage the exposed window can exceed five minutes with **no finite loss bound**. Last verified time/cutoff
+is evidence of achieved protection, not a current connectivity promise or a zero-loss claim.
+
 ## Durable role work
 
 The `durable-role-work` slice adds workflow-owned role requests, independent non-fork conversations, immutable packet

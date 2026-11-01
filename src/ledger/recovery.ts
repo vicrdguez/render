@@ -18,6 +18,7 @@ import {
 	type Storage,
 } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
+import { validBackup } from "./backup-state.ts";
 import { faultBarrier } from "./barrier.ts";
 import {
 	APPLICATION_ID,
@@ -145,6 +146,7 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 			new Set(meta.devices).size === meta.devices.length,
 		"meta indexes",
 	);
+	check(meta.backup === undefined || validBackup(meta.backup, meta.sequence), "backup state");
 	const recovery = values.get("render.recovery ") as RecoveryState | undefined;
 	if (recovery !== undefined) {
 		check(

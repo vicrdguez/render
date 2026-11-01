@@ -16,6 +16,8 @@ import {
 	type WorkflowState,
 } from "../kernel/kernel.ts";
 import { packetRefs, type RoleAssignment, type RolePacket, type RoleWorkState, sameAgent } from "../kernel/roles.ts";
+import { Backup, type BackupClock, realBackupClock } from "./backup.ts";
+import { initialBackup, validBackup } from "./backup-state.ts";
 import { faultBarrier } from "./barrier.ts";
 import { decodeUtf8, type Envelope, PROTOCOL_VERSION, parseEnvelope } from "./envelope.ts";
 import {
@@ -29,6 +31,7 @@ import {
 	refusal,
 	selectHistory,
 } from "./history.ts";
+import type { OffHostDestination } from "./offhost.ts";
 import { type AuthenticatedContext, bearerOf, mintContext, newSecret, parseBearer, principalOf, verifies } from "./principals.ts";
 import {
 	type AcceptedBy,
@@ -160,6 +163,8 @@ type Observer = {
 	end(frame: Frame): void;
 };
 
+type Management = { data: string; runtime: HarnessOptions; storage: Storage; backup?: OffHostDestination; backupClock?: BackupClock };
+
 export class Ledger {
 	readonly #harness: Harness;
 	readonly #persistence: Persistence;
@@ -167,7 +172,9 @@ export class Ledger {
 	readonly #observers = new Set<Observer>();
 	#meta: MetaState;
 	#recovery: RecoveryState | undefined;
-	readonly #management: { data: string; runtime: HarnessOptions; storage: Storage };
+	readonly #management: Management;
+	readonly #backup: Backup;
+	readonly #backupClock: BackupClock;
 	readonly #workflows = new Map<string, Present<WorkflowRecord>>();
 	readonly #devices = new Map<string, Present<DeviceRecord>>();
 	#mode: HostMode = "active";
@@ -179,7 +186,7 @@ export class Ledger {
 		meta: MetaState,
 		persistence: Persistence,
 		onFatal: (error: unknown) => void,
-		management: { data: string; runtime: HarnessOptions; storage: Storage },
+		management: Management,
 		recovery: RecoveryState | undefined,
 	) {
 		this.#management = management;
@@ -188,6 +195,30 @@ export class Ledger {
 		this.#meta = meta;
 		this.#persistence = persistence;
 		this.#onFatal = onFatal;
+		this.#backupClock = management.backupClock ?? realBackupClock;
+		if (meta.backup !== undefined && !validBackup(meta.backup, meta.sequence)) throw new Error("Unsupported backup state");
+		this.#meta.backup ??= initialBackup(meta.sequence);
+		this.#backup = new Backup({
+			destination: recovery !== undefined && recovery.mode !== "active" ? undefined : management.backup,
+			clock: this.#backupClock,
+			state: () => this.#meta.backup!,
+			save: async (update) => {
+				const backup = await harness.commit(async (tx) => {
+					const current = await tx.doc(Meta);
+					current.backup ??= initialBackup(current.sequence);
+					update(current.backup);
+					return plain(current.backup);
+				}, ctx);
+				this.#meta.backup = backup;
+			},
+			package: () => createRecoveryPackage(management.data, management.runtime, "offhost"),
+			changed: () => {
+				for (const observer of this.#observers) {
+					observer.last = this.#meta.sequence;
+					observer.send(this.#snapshotFrame(observer.principal));
+				}
+			},
+		});
 		void harness.closed.then((end) => {
 			if (end.reason === "failed") this.#fail(end.error);
 		});
@@ -198,7 +229,7 @@ export class Ledger {
 		harness: Harness,
 		persistence: Persistence,
 		onFatal: (error: unknown) => void,
-		management: { data: string; runtime: HarnessOptions; storage: Storage },
+		management: Management,
 		roleTasks?: RoleTaskStaging,
 	): Promise<Ledger> {
 		const meta = await harness.snapshot(Meta, ctx);
@@ -222,6 +253,7 @@ export class Ledger {
 			const d = await harness.snapshot(Device, id, ctx);
 			if (d?.exists) ledger.#devices.set(id, plain(d) as Present<DeviceRecord>);
 		}
+		ledger.#backup.schedule(false);
 		return ledger;
 	}
 
@@ -230,6 +262,7 @@ export class Ledger {
 		return {
 			hostMode: this.#hostMode(),
 			recovery: this.#recovery ?? null,
+			backup: this.#backup.status(),
 			human: m.human,
 			authorityEpoch: m.authorityEpoch,
 			executorEpoch: m.executorEpoch,
@@ -304,7 +337,10 @@ export class Ledger {
 				reason: "Storage failed while committing; the host is stopping. Retry the original command ID after restart.",
 			};
 		}
-		if (!outcome.duplicate) this.#adopt(outcome);
+		if (!outcome.duplicate) {
+			this.#adopt(outcome);
+			this.#backup.schedule(["saveDocument", "assignTask", "requestRole", "cancelWork", "submitRoleResult"].includes(env.command.type));
+		}
 		await faultBarrier("after-commit", env.commandId);
 		if (outcome.duplicate) return { ...outcome.body, duplicate: true };
 		const result = outcome.body.result;
@@ -705,6 +741,8 @@ export class Ledger {
 			acceptedBy: by,
 		};
 		Object.assign(receipt, { exists: true, namespace, fingerprint: env.fingerprint, body });
+		meta.backup ??= initialBackup(sequence - 1);
+		if (env.command.type !== "recordStartup") meta.backup.pending.push({ sequence, at: this.#backupClock.now() });
 		await faultBarrier("before-commit", env.commandId);
 		const affected = env.workflow ?? (typeof decision.result.workflow === "string" ? decision.result.workflow : undefined);
 		const workflowDoc = affected === undefined ? undefined : await tx.doc(Workflow, affected, null);
@@ -1119,13 +1157,14 @@ export class Ledger {
 			return this.#recovery !== undefined && this.#recovery.mode !== "active"
 				? {
 						...result,
+						backup: this.#backup.status(),
 						recovery: {
 							mode: this.#recovery.mode,
 							restoredCutoff: this.#recovery.origin?.cutoff ?? null,
 							newerWorld: "unreconciled" as const,
 						},
 					}
-				: result;
+				: { ...result, backup: this.#backup.status() };
 		});
 	}
 
@@ -1178,12 +1217,7 @@ export class Ledger {
 			recovery: this.#recovery ?? null,
 			executorEpoch: this.#meta.executorEpoch,
 			persistence: this.#persistence,
-			backup: {
-				health: "unavailable",
-				reason: "Off-host protection is not available in this host version; no acknowledged work is protected off-host.",
-				targetExposedWorkSeconds: 300,
-				verifiedOffHostCutoffSequence: null,
-			},
+			backup: this.#backup.status(),
 			history: {
 				status: "available",
 				head: `history:${this.#meta.sequence}`,
@@ -1215,6 +1249,7 @@ export class Ledger {
 	async close(): Promise<void> {
 		if (this.#mode === "active") this.#mode = "closing";
 		for (const o of [...this.#observers]) this.#endObserver(o, "host_closing");
+		await this.#backup.close();
 		await this.#harness.close(ctx);
 	}
 }
