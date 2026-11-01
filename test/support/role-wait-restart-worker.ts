@@ -44,7 +44,7 @@ const opened = await openLedger({
 				if (action !== "seed" || mode !== "capacity") return;
 				// Real accepted scheduling intents, with demonstrably absent providers/environments.
 				// Blocked execution retains capacity until explicit quiescence, even across host death.
-				await command({ type: "createWorkflow", title: "Restart waits" }, admin, undefined);
+				await command({ type: "createWorkflow", title: "Restart waits" }, admin);
 				await saveInput();
 				for (let i = 0; i < 5; i++) {
 					const accepted = await command({ type: "assignTask", slice: `holder:${i}`, delivery: true, packet: packet() });
@@ -59,13 +59,9 @@ const opened = await openLedger({
 	},
 });
 function assignments(): RoleAssignment[] {
-	const frame = openedLedger().snapshot(admin);
+	const frame = boundLedger.snapshot(admin);
 	assert.ok("assignments" in frame);
 	return frame.assignments as RoleAssignment[];
-}
-// beforeResume runs before openLedger returns; use the binding, not an uninitialised opened handle.
-function openedLedger() {
-	return boundLedger!;
 }
 function identity(a: RoleAssignment) {
 	return { assignment: a.id, generation: a.generation, attempt: a.attempt };
@@ -77,14 +73,14 @@ async function until(check: () => boolean | Promise<boolean>) {
 		await setTimeout(10);
 	}
 }
-async function command(c: Record<string, unknown>, principal = scheduler, workflow: string | undefined = "workflow:2") {
-	const ledger = openedLedger();
+async function command(c: Record<string, unknown>, principal = scheduler) {
+	const ledger = boundLedger;
 	const reply = await ledger.command(
 		{
 			version: 1,
 			authorityEpoch: ledger.status().authorityEpoch,
 			commandId: `restart:${action}:${createHash("sha256").update(JSON.stringify(c)).digest("hex")}`,
-			workflow: c.type === "createWorkflow" ? undefined : workflow,
+			workflow: c.type === "createWorkflow" ? undefined : "workflow:2",
 			expected: c.type === "saveDocument" ? { document: null } : undefined,
 			command: c,
 		},
@@ -105,7 +101,7 @@ async function saveInput() {
 	);
 }
 if (action === "seed" && mode === "parent") {
-	await command({ type: "createWorkflow", title: "Restart waits" }, admin, undefined);
+	await command({ type: "createWorkflow", title: "Restart waits" }, admin);
 	await saveInput();
 	await command({
 		type: "assignTask",

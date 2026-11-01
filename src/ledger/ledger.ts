@@ -426,7 +426,7 @@ export class Ledger {
 							decision.result.quarantined,
 							`quarantined-role-result/${(command as { assignment: string }).assignment}`,
 							JSON.stringify(command),
-							command as { assignment: string; generation: number; attempt: string },
+							command as NonNullable<RevisionData["roleBinding"]>,
 						);
 					for (const intent of write.intents) {
 						const a = roles.assignments.find((a) => a.id === intent.assignment);
@@ -671,7 +671,7 @@ export class Ledger {
 		revision: string,
 		document: string,
 		text: string,
-		binding: { assignment: string; generation: number; attempt: string },
+		binding: NonNullable<RevisionData["roleBinding"]>,
 	) {
 		const w = await tx.doc(Workflow, env.workflow as string, null);
 		if (!w.exists) throw new Error("role text without workflow");
