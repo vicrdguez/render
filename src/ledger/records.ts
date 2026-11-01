@@ -3,6 +3,7 @@
 import { defineDoc, defineDocFamily, defineEntry } from "@earendil-works/pi-durable";
 import type { MediaType, Persistence } from "../kernel/kernel.ts";
 import type { RoleWorkState } from "../kernel/roles.ts";
+import type { BackupState } from "./backup-state.ts";
 
 /** SQLite `application_id` identifying a Render store ("REND"). */
 export const APPLICATION_ID = 0x52454e44;
@@ -12,6 +13,7 @@ export const STORE_SCHEMA = 1;
 const checkpointWhen = (_value: unknown, _ops: unknown, info: { deltasSinceBase: number }) => info.deltasSinceBase >= 32;
 
 export type MetaState = {
+	backup?: BackupState;
 	initialized: boolean;
 	schema: number;
 	human: string;

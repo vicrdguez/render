@@ -1,0 +1,15 @@
+## Contracts
+
+Audited head `5898b99149dc8b4090be88d6074957fe8eefd7b8`, previously reviewed ancestor/fixed point `c42ab7022a1097e372f11da15f2e343a7304aba1`, freshly fetched target `416ba6e737e001282df87add877d33e1f9230d1d`. Same diff, commit list, input inspection and green Full Gate as Standards. Serial fallback after completing Standards; not fresh-context independent review. Read supplied behavior/intent/plan/tasks, prior reports, acceptance criteria and applicable spec §§10/13 (spec byte-identical to authority commit 768f43c).
+
+B1: complete-package validation, durable receiver publication and identity/cutoff/digest receipt precede retained protection. Local disposal neither advances protection nor alters the receiver. Existing failure/corruption/copy-only and exact publication-kill checks remain green, including last-good identity/cutoff preservation.
+
+B2: prompt and periodic scheduling still measure the whole path, now including cleanup. Final gate witness measured 969.4 ms snapshot/transfer/publication plus 1,000 ms coalescing. Overrun and idle assertions remain. Synchronous snapshot latency is not disguised as configured-backup V9 evidence (W2 remains nonblocking debt).
+
+B3: the reported unbounded storage growth is repaired. Automatic packages use dedicated scratch; awaited pre-cleanup runs before allocation, and finally cleanup covers snapshot/transfer failure and success. A crash leaves at most one attempt for reclamation. The single Backup runner plus the existing host owner lock prevent overlapping attempts against scratch; explicit admin packages use the unchanged retained root. New actual-seam tests are red on the reviewed bug and green on this candidate: twelve retries with no new commands, four successful bursts, four sender SIGKILL/restarts, and receiver failure/kills with literal zero/one copy counts and manual package byte preservation. Cleanup errors cannot allocate another snapshot; this error branch is inspected, not separately fault-injected. Legacy copies are not deleted by inferred ownership.
+
+B4: destination-only clean restore, exact cutoff/bytes, repaired credentials, missing-command uncertainty and restricted resume remain green; rehearsal 412.7 ms is not a disaster RTO. Operational guidance now distinguishes disposable local scratch, operator local retention, full-copy remote growth and remote retention duties (W3 addressed).
+
+A1–A3: no module/interface/authority/schema/dependency/pin change; no live deployment or sixth module. A4/T1: failure cases/tests precede implementation; retained facts and recovery format unchanged. A5/T2/T3: full applicable suite passes; extended checks remain separately accounted, and future V5/V6/V8/full-V9 capabilities are not claimed passed. W4 remains explicit nonblocking test debt with a code marker. Prior F1/F2 coverage remains intact.
+
+No new HARD or JUDGEMENT findings. HARD 0, JUDGEMENT 0; worst issue: no new issue identified. Full Gate PASS (91/91, typecheck/lint exit 0; 55 warnings/8 infos). W1 repaired; W2/W4 not silently declared fixed.

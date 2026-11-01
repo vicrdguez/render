@@ -1,0 +1,50 @@
+✖ offhost-exposure-cutoff: repeated outage retries and successful bursts retain no automatic local copies (1207.955792ms)
+✖ offhost-exposure-cutoff: repeated sender crashes reclaim scratch before taking another snapshot (2548.019792ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3958.265917
+
+✖ failing tests:
+
+test at test/offhost-protection.test.ts:188:1
+✖ offhost-exposure-cutoff: repeated outage retries and successful bursts retain no automatic local copies (1207.955792ms)
+  AssertionError [ERR_ASSERTION]: outage retry must release its local full-store copy
+  + actual - expected
+  
+  + [
+  +   'recovery-packages/package-2cbb8c7c-9d8b-410a-aee6-e8b2e78fd7b6/render.db'
+  + ]
+  - []
+  
+      at TestContext.<anonymous> (file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/offhost-protection/test/offhost-protection.test.ts:195:11)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'recovery-packages/package-2cbb8c7c-9d8b-410a-aee6-e8b2e78fd7b6/render.db' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at test/offhost-protection.test.ts:211:1
+✖ offhost-exposure-cutoff: repeated sender crashes reclaim scratch before taking another snapshot (2548.019792ms)
+  AssertionError [ERR_ASSERTION]: sender crashes must leave at most the one in-flight snapshot, not accumulate copies
+  
+  2 !== 1
+  
+      at TestContext.<anonymous> (file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/offhost-protection/test/offhost-protection.test.ts:224:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
