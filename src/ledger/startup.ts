@@ -110,6 +110,12 @@ export async function openLedger(options: {
 				});
 			}, ctx);
 		}
+		if (meta?.historyCursorKey === undefined) {
+			await harness.commit(async (tx) => {
+				const current = await tx.doc(Meta);
+				current.historyCursorKey ??= randomUUID();
+			}, ctx);
+		}
 		const ledger = await Ledger.load(harness, opened.persistence, options.onFatal);
 		const executorEpoch = `executor-${randomUUID()}`;
 		const fence = await ledger.command(

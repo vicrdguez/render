@@ -14,6 +14,34 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "latest-only-export",
+		expect: /export must retain superseded identities, not latest only/,
+		behavior: "export drops every superseded revision",
+		edits: [
+			{
+				file: "src/ledger/history.ts",
+				find: "const included = records;",
+				replace: "const included = records.filter((r) => !records.some((newer) => newer.supersedes.includes(r.ref)));",
+			},
+		],
+		test: "test/history-cutoff-export.test.ts",
+		pattern: "exact separate identities",
+	},
+	{
+		name: "history-cutoff-drift",
+		expect: /history cutoff must not drift/,
+		behavior: "continuing a traversal silently advances its cutoff",
+		edits: [
+			{
+				file: "src/ledger/history.ts",
+				find: "cutoff: state.cutoff,\n\t\tscope: state.scope,\n\t\trecords:",
+				replace: "cutoff: state.cutoff + (state.offset > 0 ? 1 : 0),\n\t\tscope: state.scope,\n\t\trecords:",
+			},
+		],
+		test: "test/history-cutoff-export.test.ts",
+		pattern: "exact separate identities",
+	},
+	{
 		name: "principal-forgery-header",
 		expect: /enrollDevice: \{"status":"accepted"/,
 		behavior: "a request header raises a device to the local-admin route",

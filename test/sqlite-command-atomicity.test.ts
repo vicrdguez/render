@@ -171,7 +171,8 @@ describe("B1 authority precedes disclosure (literal cases)", () => {
 		const ref = String((accepted.result as Record<string, unknown>).revision);
 		const art = await artifact(host, scoped.bearer, ref);
 		const missing = await artifact(host, scoped.bearer, "revision:999999");
-		assert.equal(art.status, 404);
+		assert.equal(art.status, 401);
+		assert.equal(art.body.code, "unauthorized");
 		assert.equal(art.text, missing.text);
 		const snap = await snapshot(host, scoped.bearer);
 		assert.deepEqual(
@@ -601,7 +602,7 @@ describe("B4 retained application schema compatibility", () => {
 			assert.equal(Number((await snapshot(host, dev.bearer)).body.sequence), before);
 			assert.equal(currentRevision((await snapshot(host, dev.bearer)).body, w, "ground"), ref);
 			const outside = await enroll(host, "outside", []);
-			assert.equal((await artifact(host, outside.bearer, ref)).status, 404);
+			assert.equal((await artifact(host, outside.bearer, ref)).status, 401);
 			const unaffected = await save(host, dev.bearer, w, "notes", A1.bytes, null);
 			assert.equal(unaffected.status, 200, unaffected.text);
 			await host.stop();
