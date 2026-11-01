@@ -133,6 +133,12 @@ export async function openLedger(options: {
 				});
 			}, ctx);
 		}
+		if (meta?.historyCursorKey === undefined) {
+			await harness.commit(async (tx) => {
+				const current = await tx.doc(Meta);
+				current.historyCursorKey ??= randomUUID();
+			}, ctx);
+		}
 		const ledger = await Ledger.load(harness, opened.persistence, options.onFatal, runtime.roleTasks).catch((error: unknown) => {
 			throw blocked(
 				"unsupported_schema",

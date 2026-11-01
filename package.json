@@ -14,14 +14,17 @@
 		"verify:kernel-authority-schedules": "RENDER_V1_SCHEDULES=10000 node --test test/kernel-authority-schedules.test.ts",
 		"verify:sqlite-command-atomicity": "RENDER_V2_SCHEDULES=256 node --test test/sqlite-command-atomicity.test.ts",
 		"verify:command-crash-recovery": "node --test test/command-crash-recovery.test.ts",
-		"verify:two-client-reattach": "node --test test/two-client-reattach.test.ts",
+		"verify:two-client-reattach": "node --test test/two-client-reattach.test.ts test/history-cutoff-export.test.ts test/history-cursor-transfer.test.ts",
 		"verify:persistence-startup": "node --test test/persistence-startup.test.ts test/role-recovery-startup.test.ts",
 		"verify:local-command-load": "node --test test/local-command-load.test.ts",
 		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts",
 		"verify:durable-tool-replay": "node --test test/durable-tool-replay.test.ts",
 		"verify:workflow-task-survival": "node --test test/workflow-task-survival.test.ts",
 		"verify:role-capability-refusal": "node --test test/role-capability-refusal.test.ts",
-		"verify:cancellation-capacity": "node --test test/cancellation-capacity.test.ts test/role-recovery-startup.test.ts test/role-waiting.test.ts test/role-wait-restart.test.ts"
+		"verify:cancellation-capacity": "node --test test/cancellation-capacity.test.ts test/role-recovery-startup.test.ts test/role-waiting.test.ts test/role-wait-restart.test.ts",
+		"verify:history-cutoff-export": "node --test test/history-cutoff-export.test.ts test/history-missing-data.test.ts test/history-message.test.ts test/history-completeness.test.ts test/history-cursor-transfer.test.ts",
+		"verify:history-command-load": "node --test test/history-command-load.ts",
+		"verify:independent-export-reader": "node --test test/independent-export-reader.test.ts"
 	},
 	"dependencies": {
 		"@earendil-works/chord": "1.4.0",

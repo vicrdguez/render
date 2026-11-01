@@ -89,7 +89,7 @@ No automatic migration or package recovery is available in this Slice.
 
 ## Content integrity
 
-Every artifact read re-verifies the stored bytes against their SHA-256 digest and length. A mismatch answers
+Every document revision artifact read re-verifies the stored bytes against their SHA-256 digest and length. Newly saved messages also retain and verify their original digest/length. Legacy message reads compute a digest/length from retained text and explicitly report `integrity: unverified_legacy`; no independent original digest is invented. A mismatch answers
 `content_corrupt`, with `refs.restore` naming the exact revision. A save over that revision is refused the same way.
 The host never substitutes other bytes. Supported restore of an exact revision needs recovery packages, which a later
 Slice delivers. Until then there is no supported restore: the corrupt bytes stay preserved and the affected document
@@ -151,6 +151,16 @@ inspect original task/effect evidence, and use a compatible, explicitly authoriz
 task records or issue a new command to guess away an unknown effect. Missing/corrupt packet inputs require restoration
 of those exact refs. Full history/export/package/restore are not delivered by the prepared dependency; packet/report
 revisions and their binding identities are retained for those later owners, not advertised as a supported package.
+
+## Historical browsing and export
+
+Use authenticated `GET /v1/history?workflow=<ref>&limit=100`; retain its opaque `next` cursor and fixed `cutoff` for continuation. `GET /v1/export` with the same selectors/cursor returns the whole selection at that cutoff, including superseded revisions, normalized facts/receipts and exact bytes. Save the response JSON as `export.json`; inspect with `node src/client/read-export.ts export.json`. Use the same paired transport/admin socket as other reads. Handle refusal responses before treating a downloaded file as an export. See [protocol](protocol.md#fixed-cutoff-history-and-portable-export) for version, completeness, redaction and exclusion semantics.
+
+Ordinary restart preserves enrollment, epoch and a private cursor HMAC key. Existing schema-1 stores acquire that optional housekeeping key atomically before admission; immutable records/receipt identities and Render sequence are not rewritten. Never export the live Meta document or cursor key. A cursor is not a credential: revoked/narrowed devices cannot use it to recover broader history. Start a new traversal for later writes or a changed selection. Local-admin and device receipt views differ, so cursors cannot move between those routes: `invalid_cursor` requires starting again on the desired route. Cursors issued before receipt-view binding similarly require a fresh traversal; saved version-1 exports remain readable.
+
+Missing/corrupt or unknown-schema content appears in `manifest.missing` with its exact ref and makes the export incomplete; exact reads refuse with the corresponding named outcome. Preserve the store and use a compatible version for unsupported schemas. Exact-content restore/package repair is not delivered yet: do not fabricate replacement bytes, silently drop the declaration, edit the DB as a repair, or claim export is a backup. Unsaved buffers/uncommitted streams/unsnapshotted files are always outside history. Classified outcomes, retained role packets and runtime records are not yet produced; their unavailable kinds are explicit. No external service, worker, model or human trial is required for these local history checks.
+
+Pages/exports scan their whole selection on each request. Message validation reuses the entries from that scan, but sorting, serialization and shared SQLite/event-loop work can still delay writes as history grows. Page limits do not bound that work or memory; prefer a workflow/kind filter for large stores. Run `npm run verify:history-command-load` separately from the cheap suite to measure the bounded ten-workflow, 1,200-message concurrent workload; this is not a latency guarantee for an arbitrary retained store.
 
 ## Evidence limits
 
