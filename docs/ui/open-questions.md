@@ -161,3 +161,9 @@ macOS Reduce Motion turns both off.
 
 The trial runs on phase-3 faces (Plex chrome), so it can't judge this; the next look at Etoile renders decides.
 *Recommendation:* the size step with the bar. The user kept the side-pane content bar (10-30); only the per-message chat bar was removed.
+
+**Q37 Mono variant: Iosevka or Iosevka Term (new, 2026-11-01; open).** Measured (E-MYGO-TEXT T3): in Iosevka's default spacing, `— → … ⏎ ▸ ↺` are two cells wide; in Iosevka Term all 12 chrome glyphs are one cell. The mono role carries key chips (`⏎`), arrows and ellipses inside fixed columns.
+- **Default:** Iosevka Term for the mono role. Same design and metrics for ASCII; only those symbols narrow to one cell, so fixed columns stay aligned.
+- **Alternative:** keep Iosevka and let the six glyphs take two cells (Render snaps them to cells).
+*Recommendation:* Iosevka Term. It bundles from the same `PkgTTC-Iosevka-34.9.1` package, so no new download.
+

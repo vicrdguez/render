@@ -648,7 +648,7 @@ Syntax colour lives only inside code frames and doesn't count toward the budget.
 - **Iosevka Etoile** for chrome and prose;
 - **Iosevka** for code, IDs, keys, key chips, the command line and every fixed numeric column.
 
-Etoile has a 0.520 em x-height, tabular digits, and one advance across weights; Iosevka is exactly 0.5 em (measured, [`evidence.md`](evidence.md) §1.2). Ligatures are off, and zoom is global only.
+Etoile has a 0.520 em x-height, tabular digits, and one advance across weights; Iosevka is exactly 0.5 em (measured, [`evidence.md`](evidence.md) §1.2). Ligatures and contextual alternates are switched off explicitly (Iosevka's default build has them on, measured), and zoom is global only.
 
 | Token | Family | Size / line | Weight | Use |
 |---|---|---|---|---|
@@ -834,11 +834,11 @@ Full detail: [`reference/stack.md`](reference/stack.md).
 | Part | Decision |
 |---|---|
 | UI framework | **GPUI**, one pinned snapshot. **No GPUI Kit**: its TextView measured 35–145× too slow for streaming |
-| Own components | Block renderer; virtual list keyed by message ID; a modal (vim) controller shared by all editors; text input with IME handled before keys |
+| Own components | Block renderer with Render's own line breaker (GPUI's wrapper is not used for prose); virtual list keyed by message ID; a modal (vim) controller shared by all editors; text input with IME handled before keys (Render's guard) |
 | Markdown | **`pulldown-cmark` 0.13.5** (MIT): tables, footnotes, strikethrough, task lists, metadata blocks, GFM alert kinds (verify at pin; else a small alert pre-pass). Completed blocks frozen, trailing block re-parsed; non-streaming documents parsed whole |
 | Highlighting | **tree-sitter** + `tree-sitter-highlight` 0.27.1; the 12 v1 grammars (§5.8); on the parse worker |
 | Mermaid | **Pele in the client** via `rquickjs` (about 230 lines plus a 730 KB bundle; C compiler at build time, which tree-sitter needs anyway). The pipeline is `source → strip_styles → Pele (fontSize 16, Etoile measurer) → substitute palette tokens → usvg/resvg (font_size 16, font_family "Iosevka Etoile", bundled fonts loaded) → GPUI image`. SVG is cached per source digest. The host serves source only |
-| Fonts | Iosevka and Iosevka Etoile 34.9.1 TTC, bundled. Startup check: each role resolves to its bundled face, mono is monospace, weights keep advance. Fallbacks: mono → Menlo, Etoile → system UI font, with an echo |
+| Fonts | Iosevka and Iosevka Etoile 34.9.1 TTC, bundled. Collections split at build time; only the faces Render uses are registered. Startup check: each role resolves to its bundled face (by glyph data, not name), mono is monospace, weights keep advance. Fallbacks: mono → Menlo, Etoile → system UI font, with an echo |
 | Icons | Carbon 11.90.0 SVG paths through GPUI `svg()` |
 | Config | `~/.config/render/client.toml`: `ui.theme`, `ui.font.mono`, `ui.motion` |
 
@@ -942,6 +942,7 @@ All questions, answers and defaults are in [`open-questions.md`](open-questions.
 
 | Q | Question | Current default |
 |---|---|---|
+| Q37 | Mono variant: Iosevka or Iosevka Term? (`— → … ⏎ ▸ ↺` are two cells in Iosevka) | Iosevka Term |
 | Q36 | Side-pane content: size step or weight? | `prose.small` 15/24 on the content bar, which the user kept; the fallback is weight (chrome 500, content 400) |
 | Q30 | Explorer defaults | `review-queue` on first open; three tabs; saved filters device-local (the user kept named filters) |
 | Q31 | Light variant and `auto` | Light's reading area is its lightest surface; `auto` maps dark → `ember` |

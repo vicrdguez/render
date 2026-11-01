@@ -86,6 +86,16 @@ Source: `experiments/gpui-spike/report.md`, `results/`.
 
 **Not measured:** keystroke → presented (L2) and pacing (L3). The present hook never fired.
 
+### 1.4a Text on GPUI and mygo (E-MYGO-TEXT, offscreen, 2026-11-01)
+
+Workbench `experiments/text-gpui/` and `experiments/text-mygo/report.md`; same samples on both stacks; failure cases written first, each check with a mutant.
+- **Break rules:** Render's own breaker over GPUI's single-line shaper: 0 violations on 54 corpus blocks and 640 stress paragraphs. GPUI's native wrapper: 247; it also breaks at U+2060.
+- **Line data and copy:** line ranges round-trip 695/695; copy across blocks 44/44, nothing inserted. Measure 550.1003 px → 548.
+- **Streaming (L4):** `pulldown-cmark` incremental equals full parse at 15,000 deltas; parse p99 0.027–0.030 ms; with Etoile shaping and layout, warm p99 0.25 ms.
+- **10k transcript:** 0 anchor drift over 20 seeds × 1,000 ops; cold layout p99 3.0 ms.
+- **Fonts:** raw TTCs resolve 8/12 roles (italic upright); split selected faces 12/12; the installed Iosevka 34.0.0 and Etoile 34.2.1 match the bundled advances, so only glyph ids or tables tell them apart. Iosevka applies contextual alternates by default (20/24 tokens). `— → … ⏎ ▸ ↺` are two cells in Iosevka, one in Iosevka Term.
+- **mygo** reached the same results on these checks, about 6× slower at warm streaming layout and 4–5× per cold message.
+
 ### 1.5 Mermaid (E-MERMAID)
 
 Source: `experiments/mermaid-native/report.md`.
@@ -144,6 +154,6 @@ Source: `trial-notes.md`, `experiments/trial-phase3/results/human/*.jsonl`. **Ca
 | **GPUI on-screen latency** L1 on screen, L2 and L3 with a working present hook; a 120 Hz panel | `experiments/gpui-spike/run_real.sh` (E-GPUI-2) |
 | **Real IME** (Japanese input method, dead keys) in the modal editor | E-GPUI-2 |
 | **Pele and usvg in GPUI**: QuickJS with the Etoile measurer, natural widths at `fontSize` 16, note-box fit (Figure 1), GPUI's `img()` with its pinned resvg | E-GPUI-2 |
-| `pulldown-cmark` + Etoile shaping per frame under the firehose (L4 re-measure); tree-sitter highlight p99; binary size of the 12 grammars | E-GPUI-2 |
+| tree-sitter highlight p99; binary size of the 12 grammars; Etoile chrome shaping per frame; font registration at cold start | E-GPUI-2 |
 | READ and VISUAL on the v0b wire dialect (run on v0 only) | prototype |
 | Copy-only re-checks after the final copy rules (SC-10h text, BINDS `none`, host-segment separator) | prototype (READ COPY / MEASURE / FIT, VISUAL bufferline) |

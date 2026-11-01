@@ -113,7 +113,7 @@ Floats dock above the statusline at full width (which-key, pickers at 30 % heigh
 | Role | Family and release | Licence | Notes |
 |---|---|---|---|
 | **Chrome and prose:** labels, rows, tabs, headers, statusline, readback field names; chat, documents, card question, decision text, notes | **Iosevka Etoile**, v34.9.1, `PkgTTC-IosevkaEtoile-34.9.1` | SIL OFL 1.1 | A quasi-proportional slab serif on Iosevka's skeleton, so inline code sits in prose without a jump |
-| **Mono:** code, diffs, IDs, digests, keys, key chips, the command line, **fixed numeric columns** (counts, waiting, downstream, sizes, seq, times) | **Iosevka** (default spacing), v34.9.1 (2026-10-24), `PkgTTC-Iosevka-34.9.1` | SIL OFL 1.1, no Reserved Font Name | Advance **0.5 em, measured**: 100 columns = 700.0 px at 14 px. No ligatures in the default build |
+| **Mono:** code, diffs, IDs, digests, keys, key chips, the command line, **fixed numeric columns** (counts, waiting, downstream, sizes, seq, times) | **Iosevka** (default spacing), v34.9.1 (2026-10-24), `PkgTTC-Iosevka-34.9.1` | SIL OFL 1.1, no Reserved Font Name | Advance **0.5 em, measured**: 100 columns = 700.0 px at 14 px. Contextual alternates are on in the default build (measured) and are switched off by the renderer. Variant (default spacing or Term) is Q37 |
 
 **Measured on the bundled WOFF2 with CoreText (10-29):**
 - **x-height:** Etoile 0.520 em vs Plex Sans 0.516. At the same size Etoile reads as large, so the chrome sizes stay unchanged.
@@ -162,7 +162,7 @@ Trade-off: phase 3 kept Plex Sans so that chrome looked unlike content. That sep
 | `prose.ref` | Iosevka | 14 / 24 | 500 | references in content, in `prose` and `prose.small` alike (§5.9) |
 | `prose.table` | Iosevka Etoile | 14 / 22 | 400 (header 700) | table cells (§4.8) |
 
-Numbers in fixed columns use `mono.small`; numbers inside a sentence stay in the sentence's face, whose digits are tabular anyway. Iosevka ligatures are off (default build). Global zoom only.
+Numbers in fixed columns use `mono.small`; numbers inside a sentence stay in the sentence's face, whose digits are tabular anyway. Iosevka ligatures and contextual alternates are switched off by the renderer. Global zoom only.
 
 ## 4. Reading layout (normative)
 
@@ -185,7 +185,7 @@ The measure is a maximum. In panes wider than the measure plus 160 px, the text 
 - A token longer than the measure may break after `/ - _ . ·`, with a 12 px `arrow--right` continuation mark in the gutter.
 - Hanging indents for lists; quote bars repeat on every line.
 
-**Mechanism belongs to the renderer**: `white-space: nowrap` spans and `<wbr>` in HTML (what E-PROTO-2 did), or line-break opportunities in GPUI's wrapper. **The renderer never inserts characters into content text.** Yanked or copied text must equal the source bytes. Zero-width and joiner characters are exactly what §10.6 renders as visible escapes, so inserting them would collide with the spoofing rule.
+**Mechanism belongs to the renderer**: `white-space: nowrap` spans and `<wbr>` in HTML (what E-PROTO-2 did), or Render's own line breaker on GPUI (GPUI's wrapper breaks these rules and treats U+2060 as a break candidate, measured in E-MYGO-TEXT). **The renderer never inserts characters into content text.** Yanked or copied text must equal the source bytes. Zero-width and joiner characters are exactly what §10.6 renders as visible escapes, so inserting them would collide with the spoofing rule.
 
 ### 4.3 Blocks that do not wrap
 
