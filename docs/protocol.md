@@ -174,6 +174,8 @@ example full coordinator replies, checkpoints and recovery packages. They are re
 absent, never as empty successes. The snapshot also reports `hostMode`, `executorEpoch`, the persistence readback and
 the backup state. Off-host protection is reported `unavailable` until it is delivered.
 
+For blocked assignments other than a parent awaiting role results, `nextHumanAction` identifies `cancelWork` with `workflow`, `assignment`, `generation`, `attempt` and an explanatory `reason`. This takes priority over initial Ground setup. To submit it, place `workflow` on the envelope and only `type`, `assignment`, `generation`, `attempt` in `command`; `reason` is display guidance, not a command field. Cancellation still requires a human principal and the current identity. Quiescence and host-scheduled fresh replacement remain separate checked steps, not authority conveyed by the snapshot.
+
 Role-aware snapshots add scoped `assignments`, including exact packet/report refs, generation/Attempt, ownership,
 executing capacity and visible blockers. Workflow owner/evidence summaries reflect these assignments. A blocked owner
 may still consume a slot; `executing: false` does not surrender ownership. Assignment-agent reads expose only their own

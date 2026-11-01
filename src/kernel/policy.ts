@@ -68,7 +68,7 @@ export function changePolicy(state: KernelState, c: PolicyCommand, facts: Verifi
 		a.packetRef = `packet:${facts.sequence}:${a.id}`;
 		if (a.executing) {
 			a.status = "blocked";
-			a.blocker = "policy_refresh_required";
+			a.blocker ??= "policy_refresh_required";
 		}
 	}
 	return {

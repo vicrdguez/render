@@ -412,6 +412,14 @@ export type WorkflowView = {
 	readonly blocker: { readonly code: string; readonly reason: string; readonly capabilities: readonly string[] } | null;
 	readonly nextHumanAction:
 		| { readonly type: "saveGround"; readonly workflow: string; readonly document: "ground"; readonly expected: null }
+		| {
+				readonly type: "cancelWork";
+				readonly workflow: string;
+				readonly assignment: string;
+				readonly generation: number;
+				readonly attempt: string;
+				readonly reason: string;
+		  }
 		| { readonly type: "none"; readonly reason: string };
 	readonly unavailable: readonly string[];
 };
@@ -429,6 +437,7 @@ function workflowView(w: WorkflowState): WorkflowView {
 	const owners = (w.assignments ?? []).filter((a) => a.delivery && a.status !== "submitted" && a.status !== "canceled");
 	const blocked = (w.assignments ?? []).filter((a) => a.blocker !== null);
 	const evidence = (w.assignments ?? []).flatMap((a) => (a.report ? [a.report] : []));
+	const recoverable = blocked.find((a) => a.status === "blocked" && a.blocker !== "awaiting_role_results");
 	return {
 		workflow: w.id,
 		title: w.title,
@@ -447,8 +456,17 @@ function workflowView(w: WorkflowState): WorkflowView {
 					capabilities:
 						w.assignments === undefined ? ["coordinator-replies", "checkpoints", "assignments"] : ["coordinator-replies", "checkpoints"],
 				},
-		nextHumanAction:
-			ground === null
+		nextHumanAction: recoverable
+			? {
+					type: "cancelWork",
+					workflow: w.id,
+					assignment: recoverable.id,
+					generation: recoverable.generation,
+					attempt: recoverable.attempt,
+					reason:
+						"Cancel this blocked assignment to fence its Attempt. Wait for confirmed quiescence before scheduling a fresh linked replacement.",
+				}
+			: ground === null
 				? { type: "saveGround", workflow: w.id, document: "ground", expected: null }
 				: { type: "none", reason: "No further human decision is available in this host version; saved work is retained." },
 		unavailable: w.assignments === undefined ? UNAVAILABLE : UNAVAILABLE.filter((name) => name !== "assignments"),

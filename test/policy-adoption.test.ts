@@ -136,7 +136,21 @@ for (const scenario of ["without Ground", "with Ground", "already blocked"] as c
 			assert.equal(transcripts.length, 1, "no follow-up request on the old policy basis may reach the provider");
 			assert.equal(snapshot().assignments[0]!.report, null);
 			assert.equal(snapshot().assignments[0]!.executing, false);
-			assert.equal((await f.command({ ...snapshot().workflows[0]!.nextHumanAction }, admin)).status, "accepted");
+			const action = snapshot().workflows[0]!.nextHumanAction;
+			assert.equal(action.type, "cancelWork");
+			assert.ok(action.type === "cancelWork");
+			const { workflow, reason: _reason, ...command } = action;
+			const canceledReply = await f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: f.ledger.status().authorityEpoch,
+					commandId: "handover-cancel",
+					workflow,
+					command,
+				},
+				admin,
+			);
+			assert.equal(canceledReply.status, "accepted", JSON.stringify(canceledReply));
 			await until(() => snapshot().assignments[0]!.status === "canceled");
 			const canceled = snapshot().assignments[0]!;
 			assert.equal(
