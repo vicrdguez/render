@@ -8,8 +8,164 @@ import { setTimeout } from "node:timers/promises";
 import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { Engine } from "../src/engine/runtime.ts";
+import type { WorkflowView } from "../src/kernel/kernel.ts";
+import type { PolicyState } from "../src/kernel/policy.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { admin, packet, roleFixture, scheduler } from "./support/roles.ts";
+
+for (const scenario of ["without Ground", "with Ground", "already blocked"] as const) {
+	test(`policy-adoption: in-flight handover ${scenario} retains ownership until checked cancellation and replacement`, async () => {
+		const gate = Promise.withResolvers<void>();
+		const transcripts: string[] = [];
+		const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
+		p.setResponses([
+			async (transcript) => {
+				transcripts.push(JSON.stringify(transcript));
+				await gate.promise;
+				return fauxAssistantMessage(fauxToolCall("read_artifact", { ref: "revision:3" }), { stopReason: "toolUse" });
+			},
+			(transcript) => {
+				transcripts.push(JSON.stringify(transcript));
+				return fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "NEW-POLICY-REPORT" }), { stopReason: "toolUse" });
+			},
+		]);
+		const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
+		const snapshot = () => {
+			const frame = f.ledger.snapshot(admin);
+			assert.ok("assignments" in frame);
+			return {
+				assignments: frame.assignments as RoleAssignment[],
+				workflows: frame.workflows as WorkflowView[],
+				policy: frame.policy as PolicyState,
+			};
+		};
+		const until = async (check: () => boolean) => {
+			for (let n = 0; n < 500 && !check(); n++) await setTimeout(10);
+			assert.ok(check(), "policy-interrupted work must reach the expected retained state");
+		};
+		try {
+			if (scenario !== "without Ground") {
+				const saved = await f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: f.ledger.status().authorityEpoch,
+						commandId: "handover-ground",
+						workflow: "workflow:2",
+						expected: { document: null },
+						command: {
+							type: "saveDocument",
+							document: "ground",
+							mediaType: "text/plain",
+							content: Buffer.from("Retain delivery ownership.").toString("base64"),
+						},
+					},
+					admin,
+				);
+				assert.equal(saved.status, "accepted");
+			}
+			assert.equal(
+				(await f.command({ type: "assignTask", slice: "policy-interrupted", delivery: true, packet: packet() })).status,
+				"accepted",
+			);
+			await until(() => transcripts.length === 1);
+			const old = snapshot().assignments[0]!;
+			if (scenario === "already blocked") {
+				assert.equal(
+					(
+						await f.command({
+							type: "recordBlocker",
+							assignment: old.id,
+							generation: old.generation,
+							attempt: old.attempt,
+							reason: "runtime_task_faulted_reconciliation_required",
+						})
+					).status,
+					"accepted",
+				);
+			}
+			const published = await f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: f.ledger.status().authorityEpoch,
+					commandId: "in-flight-policy",
+					command: { type: "changePolicy", expectedRevision: "policy:initial", policy },
+				},
+				admin,
+			);
+			assert.ok(published.status === "accepted");
+			const adopted = await f.command(
+				{ type: "adoptPolicy", revision: published.result.policy, expectedBinding: old.policyBinding },
+				admin,
+			);
+			assert.ok(adopted.status === "accepted");
+			const current = snapshot();
+			const interrupted = current.assignments[0]!;
+			assert.equal(interrupted.status, "blocked");
+			assert.equal(interrupted.executing, true, "adoption must not release the in-flight execution slot");
+			assert.equal(
+				interrupted.blocker,
+				scenario === "already blocked" ? "runtime_task_faulted_reconciliation_required" : "policy_refresh_required",
+			);
+			assert.equal(current.workflows[0]!.owner.status, "blocked");
+			assert.equal(current.workflows[0]!.owner.assignments[0]!.id, old.id);
+			assert.equal(current.workflows[0]!.blocker?.code, interrupted.blocker);
+			assert.deepEqual(
+				current.workflows[0]!.nextHumanAction,
+				{
+					type: "cancelWork",
+					workflow: "workflow:2",
+					assignment: old.id,
+					generation: old.generation,
+					attempt: old.attempt,
+					reason:
+						"Cancel this blocked assignment to fence its Attempt. Wait for confirmed quiescence before scheduling a fresh linked replacement.",
+				},
+				"blocked-work handover must name the checked human recovery action before Ground setup",
+			);
+			assert.equal(
+				(await f.command({ type: "assignTask", slice: "policy-interrupted", delivery: true, packet: packet() })).status,
+				"refused",
+			);
+			assert.equal(
+				(await f.command({ type: "replaceTask", assignment: old.id, generation: old.generation, attempt: old.attempt, packet: packet() }))
+					.status,
+				"refused",
+			);
+			gate.resolve();
+			await until(() => snapshot().assignments[0]!.runtimeTaskCaptured === true);
+			assert.equal(transcripts.length, 1, "no follow-up request on the old policy basis may reach the provider");
+			assert.equal(snapshot().assignments[0]!.report, null);
+			assert.equal(snapshot().assignments[0]!.executing, false);
+			assert.equal((await f.command({ ...snapshot().workflows[0]!.nextHumanAction }, admin)).status, "accepted");
+			await until(() => snapshot().assignments[0]!.status === "canceled");
+			const canceled = snapshot().assignments[0]!;
+			assert.equal(
+				(
+					await f.command({
+						type: "replaceTask",
+						assignment: canceled.id,
+						generation: canceled.generation,
+						attempt: canceled.attempt,
+						packet: packet(),
+					})
+				).status,
+				"accepted",
+			);
+			await until(() => snapshot().assignments[1]?.runtimeTaskCaptured === true);
+			const fresh = snapshot().assignments[1]!;
+			assert.equal(fresh.status, "submitted");
+			assert.equal(fresh.predecessor, old.id);
+			assert.notEqual(fresh.conversation, old.conversation);
+			assert.equal(fresh.policyBinding, adopted.result.binding);
+			assert.equal(transcripts.length, 2);
+			assert.ok(transcripts[1]!.includes(String(adopted.result.binding)));
+			assert.ok(!transcripts[1]!.includes(String(old.policyBinding)), "replacement must not inherit the old policy transcript");
+		} finally {
+			gate.resolve();
+			await f.close();
+		}
+	});
+}
 
 test("policy-adoption: completed Watchdog reports and counts survive adopt-away/back", async () => {
 	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });

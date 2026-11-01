@@ -13,6 +13,32 @@ type Edit = { file: string; find: string; replace: string };
 type Control = { name: string; edits: Edit[]; test: string; pattern: string; behavior: string; expect: RegExp };
 
 const CONTROLS: Control[] = [
+	...[
+		{
+			name: "inherited-noncandidate-packet",
+			clause: 'input.data.document.startsWith("role-packet/")',
+			pattern: "watchdog cannot inherit earlier watchdog packet",
+		},
+		{
+			name: "inherited-candidate-report",
+			clause: 'owner?.packet.role === "candidate"',
+			pattern: "watchdog cannot inherit earlier candidate report",
+		},
+		{
+			name: "inherited-experiment-candidate-report",
+			clause: 'owner?.packet.role === "experiment-candidate"',
+			pattern: "watchdog cannot inherit earlier experiment-candidate report",
+		},
+	].map(
+		({ name, clause, pattern }): Control => ({
+			name,
+			expect: /"status":"accepted"/,
+			behavior: pattern.replace("cannot inherit", "inherits"),
+			edits: [{ file: "src/ledger/ledger.ts", find: clause, replace: "false" }],
+			test: "test/context-continuation-independence.test.ts",
+			pattern,
+		}),
+	),
 	{
 		name: "inherited-private-context",
 		expect: /"status":"accepted"/,

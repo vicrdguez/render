@@ -117,6 +117,50 @@ test("context-continuation-independence: forbidden scheduling refuses before pri
 	}
 });
 
+for (const source of [
+	{ role: "watchdog", kind: "packet" },
+	{ role: "candidate", kind: "report" },
+	{ role: "experiment-candidate", kind: "report" },
+] as const) {
+	test(`context-continuation-independence: watchdog cannot inherit earlier ${source.role} ${source.kind}`, async () => {
+		const canary = "PRIVATE-RESULT-CANARY-6";
+		const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
+		p.setResponses([fauxAssistantMessage(fauxToolCall("submit_role_result", { text: canary }), { stopReason: "toolUse" })]);
+		const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
+		try {
+			assert.equal(
+				(
+					await f.command({
+						type: "assignTask",
+						slice: "private-source",
+						delivery: false,
+						packet: packet({ role: source.role }),
+					})
+				).status,
+				"accepted",
+			);
+			for (let n = 0; n < 300 && !assignments(f)[0]?.runtimeTaskCaptured; n++) await setTimeout(10);
+			const prior = assignments(f)[0]!;
+			assert.equal(prior.status, "submitted");
+			const ref = source.kind === "packet" ? prior.packetRef : prior.report;
+			assert.ok(ref);
+			const retained = await f.ledger.artifact(admin, { read: ref });
+			assert.ok("content" in retained);
+			if (source.kind === "report") assert.equal(retained.content.toString(), canary);
+			const reply = await f.command({
+				type: "assignTask",
+				slice: "independent",
+				delivery: false,
+				packet: packet({ role: "watchdog", inputs: [ref] }),
+			});
+			assert.ok(reply.status === "refused" && reply.code === "forbidden_scope", JSON.stringify(reply));
+			assert.equal(assignments(f).length, 1);
+		} finally {
+			await f.close();
+		}
+	});
+}
+
 for (const role of ["challenger", "candidate", "audit-standards", "audit-contracts", "watchdog"] as const) {
 	test(`context-continuation-independence: ${role} cannot inherit an earlier private packet canary`, async () => {
 		const f = await roleFixture();

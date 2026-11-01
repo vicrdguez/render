@@ -13,6 +13,13 @@ These are literal acceptance expectations, not generated snapshots.
 | policy-adoption | Future defaults do not mutate active binding. Human adoption names an immutable revision and compares an expected binding revision. Wrong principal/stale binding refuses atomically. Adopt away/back creates distinct binding revisions; an old prepared basis never becomes current again. Submitted Watchdog assignments/history remain intact. Checkpoint routing is not part of ordinary policy. |
 | task-version-recovery | Missing/newer/older task definitions and a throwing migration block without changing ownership or history. Compatible definitions can resume; incompatible semantics require distinct names and old handlers. Orphaned abort remains an uncertainty blocker. Rollback is supported only with a compatible executable/store and declared cutoff/reconciliation. |
 
+## Rework regressions (before product repairs)
+
+- Distinguish an earlier non-candidate Watchdog packet, a candidate report and an experiment-candidate report. Each is refused as `forbidden_scope` for a fresh Watchdog; disabling only its corresponding guard must accept the input and fail that oracle. Keep the five independent destination-role checks too.
+- Adopt policy while a scripted provider request is held in flight. The assignment stays blocked, retains its execution slot and delivery ownership, and the next request on the old basis never reaches the provider. With or without Ground, the handover must name checked `cancelWork` with the current assignment/generation/Attempt, not `saveGround` or `none`. After confirmed quiescence/cancellation, a fresh linked replacement uses the new binding and submits.
+- If execution was already blocked, adoption must preserve the original runtime diagnostic in the current snapshot while refreshing its packet/binding. Cancellation still uses the same checked route.
+- The small-context compaction fixture must inherit the production enable/background settings, not substitute its own safe values.
+
 Unsafe controls must actually admit inherited private context or reuse the old adoption binding, then fail the corresponding behavioral oracle. Import/compilation/setup errors do not establish an unsafe control.
 
 Verification is through Kernel.change, Ledger.command/observe/artifact, Engine.render/reconcile and pinned Durable on owned SQLite fixtures. No live credentials or user services. Operational backups and physical-loss guarantees remain unproved; no generic transformation engine is introduced.

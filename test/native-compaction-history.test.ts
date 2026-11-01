@@ -77,9 +77,11 @@ test("native-compaction-history: Engine compacts twice, refreshes exact constrai
 	class SmallContext extends Engine {
 		override options(report: Parameters<Engine["options"]>[0]) {
 			const options = super.options(report);
+			assert.equal(options.settings?.compaction?.enabled, true, "production native compaction must be enabled");
+			assert.equal(options.settings?.compaction?.backgroundTokens, 0, "production compaction must block, not run in background");
 			return {
 				...options,
-				settings: { ...options.settings, compaction: { enabled: true, backgroundTokens: 0, keepRecentTokens: 1, reserveTokens: 4090 } },
+				settings: { ...options.settings, compaction: { ...options.settings?.compaction, keepRecentTokens: 1, reserveTokens: 4090 } },
 			};
 		}
 	}
