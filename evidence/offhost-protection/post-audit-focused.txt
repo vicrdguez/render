@@ -1,0 +1,22 @@
+✔ offhost-exposure-cutoff: configured/local-copy/copy-only cannot protect; outage preserves cutoff and local work (4428.574042ms)
+✔ offhost-exposure-cutoff: whole-path target, periodic trigger, measured prompt path and idle time (1363.523833ms)
+ℹ prompt snapshot/transfer/publication measured 593.0 ms plus 1000 ms coalescing
+✔ manual-recovery-rehearsal: destination only, exact cutoff, missing progress and safe restricted resume (1132.401625ms)
+ℹ owned manual rehearsal elapsed 443.8 ms; cutoff 4; later progress lost; real destination/tool provisioning and effect reconciliation remain prerequisites; no RTO
+✔ offhost-exposure-cutoff: missing provisioning warns without refusing local saves (268.8755ms)
+✔ package-clean-restore: snapshot cutoff, exact retained bytes, live DB unmarked, package only (746.34325ms)
+✔ package-origin-auth-fence / restore-newer-world: direct DB copy predates revocation and lost admissions (757.683334ms)
+✔ package-validation / managed-restore: nonclean refusal leaves the existing store usable (741.590708ms)
+✔ package-validation / managed-restore: malformed inputs durably disable admission before import (2504.0935ms)
+✔ package-clean-restore: concurrent later writes and interrupted generation cannot change snapshot or prior package (795.052625ms)
+✔ package-validation: checksummed but semantically invalid retained relationships cannot be repaired (6359.658834ms)
+✔ package-clean-restore / restore-newer-world: history scope, secret exclusion and restricted uncertainty (1172.998416ms)
+✔ repair-crash: transaction barriers retain either marker or rotated restricted recovery (1488.360875ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 14751.810417

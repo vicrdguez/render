@@ -1,0 +1,17 @@
+✖ offhost-exposure-cutoff: missing provisioning warns without refusing local saves (169.2695ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 357.572958
+
+✖ failing tests:
+
+test at test/offhost-protection.test.ts:247:1
+✖ offhost-exposure-cutoff: missing provisioning warns without refusing local saves (169.2695ms)
+  Error: host exited 1 before ready; stderr: {"event":"startup_failed","reason":"ENOENT: no such file or directory, open '/var/folders/6l/kc_jx1z95ydf0lsdfz3cj8cm0000gn/T/render-no-backup-5XIzNJ/not-provisioned.json'"}
+      at file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/offhost-protection/test/support/host.ts:107:55
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)

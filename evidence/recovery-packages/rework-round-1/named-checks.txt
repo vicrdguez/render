@@ -1,0 +1,56 @@
+12a7a2174ce21b83ad374ff11051b23bcfe46466
+
+> render@0.0.0 verify:package-clean-restore
+> node --test --test-name-pattern=package-clean-restore test/recovery-packages.test.ts
+
+✔ package-clean-restore: snapshot cutoff, exact retained bytes, live DB unmarked, package only (697.075416ms)
+✔ package-clean-restore: concurrent later writes and interrupted generation cannot change snapshot or prior package (704.012166ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1569.207959
+
+> render@0.0.0 verify:package-origin-auth-fence
+> node --test --test-name-pattern=package-origin-auth-fence test/recovery-packages.test.ts
+
+✔ package-origin-auth-fence / restore-newer-world: direct DB copy predates revocation and lost admissions (712.269667ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 877.701042
+
+> render@0.0.0 verify:package-validation
+> node --test --test-name-pattern=package-validation test/recovery-packages.test.ts
+
+✔ package-validation / managed-restore: nonclean refusal leaves the existing store usable (699.542291ms)
+✔ package-validation / managed-restore: malformed inputs durably disable admission before import (2245.140791ms)
+✔ package-validation: checksummed but semantically invalid retained relationships cannot be repaired (3282.11ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6395.831625
+
+> render@0.0.0 verify:restore-newer-world
+> node --test --test-name-pattern=restore-newer-world test/recovery-packages.test.ts
+
+✔ package-origin-auth-fence / restore-newer-world: direct DB copy predates revocation and lost admissions (726.518458ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 889.279875

@@ -1,0 +1,610 @@
+d74dca515902c256c17a2a90a427ffe1bc3c864a
+
+> render@0.0.0 test
+> node --test --test-concurrency=1 test/*.test.ts
+
+✔ R05 four executing attempts includes a blocked live owner; quiescence frees capacity, not ownership (1.385166ms)
+✔ R06 cancellation fences first, keeps uncertain capacity, and stale role/Attempt cannot mutate or release (0.184875ms)
+▶ V3 SIGKILL at before-commit (1 repetitions)
+  ✔ retrying the original envelope after a kill at before-commit yields exactly one accepted save (700.007292ms)
+✔ V3 SIGKILL at before-commit (1 repetitions) (700.5565ms)
+▶ V3 SIGKILL at after-commit (1 repetitions)
+  ✔ retrying the original envelope after a kill at after-commit yields exactly one accepted save (668.496667ms)
+✔ V3 SIGKILL at after-commit (1 repetitions) (668.641083ms)
+▶ B2-09 real disk exhaustion
+  ✔ a save that cannot be stored is never acknowledged and earlier bytes survive (2248.900667ms)
+✔ B2-09 real disk exhaustion (2249.139875ms)
+✔ R03 safe programmatic ancestor cannot admit a Ledger mutation (234.877917ms)
+✔ R03 unsafe programmatic ancestor cannot admit a Ledger mutation (245.80725ms)
+✔ R01/R02 SIGKILL before-commit preserves atomic workflow request and host-derived replay (1) (814.361542ms)
+✔ R01/R02 SIGKILL after-commit preserves atomic workflow request and host-derived replay (1) (780.9725ms)
+✔ history-cutoff-export: default selection never widens and pages declare redactions/omissions (284.264375ms)
+✔ history-cutoff-export: acknowledged message missing_content cannot become an external link or replacement text (470.958042ms)
+✔ history-cutoff-export: acknowledged message content_corrupt cannot become an external link or replacement text (477.7245ms)
+✔ history-cutoff-export: acknowledged message invalid_content_type cannot become an external link or replacement text (464.64125ms)
+✔ history-cutoff-export: different receipt views refuse cursor transfers in both directions (282.282459ms)
+✔ history-cutoff-export: exact separate identities, fixed pages/export after restart and concurrent writes (564.494542ms)
+✔ history-cutoff-export: scope, malformed filters/cursors, absent capabilities, and revocation (284.47425ms)
+✔ history-cutoff-export: acknowledged messages are literal claims, not runner or classified outcomes (273.563042ms)
+✔ history-cutoff-export: missing_content is declared, never substituted (481.749958ms)
+✔ history-cutoff-export: content_corrupt is declared, never substituted (472.45325ms)
+✔ history-cutoff-export: unsupported_schema is declared, never substituted (465.113833ms)
+✔ independent-export-reader: literal bytes and named invalid/version/missing/corrupt/link refusals (451.854541ms)
+✔ V1: 10000 seeded schedules never violate the matrix, basis or refusal rules (565.329542ms)
+✔ literal: stale save names current and expected revisions and a repair (0.380208ms)
+✔ literal: corrupt basis blocks the save with an exact restoration ref (0.076584ms)
+✔ literal: accepted first save records revision, pointer and fact writes (0.080583ms)
+✔ literal: the workflow view reports handover fields and absent capabilities explicitly (0.168666ms)
+{"measure":"v9_slice1","saves":400,"ackMs":{"p50":42.72708300000022,"p95":96.17954099999997,"max":177.8387080000001},"snapshotMs":{"p50":1.6684580000001006,"p95":2.2432919999996557}}
+✔ V9: two clients, 100 workflows, p95 acknowledgement < 250 ms and snapshot < 1 s (3746.281125ms)
+✔ offhost-exposure-cutoff: configured/local-copy/copy-only cannot protect; outage preserves cutoff and local work (2349.758833ms)
+✔ offhost-exposure-cutoff: whole-path target, periodic trigger, measured prompt path and idle time (1316.679666ms)
+ℹ prompt snapshot/transfer/publication measured 573.8 ms plus 1000 ms coalescing
+✔ manual-recovery-rehearsal: destination only, exact cutoff, missing progress and safe restricted resume (1070.780542ms)
+ℹ owned manual rehearsal elapsed 415.2 ms; cutoff 4; later progress lost; real destination/tool provisioning and effect reconciliation remain prerequisites; no RTO
+✔ offhost-exposure-cutoff: missing provisioning warns without refusing local saves (252.370041ms)
+▶ B4 startup
+  ✔ B4-01/B4-02 the owner lock refuses a second process before it opens the store, and dies with its owner (613.883083ms)
+  ✔ B4-03/B4-09/B4-10 readback, fresh executor epochs, preserved authority epoch and enrollment (480.921083ms)
+  ✔ B4-04 a foreign SQLite file is refused with its bytes retained (184.404167ms)
+  ✔ B4-05/B4-06/B4-07 newer schema, non-SQLite and read-only stores are refused with bytes retained (774.229333ms)
+  ✔ B4-08 a pending task of an unknown definition blocks startup and is never dispatched (420.614709ms)
+✔ B4 startup (2474.791958ms)
+✔ package-clean-restore: snapshot cutoff, exact retained bytes, live DB unmarked, package only (769.590583ms)
+✔ package-origin-auth-fence / restore-newer-world: direct DB copy predates revocation and lost admissions (767.275792ms)
+✔ package-validation / managed-restore: nonclean refusal leaves the existing store usable (758.958375ms)
+✔ package-validation / managed-restore: malformed inputs durably disable admission before import (2403.918875ms)
+✔ package-clean-restore: concurrent later writes and interrupted generation cannot change snapshot or prior package (791.709167ms)
+✔ package-validation: checksummed but semantically invalid retained relationships cannot be repaired (6351.255875ms)
+✔ package-clean-restore / restore-newer-world: history scope, secret exclusion and restricted uncertainty (1185.295583ms)
+✔ repair-crash: transaction barriers retain either marker or rotated restricted recovery (1503.86025ms)
+✔ package-validation / restore-newer-world: role work explicitly refuses recovery without unchecked resume (247.103833ms)
+✔ R04 missing provider, family, sandbox and overflowing constraints block without provider calls (340.924458ms)
+✔ R03 explicit role configuration does not inherit tools; model IDs cannot override host identity (223.996625ms)
+✔ R12 retained role packets, reports, task receipts and uncertainty export at the original cutoff (651.416083ms)
+✔ R12 role packet missing_content is declared after reopen, never omitted or substituted (97.148833ms)
+✔ R12 role packet content_corrupt is declared after reopen, never omitted or substituted (104.126375ms)
+✔ R12 role packet unsupported_schema is declared after reopen, never omitted or substituted (114.410125ms)
+{"observation":"engine-capacity-and-late-quarantine","maxActive":4,"blockedLiveProviders":4,"afterQuiescenceCalls":5,"duplicateReceipt":true,"newCall":"role_already_requested","staleReceipt":"unauthorized","quarantined":"revision:16","acceptedRoleReport":null}
+{"observation":"unsafe-intent-startup","outcome":"startup_blocked","code":"uncertain_execution","providerCalls":0}
+{"observation":"startup-resume-order","trace":["explicit-resume","conversation-abort"]}
+{"observation":"orphan-startup","outcome":"startup_blocked","code":"uncertain_execution"}
+✔ R05/R06/R08 Engine capacity, quarantined late evidence and safe startup ordering (1682.292292ms)
+{"event":"waiting","mode":"capacity","action":"seed","executorEpoch":"executor-a18b5f61-e004-4bb0-8664-66c87eebe6f2","assignments":[{"id":"assignment:4","status":"blocked","executing":true},{"id":"assignment:7","status":"blocked","executing":true},{"id":"assignment:10","status":"blocked","executing":true},{"id":"assignment:13","status":"blocked","executing":true},{"id":"assignment:16","status":"queued","executing":false}]}
+{"event":"waiting","mode":"capacity","action":"reopen:1","executorEpoch":"executor-2d1fc9e6-dc85-42d0-915c-0afe6f2d7fec","assignments":[{"id":"assignment:4","status":"blocked","executing":true},{"id":"assignment:7","status":"blocked","executing":true},{"id":"assignment:10","status":"blocked","executing":true},{"id":"assignment:13","status":"blocked","executing":true},{"id":"assignment:16","status":"queued","executing":false}]}
+{"event":"waiting","mode":"capacity","action":"reopen:2","executorEpoch":"executor-45b8d17b-cd5f-44fb-8d27-645326a213e0","assignments":[{"id":"assignment:4","status":"blocked","executing":true},{"id":"assignment:7","status":"blocked","executing":true},{"id":"assignment:10","status":"blocked","executing":true},{"id":"assignment:13","status":"blocked","executing":true},{"id":"assignment:16","status":"queued","executing":false}]}
+{"event":"waiting","mode":"capacity","action":"reopen:3","executorEpoch":"executor-cb6b5431-4ae3-4846-bc3f-1d4ced9f9e0e","assignments":[{"id":"assignment:4","status":"blocked","executing":true},{"id":"assignment:7","status":"blocked","executing":true},{"id":"assignment:10","status":"blocked","executing":true},{"id":"assignment:13","status":"blocked","executing":true},{"id":"assignment:16","status":"queued","executing":false}]}
+{"event":"waiting","mode":"capacity","action":"reopen:4","executorEpoch":"executor-660113ac-72a2-4ee7-b00a-49f26828c3c3","assignments":[{"id":"assignment:4","status":"blocked","executing":true},{"id":"assignment:7","status":"blocked","executing":true},{"id":"assignment:10","status":"blocked","executing":true},{"id":"assignment:13","status":"blocked","executing":true},{"id":"assignment:16","status":"queued","executing":false}]}
+{"event":"waiting","mode":"capacity","action":"reopen:5","executorEpoch":"executor-c91a023e-43f1-4f93-83e6-3716a6544541","assignments":[{"id":"assignment:4","status":"blocked","executing":true},{"id":"assignment:7","status":"blocked","executing":true},{"id":"assignment:10","status":"blocked","executing":true},{"id":"assignment:13","status":"blocked","executing":true},{"id":"assignment:16","status":"queued","executing":false}]}
+{"event":"waiting","mode":"capacity","action":"reopen:6","executorEpoch":"executor-2fde7284-69bd-48cb-939e-809d14e707ac","assignments":[{"id":"assignment:4","status":"blocked","executing":true},{"id":"assignment:7","status":"blocked","executing":true},{"id":"assignment:10","status":"blocked","executing":true},{"id":"assignment:13","status":"blocked","executing":true},{"id":"assignment:16","status":"queued","executing":false}]}
+{"event":"waiting","mode":"capacity","action":"reopen:7","executorEpoch":"executor-66b8aa6b-64e9-4442-bfd3-bd375c26e68a","assignments":[{"id":"assignment:4","status":"blocked","executing":true},{"id":"assignment:7","status":"blocked","executing":true},{"id":"assignment:10","status":"blocked","executing":true},{"id":"assignment:13","status":"blocked","executing":true},{"id":"assignment:16","status":"queued","executing":false}]}
+{"event":"waiting","mode":"capacity","action":"resolve","executorEpoch":"executor-e00fa8a8-8018-404d-b99d-72599cef745f","assignments":[{"id":"assignment:4","status":"blocked","executing":true},{"id":"assignment:7","status":"blocked","executing":true},{"id":"assignment:10","status":"blocked","executing":true},{"id":"assignment:13","status":"blocked","executing":true},{"id":"assignment:16","status":"queued","executing":false}]}
+{"event":"resolved","mode":"capacity"}
+✔ R11 capacity: ordinary waits survive eight unclean terminations and remain resolvable (2956.377541ms)
+{"event":"waiting","mode":"parent","action":"seed","executorEpoch":"executor-2051b776-4dd4-4fc0-9702-22ff41623b4d","assignments":[{"id":"assignment:4","status":"blocked","executing":false},{"id":"assignment:6","status":"blocked","executing":false}]}
+{"event":"waiting","mode":"parent","action":"reopen:1","executorEpoch":"executor-425a0e2e-6530-44bc-ac57-aa1d56eac573","assignments":[{"id":"assignment:4","status":"blocked","executing":false},{"id":"assignment:6","status":"blocked","executing":false}]}
+{"event":"waiting","mode":"parent","action":"reopen:2","executorEpoch":"executor-cb739fc8-c05f-4e4c-a6c7-6d8639dae29d","assignments":[{"id":"assignment:4","status":"blocked","executing":false},{"id":"assignment:6","status":"blocked","executing":false}]}
+{"event":"waiting","mode":"parent","action":"reopen:3","executorEpoch":"executor-72603a95-17a1-4e07-9724-0334ae79f540","assignments":[{"id":"assignment:4","status":"blocked","executing":false},{"id":"assignment:6","status":"blocked","executing":false}]}
+{"event":"waiting","mode":"parent","action":"reopen:4","executorEpoch":"executor-a9a7a9fb-be3f-4903-aaa8-e46616ab3640","assignments":[{"id":"assignment:4","status":"blocked","executing":false},{"id":"assignment:6","status":"blocked","executing":false}]}
+{"event":"waiting","mode":"parent","action":"reopen:5","executorEpoch":"executor-7df5b24f-cf56-4ae4-97c9-4786096ab255","assignments":[{"id":"assignment:4","status":"blocked","executing":false},{"id":"assignment:6","status":"blocked","executing":false}]}
+{"event":"waiting","mode":"parent","action":"reopen:6","executorEpoch":"executor-d441e493-2f59-441b-9ea4-70bc87bc0b85","assignments":[{"id":"assignment:4","status":"blocked","executing":false},{"id":"assignment:6","status":"blocked","executing":false}]}
+{"event":"waiting","mode":"parent","action":"reopen:7","executorEpoch":"executor-54edcdd1-c44e-4f7a-b44f-e535a4b67826","assignments":[{"id":"assignment:4","status":"blocked","executing":false},{"id":"assignment:6","status":"blocked","executing":false}]}
+{"event":"waiting","mode":"parent","action":"resolve","executorEpoch":"executor-1512a034-716d-4b5c-8cf1-ddf27e387bad","assignments":[{"id":"assignment:4","status":"blocked","executing":false},{"id":"assignment:6","status":"blocked","executing":false}]}
+{"event":"resolved","mode":"parent"}
+✔ R11 parent: ordinary waits survive eight unclean terminations and remain resolvable (2835.493459ms)
+{"event":"owned-data","data":"/var/folders/6l/kc_jx1z95ydf0lsdfz3cj8cm0000gn/T/render-role-bivzYD"}
+{"observation":"capacity","queued":1,"idleWalWrites":0,"lag":1.060457999999926,"ackMs":8.669624999999996,"maxActive":4}
+✔ R10 capacity: waiting role work stays idle, responsive and resumes on committed changes (1730.347ms)
+{"event":"owned-data","data":"/var/folders/6l/kc_jx1z95ydf0lsdfz3cj8cm0000gn/T/render-role-h3DX2R"}
+{"observation":"parent","queued":0,"idleWalWrites":0,"lag":1.271250000000009,"ackMs":11.964707999999973,"maxActive":4}
+✔ R10 parent: waiting role work stays idle, responsive and resumes on committed changes (1926.555084ms)
+{"event":"owned-data","data":"/var/folders/6l/kc_jx1z95ydf0lsdfz3cj8cm0000gn/T/render-role-ByWwzm"}
+{"observation":"load-restart","queued":28,"idleWalWrites":0,"lag":2.3509999999998854,"ackMs":50.10629199999994,"maxActive":4}
+{"observation":"load-restart","queued":28,"idleWalWrites":0,"lag":2.5362920000002305,"ackMs":53.14499999999998,"maxActive":4}
+✔ R10 load-restart: waiting role work stays idle, responsive and resumes on committed changes (7416.292208ms)
+▶ B1 authority precedes disclosure (literal cases)
+  ✔ B1-01/B1-02 missing or invalid credentials disclose nothing (9.119417ms)
+  ✔ B1-03 forged principal fields in the envelope are malformed (5.223167ms)
+  ✔ B1-04/B1-05/B1-06 headers cannot raise a device to local admin or host (2.828208ms)
+  ✔ B1-07/B1-08 unknown and unavailable commands never succeed (1.271542ms)
+  ✔ B1-09 a second device retrying the original ID and bytes receives the original receipt (2.155417ms)
+  ✔ B1-10 a changed payload under the same ID conflicts without disclosure (0.758334ms)
+  ✔ B1-12/B1-13 a scoped device sees only its workflows (3.311584ms)
+  ✔ B1-16 a different authority epoch is refused (0.607791ms)
+  ✔ B1-11 a revoked device cannot recover its receipt through deduplication (17.538333ms)
+  ✔ B1-14 enrollment uses the restrictive owner route and the bearer is never retained (7.005375ms)
+✔ B1 authority precedes disclosure (literal cases) (342.160583ms)
+▶ B1-15 in-process contexts cannot be hand-built
+  ✔ a context object not minted by a trusted adapter is refused (177.027209ms)
+✔ B1-15 in-process contexts cannot be hand-built (177.171209ms)
+▶ B2 acknowledgement is immutable and atomic (literal cases)
+  ✔ B2-01/B2-02/B2-03/B2-04/B2-05/B2-06/B2-11 exact bytes, stale basis and atomic visibility (256.046166ms)
+✔ B2 acknowledgement is immutable and atomic (literal cases) (510.0635ms)
+▶ B2 document names that collide with object prototype keys
+  ✔ a document named constructor is created, read and updated like any other (264.35775ms)
+✔ B2 document names that collide with object prototype keys (264.47ms)
+▶ B2-10 corrupt referenced bytes
+  ✔ tampered stored bytes are refused with an exact restoration ref and never substituted (472.78125ms)
+✔ B2-10 corrupt referenced bytes (472.891667ms)
+▶ B2 supported document sizes and encoding boundaries
+  ✔ 4194304 exact UTF-8 bytes save and survive restart (533.07575ms)
+  ✔ 16777216 exact UTF-8 bytes save and survive restart (742.5325ms)
+  ✔ oversized and malformed complete bytes refuse without advancing state (369.694667ms)
+✔ B2 supported document sizes and encoding boundaries (1645.516583ms)
+▶ B4 retained application schema compatibility
+  ▶ unknown revision and message schemas block affected reads and saves without changing retained records
+    ✔ artifact reads refuse before disclosing unsupported content (1.442125ms)
+    ✔ save refuses without interpreting an unsupported basis (1.583708ms)
+    ✔ message reads refuse unsupported application records (0.83325ms)
+  ✔ unknown revision and message schemas block affected reads and saves without changing retained records (501.445541ms)
+✔ B4 retained application schema compatibility (501.554083ms)
+▶ V2 seeded schedules on real SQLite (32)
+  ✔ every schedule matches the literal duplicate/conflict/stale/revocation/scope rules (2620.32625ms)
+✔ V2 seeded schedules on real SQLite (32) (2620.437625ms)
+{"measure":"reattach_ms","value":130}
+▶ V4 two stateless clients
+  ✔ B2-03 race, cross-device retry, revocation of reads and streams, fresh attach within 5 s (1228.904375ms)
+  ✔ B3-01/B3-04 frames carry version, scope, epoch and sequence; reconnect starts with a snapshot (169.082708ms)
+  ✔ B3-02 unknown protocol versions are refused with upgrade guidance (2.311125ms)
+{"measure":"stalled_observer_ack_p95_ms","value":9.14}
+  ✔ B3-05 a stalled observer cannot block commits and is disconnected (11756.688084ms)
+  ✔ B3-06 a client that disconnects after sending still gets its work committed (527.143167ms)
+✔ V4 two stateless clients (14082.753458ms)
+▶ B3-02/B3-03 client frame rules against a controlled stream
+  ✔ a gap triggers a fresh snapshot; repeated and older sequences are discarded (109.655125ms)
+  ✔ an unknown frame version stops the client with upgrade guidance (64.36675ms)
+✔ B3-02/B3-03 client frame rules against a controlled stream (174.268959ms)
+▶ B1-14 admin CLI uses the restrictive owner route
+  ✔ the admin route refuses when the socket is absent rather than falling back to TCP (58.998375ms)
+✔ B1-14 admin CLI uses the restrictive owner route (59.120833ms)
+✔ R01/R07 accepted child survives submitting turn abort; own report and fixed parent notification survive reopen (392.797625ms)
+✔ R02 same scoped role submission returns one receipt; new call rechecks eligibility; stale worker learns no receipt (81.099166ms)
+ℹ tests 89
+ℹ suites 15
+ℹ pass 89
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 90503.039791
+
+> render@0.0.0 typecheck
+> tsc --noEmit -p .
+
+
+> render@0.0.0 lint
+> biome check .
+
+src/engine/runtime.ts:135:111 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    133 │ 				},
+    134 │ 			});
+  > 135 │ 		const request = tool("request_role", schema({ key: Type.String() }), (args) => ({ type: "requestRole", key: args.key! }));
+        │ 		                                                                                                            ^^^^^^^^^
+    136 │ 		const submit = tool("submit_role_result", schema({ text: Type.String() }), (args) => ({ type: "submitRoleResult", text: args.text! }));
+    137 │ 		const stop = tool("request_own_stop", schema({}), () => ({ type: "requestOwnStop" }));
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+
+src/engine/runtime.ts:136:123 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    134 │ 			});
+    135 │ 		const request = tool("request_role", schema({ key: Type.String() }), (args) => ({ type: "requestRole", key: args.key! }));
+  > 136 │ 		const submit = tool("submit_role_result", schema({ text: Type.String() }), (args) => ({ type: "submitRoleResult", text: args.text! }));
+        │ 		                                                                                                                        ^^^^^^^^^^
+    137 │ 		const stop = tool("request_own_stop", schema({}), () => ({ type: "requestOwnStop" }));
+    138 │ 		const read = defineTool({
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+
+src/engine/runtime.ts:145:57 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    143 │ 			execute: async (args, api) => {
+    144 │ 				const identity = await this.#identity(api, "read_artifact");
+  > 145 │ 				const reply = "code" in identity ? identity : await this.#ledger!.artifact(identity.context, { read: args.ref as string });
+        │ 				                                                    ^^^^^^^^^^^^^
+    146 │ 				return {
+    147 │ 					output: [{ type: "text", text: "content" in reply ? reply.content.toString("utf8") : JSON.stringify(reply) }],
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+  
+    143 143 │         execute: async (args, api) => {
+    144 144 │           const identity = await this.#identity(api, "read_artifact");
+    145     │ - → → → → const·reply·=·"code"·in·identity·?·identity·:·await·this.#ledger!.artifact(identity.context,·{·read:·args.ref·as·string·});
+        145 │ + → → → → const·reply·=·"code"·in·identity·?·identity·:·await·this.#ledger?.artifact(identity.context,·{·read:·args.ref·as·string·});
+    146 146 │           return {
+    147 147 │             output: [{ type: "text", text: "content" in reply ? reply.content.toString("utf8") : JSON.stringify(reply) }],
+  
+
+src/engine/runtime.ts:220:83 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    218 │ 						}
+    219 │ 						if (a.status !== "running") {
+  > 220 │ 							const started = await this.#command(a, { type: "stageTask", executorEpoch: this.#ledger!.status().executorEpoch });
+        │ 							                                                                           ^^^^^^^^^^^^^
+    221 │ 							if (started.status !== "accepted") {
+    222 │ 								if (started.code !== "capacity_exhausted" && this.#assignment(a.id)?.status === "queued")
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+  
+    218 218 │               }
+    219 219 │               if (a.status !== "running") {
+    220     │ - → → → → → → → const·started·=·await·this.#command(a,·{·type:·"stageTask",·executorEpoch:·this.#ledger!.status().executorEpoch·});
+        220 │ + → → → → → → → const·started·=·await·this.#command(a,·{·type:·"stageTask",·executorEpoch:·this.#ledger?.status().executorEpoch·});
+    221 221 │                 if (started.status !== "accepted") {
+    222 222 │                   if (started.code !== "capacity_exhausted" && this.#assignment(a.id)?.status === "queued")
+  
+
+src/engine/runtime.ts:246:31 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    244 │ 				wait: async (task, runtime, context) => {
+    245 │ 					if (task.state.checkpoint.phase !== "wait") throw new Error("wrong phase");
+  > 246 │ 					const submission = await this.#harness!.submission(task.state.checkpoint.submission as never, context);
+        │ 					                         ^^^^^^^^^^^^^^
+    247 │ 					if (!submission) throw new Error("Missing role submission");
+    248 │ 					await submission.wait(context);
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+  
+    244 244 │           wait: async (task, runtime, context) => {
+    245 245 │             if (task.state.checkpoint.phase !== "wait") throw new Error("wrong phase");
+    246     │ - → → → → → const·submission·=·await·this.#harness!.submission(task.state.checkpoint.submission·as·never,·context);
+        246 │ + → → → → → const·submission·=·await·this.#harness?.submission(task.state.checkpoint.submission·as·never,·context);
+    247 247 │             if (!submission) throw new Error("Missing role submission");
+    248 248 │             await submission.wait(context);
+  
+
+src/engine/runtime.ts:299:23 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    297 │ 							environment: "absent",
+    298 │ 							effects: "reconciled",
+  > 299 │ 							executorEpoch: this.#ledger!.status().executorEpoch,
+        │ 							               ^^^^^^^^^^^^^
+    300 │ 						});
+    301 │ 						if (rebound.status !== "accepted") throw new Error(`Role continuation refused: ${rebound.code}`);
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+  
+    297 297 │                 environment: "absent",
+    298 298 │                 effects: "reconciled",
+    299     │ - → → → → → → → executorEpoch:·this.#ledger!.status().executorEpoch,
+        299 │ + → → → → → → → executorEpoch:·this.#ledger?.status().executorEpoch,
+    300 300 │               });
+    301 301 │               if (rebound.status !== "accepted") throw new Error(`Role continuation refused: ${rebound.code}`);
+  
+
+src/engine/runtime.ts:377:23 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    375 │ 							environment: "absent",
+    376 │ 							effects: "reconciled",
+  > 377 │ 							executorEpoch: this.#ledger!.status().executorEpoch,
+        │ 							               ^^^^^^^^^^^^^
+    378 │ 						});
+    379 │ 			},
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+  
+    375 375 │                 environment: "absent",
+    376 376 │                 effects: "reconciled",
+    377     │ - → → → → → → → executorEpoch:·this.#ledger!.status().executorEpoch,
+        377 │ + → → → → → → → executorEpoch:·this.#ledger?.status().executorEpoch,
+    378 378 │               });
+    379 379 │         },
+  
+
+src/engine/runtime.ts:478:23 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    476 │ 		// reads when implementing the full streaming workload; larger queues can exceed the V9 ack target.
+    477 │ 		const { promise, resolve, reject } = Promise.withResolvers<void>();
+  > 478 │ 		const observation = this.#ledger!.observe(scheduling, {
+        │ 		                    ^^^^^^^^^^^^^
+    479 │ 			send: () => {
+    480 │ 				if (ready()) resolve();
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+  
+    476 476 │       // reads when implementing the full streaming workload; larger queues can exceed the V9 ack target.
+    477 477 │       const { promise, resolve, reject } = Promise.withResolvers<void>();
+    478     │ - → → const·observation·=·this.#ledger!.observe(scheduling,·{
+        478 │ + → → const·observation·=·this.#ledger?.observe(scheduling,·{
+    479 479 │         send: () => {
+    480 480 │           if (ready()) resolve();
+  
+
+test/durable-tool-replay.test.ts:48:8 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    46 │ 			await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet() });
+    47 │ 			let a!: RoleAssignment;
+  > 48 │ 			a = ((f.ledger.snapshot(admin) as import("../src/ledger/ledger.ts").Frame).assignments as RoleAssignment[])[0]!;
+       │ 			    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    49 │ 			// Deliberately widen a raw runtime configuration: handler enforcement must survive visibility mistakes.
+    50 │ 			const agent = await (await f.harness.conversation(a.conversation as ConversationId, BACKGROUND_CONTEXT))!.agent(BACKGROUND_CONTEXT);
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+
+test/durable-tool-replay.test.ts:50:24 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    48 │ 			a = ((f.ledger.snapshot(admin) as import("../src/ledger/ledger.ts").Frame).assignments as RoleAssignment[])[0]!;
+    49 │ 			// Deliberately widen a raw runtime configuration: handler enforcement must survive visibility mistakes.
+  > 50 │ 			const agent = await (await f.harness.conversation(a.conversation as ConversationId, BACKGROUND_CONTEXT))!.agent(BACKGROUND_CONTEXT);
+       │ 			                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    51 │ 			await f.harness.commit(async (tx) => {
+    52 │ 				await configure(tx, a.conversation as ConversationId, {
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+  
+     48  48 │         a = ((f.ledger.snapshot(admin) as import("../src/ledger/ledger.ts").Frame).assignments as RoleAssignment[])[0]!;
+     49  49 │         // Deliberately widen a raw runtime configuration: handler enforcement must survive visibility mistakes.
+     50     │ - → → → const·agent·=·await·(await·f.harness.conversation(a.conversation·as·ConversationId,·BACKGROUND_CONTEXT))!.agent(BACKGROUND_CONTEXT);
+         50 │ + → → → const·agent·=·await·(await·f.harness.conversation(a.conversation·as·ConversationId,·BACKGROUND_CONTEXT))?.agent(BACKGROUND_CONTEXT);
+     51  51 │         await f.harness.commit(async (tx) => {
+     52  52 │           await configure(tx, a.conversation as ConversationId, {
+  
+
+test/durable-tool-replay.test.ts:65:21 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    63 │ 				JSON.stringify({
+    64 │ 					state: p.state,
+  > 65 │ 					entries: await (await f.harness.conversation(a.conversation as ConversationId, BACKGROUND_CONTEXT))!.entries(
+       │ 					               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    66 │ 						{},
+    67 │ 						200,
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+  
+     63  63 │           JSON.stringify({
+     64  64 │             state: p.state,
+     65     │ - → → → → → entries:·await·(await·f.harness.conversation(a.conversation·as·ConversationId,·BACKGROUND_CONTEXT))!.entries(
+         65 │ + → → → → → entries:·await·(await·f.harness.conversation(a.conversation·as·ConversationId,·BACKGROUND_CONTEXT))?.entries(
+     66  66 │               {},
+     67  67 │               200,
+  
+
+test/durable-tool-replay.test.ts:74:5 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    72 │ 			);
+    73 │ 			assert.equal(
+  > 74 │ 				((f.ledger.snapshot(admin) as import("../src/ledger/ledger.ts").Frame).assignments as RoleAssignment[])[0]!.report,
+       │ 				^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    75 │ 				null,
+    76 │ 			);
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+  
+     72  72 │         );
+     73  73 │         assert.equal(
+     74     │ - → → → → ((f.ledger.snapshot(admin)·as·import("../src/ledger/ledger.ts").Frame).assignments·as·RoleAssignment[])[0]!.report,
+         74 │ + → → → → ((f.ledger.snapshot(admin)·as·import("../src/ledger/ledger.ts").Frame).assignments·as·RoleAssignment[])[0]?.report,
+     75  75 │           null,
+     76  76 │         );
+  
+
+test/durable-tool-replay.test.ts:126:30 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    124 │ 				const code = await new Promise((r) => second.once("exit", r));
+    125 │ 				assert.equal(code, 0, err);
+  > 126 │ 				const value = JSON.parse(recovered.trim().split("\n").at(-1)!);
+        │ 				                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    127 │ 				assert.equal(value.children, 1);
+    128 │ 				assert.equal(value.requests, 1);
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+
+test/workflow-task-survival.test.ts:54:9 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    52 │ 		assert.equal(accepted.status, "accepted");
+    53 │ 		await until(() => assignments(f).length === 2);
+  > 54 │ 		await (await f.harness.conversation(assignments(f)[0]!.conversation as ConversationId, BACKGROUND_CONTEXT))!.abort(BACKGROUND_CONTEXT);
+       │ 		      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    55 │ 		release();
+    56 │ 		await until(() => assignments(f)[1]?.status === "submitted" && !assignments(f)[1]?.executing);
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+  
+     52  52 │       assert.equal(accepted.status, "accepted");
+     53  53 │       await until(() => assignments(f).length === 2);
+     54     │ - → → await·(await·f.harness.conversation(assignments(f)[0]!.conversation·as·ConversationId,·BACKGROUND_CONTEXT))!.abort(BACKGROUND_CONTEXT);
+         54 │ + → → await·(await·f.harness.conversation(assignments(f)[0]!.conversation·as·ConversationId,·BACKGROUND_CONTEXT))?.abort(BACKGROUND_CONTEXT);
+     55  55 │       release();
+     56  56 │       await until(() => assignments(f)[1]?.status === "submitted" && !assignments(f)[1]?.executing);
+  
+
+test/workflow-task-survival.test.ts:54:39 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    52 │ 		assert.equal(accepted.status, "accepted");
+    53 │ 		await until(() => assignments(f).length === 2);
+  > 54 │ 		await (await f.harness.conversation(assignments(f)[0]!.conversation as ConversationId, BACKGROUND_CONTEXT))!.abort(BACKGROUND_CONTEXT);
+       │ 		                                    ^^^^^^^^^^^^^^^^^^
+    55 │ 		release();
+    56 │ 		await until(() => assignments(f)[1]?.status === "submitted" && !assignments(f)[1]?.executing);
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+  
+     52  52 │       assert.equal(accepted.status, "accepted");
+     53  53 │       await until(() => assignments(f).length === 2);
+     54     │ - → → await·(await·f.harness.conversation(assignments(f)[0]!.conversation·as·ConversationId,·BACKGROUND_CONTEXT))!.abort(BACKGROUND_CONTEXT);
+         54 │ + → → await·(await·f.harness.conversation(assignments(f)[0]?.conversation·as·ConversationId,·BACKGROUND_CONTEXT))!.abort(BACKGROUND_CONTEXT);
+     55  55 │       release();
+     56  56 │       await until(() => assignments(f)[1]?.status === "submitted" && !assignments(f)[1]?.executing);
+  
+
+test/workflow-task-survival.test.ts:57:17 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    55 │ 		release();
+    56 │ 		await until(() => assignments(f)[1]?.status === "submitted" && !assignments(f)[1]?.executing);
+  > 57 │ 		const child = assignments(f)[1]!;
+       │ 		              ^^^^^^^^^^^^^^^^^^
+    58 │ 		assert.ok(child.report);
+    59 │ 		assert.ok(child.task);
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+
+test/workflow-task-survival.test.ts:60:39 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    58 │ 		assert.ok(child.report);
+    59 │ 		assert.ok(child.task);
+  > 60 │ 		assert.notEqual(child.conversation, assignments(f)[0]!.conversation);
+       │ 		                                    ^^^^^^^^^^^^^^^^^^
+    61 │ 		const report = await f.ledger.artifact(admin, { read: child.report! });
+    62 │ 		assert.ok("content" in report);
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+  
+     58  58 │       assert.ok(child.report);
+     59  59 │       assert.ok(child.task);
+     60     │ - → → assert.notEqual(child.conversation,·assignments(f)[0]!.conversation);
+         60 │ + → → assert.notEqual(child.conversation,·assignments(f)[0]?.conversation);
+     61  61 │       const report = await f.ledger.artifact(admin, { read: child.report! });
+     62  62 │       assert.ok("content" in report);
+  
+
+test/workflow-task-survival.test.ts:61:57 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    59 │ 		assert.ok(child.task);
+    60 │ 		assert.notEqual(child.conversation, assignments(f)[0]!.conversation);
+  > 61 │ 		const report = await f.ledger.artifact(admin, { read: child.report! });
+       │ 		                                                      ^^^^^^^^^^^^^
+    62 │ 		assert.ok("content" in report);
+    63 │ 		assert.equal(report.content.toString(), "Independent objection: retain exact bytes.\n");
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+
+test/workflow-task-survival.test.ts:66:59 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    64 │ 		await f.reopen();
+    65 │ 		assert.equal(assignments(f)[1]?.report, child.report);
+  > 66 │ 		const retained = await f.ledger.artifact(admin, { read: child.report! });
+       │ 		                                                        ^^^^^^^^^^^^^
+    67 │ 		assert.ok("content" in retained);
+    68 │ 		assert.equal(retained.content.toString(), "Independent objection: retain exact bytes.\n");
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+
+test/workflow-task-survival.test.ts:83:13 lint/style/noNonNullAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+  
+    81 │ 		assert.ok(duplicate.status === "accepted" && duplicate.duplicate);
+    82 │ 		assert.equal(assignments(f).length, 1);
+  > 83 │ 		const a = assignments(f)[0]!;
+       │ 		          ^^^^^^^^^^^^^^^^^^
+    84 │ 		const scoped = mintContext({
+    85 │ 			kind: "assignment-agent",
+  
+  i A non-null assertion tells TypeScript to ignore a possible null or undefined value. If the value is missing at runtime, the code fails with an error that the compiler could not catch.
+  
+  i Check that the value is defined before using it, for example with an if statement or optional chaining, instead of asserting it.
+  
+
+The number of diagnostics exceeds the limit allowed. Use --max-diagnostics to increase it.
+Diagnostics not shown: 43.
+Checked 56 files in 23ms. No fixes applied.
+Found 55 warnings.
+Found 8 infos.

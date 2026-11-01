@@ -1,5 +1,6 @@
 // Storage-independent history protocol. Cursors bind selection/cutoff, never grant read authority.
 import { createHmac, timingSafeEqual } from "node:crypto";
+import type { Backup } from "./backup.ts";
 import type { LedgerRefusal } from "./ledger.ts";
 
 export const EXCLUSIONS = ["unsaved_client_buffers", "uncommitted_provider_streams", "unsnapshotted_worker_files"];
@@ -39,8 +40,15 @@ export type HistoryRecord = {
 	[key: string]: unknown;
 };
 export type Missing = { ref: string; code: string };
+export type RecoveryNotice = {
+	mode: "admission-disabled" | "recovery-reconciling";
+	restoredCutoff: number | null;
+	newerWorld: "unreconciled";
+};
 export type HistoryPage = {
 	version: 1;
+	backup?: ReturnType<Backup["status"]>;
+	recovery?: RecoveryNotice;
 	cutoff: number;
 	scope: HistoryScope;
 	records: HistoryRecord[];
@@ -53,6 +61,8 @@ export type HistoryPage = {
 };
 export type HistoryExport = {
 	version: 1;
+	backup?: ReturnType<Backup["status"]>;
+	recovery?: RecoveryNotice;
 	manifest: {
 		format: "render-history";
 		version: 1;

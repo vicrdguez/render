@@ -1,8 +1,9 @@
 // Ledger: the accepting authority. command/observe/artifact are its interface; adapters in this directory are the
 // only places that establish principals.
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { ConversationId, EntryId, Harness } from "@earendil-works/pi-durable";
+import type { ConversationId, EntryId, Harness, HarnessOptions, Storage } from "@earendil-works/pi-durable";
 import type { RoleTaskStaging } from "../engine/runtime.ts";
 import type { WebWorking } from "../engine/web.ts";
 import {
@@ -17,6 +18,8 @@ import {
 	type WorkflowState,
 } from "../kernel/kernel.ts";
 import { packetRefs, type RoleAssignment, type RolePacket, type RoleWorkState, sameAgent } from "../kernel/roles.ts";
+import { Backup, type BackupClock, realBackupClock } from "./backup.ts";
+import { initialBackup, validBackup } from "./backup-state.ts";
 import { faultBarrier } from "./barrier.ts";
 import { decodeUtf8, type Envelope, PROTOCOL_VERSION, parseEnvelope } from "./envelope.ts";
 import {
@@ -30,6 +33,7 @@ import {
 	refusal,
 	selectHistory,
 } from "./history.ts";
+import type { OffHostDestination } from "./offhost.ts";
 import { type AuthenticatedContext, bearerOf, mintContext, newSecret, parseBearer, principalOf, verifies } from "./principals.ts";
 import {
 	type AcceptedBy,
@@ -51,6 +55,7 @@ import {
 	Workflow,
 	type WorkflowRecord,
 } from "./records.ts";
+import { createRecoveryPackage, Recovery, type RecoveryState, validateRecoveryState } from "./recovery.ts";
 
 const ctx = BACKGROUND_CONTEXT;
 
@@ -64,6 +69,7 @@ export type LedgerRefusal = {
 };
 
 export type CommandReply =
+	| { readonly status: "packaged"; readonly path: string; readonly cutoff: number }
 	| (ReceiptBody & { readonly duplicate: boolean; readonly credential?: { readonly bearer: string } })
 	| LedgerRefusal;
 
@@ -99,6 +105,11 @@ export type Artifact = {
 export type HostMode = "active" | "failed" | "closing";
 
 const UNAUTHORIZED: LedgerRefusal = { status: "refused", code: "unauthorized", reason: "Authentication required." };
+const RECOVERY_REQUIRED: LedgerRefusal = {
+	status: "refused",
+	code: "recovery_required",
+	reason: "Local-admin validation/repair or newer-world reconciliation is required. Dispatch and mutation admission remain disabled.",
+};
 const NOT_FOUND: LedgerRefusal = { status: "refused", code: "not_found", reason: "Not found." };
 const CONFLICT: LedgerRefusal = {
 	status: "refused",
@@ -156,12 +167,18 @@ type Observer = {
 	end(frame: Frame): void;
 };
 
+type Management = { data: string; runtime: HarnessOptions; storage: Storage; backup?: OffHostDestination; backupClock?: BackupClock };
+
 export class Ledger {
 	readonly #harness: Harness;
 	readonly #persistence: Persistence;
 	readonly #onFatal: (error: unknown) => void;
 	readonly #observers = new Set<Observer>();
 	#meta: MetaState;
+	#recovery: RecoveryState | undefined;
+	readonly #management: Management;
+	readonly #backup: Backup;
+	readonly #backupClock: BackupClock;
 	readonly #workflows = new Map<string, Present<WorkflowRecord>>();
 	readonly #devices = new Map<string, Present<DeviceRecord>>();
 	#mode: HostMode = "active";
@@ -169,11 +186,45 @@ export class Ledger {
 	#roleTasks: RoleTaskStaging | undefined;
 	readonly #webWorking = new Map<string, WebWorking>();
 
-	private constructor(harness: Harness, meta: MetaState, persistence: Persistence, onFatal: (error: unknown) => void) {
+	private constructor(
+		harness: Harness,
+		meta: MetaState,
+		persistence: Persistence,
+		onFatal: (error: unknown) => void,
+		management: Management,
+		recovery: RecoveryState | undefined,
+	) {
+		this.#management = management;
+		this.#recovery = recovery;
 		this.#harness = harness;
 		this.#meta = meta;
 		this.#persistence = persistence;
 		this.#onFatal = onFatal;
+		this.#backupClock = management.backupClock ?? realBackupClock;
+		if (meta.backup !== undefined && !validBackup(meta.backup, meta.sequence)) throw new Error("Unsupported backup state");
+		this.#meta.backup ??= initialBackup(meta.sequence);
+		this.#backup = new Backup({
+			destination: recovery !== undefined && recovery.mode !== "active" ? undefined : management.backup,
+			clock: this.#backupClock,
+			state: () => this.#meta.backup!,
+			save: async (update) => {
+				const backup = await harness.commit(async (tx) => {
+					const current = await tx.doc(Meta);
+					current.backup ??= initialBackup(current.sequence);
+					update(current.backup);
+					return plain(current.backup);
+				}, ctx);
+				this.#meta.backup = backup;
+			},
+			scratch: join(management.data, ".offhost-scratch"),
+			package: (root) => createRecoveryPackage(management.data, management.runtime, "offhost", root),
+			changed: () => {
+				for (const observer of this.#observers) {
+					observer.last = this.#meta.sequence;
+					observer.send(this.#snapshotFrame(observer.principal));
+				}
+			},
+		});
 		void harness.closed.then((end) => {
 			if (end.reason === "failed") this.#fail(end.error);
 		});
@@ -184,11 +235,20 @@ export class Ledger {
 		harness: Harness,
 		persistence: Persistence,
 		onFatal: (error: unknown) => void,
+		management: Management,
 		roleTasks?: RoleTaskStaging,
 	): Promise<Ledger> {
 		const meta = await harness.snapshot(Meta, ctx);
 		if (meta === undefined || !meta.initialized) throw new Error("Render store is not initialized");
-		const ledger = new Ledger(harness, plain(meta) as MetaState, persistence, onFatal);
+		const recovery = await harness.snapshot(Recovery, ctx);
+		const ledger = new Ledger(
+			harness,
+			plain(meta) as MetaState,
+			persistence,
+			onFatal,
+			management,
+			recovery === undefined ? undefined : (plain(recovery) as RecoveryState),
+		);
 		ledger.#roleTasks = roleTasks;
 		ledger.#roleWork = plain((await harness.snapshot(RoleWork, ctx)) ?? { assignments: [] });
 		for (const id of meta.workflows) {
@@ -199,13 +259,16 @@ export class Ledger {
 			const d = await harness.snapshot(Device, id, ctx);
 			if (d?.exists) ledger.#devices.set(id, plain(d) as Present<DeviceRecord>);
 		}
+		ledger.#backup.schedule(false);
 		return ledger;
 	}
 
 	status() {
 		const m = this.#meta;
 		return {
-			hostMode: this.#mode,
+			hostMode: this.#hostMode(),
+			recovery: this.#recovery ?? null,
+			backup: this.#backup.status(),
 			human: m.human,
 			authorityEpoch: m.authorityEpoch,
 			executorEpoch: m.executorEpoch,
@@ -225,6 +288,7 @@ export class Ledger {
 
 	/** Establishes a device context from an Authorization header against current, unrevoked credentials. */
 	authenticate(header: string | undefined): AuthenticatedContext | undefined {
+		if (this.remoteRecoveryRequired()) return undefined;
 		const bearer = parseBearer(header);
 		const device = bearer === undefined ? undefined : this.#devices.get(bearer.device);
 		if (bearer === undefined || device === undefined || device.revokedAtSequence !== null || !verifies(bearer.secret, device.verifier))
@@ -247,6 +311,25 @@ export class Ledger {
 				reason: "The envelope names a different authority epoch; take a fresh snapshot.",
 				refs: { current: this.#meta.authorityEpoch, expected: env.authorityEpoch },
 			};
+		const localAdmin = principal.kind === "human" && principal.route === "local-admin";
+		if (env.command.type === "createRecoveryPackage" || env.command.type === "repairRecovery") {
+			if (!localAdmin) return { status: "refused", code: "forbidden_principal", reason: "Local-admin only." };
+			if (env.workflow !== null || Object.keys((raw as { command: object }).command).join() !== "type")
+				return { status: "refused", code: "malformed_envelope", reason: "Recovery management takes only a command type." };
+			if (env.command.type === "repairRecovery") return this.#repair(env, principal);
+			if (this.#recovery?.mode !== undefined && this.#recovery.mode !== "active") return RECOVERY_REQUIRED;
+			try {
+				return await createRecoveryPackage(this.#management.data, this.#management.runtime, env.commandId);
+			} catch (error) {
+				return { status: "refused", code: "invalid_recovery_package", reason: String(error) };
+			}
+		}
+		if (
+			this.#recovery !== undefined &&
+			this.#recovery.mode !== "active" &&
+			!(localAdmin && this.#recovery.mode === "recovery-reconciling" && ["enrollDevice", "revokeDevice"].includes(env.command.type))
+		)
+			return RECOVERY_REQUIRED;
 		const enrollment = env.command.type === "enrollDevice" ? newSecret() : undefined;
 		let outcome: Awaited<ReturnType<Ledger["stage"]>>;
 		try {
@@ -260,13 +343,83 @@ export class Ledger {
 				reason: "Storage failed while committing; the host is stopping. Retry the original command ID after restart.",
 			};
 		}
-		if (!outcome.duplicate) this.#adopt(outcome);
+		if (!outcome.duplicate) {
+			this.#adopt(outcome);
+			this.#backup.schedule(["saveDocument", "assignTask", "requestRole", "cancelWork", "submitRoleResult"].includes(env.command.type));
+		}
 		await faultBarrier("after-commit", env.commandId);
 		if (outcome.duplicate) return { ...outcome.body, duplicate: true };
 		const result = outcome.body.result;
 		const credential =
 			enrollment !== undefined && typeof result.device === "string" ? { bearer: bearerOf(result.device, enrollment.secret) } : undefined;
 		return { ...outcome.body, duplicate: false, ...(credential ? { credential } : {}) };
+	}
+
+	/** Checked before remote credential interpretation, not after receipt lookup. */
+	remoteRecoveryRequired(): boolean {
+		return this.#recovery?.restoreRequired === true || this.#recovery?.mode === "admission-disabled";
+	}
+
+	#hostMode(): string {
+		return this.#mode === "active" ? (this.#recovery?.mode ?? "active") : this.#mode;
+	}
+
+	async #repair(env: Envelope, principal: Principal): Promise<CommandReply> {
+		if (!this.#recovery?.restoreRequired) return RECOVERY_REQUIRED;
+		try {
+			await validateRecoveryState(this.#management.storage);
+		} catch (error) {
+			return { status: "refused", code: "invalid_recovery_package", reason: String(error) };
+		}
+		try {
+			const outcome = await this.#harness.commit(async (tx) => {
+				const recovery = await tx.doc(Recovery);
+				if (!recovery.restoreRequired) throw new Abort(RECOVERY_REQUIRED);
+				const meta = await tx.doc(Meta);
+				if (meta.authorityEpoch !== env.authorityEpoch) throw new Abort(RECOVERY_REQUIRED);
+				const sequence = meta.sequence + 1;
+				for (const id of meta.devices) {
+					const d = await tx.doc(Device, id, null);
+					if (d.exists && d.revokedAtSequence === null) d.revokedAtSequence = sequence;
+				}
+				meta.authorityEpoch = `authority-${randomUUID()}`;
+				meta.historyCursorKey = randomUUID();
+				meta.sequence = sequence;
+				recovery.restoreRequired = false;
+				recovery.mode = "recovery-reconciling";
+				const by: AcceptedBy = { principal: "human", route: "local-admin" };
+				await tx.appendEntry(FactEntry, meta.ledgerConversation as ConversationId, {
+					data: { schema: 1, fact: `fact:${sequence}`, sequence, command: "repairRecovery", commandId: env.commandId, refs: {}, by },
+				});
+				const body: ReceiptBody = {
+					status: "accepted",
+					commandId: env.commandId,
+					receipt: `receipt:${sequence}`,
+					sequence,
+					authorityEpoch: meta.authorityEpoch,
+					workflow: null,
+					result: { recovery: "recovery-reconciling" },
+					facts: [`fact:${sequence}`],
+					acceptedBy: by,
+				};
+				const receipt = await tx.doc(Receipt, `${namespaceOf(principal)} ${env.commandId}`, null);
+				if (receipt.exists) throw new Abort(CONFLICT);
+				Object.assign(receipt, { exists: true, namespace: namespaceOf(principal), fingerprint: env.fingerprint, body });
+				await faultBarrier("repair-before-commit", env.commandId);
+				return { body, meta: plain(meta) as MetaState, recovery: plain(recovery) as RecoveryState };
+			}, ctx);
+			await faultBarrier("repair-after-commit", env.commandId);
+			this.#meta = outcome.meta;
+			this.#recovery = outcome.recovery;
+			for (const [id, d] of this.#devices) {
+				if (d.revokedAtSequence === null) this.#devices.set(id, { ...d, revokedAtSequence: outcome.body.sequence });
+			}
+			return { ...outcome.body, duplicate: false };
+		} catch (error) {
+			if (error instanceof Abort) return error.refusal;
+			this.#fail(error);
+			return { status: "refused", code: "outcome_unknown", reason: "Repair failed; restart remains restricted." };
+		}
 	}
 
 	/** One Ledger transaction: authorization, dedup, Kernel decision and every staged record. */
@@ -285,6 +438,17 @@ export class Ledger {
 			if (env.workflow !== null && workflows !== "all" && !workflows.includes(env.workflow))
 				throw new Abort({ status: "refused", code: "forbidden_scope", reason: `${env.workflow} is outside this device's scope.` });
 		}
+		const recovery = await tx.doc(Recovery);
+		if (
+			recovery.mode !== "active" &&
+			!(
+				current.kind === "human" &&
+				current.route === "local-admin" &&
+				recovery.mode === "recovery-reconciling" &&
+				["enrollDevice", "revokeDevice"].includes(env.command.type)
+			)
+		)
+			throw new Abort(RECOVERY_REQUIRED);
 		const roles = await tx.doc(RoleWork);
 		if (current.kind === "assignment-agent" && !roles.assignments.some((a) => sameAgent(a as RoleAssignment, current)))
 			throw new Abort(UNAUTHORIZED);
@@ -628,6 +792,8 @@ export class Ledger {
 			acceptedBy: by,
 		};
 		Object.assign(receipt, { exists: true, namespace, fingerprint: env.fingerprint, body });
+		meta.backup ??= initialBackup(sequence - 1);
+		if (env.command.type !== "recordStartup") meta.backup.pending.push({ sequence, at: this.#backupClock.now() });
 		await faultBarrier("before-commit", env.commandId);
 		const affected = env.workflow ?? (typeof decision.result.workflow === "string" ? decision.result.workflow : undefined);
 		const workflowDoc = affected === undefined ? undefined : await tx.doc(Workflow, affected, null);
@@ -709,7 +875,15 @@ export class Ledger {
 	receipt(context: AuthenticatedContext, commandId: string): Promise<ReceiptBody | LedgerRefusal> {
 		return this.#read(context, async (principal) => {
 			const record = await this.#harness.snapshot(Receipt, `${namespaceOf(principal)} ${commandId}`, ctx);
-			return record?.exists && readable(record.body, principal) ? plain(record.body) : NOT_FOUND;
+			if (record?.exists && readable(record.body, principal)) return plain(record.body);
+			if (this.#recovery?.mode === "recovery-reconciling")
+				return {
+					status: "refused",
+					code: "outcome_unknown_after_restore",
+					reason:
+						"Missing history after restore does not establish that this command was unsent; newer-world reconciliation and an explicit recovery decision are required.",
+				};
+			return NOT_FOUND;
 		});
 	}
 
@@ -1102,9 +1276,20 @@ export class Ledger {
 				content[id] = bytes.toString("base64");
 			}
 			records.sort((a, b) => a.sequence - b.sequence || a.ref.localeCompare(b.ref));
-			return exporting
+			const result = exporting
 				? exportHistory(records, missing, redactions, state, content)
 				: historyPage(records, missing, redactions, state, limit, this.#meta.historyCursorKey ?? "");
+			return this.#recovery !== undefined && this.#recovery.mode !== "active"
+				? {
+						...result,
+						backup: this.#backup.status(),
+						recovery: {
+							mode: this.#recovery.mode,
+							restoredCutoff: this.#recovery.origin?.cutoff ?? null,
+							newerWorld: "unreconciled" as const,
+						},
+					}
+				: { ...result, backup: this.#backup.status() };
 		});
 	}
 
@@ -1124,7 +1309,17 @@ export class Ledger {
 	}
 
 	#current(principal: Principal): boolean {
-		if (principal.kind === "assignment-agent") return this.#roleWork.assignments.some((a) => sameAgent(a, principal));
+		if (
+			this.remoteRecoveryRequired() &&
+			!(principal.kind === "human" && principal.route === "local-admin") &&
+			!(principal.kind === "host" && principal.scope === "recovery")
+		)
+			return false;
+		if (principal.kind === "assignment-agent")
+			return (
+				(this.#recovery === undefined || this.#recovery.mode === "active") &&
+				this.#roleWork.assignments.some((a) => sameAgent(a, principal))
+			);
 		if (principal.kind !== "human" || principal.route !== "device") return true;
 		const device = this.#devices.get(principal.device);
 		return device !== undefined && device.revokedAtSequence === null;
@@ -1143,15 +1338,11 @@ export class Ledger {
 			...this.#frameHeader(principal),
 			kind: "snapshot",
 			sequence: this.#meta.sequence,
-			hostMode: this.#mode,
+			hostMode: this.#hostMode(),
+			recovery: this.#recovery ?? null,
 			executorEpoch: this.#meta.executorEpoch,
 			persistence: this.#persistence,
-			backup: {
-				health: "unavailable",
-				reason: "Off-host protection is not available in this host version; no acknowledged work is protected off-host.",
-				targetExposedWorkSeconds: 300,
-				verifiedOffHostCutoffSequence: null,
-			},
+			backup: this.#backup.status(),
 			history: {
 				status: "available",
 				head: `history:${this.#meta.sequence}`,
@@ -1183,6 +1374,7 @@ export class Ledger {
 	async close(): Promise<void> {
 		if (this.#mode === "active") this.#mode = "closing";
 		for (const o of [...this.#observers]) this.#endObserver(o, "host_closing");
+		await this.#backup.close();
 		await this.#harness.close(ctx);
 	}
 }
