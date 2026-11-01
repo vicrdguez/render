@@ -125,9 +125,17 @@ test("offhost-exposure-cutoff: configured/local-copy/copy-only cannot protect; o
 		assert.equal(first.unprotectedAcknowledgedWork, false);
 		assert.equal(first.exposedWorkSeconds, 0);
 		const repetitions = Number(process.env.RENDER_V3_REPETITIONS ?? "1");
-		for (const mode of ["fail", "corrupt", ...Array.from({ length: repetitions }, () => ["before", "after"]).flat()]) {
+		for (const [index, mode] of ["fail", "corrupt", ...Array.from({ length: repetitions }, () => ["before", "after"]).flat()].entries()) {
 			await writeFile(f.mode, mode);
-			const result = await save(f.compatible(), f.device.bearer, f.workflow, mode, Buffer.from(mode), null, mode);
+			const result = await save(
+				f.compatible(),
+				f.device.bearer,
+				f.workflow,
+				`${mode}-${index}`,
+				Buffer.from(mode),
+				null,
+				`${mode}-${index}`,
+			);
 			assert.equal(result.body.status, "accepted", "backup outage must not halt acknowledgement");
 			f.clock.advance(1000);
 			await f.wait((b) => b.phase === "failed");
