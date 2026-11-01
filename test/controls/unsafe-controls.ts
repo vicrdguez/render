@@ -14,6 +14,22 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "offhost-copy-only",
+		expect: /copy-only must not advance protected cutoff/,
+		behavior: "a successful copy without a durable verified receipt establishes protection",
+		edits: [{ file: "src/ledger/offhost.ts", find: "assertReceipt(receipt, manifest);", replace: "// unsafe: accept a copy without verification" }],
+		test: "test/offhost-protection.test.ts",
+		pattern: "configured/local-copy",
+	},
+	{
+		name: "offhost-local-copy",
+		expect: /copy-only must not advance protected cutoff/,
+		behavior: "a completed local package establishes protection despite failed transfer verification",
+		edits: [{ file: "src/ledger/backup.ts", find: "await transferPackage(local.path, this.#destination);", replace: "try { await transferPackage(local.path, this.#destination); } catch {}" }],
+		test: "test/offhost-protection.test.ts",
+		pattern: "configured/local-copy",
+	},
+	{
 		name: "repair-empty-cursor-key",
 		expect: /repaired cursors must use a fresh private secret/,
 		behavior: "repair omits key rotation and restored history signs with the public empty fallback",
