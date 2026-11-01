@@ -10,4 +10,11 @@ Owned seams: Ledger command/observe/artifact through HTTP/admin sockets, real SQ
 - O6 / A4,T3: snapshots, history/export operational backup declarations and package-contained retained status survive normal restart and clean restore. Status is current operational information, not a fabricated fixed-cutoff history record. Unknown/malformed backup state refuses package validation; no secret SSH configuration in package/history.
 - O7 / B3,A2: absent configuration warns without halting local work. Nonempty role-work packages retain the inherited explicit reconciliation refusal; no incomplete package is called protected. Scoped/unauthenticated clients do not gain destination paths or extra content.
 
+## Rework: bounded automatic local storage (before implementation)
+
+- O8 / B3: twelve failed attempts with no intervening user commands must each leave zero automatic local full-store copies; four successful save bursts must do the same. Local saves remain accepted, failure never advances protection. A cleanup-only-on-success implementation fails this oracle.
+- O9 / B1,B3: failed, corrupt and receiver-killed attempts must release their automatic local copy while retaining an explicit operator-created package byte for byte. Removing all recovery packages is not an acceptable cleanup strategy.
+- O10 / B3: SIGKILL the sending host at real snapshot and pre-publication barriers, twice each across restarts. At each crash at most one in-flight snapshot remains; the next completed attempt leaves none. A finally-only cleanup implementation fails after the second crash. Interrupted scratch is expendable, not operator recovery retention.
+- Cleanup failure must prevent another snapshot allocation rather than accumulate copies; local command authority and prior verified facts must not change. Legacy operator/automatic packages share an indistinguishable format and must not be retrospectively deleted by inference.
+
 Unsafe controls: skip remote receipt validation (copy-only treated as protected), and advance protected state before transfer. Each must fail an explicit assertion about unchanged protected cutoff, not import/setup. Existing package, recovery, authority and history controls remain cumulative.

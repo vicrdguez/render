@@ -114,6 +114,7 @@ test("offhost-exposure-cutoff: configured/local-copy/copy-only cannot protect; o
 			envelope(f.h.authorityEpoch, { type: "createRecoveryPackage" }),
 		);
 		assert.equal(local.body.status, "packaged");
+		const manualBytes = await readFile(join(String(local.body.path), "render.db"));
 		assert.equal((await f.status()).verifiedOffHostCutoffSequence, null, "local copy must not advance protected cutoff");
 		await writeFile(f.mode, "copy-only");
 		f.clock.advance(1000);
@@ -141,6 +142,8 @@ test("offhost-exposure-cutoff: configured/local-copy/copy-only cannot protect; o
 			await f.wait((b) => b.phase === "failed");
 			assert.equal((await f.status()).verifiedOffHostCutoffSequence, 4, "failed transfer must retain last protected cutoff");
 			assert.equal((await f.status()).generation, first.generation);
+			assert.deepEqual(await localCopies(f.data), [`recovery-packages/${local.body.id}/render.db`], "failed or killed receiver must not retain automatic local packages");
+			assert.deepEqual(await readFile(join(String(local.body.path), "render.db")), manualBytes, "operator package must survive automatic cleanup");
 		}
 		assert.equal(
 			await readFile(join(f.dir.path, "barriers"), "utf8"),
@@ -173,6 +176,60 @@ test("offhost-exposure-cutoff: configured/local-copy/copy-only cannot protect; o
 			(await f.status()).generation,
 			"standalone reader preserves operational backup declaration",
 		);
+	} finally {
+		await f.close();
+	}
+});
+
+async function localCopies(data: string): Promise<string[]> {
+	return (await readdir(data, { recursive: true })).filter((name) => name.endsWith("/render.db")).sort();
+}
+
+test("offhost-exposure-cutoff: repeated outage retries and successful bursts retain no automatic local copies", async () => {
+	const f = await fixture();
+	try {
+		await writeFile(f.mode, "fail");
+		for (let i = 0; i < 12; i++) {
+			f.clock.advance(i === 0 ? 1000 : 60000);
+			await f.wait((b) => b.phase === "failed");
+			assert.deepEqual(await localCopies(f.data), [], "outage retry must release its local full-store copy");
+			assert.equal((await f.status()).verifiedOffHostCutoffSequence, null);
+		}
+		await writeFile(f.mode, "ok");
+		for (let i = 0; i < 4; i++) {
+			const saved = await save(f.compatible(), f.device.bearer, f.workflow, `burst-${i}`, Buffer.from("still local"), null);
+			assert.equal(saved.body.status, "accepted");
+			f.clock.advance(1000);
+			await f.wait((b) => b.verifiedOffHostCutoffSequence === saved.body.sequence);
+			assert.deepEqual(await localCopies(f.data), [], "successful backup must release its local full-store copy");
+		}
+	} finally {
+		await f.close();
+	}
+});
+
+test("offhost-exposure-cutoff: repeated sender crashes reclaim scratch before taking another snapshot", async () => {
+	const f = await fixture();
+	try {
+		await f.h.close();
+		const config = join(f.dir.path, "backup.json");
+		await writeFile(config, JSON.stringify({ sshHost: "owned-fixture", receiver: HOST_MAIN, directory: f.destination }));
+		for (const [i, barrier] of ["package-snapshot", "package-publish", "package-snapshot", "package-publish"].entries()) {
+			const h = await startHost(f.data, { RENDER_BACKUP_CONFIG: config, RENDER_FAULT_BARRIER: barrier, RENDER_FAULT_COMMAND: "offhost" });
+			try {
+				assert.equal((await save(h, f.device.bearer, f.workflow, `crash-${i}`, Buffer.from("pending"), null)).body.status, "accepted");
+				const event = await h.waitForEvent("barrier");
+				assert.equal(event.name, barrier);
+				await h.kill();
+				assert.equal((await localCopies(f.data)).length, 1, "sender crashes must leave at most the one in-flight snapshot, not accumulate copies");
+			} finally {
+				await h.stop();
+			}
+		}
+		await f.restart();
+		f.clock.advance(60000);
+		await f.wait((b) => b.verifiedOffHostCutoffSequence !== null);
+		assert.deepEqual(await localCopies(f.data), [], "next attempt must reclaim interrupted scratch and its own copy");
 	} finally {
 		await f.close();
 	}
