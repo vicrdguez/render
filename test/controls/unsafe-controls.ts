@@ -35,7 +35,7 @@ const CONTROLS: Control[] = [
 			{
 				file: "src/ledger/history.ts",
 				find: "cutoff: state.cutoff,\n\t\tscope: state.scope,\n\t\trecords:",
-				replace: "cutoff: state.cutoff + 1,\n\t\tscope: state.scope,\n\t\trecords:",
+				replace: "cutoff: state.cutoff + (state.offset > 0 ? 1 : 0),\n\t\tscope: state.scope,\n\t\trecords:",
 			},
 		],
 		test: "test/history-cutoff-export.test.ts",
