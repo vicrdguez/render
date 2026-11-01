@@ -18,6 +18,7 @@ import {
 	sha256,
 	startHost,
 	tempDir,
+	track,
 } from "./support/host.ts";
 import { A1, B1, G1 } from "./support/literals.ts";
 
@@ -44,7 +45,7 @@ function observeProcess(args: string[]): {
 	exited: Promise<number | null>;
 	waitFor(pred: (f: Record<string, unknown>) => boolean, ms?: number): Promise<Record<string, unknown>>;
 } {
-	const proc = spawn(process.execPath, [CLIENT_CLI, ...args], { stdio: ["ignore", "pipe", "pipe"] });
+	const proc = track(spawn(process.execPath, [CLIENT_CLI, ...args], { stdio: ["ignore", "pipe", "pipe"] }));
 	const frames: Record<string, unknown>[] = [];
 	const waiters: { pred: (f: Record<string, unknown>) => boolean; resolve(f: Record<string, unknown>): void }[] = [];
 	createInterface({ input: proc.stdout as NodeJS.ReadableStream }).on("line", (line) => {
@@ -64,7 +65,10 @@ function observeProcess(args: string[]): {
 			new Promise((resolve, reject) => {
 				const hit = frames.find(pred);
 				if (hit) return resolve(hit);
-				const timer = setTimeout(() => reject(new Error(`frame not seen; got ${JSON.stringify(frames)}`)), ms);
+				const timer = setTimeout(
+					() => reject(new assert.AssertionError({ message: `expected frame not seen; got ${JSON.stringify(frames)}` })),
+					ms,
+				);
 				waiters.push({
 					pred,
 					resolve: (f) => {
@@ -78,6 +82,7 @@ function observeProcess(args: string[]): {
 
 describe("V4 two stateless clients", () => {
 	let dir: Awaited<ReturnType<typeof tempDir>>;
+	let work: Awaited<ReturnType<typeof tempDir>>;
 	let host: HostProcess;
 	let tokenA: string;
 	let tokenB: string;
@@ -85,20 +90,22 @@ describe("V4 two stateless clients", () => {
 
 	before(async () => {
 		dir = await tempDir("v4");
+		work = await tempDir("v4-work");
 		host = await startHost(dir.path);
 		const ea = await cli(["admin", "--data", dir.path, "enroll", "--label", "laptop"]);
 		const eb = await cli(["admin", "--data", dir.path, "enroll", "--label", "desktop"]);
 		assert.equal(ea.code, 0, ea.stderr);
 		assert.equal(eb.code, 0, eb.stderr);
 		deviceA = String(ea.json.device);
-		tokenA = join(dir.path, "..", `${dir.path.split("/").at(-1)}-a.token`);
-		tokenB = join(dir.path, "..", `${dir.path.split("/").at(-1)}-b.token`);
+		tokenA = join(work.path, "a.token");
+		tokenB = join(work.path, "b.token");
 		await writeFile(tokenA, String(ea.json.bearer), { mode: 0o600 });
 		await writeFile(tokenB, String(eb.json.bearer), { mode: 0o600 });
 	});
 	after(async () => {
 		await host?.stop();
 		await dir?.remove();
+		await work?.remove();
 	});
 
 	const as = (token: string) => ["--url", host.url, "--token-file", token];
@@ -107,9 +114,9 @@ describe("V4 two stateless clients", () => {
 		const wf = await cli([...as(tokenA), "create-workflow", "--title", "Keep work safe"]);
 		assert.equal(wf.code, 0, wf.stderr);
 		const w = String((wf.json.result as Record<string, unknown>).workflow);
-		const g1 = join(dir.path, "..", "g1.md");
-		const a1 = join(dir.path, "..", "a1.md");
-		const b1 = join(dir.path, "..", "b1.md");
+		const g1 = join(work.path, "g1.md");
+		const a1 = join(work.path, "a1.md");
+		const b1 = join(work.path, "b1.md");
 		await writeFile(g1, G1.bytes);
 		await writeFile(a1, A1.bytes);
 		await writeFile(b1, B1.bytes);
@@ -172,14 +179,14 @@ describe("V4 two stateless clients", () => {
 		const deniedSnap = await cli([...as(tokenA), "snapshot"]);
 		assert.equal(deniedSnap.code, 1);
 		assert.equal(deniedSnap.json.code, "unauthorized");
-		const deniedRead = await cli([...as(tokenA), "read", "--revision", ra, "--out", join(dir.path, "..", "denied.bin")]);
+		const deniedRead = await cli([...as(tokenA), "read", "--revision", ra, "--out", join(work.path, "denied.bin")]);
 		assert.equal(deniedRead.code, 1);
 		assert.equal(deniedRead.json.code, "unauthorized");
 
 		// Fresh client B process: no chat, no cached state.
 		const started = performance.now();
 		const snap = await cli([...as(tokenB), "snapshot"]);
-		const out = join(dir.path, "..", "recovered.md");
+		const out = join(work.path, "recovered.md");
 		const read = await cli([...as(tokenB), "read", "--revision", ra, "--out", out]);
 		const elapsed = performance.now() - started;
 		assert.equal(snap.code, 0, snap.stderr);

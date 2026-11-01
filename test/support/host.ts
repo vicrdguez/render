@@ -7,6 +7,7 @@ import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import { after } from "node:test";
 
 export const ROOT = new URL("../..", import.meta.url).pathname;
 export const HOST_MAIN = join(ROOT, "src/host/main.ts");
@@ -34,6 +35,20 @@ export async function tempDir(prefix: string): Promise<{ path: string; remove():
 	return { path, remove: () => rm(path, { recursive: true, force: true }) };
 }
 
+// Hosts still running when a file's tests finish (for example after a failed assertion) are killed, so a failing
+// check reports instead of hanging on a live child process.
+const live = new Set<ChildProcess>();
+after(() => {
+	for (const proc of live) proc.kill("SIGKILL");
+});
+
+/** Registers a child process for the same end-of-file cleanup as hosts. */
+export function track(proc: ChildProcess): ChildProcess {
+	live.add(proc);
+	proc.on("exit", () => live.delete(proc));
+	return proc;
+}
+
 export type SpawnResult = { code: number | null; events: HostEvent[]; stderr: string; stdout: string };
 
 /** Spawn a host and wait for it to exit or become ready. */
@@ -52,6 +67,7 @@ export function spawnHost(
 		env: { ...process.env, ...env },
 		stdio: ["ignore", "pipe", "pipe"],
 	});
+	track(proc);
 	const events: HostEvent[] = [];
 	const stdout: string[] = [];
 	const stderr: string[] = [];
