@@ -492,7 +492,7 @@ describe("B2 supported document sizes and encoding boundaries", () => {
 			assert.equal(oversized.status, 400, `oversized document must deliberately refuse: ${oversized.text}`);
 			assert.equal(oversized.body.code, "malformed_envelope");
 			assert.match(String(oversized.body.reason), /content exceeds 16777216 bytes/);
-			for (const content of ["A", "AAA", "A===", "====", "AA=A", "AA==AAAA", "AA-_", "AA\n=", `${"QUFB".repeat(1_048_576)}!`]) {
+			for (const content of ["A", "AAA", "A===", "====", "AA=A", "AA==AAAA", "AA-_", "AA\n=", "AAA\n", "AAA\r", "AAA\u2028", "AAA\u2029", `${"QUFB".repeat(1_048_576)}!`]) {
 				const bad = await http(host.url, "POST", "/v1/commands", {
 					bearer: dev.bearer,
 					body: envelope(
