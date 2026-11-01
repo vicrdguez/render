@@ -1,0 +1,35 @@
+✖ package-clean-restore / restore-newer-world: history scope, secret exclusion and restricted uncertainty (1112.865333ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1299.523709
+
+✖ failing tests:
+
+test at test/recovery-packages.test.ts:371:1
+✖ package-clean-restore / restore-newer-world: history scope, secret exclusion and restricted uncertainty (1112.865333ms)
+  AssertionError [ERR_ASSERTION]: admin diagnostics must also declare restored uncertainty before repair
+  + actual - expected
+  
+  + undefined
+  - {
+  -   mode: 'admission-disabled',
+  -   newerWorld: 'unreconciled',
+  -   restoredCutoff: 6
+  - }
+  
+      at TestContext.<anonymous> (file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/recovery-packages/test/recovery-packages.test.ts:406:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: { mode: 'admission-disabled', restoredCutoff: 6, newerWorld: 'unreconciled' },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
