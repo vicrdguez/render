@@ -1,0 +1,17 @@
+# Durable role work: preimplementation oracles
+
+Written before product changes. Expected outcomes are literal consequences of B1–B5, not generated snapshots.
+
+| Row | Trigger | Independent expected outcome |
+|---|---|---|
+| R01 workflow-task-survival | Accepted request, lost reply, submitting conversation aborted | One child assignment, packet, conversation-owned task and receipt survive. No tool-owned child. Before-commit death retains none. |
+| R02 durable-tool-replay | Same task/call replays after Ledger acceptance, before tool-result commit | Same receipt/sequence/task; changed arguments conflict. New call is a new eligibility check and refuses a second request. Model-supplied command IDs are invalid tool arguments. |
+| R03 role-capability-refusal | Foreign artifact, programmatic mutation, nested wrapper, stale generation/Attempt/role | Refused without receipt/content disclosure or accepted mutation. All nested mutation wrappers are initially unverified, including replay-safe wrappers. |
+| R04 role-capability-refusal | Missing packet input, wrong model family/provider, missing credential/profile, oversized packet | Visible blocker; zero provider requests; no inherited tool, host shell, ambient credential or silent fallback. |
+| R05 cancellation-capacity | Four executing attempts; one human-blocked but live | Fifth cannot start. Blocked owner and writer stay held; timeout is not quiescence. Confirmed provider idle plus absent/stopped environment and reconciled effects frees only execution capacity. |
+| R06 cancellation-capacity | Cancel while provider runs; late result; stale cleanup | Generation fence commits first. New admissions refuse; stop-unavailable remains blocked and slot held. Late evidence is quarantined, not accepted. Old cleanup cannot release a newer Attempt. |
+| R07 workflow-task-survival | Child result commits | Own immutable report and result fact/receipt close child ownership and stage a fixed parent notification atomically. A duplicate does not stage a second notification. |
+| R08 startup | Missing task definition, orphaned task or interrupted unsafe effect | Startup refuses dispatch with an actionable blocker. Fresh executor epoch cannot authorize old admissions or automatically repeat uncertain effects. |
+| R09 retained-state | Reopen and read role packets/reports | Exact immutable bytes/provenance remain available under current scope; corrupt/missing versions block rather than substitute. History/export/package capabilities absent in slice1 remain explicitly unavailable. |
+
+Unsafe controls must demonstrate detection of the wrong consequence, not merely fail imports/setup: tool-owned work disappears on abort; inherited extra tool becomes executable; blocked execution releases capacity early. Controls mutate owned temporary source copies only. No live provider/service authorization is implied by scripted-provider checks. Full design/delivery playbooks, sandbox execution and effect reconciliation are not yet delivered; assignments requiring them must block.
