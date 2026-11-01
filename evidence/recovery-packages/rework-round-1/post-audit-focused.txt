@@ -1,0 +1,16 @@
+0c016d4657dffa4327ca8499d9773a51fd890db1
+
+> render@0.0.0 verify:package-validation
+> node --test --test-name-pattern=package-validation test/recovery-packages.test.ts
+
+✔ package-validation / managed-restore: nonclean refusal leaves the existing store usable (696.919833ms)
+✔ package-validation / managed-restore: malformed inputs durably disable admission before import (2227.084791ms)
+✔ package-validation: checksummed but semantically invalid retained relationships cannot be repaired (3319.902666ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6410.072875

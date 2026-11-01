@@ -1,0 +1,43 @@
+✖ package-validation: checksummed but semantically invalid retained relationships cannot be repaired (3956.266ms)
+✖ package-clean-restore / restore-newer-world: history scope, secret exclusion and restricted uncertainty (540.98975ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4689.321833
+
+✖ failing tests:
+
+test at test/recovery-packages.test.ts:275:1
+✖ package-validation: checksummed but semantically invalid retained relationships cannot be repaired (3956.266ms)
+  AssertionError [ERR_ASSERTION]: message-text semantics must be validated beyond checksums
+      at TestContext.<anonymous> (file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/recovery-packages/test/recovery-packages.test.ts:350:11)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 0,
+    operator: 'notStrictEqual',
+    diff: 'simple'
+  }
+
+test at test/recovery-packages.test.ts:371:1
+✖ package-clean-restore / restore-newer-world: history scope, secret exclusion and restricted uncertainty (540.98975ms)
+  AssertionError [ERR_ASSERTION]: package bytes must exclude the raw history cursor key, including old bases and deltas
+  
+  true !== false
+  
+      at TestContext.<anonymous> (file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/recovery-packages/test/recovery-packages.test.ts:388:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

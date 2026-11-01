@@ -17,14 +17,20 @@
 		"verify:two-client-reattach": "node --test test/two-client-reattach.test.ts test/history-cutoff-export.test.ts test/history-cursor-transfer.test.ts",
 		"verify:persistence-startup": "node --test test/persistence-startup.test.ts test/role-recovery-startup.test.ts",
 		"verify:local-command-load": "node --test test/local-command-load.test.ts",
-		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts",
+		"verify:package-clean-restore": "node --test --test-name-pattern=package-clean-restore test/recovery-packages.test.ts",
+		"verify:package-origin-auth-fence": "node --test --test-name-pattern=package-origin-auth-fence test/recovery-packages.test.ts",
+		"verify:repair-crash": "node --test --test-name-pattern=repair-crash test/recovery-packages.test.ts",
+		"verify:restore-newer-world": "node --test --test-name-pattern=restore-newer-world test/recovery-packages.test.ts test/recovery-role-work.test.ts",
+		"verify:package-validation": "node --test --test-name-pattern=package-validation test/recovery-packages.test.ts test/recovery-role-work.test.ts",
 		"verify:durable-tool-replay": "node --test test/durable-tool-replay.test.ts",
 		"verify:workflow-task-survival": "node --test test/workflow-task-survival.test.ts",
 		"verify:role-capability-refusal": "node --test test/role-capability-refusal.test.ts",
 		"verify:cancellation-capacity": "node --test test/cancellation-capacity.test.ts test/role-recovery-startup.test.ts test/role-waiting.test.ts test/role-wait-restart.test.ts",
 		"verify:history-cutoff-export": "node --test test/history-cutoff-export.test.ts test/history-missing-data.test.ts test/history-message.test.ts test/history-completeness.test.ts test/history-cursor-transfer.test.ts test/role-history.test.ts",
+
 		"verify:history-command-load": "node --test test/history-command-load.ts",
-		"verify:independent-export-reader": "node --test test/independent-export-reader.test.ts"
+		"verify:independent-export-reader": "node --test test/independent-export-reader.test.ts",
+		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts"
 	},
 	"dependencies": {
 		"@earendil-works/chord": "1.4.0",

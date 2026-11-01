@@ -509,8 +509,8 @@ export class Engine {
 		if (!this.#models.getModel(a.packet.provider, a.packet.model)) return "required_model_unavailable";
 		return undefined;
 	}
-	#command(a: RoleAssignment, command: Record<string, unknown>): Promise<CommandReply> {
-		return this.#ledger!.command(
+	async #command(a: RoleAssignment, command: Record<string, unknown>) {
+		const reply = await this.#ledger!.command(
 			{
 				version: 1,
 				authorityEpoch: this.#ledger!.status().authorityEpoch,
@@ -520,6 +520,8 @@ export class Engine {
 			},
 			scheduling,
 		);
+		if (reply.status === "packaged") throw new Error("Unexpected local-admin response to role command");
+		return reply;
 	}
 	async #identity(api: ToolExecutionApi, toolName: string) {
 		const binding = await api.snapshot(RoleBinding, api.conversationId, ctx);
