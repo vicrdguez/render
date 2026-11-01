@@ -17,6 +17,13 @@ and Engine/Ledger over real private Git, actual Linux containers and real SQLite
 | source-root-crash | modify .gitattributes/.gitmodules | Exact changed bytes retained, prominently flagged in receipt; inert diff cannot execute external diff/textconv. |
 | retained-history | source receipt persists through history/export/reopen; stale cancellation races | Immutable trusted receipt with assignment/generation, command/exit/platform/verifier/source roots; late result quarantined, never accepted for different source. |
 
+Resumption adds executable oracles before product recovery changes: transient runtime outage retries only the original
+identity; failed collection retains exact pre-root command diagnostics without a pass; process death after stop and
+before/after root/SQL preserves evidence or explicit blockage; cancellation at a rooted-effect barrier retains late
+quarantined output and holds capacity until the admitted work settles. The integrated package surface must explicitly
+refuse role/source stores it cannot restore, never omit their source roots. Execution-time workspace quotas are excluded
+by the recorded slice decision; ingress/collection bounds and issue #39 remain honestly distinguished.
+
 Unsafe controls must distinguish wrong behavior from setup failure: archive substitution, hidden-base loss,
 symlink-follow collection, early capacity release and host fallback each have an independent literal assertion.
 Default engineering bounds: 64 MiB literal bytes, 10,000 entries. Excluded directories must be explicitly declared generated;

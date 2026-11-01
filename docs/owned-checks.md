@@ -1,8 +1,9 @@
 # Owned Linux check candidate
 
-This slice adds trusted literal source retention and an opt-in owned-check path. **It is not acceptance-complete.**
-Do not enable it for uncontrolled workloads until execution-time workspace storage containment and the outstanding
-critical-point/unsafe-control evidence have been resolved. Collection bounds are not a filesystem quota.
+This slice adds trusted literal source retention and an opt-in owned-check path. Ingress and collection bounds are
+not filesystem quotas: workspace writes during execution have no aggregate per-assignment bound. The recorded slice
+decision excludes execution-time quota/provisioning work; availability/recovery risks are tracked separately in
+[render#39](https://github.com/vicrdguez/render/issues/39), not as a dependency or acceptance gate here.
 
 ## Configuration and ownership
 
@@ -34,7 +35,7 @@ This is operator configuration, never a model-selected path/mount/runtime option
 assignment's exact retained profile ref. The existing `assignTask` packet uses `execution: "linux-writer"`; all other
 packet inputs are retained/read as before. This bounded path executes the configured owned command, not an arbitrary
 coding agent. No provider credential or model assertion is required to run it. Unconfigured writers remain blocked.
-The ordinary CLI does not enable this experimental configuration.
+The ordinary CLI does not enable this operator-owned configuration.
 
 Prerequisites: Node 24.21.0, the existing pinned Pi/Chord 1.4.0 dependencies, Git 2.43+ (locally 2.54.0 Apple Git), and
 an actual Docker Linux runtime with the immutable local image already installed. The image must contain Node,
@@ -80,35 +81,53 @@ evidence quarantined rather than inheriting current authority.
 
 Do not delete a journal or container to manufacture quiescence. Preserve its scope/runtime identity and diagnostics;
 confirm the original runtime is stopped and reconcile the exact retained source before arranging a new assignment.
-There is not yet a complete supported local-admin quarantine repair/cleanup command. Missing/uninspectable runtimes
-remain blocked. The current implementation conservatively keeps the original writer's ownership/capacity when it
-cannot confirm stop. No capacity is released merely because a timer elapsed.
+To reconcile a transient runtime outage, restore the same runtime service and restart Render with the same private
+root and owned-check configuration. Before task resume, Engine retries `Sandboxes.stop` for the exact original
+scope/runtime, imports journaled command diagnostics, records blockage for interrupted source work, and releases
+capacity only after confirmed stop and evidence retention. Trusted compositions can also retry `Sandboxes.stop(handle)`
+directly; its result includes original source, executions and the retained quarantine reason. This never restarts
+execution or reuses the workspace. `seal(handle)` may then collect the stopped original workspace; invalid content
+still refuses. Quarantine reasons remain in the private journal after successful containment.
+
+Missing/uninspectable or identity-mismatched runtimes remain blocked; do not replace them by name or delete the journal.
+No supported operation declares an unknown runtime dead. Keep its ownership/capacity until exact containment can be
+established. No capacity is released merely because a timer elapsed. Automated deletion/retention is not introduced.
 
 Trusted source objects live under the configured private root and are pinned by `refs/render/sources/<commit>` before
 Ledger receipts. A crash before the SQL reference may leave harmless unreferenced roots; they convey no authority.
 `Effects.reconcile` verifies exact roots/tree/blobs and refuses missing/corrupt/different objects. Restore exact bytes,
 never substitute another revision. Keep this directory with the authority store; no off-host source backup is claimed.
 
-Historical reads and export retain the immutable receipt with trusted assignment provenance and the original cutoff.
+Each admitted command has a durable private execution journal before dispatch, updated with its actual result before
+source rooting. Engine also retains immutable `owned-check-diagnostic` documents through Ledger before collection/rooting;
+these identify the original scope, input, command/output/exit/platform and verifier, but explicitly say `unaccepted`.
+They cannot submit work or grant a source pass. A killed in-flight command records an interrupted invocation, never an
+inferred exit result or verifier. On restart completed journaled diagnostics are imported without rerunning the command.
+If Ledger storage is unavailable, the private journal remains and recovery stays blocked until retention succeeds.
+
+Historical reads and export retain the immutable receipt and diagnostics with trusted assignment provenance and the original cutoff.
 History export explicitly excludes `private_git_source_objects`; its `complete` flag means complete selected history,
 not a recoverable source package. Source objects remain privately rooted for the later package capability. That
-capability is absent in the inherited host, so package validation/restore and source-aware admin recovery are not
-claimed complete here.
+capability remains unavailable for role-bearing stores: the integrated package implementation explicitly refuses
+`role-work reconciliation unavailable`, including owned-check receipts/diagnostics. This refusal is tested rather than
+publishing a package that drops source or replays assignments. Supported role-free packages and their validation/restore
+continue unchanged. Keep private source roots/journals with the original authority store; history export is not backup.
 
 ## Verification and remaining work
 
 Preimplementation cases: `docs/verification/owned-source-check-failure-cases.md`.
 
-- `verify:linux-profile-owned-check`: owned real services, scope/profile refusals, containment observations and actual Linux execution; receipt/history/reopen.
-- `verify:literal-source-roundtrip`: literal attributes/CRLF/symlink/executable bytes, actual deletion, hardlink bytes, FIFO/sparse/name/exclusion refusals; unsafe archive comparison.
-- `verify:whole-container-quiescence`: background writer stopped, new execute refused, durable missing-runtime quarantine and no reuse.
-- `verify:source-root-crash`: SIGKILL immediately before/after source rooting, no accepted output before return, exact retained retry and wrong-source refusal. `RENDER_V3_REPETITIONS=100` is a separate extended job, not the default smoke run.
+- `verify:linux-profile-owned-check`: owned services, scope/profile refusals, containment and actual Linux execution; receipt/history/reopen, failure diagnostics and honest package refusal.
+- `verify:literal-source-roundtrip`: literal attributes/CRLF/symlink/executable/unusual-name bytes, actual deletion, hardlinks, FIFO/sparse/mode/representation/collision/entry/exclusion refusals; unsafe archive comparison and source-control oracles.
+- `verify:whole-container-quiescence`: background writer stopped, new execute refused, missing-runtime quarantine/no reuse, transient outage reconciliation, and cancellation while a rooted source effect remains admitted.
+- `verify:source-root-crash`: SIGKILL before/after source rooting, after freeze and before/after Ledger receipt commit; actual diagnostics survive, missing receipts block, committed receipts survive, exact retry and wrong-source refusal.
+- `verify:unsafe-controls`: baseline-green mutations of follow-symlink collection, host-shell fallback, hidden accepted-base loss and early workspace reuse, plus the inherited authority/storage/recovery controls.
 
-Not yet evidenced: the full unusual-name/collision corpus, aggregate execution-time disk quotas, freeze/SQL-reference
-SIGKILL barriers, 100 repetitions at every critical point, all requested unsafe controls (especially malicious
-follow-symlink/host-fallback/hidden-base/early-reuse mutations), complete source package/admin recovery, and full
-later-feature V8/V9. These are gaps, not passed rows or added dependency edges. No human usability, native Mac,
-physical second-device, live-model, private-route confinement or physical power-loss trial has been run.
+`RENDER_V3_REPETITIONS=100` selects extended critical-point jobs, separate from smoke. Repeat cancellation with
+`RENDER_V3_REPETITIONS=100 node --test test/owned-check-cancellation.test.ts`. Historical results are recorded separately,
+not inferred from these commands. Complete role/source recovery packages and full later-feature V8/V9 remain unavailable.
+No human usability, native Mac, physical second-device, live-model, private-route confinement or physical power-loss
+trial is claimed. Execution-time workspace quotas are outside this slice, not an unrun acceptance requirement.
 
 Checks create only owned temp repositories/containers/services and remove their own runtime identities and data.
 Product journals/source roots are retained indefinitely pending the later supported retention/cleanup surface; no

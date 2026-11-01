@@ -63,6 +63,18 @@ test("owned check exact command/source/platform receipt survives history, export
 			"history export is not a standalone recoverable source package",
 		);
 		assert.equal(Buffer.from(exported.content[a.report!]!, "base64").toString(), read.content.toString());
+		const packaged = await f.ledger.command(
+			{
+				version: 1,
+				authorityEpoch: f.ledger.status().authorityEpoch,
+				commandId: "owned-package",
+				command: { type: "createRecoveryPackage" },
+			},
+			admin,
+		);
+		assert.equal(packaged.status, "refused", "a history receipt must not masquerade as a recoverable source package");
+		assert.ok(packaged.status === "refused");
+		assert.match(packaged.reason, /role-work reconciliation unavailable/);
 		await f.reopen(new Engine({ ownedChecks: config }));
 		const after = await f.ledger.artifact(admin, { read: a.report! });
 		assert.ok("content" in after);

@@ -696,7 +696,8 @@ export class Engine {
 			},
 			mintContext({ kind: "host", scope: "effects" }),
 		);
-		if (reply.status !== "accepted") throw new Error(`Owned diagnostic retention refused: ${reply.status === "refused" ? reply.code : reply.status}`);
+		if (reply.status !== "accepted")
+			throw new Error(`Owned diagnostic retention refused: ${reply.status === "refused" ? reply.code : reply.status}`);
 	}
 	#configurationBlocker(a: RoleAssignment): string | undefined {
 		if (a.packet.execution === "linux-writer" && this.#config.ownedChecks)
