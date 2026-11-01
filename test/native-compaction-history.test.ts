@@ -42,39 +42,123 @@ test("native-compaction-history: Engine exports scoped committed transcript and 
 	}
 });
 
-test("native-compaction-history: Engine native summary is admitted under executing authority and exact packet refreshes afterward", async () => {
+test("native-compaction-history: Engine compacts twice, refreshes exact constraints, resets/replaces without losing scoped literal tail", async () => {
 	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6", contextWindow: 4096 }] });
 	let summary = 0;
 	let refreshed = false;
+	let replacementClean = false;
+	let active = 0;
+	let maxActive = 0;
 	p.setResponses(
-		Array.from({ length: 8 }, () => (transcript) => {
-			if (JSON.stringify(transcript).includes("context summarization assistant")) {
-				summary++;
-				return fauxAssistantMessage("Lossy summary, no authority.");
+		Array.from({ length: 20 }, () => async (transcript) => {
+			active++;
+			maxActive = Math.max(maxActive, active);
+			await setTimeout(10);
+			try {
+				const text = JSON.stringify(transcript);
+				if (text.includes("context summarization assistant")) {
+					summary++;
+					return fauxAssistantMessage("Lossy summary, no authority.");
+				}
+				if (text.includes("Replacement report")) {
+					replacementClean = !text.includes(TAIL);
+					return fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "Fresh replacement report." }), { stopReason: "toolUse" });
+				}
+				if (summary >= 2) {
+					refreshed = text.includes("Keep exact constraints.");
+					return fauxAssistantMessage(fauxToolCall("request_own_stop", {}), { stopReason: "toolUse" });
+				}
+				return fauxAssistantMessage(fauxToolCall("read_artifact", { ref: "revision:4" }), { stopReason: "toolUse" });
+			} finally {
+				active--;
 			}
-			if (summary) {
-				refreshed = JSON.stringify(transcript).includes("Keep exact constraints.");
-				return fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "Refreshed report." }), { stopReason: "toolUse" });
-			}
-			return fauxAssistantMessage(fauxToolCall("read_artifact", { ref: "revision:3" }), { stopReason: "toolUse" });
 		}),
 	);
 	class SmallContext extends Engine {
 		override options(report: Parameters<Engine["options"]>[0]) {
 			const options = super.options(report);
-			return { ...options, settings: { ...options.settings, compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 4090 } } };
+			return {
+				...options,
+				settings: { ...options.settings, compaction: { enabled: true, backgroundTokens: 0, keepRecentTokens: 1, reserveTokens: 4090 } },
+			};
 		}
 	}
 	const f = await roleFixture(new SmallContext({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
+	const roles = () =>
+		(f.ledger.snapshot(admin) as import("../src/ledger/ledger.ts").Frame).assignments as import("../src/kernel/roles.ts").RoleAssignment[];
 	try {
-		await f.command({ type: "assignTask", slice: "engine-compact", delivery: true, packet: packet({ maxTurns: 8 }) });
-		for (let n = 0; n < 300; n++) {
-			const frame = f.ledger.snapshot(admin);
-			if ("assignments" in frame && (frame.assignments as { runtimeTaskCaptured?: boolean }[])[0]?.runtimeTaskCaptured) break;
-			await setTimeout(10);
-		}
-		assert.ok(summary > 0, "native Engine compaction must reach the configured provider");
+		const saved = await f.ledger.command(
+			{
+				version: 1,
+				authorityEpoch: f.ledger.status().authorityEpoch,
+				commandId: "long-evidence",
+				workflow: "workflow:2",
+				expected: { document: null },
+				command: {
+					type: "saveDocument",
+					document: "long-evidence",
+					mediaType: "text/plain",
+					content: Buffer.from(long).toString("base64"),
+				},
+			},
+			admin,
+		);
+		assert.ok(saved.status === "accepted" && saved.result.revision === "revision:4");
+		await f.command({
+			type: "assignTask",
+			slice: "engine-compact",
+			delivery: true,
+			packet: packet({ maxTurns: 12, inputs: ["revision:4"] }),
+		});
+		for (let n = 0; n < 500 && !roles()[0]?.runtimeTaskCaptured; n++) await setTimeout(10);
+		assert.ok(summary >= 2, "two native Engine compactions must reach the configured provider");
 		assert.equal(refreshed, true, "exact packet constraints must refresh after native compaction");
+		const predecessor = roles()[0]!;
+		assert.equal(predecessor.status, "canceled");
+		const c = await f.harness.conversation(predecessor.conversation as import("@earendil-works/pi-durable").ConversationId, ctx);
+		assert.ok(c);
+		await c.reset("Reset context, not historical obligations.", ctx);
+		await f.command({
+			type: "recordRuntimeHistory",
+			assignment: predecessor.id,
+			generation: predecessor.generation,
+			attempt: predecessor.attempt,
+			key: "after-reset",
+		});
+		assert.equal(
+			(
+				await f.command({
+					type: "replaceTask",
+					assignment: predecessor.id,
+					generation: predecessor.generation,
+					attempt: predecessor.attempt,
+					packet: packet({ role: "implementer", expectedOutput: "Replacement report", maxTurns: 12 }),
+				})
+			).status,
+			"accepted",
+		);
+		for (let n = 0; n < 500 && !roles()[1]?.runtimeTaskCaptured; n++) await setTimeout(10);
+		assert.equal(replacementClean, true, "replacement provider must never inherit private predecessor context");
+		assert.equal(maxActive, 1, "compaction must share the assignment execution slot without parallel provider work");
+		const bundle = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in bundle && bundle.manifest.complete);
+		const records = bundle.jsonl
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		const archives = records.filter((r) => r.kind === "runtime_transcript" && r.assignment === predecessor.id);
+		assert.ok(
+			archives.some((r) =>
+				r.entries.some((entry: { model: { role: string; content: unknown }[] }) =>
+					entry.model.some((message) => message.role === "toolResult" && JSON.stringify(message.content).includes(long)),
+				),
+			),
+			"scoped Ledger archive must retain the literal committed tool tail beyond 2,000 characters",
+		);
+		assert.ok(
+			archives.some((r) => bundle.content[r.ref] && Buffer.from(bundle.content[r.ref]!, "base64").toString().includes(TAIL)),
+			"portable runtime payload must retain exact tail bytes",
+		);
 	} finally {
 		await f.close();
 	}

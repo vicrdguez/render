@@ -175,16 +175,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 	if (c.type === "assignTask") {
 		if (!c.packet || !c.slice || typeof c.delivery !== "boolean")
 			return refusal("invalid_content", "Assignment requires an explicit packet, Slice and ownership mode.");
-		if (
-			work.assignments.some(
-				(a) =>
-					a.slice === c.slice &&
-					((c.delivery && a.delivery && a.status !== "submitted" && a.status !== "canceled") ||
-						(c.packet.execution === "linux-writer" &&
-							a.packet.execution === "linux-writer" &&
-							(a.executing || (a.status !== "submitted" && a.status !== "canceled")))),
-			)
-		)
+		if (hasOwner(work, c.packet, c.slice, c.delivery))
 			return refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer.");
 		create(c.packet, c.slice, c.delivery, null, null);
 	} else if (c.type === "replaceTask") {
@@ -194,17 +185,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("quiescence_unconfirmed", "Fence and quiesce the predecessor before replacement.");
 		if (work.assignments.some((child) => child.predecessor === a.id))
 			return refusal("ownership_conflict", "Predecessor already has a replacement.");
-		if (
-			work.assignments.some(
-				(other) =>
-					other.id !== a.id &&
-					other.slice === a.slice &&
-					((a.delivery && other.delivery && other.status !== "submitted" && other.status !== "canceled") ||
-						(c.packet.execution === "linux-writer" &&
-							other.packet.execution === "linux-writer" &&
-							(other.executing || (other.status !== "submitted" && other.status !== "canceled")))),
-			)
-		)
+		if (hasOwner(work, c.packet, a.slice, a.delivery))
 			return refusal("ownership_conflict", "Replacement would overlap a current delivery owner or writer.");
 		create(c.packet, a.slice, a.delivery, a.parent, a.requestKey);
 		result.predecessor = a.id;
@@ -312,6 +293,16 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		},
 	];
 	return { outcome: "accepted", result, writes, facts: [facts.ids.fact] };
+}
+function hasOwner(work: RoleWorkState, packet: RolePacket, slice: string, delivery: boolean): boolean {
+	return work.assignments.some(
+		(a) =>
+			a.slice === slice &&
+			((delivery && a.delivery && a.status !== "submitted" && a.status !== "canceled") ||
+				(packet.execution === "linux-writer" &&
+					a.packet.execution === "linux-writer" &&
+					(a.executing || (a.status !== "submitted" && a.status !== "canceled")))),
+	);
 }
 function mayRequest(parent: Role, child: Role): boolean {
 	return parent === "coordinator"

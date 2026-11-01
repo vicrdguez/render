@@ -91,6 +91,32 @@ test("context-continuation-independence: same-family review requires recorded hu
 	}
 });
 
+test("context-continuation-independence: forbidden scheduling refuses before private input lookup", async () => {
+	const f = await roleFixture();
+	try {
+		for (const type of ["assignTask", "replaceTask"]) {
+			const reply = await f.command(
+				type === "assignTask"
+					? { type, slice: "forbidden", delivery: false, packet: packet({ inputs: ["revision:private-missing"] }) }
+					: {
+							type,
+							assignment: "assignment:missing",
+							generation: 1,
+							attempt: "attempt:missing",
+							packet: packet({ inputs: ["revision:private-missing"] }),
+						},
+				admin,
+			);
+			assert.ok(
+				reply.status === "refused" && reply.code === "forbidden_principal",
+				"scheduling principal must be checked before input-dependent diagnostics",
+			);
+		}
+	} finally {
+		await f.close();
+	}
+});
+
 for (const role of ["challenger", "candidate", "audit-standards", "audit-contracts", "watchdog"] as const) {
 	test(`context-continuation-independence: ${role} cannot inherit an earlier private packet canary`, async () => {
 		const f = await roleFixture();

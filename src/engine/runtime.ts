@@ -394,7 +394,7 @@ export class Engine {
 		return {
 			models: this.#models,
 			registry,
-			settings: { extensions: [], retry: { maxRetries: 0 }, compaction: { enabled: true } },
+			settings: { extensions: [], retry: { maxRetries: 0 }, compaction: { enabled: true, backgroundTokens: 0 } },
 			onReport: (error, info) => {
 				onReport(error, info);
 				if (info.type === "task_faulted" && this.#ready) {

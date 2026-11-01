@@ -218,12 +218,26 @@ function fact(facts: VerifiedFacts, command: string, refs: Record<string, string
 	return { type: "fact.record", fact: facts.ids.fact, command, refs };
 }
 
+/** Internal Ledger preflight: no input-dependent reads precede principal authorization. */
+export function commandPermission(type: string, principal: Principal): Refusal | undefined {
+	const entry = Object.hasOwn(CATALOGUE, type) ? CATALOGUE[type] : undefined;
+	if (entry === undefined) return refuse("unknown_command", `Unknown command type "${type}".`);
+	if (!FAMILY_ADMITS[entry.family](principal))
+		return refuse("forbidden_principal", `${type} belongs to the ${entry.family} family, which does not admit this principal.`);
+	if (!entry.available) return refuse("capability_unavailable", `${type} is not available in this host version.`);
+	if (
+		(type === "createWorkflow" || type === "changePolicy") &&
+		principal.kind === "human" &&
+		principal.route === "device" &&
+		principal.workflows !== "all"
+	)
+		return refuse("forbidden_scope", "Project-wide changes require a device with all-workflow scope.");
+	return undefined;
+}
+
 export function change(state: KernelState, command: Command, facts: VerifiedFacts): Decision {
-	const entry = Object.hasOwn(CATALOGUE, command.type) ? CATALOGUE[command.type] : undefined;
-	if (entry === undefined) return refuse("unknown_command", `Unknown command type "${command.type}".`);
-	if (!FAMILY_ADMITS[entry.family](facts.principal))
-		return refuse("forbidden_principal", `${command.type} belongs to the ${entry.family} family, which does not admit this principal.`);
-	if (!entry.available) return refuse("capability_unavailable", `${command.type} is not available in this host version.`);
+	const denied = commandPermission(command.type, facts.principal);
+	if (denied) return denied;
 
 	if (command.type === "changePolicy" || command.type === "adoptPolicy") return changePolicy(state, command as PolicyCommand, facts);
 	if (ROLE_COMMANDS.includes(command.type)) return changeRole(state, command as RoleCommand, facts);
@@ -234,9 +248,6 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 	>;
 	switch (c.type) {
 		case "createWorkflow": {
-			const p = facts.principal;
-			if (p.kind === "human" && p.route === "device" && p.workflows !== "all")
-				return refuse("forbidden_scope", "Only a device with access to all workflows can create one.");
 			const workflow = required(facts.ids.workflow);
 			return {
 				outcome: "accepted",

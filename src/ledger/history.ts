@@ -206,7 +206,7 @@ export function exportHistory(
 						.flatMap((r) => [...r.parents, ...r.supersedes, ...Object.values(r.refs)])
 						.filter(
 							(ref) =>
-								/^(workflow|revision|packet|fact|message|receipt):/.test(ref) &&
+								/^(workflow|revision|packet|fact|message|receipt|policy|policy-binding|runtime-history):/.test(ref) &&
 								!includedRefs.has(ref) &&
 								!missing.some((m) => m.ref === ref),
 						),

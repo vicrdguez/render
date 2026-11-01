@@ -2,10 +2,11 @@
 // only places that establish principals.
 import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { ConversationId, EntryId, Harness } from "@earendil-works/pi-durable";
+import type { ConversationId, EntryId, Harness, Tx } from "@earendil-works/pi-durable";
 import type { RoleTaskStaging } from "../engine/runtime.ts";
 import {
 	change,
+	commandPermission,
 	type DocumentSummary,
 	type KernelState,
 	type Persistence,
@@ -289,8 +290,11 @@ export class Ledger {
 		}
 		const roles = await tx.doc(RoleWork);
 		const policy = await tx.doc(Policy);
-		if (current.kind === "assignment-agent" && !roles.assignments.some((a) => sameAgent(a as RoleAssignment, current)))
-			throw new Abort(UNAUTHORIZED);
+		if (current.kind === "assignment-agent") {
+			const own = roles.assignments.find((a) => sameAgent(a as RoleAssignment, current));
+			if (!own) throw new Abort(UNAUTHORIZED);
+			if (env.workflow !== own.workflow) throw new Abort(refusal("forbidden_scope", "Assignment workflow differs."));
+		}
 		const namespace = namespaceOf(current);
 		const receipt = await tx.doc(Receipt, `${namespace} ${env.commandId}`, null);
 		if (receipt.exists) {
@@ -298,10 +302,24 @@ export class Ledger {
 			return { duplicate: true as const, body: plain(receipt.body) as ReceiptBody };
 		}
 
+		const denied = commandPermission(env.command.type, current);
+		if (denied) throw new Abort(fromKernel(denied));
 		const meta = await tx.doc(Meta);
 		const sequence = meta.sequence + 1;
 		const workflow = env.workflow === null ? undefined : await tx.doc(Workflow, env.workflow, null);
 		const command = env.command;
+		if (
+			["createWorkflow", "adoptPolicy", "assignTask", "replaceTask", "stageTask", "rebindAttempt", "requestRole"].includes(command.type)
+		) {
+			const revision =
+				command.type === "adoptPolicy"
+					? (command as { revision: string }).revision
+					: command.type === "createWorkflow"
+						? policy.defaultRevision
+						: bindingFor(policy, env.workflow!).policy;
+			if (command.type !== "adoptPolicy" || Object.hasOwn(policy.revisions, revision))
+				await this.#verifyPolicySource(tx, meta, revision, plain(policy));
+		}
 		let document: KernelState["document"] = null;
 		if (command.type === "saveDocument" && workflow?.exists) {
 			const pointer = documentPointer(workflow.documents, (command as { document: string }).document);
@@ -415,6 +433,7 @@ export class Ledger {
 					const w = owner === null ? undefined : await tx.doc(Workflow, owner, null);
 					const binding = owner ? bindingFor(write.state, owner) : null;
 					const revision = binding?.policy ?? write.state.defaultRevision;
+					const text = JSON.stringify({ binding, revision, policy: write.state.revisions[revision] });
 					await tx.appendEntry(PolicyEntry, (w?.exists ? w.conversation : meta.ledgerConversation) as ConversationId, {
 						data: {
 							schema: 1,
@@ -422,9 +441,9 @@ export class Ledger {
 							commandId: env.commandId,
 							ref: binding?.revision ?? revision,
 							workflow: owner,
-							binding,
-							revision,
-							policy: write.state.revisions[revision]!,
+							text,
+							digest: sha256(Buffer.from(text)),
+							byteLength: Buffer.byteLength(text),
 						},
 					});
 					break;
@@ -452,6 +471,8 @@ export class Ledger {
 							attempt: a.attempt,
 						});
 					}
+					// Debt: whole snapshots repeat earlier bytes. Keep this simple until the real streaming
+					// workload justifies durable incremental capture cursors; no full V9 claim is made here.
 					if (command.type === "recordRuntimeHistory") {
 						const a = roles.assignments.find((a) => a.id === (command as { assignment: string }).assignment)!;
 						const entries: unknown[] = [];
@@ -700,6 +721,30 @@ export class Ledger {
 			workflow: workflowDoc?.exists ? (plain(workflowDoc) as Present<WorkflowRecord>) : undefined,
 			device: changedDevice === undefined ? undefined : (plain(await tx.doc(Device, changedDevice, null)) as DeviceRecord),
 		};
+	}
+
+	async #verifyPolicySource(tx: Tx, meta: MetaState, revision: string, policy: PolicyState): Promise<void> {
+		if (revision === "policy:initial" && JSON.stringify(policy.revisions[revision]) === JSON.stringify(initialPolicy().revisions[revision]))
+			return;
+		let cursor: Parameters<typeof tx.scanEntries>[2];
+		for (;;) {
+			const page = await tx.scanEntries({ conversationId: meta.ledgerConversation as ConversationId, order: "ascending" }, 200, cursor);
+			for (const entry of page.items) {
+				const d = entry.data as Record<string, unknown>;
+				if (entry.kind !== PolicyEntry.kind || d.ref !== revision) continue;
+				const unsupported = unsupportedRecordSchema(d.schema, revision);
+				if (unsupported) throw new Abort(unsupported);
+				if (typeof d.text !== "string" || !intact(d.text, String(d.digest), Number(d.byteLength)))
+					throw new Abort(refusal("content_corrupt", `Restore exact policy ${revision}; cached state is not replacement evidence.`));
+				const retained = JSON.parse(d.text) as { revision: string; policy: unknown };
+				if (retained.revision !== revision || JSON.stringify(retained.policy) !== JSON.stringify(policy.revisions[revision]))
+					throw new Abort(refusal("content_corrupt", `Policy ${revision} differs from its retained source.`));
+				return;
+			}
+			if (!page.next) break;
+			cursor = page.next;
+		}
+		throw new Abort(refusal("missing_content", `Restore exact policy ${revision}; cached state is not replacement evidence.`));
 	}
 
 	/** Installs committed values in the read model and notifies observers. Runs after the commit resolved. */
@@ -1032,27 +1077,41 @@ export class Ledger {
 								policyBinding: d.policyBinding,
 								entries: retained.entries,
 								claimType: "unverified_transcript",
+								content: true,
+								mediaType: "text/plain",
+								digest: d.digest,
+								byteLength: d.byteLength,
 								redacted: ["hidden_reasoning", "opaque_provider_fields"],
 							});
+							content[ref] = Buffer.from(d.text).toString("base64");
 							for (const task of retained.tasks as { id: number }[])
 								add({
 									...base(`${ref}:task:${task.id}`, "runtime_task", owner.workflow, sequence, String(d.commandId)),
 									assignment: d.assignment,
 									conversation: d.conversation,
 									receipt: task,
+									parents: [ref],
 								});
 							continue;
 						}
 						if (entry.kind === PolicyEntry.kind) {
 							seenRetained.add(ref);
-							if (d.schema !== 1) missing.push({ ref, code: "unsupported_schema" });
-							else
-								add({
-									...base(ref, "policy", owner.workflow, sequence, String(d.commandId)),
-									policy: d.policy,
-									binding: d.binding,
-									policyRevision: d.revision,
-								});
+							if (d.schema !== 1 || typeof d.text !== "string" || !intact(d.text, String(d.digest), Number(d.byteLength))) {
+								missing.push({ ref, code: d.schema !== 1 ? "unsupported_schema" : "content_corrupt" });
+								continue;
+							}
+							const payload = JSON.parse(d.text) as { policy: unknown; binding: unknown; revision: string };
+							add({
+								...base(ref, "policy", owner.workflow, sequence, String(d.commandId)),
+								policy: payload.policy,
+								binding: payload.binding,
+								policyRevision: payload.revision,
+								content: true,
+								mediaType: "text/plain",
+								digest: d.digest,
+								byteLength: d.byteLength,
+							});
+							content[ref] = Buffer.from(d.text).toString("base64");
 							continue;
 						}
 						if (entry.kind === RevisionEntry.kind || entry.kind === MessageEntry.kind) {

@@ -121,9 +121,9 @@ export const PolicyEntry = defineEntry<{
 	commandId: string;
 	ref: string;
 	workflow: string | null;
-	binding: import("../kernel/policy.ts").PolicyBinding | null;
-	policy: import("../kernel/policy.ts").ExecutionPolicy;
-	revision: string;
+	text: string;
+	digest: string;
+	byteLength: number;
 }>("render.policy");
 
 export const RoleWork = defineDoc<RoleWorkState>({

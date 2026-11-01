@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
+import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
@@ -52,6 +57,115 @@ test("policy-adoption: completed Watchdog reports and counts survive adopt-away/
 		assert.deepEqual(frame().assignments[0], completed);
 		await f.reopen();
 		assert.equal(frame().assignments[0].report, completed.report);
+	} finally {
+		await f.close();
+	}
+});
+
+for (const damage of ["missing", "corrupt", "schema"] as const) {
+	test(`policy-adoption: ${damage} policy bytes are declared, not substituted`, async () => {
+		const f = await roleFixture();
+		try {
+			const published = await f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: f.ledger.status().authorityEpoch,
+					commandId: "damaged-policy-revision",
+					command: {
+						type: "changePolicy",
+						expectedRevision: "policy:initial",
+						policy: { completedReviewLimit: 4, reviewerDiversity: "different-family", minimumEvidenceRank: "tests" },
+					},
+				},
+				admin,
+			);
+			assert.ok(published.status === "accepted");
+			await f.harness.close(ctx);
+			const db = new DatabaseSync(join(f.data, "render.db"));
+			try {
+				for (const row of db.prepare("SELECT id, record FROM entries").all() as { id: number; record: string }[]) {
+					const entry = JSON.parse(row.record);
+					if (entry.kind !== "render.policy") continue;
+					if (damage === "missing") db.prepare("DELETE FROM entries WHERE id = ?").run(row.id);
+					else {
+						if (damage === "schema") entry.data.schema = 999;
+						else if (typeof entry.data.text === "string") entry.data.text = "Substituted policy";
+						else entry.data.policy.completedReviewLimit = 999;
+						db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(entry), row.id);
+					}
+				}
+			} finally {
+				db.close();
+			}
+			await f.reopen();
+			const enrolled = await f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: f.ledger.status().authorityEpoch,
+					commandId: "scoped-policy-reader",
+					command: { type: "enrollDevice", label: "scoped", scope: { workflows: ["workflow:2"] } },
+				},
+				admin,
+			);
+			assert.ok(enrolled.status === "accepted" && enrolled.credential);
+			const scoped = f.ledger.authenticate(`Bearer ${enrolled.credential.bearer}`);
+			assert.ok(scoped);
+			const forbidden = await f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: f.ledger.status().authorityEpoch,
+					commandId: "scoped-create",
+					command: { type: "createWorkflow", title: "Outside scope" },
+				},
+				scoped,
+			);
+			assert.ok(
+				forbidden.status === "refused" && forbidden.code === "forbidden_scope",
+				"global scope must be checked before policy-source diagnostics",
+			);
+			const initial = (f.ledger.snapshot(admin) as import("../src/ledger/ledger.ts").Frame)
+				.policy as import("../src/kernel/policy.ts").PolicyState;
+			const adopted = await f.command(
+				{ type: "adoptPolicy", revision: published.result.policy, expectedBinding: initial.bindings["workflow:2"]!.revision },
+				admin,
+			);
+			assert.ok(
+				adopted.status === "refused" &&
+					adopted.code === (damage === "missing" ? "missing_content" : damage === "schema" ? "unsupported_schema" : "content_corrupt"),
+				"missing/corrupt policy meaning must not be reconstructed from the current-state cache",
+			);
+			const result = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			assert.ok("manifest" in result);
+			assert.equal(result.manifest.complete, false, "damaged policy bytes must never be presented as complete history");
+			assert.ok(
+				result.manifest.missing.some(
+					(m) => m.code === (damage === "missing" ? "missing_content" : damage === "schema" ? "unsupported_schema" : "content_corrupt"),
+				),
+			);
+		} finally {
+			await f.close();
+		}
+	});
+}
+
+test("policy-adoption: portable reader verifies actual policy payload bytes", async () => {
+	const f = await roleFixture();
+	try {
+		const result = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in result && result.manifest.complete);
+		assert.ok(result.content["policy-binding:2"], "portable policy bytes must be included");
+		const path = join(f.data, "policy-export.json");
+		await writeFile(path, JSON.stringify(result));
+		const reader = spawnSync(process.execPath, ["src/client/read-export.ts", path], {
+			cwd: new URL("../", import.meta.url),
+			encoding: "utf8",
+		});
+		assert.equal(reader.status, 0, reader.stdout + reader.stderr);
+		assert.ok(
+			JSON.parse(reader.stdout).documents.some(
+				(d: { ref: string; text: string }) => d.ref === "policy-binding:2" && JSON.parse(d.text).policy.completedReviewLimit === 2,
+			),
+		);
 	} finally {
 		await f.close();
 	}
