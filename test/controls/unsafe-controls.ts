@@ -14,6 +14,63 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "owned-hidden-base",
+		behavior: "collector trusts a worker ignore to drop accepted base source",
+		test: "test/owned-source-controls.test.ts",
+		pattern: "worker ignore",
+		expect: /worker ignores must not hide accepted literal source/,
+		edits: [
+			{
+				file: "src/sandboxes/sandboxes.ts",
+				find: "const relative = `${prefix}${name}`;",
+				replace: 'const relative = `${prefix}${name}`; if (egress && relative === "ignored") continue;',
+			},
+		],
+	},
+	{
+		name: "owned-follow-symlink",
+		behavior: "collector follows a worker symlink into host bytes",
+		test: "test/owned-source-controls.test.ts",
+		pattern: "symlink stays",
+		expect: /collector must retain symlink text, never host target bytes/,
+		edits: [
+			{
+				file: "src/sandboxes/sandboxes.ts",
+				find: 'content = await readlink(path, { encoding: "buffer" });',
+				replace: 'content = egress && relative === "host-link" ? await readFile(path) : await readlink(path, { encoding: "buffer" });',
+			},
+		],
+	},
+	{
+		name: "owned-early-reuse",
+		behavior: "prepare returns an already-live workspace",
+		test: "test/owned-source-controls.test.ts",
+		pattern: "workspace never reused",
+		expect: /live workspace must not be reused before confirmed quiescence/,
+		edits: [
+			{
+				file: "src/sandboxes/sandboxes.ts",
+				find: 'if (this.#preparations.has(id) || this.#fenced.has(id)) return Promise.reject(new Error("Sandbox workspace reuse is forbidden."));',
+				replace: "if (this.#preparations.has(id)) return this.#preparations.get(id)!;",
+			},
+		],
+	},
+	{
+		name: "owned-host-fallback",
+		behavior: "executor runs the actual coding command on the host",
+		test: "test/owned-source-controls.test.ts",
+		pattern: "fall back",
+		expect: /host-shell fallback exposes an owned host-only canary/,
+		edits: [
+			{
+				file: "src/sandboxes/sandboxes.ts",
+				find: 'if (this.#fenced.has(handle.id)) throw new Error("Sandbox sealed/closed to execute.");',
+				replace:
+					'return new Promise(resolve => execFile(call.argv[0]!, call.argv.slice(1), {encoding: "utf8"}, (error, stdout, stderr) => resolve({argv: call.argv, exitCode: error ? 1 : 0, stdout, stderr, platform: {os: "linux", cpu: "unknown"}, image: "host", timedOut: false})));',
+			},
+		],
+	},
+	{
 		name: "blocked-slot-release",
 		expect: /capacity_exhausted/,
 		behavior: "a human-blocked but still executing Attempt releases its slot",

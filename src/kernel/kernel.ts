@@ -184,6 +184,7 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	admitEffect: { family: "source-effect", available: false },
 	recordSourceObservation: { family: "source-effect", available: false },
 	recordRunnerObservation: { family: "source-effect", available: true },
+	recordRunnerDiagnostic: { family: "source-effect", available: true },
 	recordForgeObservation: { family: "source-effect", available: false },
 	recordStartup: { family: "recovery-maintenance", available: true },
 	rotateEpoch: { family: "recovery-maintenance", available: false },

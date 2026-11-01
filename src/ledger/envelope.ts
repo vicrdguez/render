@@ -155,7 +155,7 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 	}
 	const allowed = ["type", "assignment", "generation", "attempt"];
 	if (type === "recordBlocker") allowed.push("reason");
-	if (type === "recordRecoveryState" || type === "recordRunnerObservation") allowed.push("text");
+	if (type === "recordRecoveryState" || type === "recordRunnerObservation" || type === "recordRunnerDiagnostic") allowed.push("text");
 	if (type === "stageTask" || type === "rebindAttempt") allowed.push("executorEpoch");
 	if (type === "recordQuiescence" || type === "rebindAttempt") allowed.push("providerIdle", "environment", "effects");
 	only(c, allowed, "command");
@@ -167,8 +167,8 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 		attempt: text(c.attempt, "attempt", 128),
 	};
 	if (type === "recordBlocker") return { ...common, type, reason: text(c.reason, "reason", 2048) };
-	if (type === "recordRecoveryState" || type === "recordRunnerObservation")
-		return { ...common, type, text: text(c.text, "text", type === "recordRunnerObservation" ? 16 * 1024 * 1024 : 1024 * 1024) };
+	if (type === "recordRecoveryState" || type === "recordRunnerObservation" || type === "recordRunnerDiagnostic")
+		return { ...common, type, text: text(c.text, "text", type === "recordRecoveryState" ? 1024 * 1024 : 16 * 1024 * 1024) };
 	if (type === "recordQuiescence" || type === "rebindAttempt") {
 		if (
 			typeof c.providerIdle !== "boolean" ||

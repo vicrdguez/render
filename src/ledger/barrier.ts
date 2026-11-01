@@ -6,5 +6,6 @@ export async function faultBarrier(
 ): Promise<void> {
 	if (process.env.RENDER_FAULT_BARRIER !== name || process.env.RENDER_FAULT_COMMAND !== commandId) return;
 	process.stdout.write(`${JSON.stringify({ event: "barrier", name, commandId })}\n`);
-	await new Promise<never>(() => undefined);
+	// Controlled tests may release an admitted operation to observe a cancellation race.
+	await new Promise<void>((resolve) => process.once("SIGUSR2", () => resolve()));
 }

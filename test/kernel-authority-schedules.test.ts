@@ -68,6 +68,7 @@ const MATRIX: Record<string, { admits: PrincipalClass[]; available: boolean }> =
 	admitEffect: { admits: ["host-effects"], available: false },
 	recordSourceObservation: { admits: ["host-effects"], available: false },
 	recordRunnerObservation: { admits: ["host-effects"], available: true },
+	recordRunnerDiagnostic: { admits: ["host-effects"], available: true },
 	recordForgeObservation: { admits: ["host-effects"], available: false },
 	rotateEpoch: { admits: ["host-recovery"], available: false },
 	recordRecoveryState: { admits: ["host-recovery"], available: true },

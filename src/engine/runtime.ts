@@ -25,12 +25,12 @@ import {
 	type ToolExecutionApi,
 	type Tx,
 } from "@earendil-works/pi-durable";
-import { Effects, type SourceReceipt } from "../effects/source.ts";
+import { Effects, type Source, type SourceReceipt } from "../effects/source.ts";
 import { packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
 import { Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
-import { type ExecutionScope, type LinuxProfile, Sandboxes } from "../sandboxes/sandboxes.ts";
+import { type ExecutionResult, type ExecutionScope, type LinuxProfile, Sandboxes } from "../sandboxes/sandboxes.ts";
 
 const ctx = BACKGROUND_CONTEXT;
 const scheduling = mintContext({ kind: "host", scope: "scheduling" });
@@ -407,7 +407,9 @@ export class Engine {
 				for (const a of this.#assignments()) {
 					if (!a.executing || a.packet.execution !== "linux-writer" || !this.#sandboxes) continue;
 					try {
-						await this.#sandboxes.stop({ scope: this.#scope(a, a.status === "canceling") });
+						const scope = this.#scope(a, a.status === "canceling");
+						const stopped = await this.#sandboxes.stop({ scope });
+						for (const diagnostic of stopped.executions) await this.#diagnostic(a, scope, stopped.source, diagnostic.result, diagnostic);
 						if (a.status === "running")
 							await this.#command(a, { type: "recordBlocker", reason: "owned_check_interrupted_source_evidence_requires_reconciliation" });
 						await this.#command(this.#assignment(a.id)!, {
@@ -578,7 +580,13 @@ export class Engine {
 		try {
 			const base = await this.#effects!.perform({ type: "resolve", repository: check.repository, commit: check.commit });
 			const handle = await this.#sandboxes!.prepare(this.#scope(a), check.profile, base);
-			const execution = await this.#sandboxes!.execute(handle, { scope: this.#scope(a), argv: check.argv, timeoutMs: check.timeoutMs });
+			const execution = await this.#sandboxes!.execute(handle, {
+				scope: this.#scope(a),
+				argv: check.argv,
+				timeoutMs: check.timeoutMs,
+				verifierRevision: check.verifierRevision,
+			});
+			await this.#diagnostic(a, this.#scope(a), base, execution);
 			const capture = await this.#sandboxes!.seal(handle);
 			stopped = true;
 			const source = await this.#effects!.perform({ type: "retain", base, capture });
@@ -636,7 +644,9 @@ export class Engine {
 			});
 			if (!stopped) {
 				try {
-					await this.#sandboxes!.stop({ scope: this.#scope(a) });
+					const result = await this.#sandboxes!.stop({ scope: this.#scope(a) });
+					for (const diagnostic of result.executions)
+						await this.#diagnostic(a, this.#scope(a), result.source, diagnostic.result, diagnostic.result ? undefined : diagnostic);
 					stopped = true;
 				} catch {
 					/* Preserve executing capacity and quarantine until the original runtime is reconciled. */
@@ -652,6 +662,41 @@ export class Engine {
 					effects: "reconciled",
 				});
 		}
+	}
+	async #diagnostic(
+		a: RoleAssignment,
+		scope: ExecutionScope,
+		base: Source,
+		execution?: ExecutionResult,
+		interrupted?: unknown,
+	): Promise<void> {
+		const text = JSON.stringify({
+			schema: 1,
+			kind: "owned-check-diagnostic",
+			scope,
+			input: { repository: base.repository, commit: base.commit, tree: base.tree, root: base.root, objectFormat: base.objectFormat },
+			execution,
+			interrupted,
+			verifierRevision: execution?.verifierRevision ?? null,
+			verification: "unaccepted",
+		});
+		const reply = await this.#ledger!.command(
+			{
+				version: 1,
+				authorityEpoch: this.#ledger!.status().authorityEpoch,
+				commandId: `owned-diagnostic:${createHash("sha256").update(text).digest("hex")}`,
+				workflow: a.workflow,
+				command: {
+					type: "recordRunnerDiagnostic",
+					assignment: scope.assignment,
+					generation: scope.generation,
+					attempt: scope.attempt,
+					text,
+				},
+			},
+			mintContext({ kind: "host", scope: "effects" }),
+		);
+		if (reply.status !== "accepted") throw new Error(`Owned diagnostic retention refused: ${reply.code}`);
 	}
 	#configurationBlocker(a: RoleAssignment): string | undefined {
 		if (a.packet.execution === "linux-writer" && this.#config.ownedChecks)

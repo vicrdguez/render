@@ -418,6 +418,19 @@ export class Ledger {
 							attempt: a.attempt,
 						});
 					}
+					if (command.type === "recordRunnerDiagnostic" && typeof decision.result.diagnostic === "string") {
+						const c = command as { assignment: string; generation: number; attempt: string; text: string };
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							decision.result.diagnostic,
+							`owned-check-diagnostic/${c.assignment}`,
+							c.text,
+							c,
+						);
+					}
 					if (command.type === "recordRunnerObservation") {
 						const c = command as { assignment: string; generation: number; attempt: string; text: string };
 						const a = roles.assignments.find((a) => a.id === c.assignment);

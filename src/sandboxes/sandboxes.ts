@@ -18,7 +18,9 @@ export type ExecutionResult = {
 	platform: { os: "linux"; cpu: string };
 	image: string;
 	timedOut: boolean;
+	verifierRevision?: string;
 };
+export type ExecutionDiagnostic = { id: string; scope: ExecutionScope; argv: string[]; timeoutMs: number; result?: ExecutionResult };
 export type Capture = { entries: LiteralEntry[]; exclusions: string[]; freeze: { scope: ExecutionScope; runtime: string; running: false } };
 type State = {
 	handle: SandboxHandle;
@@ -184,7 +186,10 @@ export class Sandboxes {
 			throw error;
 		}
 	}
-	async execute(handle: SandboxHandle, call: { scope: ExecutionScope; argv: string[]; timeoutMs: number }): Promise<ExecutionResult> {
+	async execute(
+		handle: SandboxHandle,
+		call: { scope: ExecutionScope; argv: string[]; timeoutMs: number; verifierRevision?: string },
+	): Promise<ExecutionResult> {
 		if (this.#fenced.has(handle.id)) throw new Error("Sandbox sealed/closed to execute.");
 		const state = await this.#load(handle);
 		if (this.#fenced.has(handle.id) || state.phase !== "running") throw new Error("Sandbox sealed/closed to execute.");
@@ -202,6 +207,9 @@ export class Sandboxes {
 		const observed = await this.#inspect(state);
 		if (!observed.State.Running) throw new Error("Sandbox is not running.");
 		if (this.#fenced.has(handle.id) || !this.#authorize(call.scope)) throw new Error("Sandbox sealed/fenced before admission.");
+		const diagnostic: ExecutionDiagnostic = { id: randomUUID(), scope: handle.scope, argv: [...call.argv], timeoutMs: call.timeoutMs };
+		await this.#saveJson(handle.id, `execution-${diagnostic.id}.json`, diagnostic);
+		if (this.#fenced.has(handle.id) || !this.#authorize(call.scope)) throw new Error("Sandbox fenced before execution admission.");
 		const result = await new Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean }>((resolve) => {
 			execFile(
 				"docker",
@@ -226,12 +234,20 @@ export class Sandboxes {
 				},
 			);
 		});
+		const execution: ExecutionResult = {
+			...result,
+			verifierRevision: call.verifierRevision,
+			argv: [...call.argv],
+			platform: { os: "linux", cpu: state.cpu },
+			image: state.profile.image,
+		};
+		await this.#saveJson(handle.id, `execution-${diagnostic.id}.json`, { ...diagnostic, result: execution });
 		if (result.timedOut || result.exitCode === null) {
 			// Killing docker exec's client is not proof that its process died. Stop the whole environment.
 			await this.stop(handle);
 			throw new Error("Sandbox command timed out/output bound failed; whole environment stopped, no pass claimed.");
 		}
-		return { ...result, argv: [...call.argv], platform: { os: "linux", cpu: state.cpu }, image: state.profile.image };
+		return execution;
 	}
 	seal(handle: SandboxHandle): Promise<Capture> {
 		this.#fenced.add(handle.id); // synchronous fence, before any await
@@ -239,6 +255,7 @@ export class Sandboxes {
 		if (current) return current;
 		const pending = this.#seal(handle);
 		this.#seals.set(handle.id, pending);
+		void pending.catch(() => this.#seals.delete(handle.id));
 		return pending;
 	}
 	async #seal(handle: SandboxHandle): Promise<Capture> {
@@ -268,12 +285,14 @@ export class Sandboxes {
 			throw error;
 		}
 	}
-	async stop(handle: SandboxHandle | { scope: ExecutionScope }): Promise<{ running: false; runtime: string }> {
+	async stop(
+		handle: SandboxHandle | { scope: ExecutionScope },
+	): Promise<{ running: false; runtime: string; source: Source; executions: ExecutionDiagnostic[]; quarantine?: string }> {
 		const id = "id" in handle ? handle.id : identity(handle.scope);
 		this.#fenced.add(id);
 		await this.#preparations.get(id)?.catch(() => {});
 		const state = await this.#load("id" in handle ? handle : { id, scope: handle.scope });
-		if (state.phase === "quarantined") throw new Error(`Sandbox quarantined: ${state.reason}`);
+		// Retry only containment of the exact journaled runtime. A quarantine is never permission to restart it.
 		try {
 			await this.#inspect(state);
 			try {
@@ -288,7 +307,10 @@ export class Sandboxes {
 				state.phase = "stopped";
 				await this.#save(state);
 			}
-			return { running: false, runtime: state.handle.runtime };
+			const executions: ExecutionDiagnostic[] = [];
+			for (const name of (await readdir(join(this.#root, id))).filter((name) => /^execution-[0-9a-f-]+\.json$/.test(name)).sort())
+				executions.push(JSON.parse(await readFile(join(this.#root, id, name), "utf8")) as ExecutionDiagnostic);
+			return { running: false, runtime: state.handle.runtime, source: state.source, executions, quarantine: state.reason };
 		} catch (error) {
 			state.phase = "quarantined";
 			state.reason = String(error);
@@ -310,16 +332,19 @@ export class Sandboxes {
 		return state;
 	}
 	async #save(state: State): Promise<void> {
-		const dir = join(this.#root, state.handle.id);
-		const path = join(dir, `state-${randomUUID()}.tmp`);
+		await this.#saveJson(state.handle.id, "state.json", state);
+	}
+	async #saveJson(id: string, name: string, value: unknown): Promise<void> {
+		const dir = join(this.#root, id);
+		const path = join(dir, `write-${randomUUID()}.tmp`);
 		const file = await open(path, "wx", 0o600);
 		try {
-			await file.writeFile(JSON.stringify(state));
+			await file.writeFile(JSON.stringify(value));
 			await file.sync();
 		} finally {
 			await file.close();
 		}
-		await rename(path, join(dir, "state.json"));
+		await rename(path, join(dir, name));
 		for (const path of [dir, this.#root]) {
 			const directory = await open(path, "r");
 			try {
