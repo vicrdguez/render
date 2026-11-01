@@ -156,6 +156,7 @@ export async function openLedger(options: {
 		// Unchecked work is fenced by the new executorEpoch; only now may scheduling start.
 		await runtime.beforeResume?.();
 		harness.resume();
+		runtime.afterResume?.();
 		return {
 			ledger,
 			persistence: opened.persistence,

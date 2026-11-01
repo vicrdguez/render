@@ -15,13 +15,13 @@
 		"verify:sqlite-command-atomicity": "RENDER_V2_SCHEDULES=256 node --test test/sqlite-command-atomicity.test.ts",
 		"verify:command-crash-recovery": "node --test test/command-crash-recovery.test.ts",
 		"verify:two-client-reattach": "node --test test/two-client-reattach.test.ts",
-		"verify:persistence-startup": "node --test test/persistence-startup.test.ts",
+		"verify:persistence-startup": "node --test test/persistence-startup.test.ts test/role-recovery-startup.test.ts",
 		"verify:local-command-load": "node --test test/local-command-load.test.ts",
 		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts",
 		"verify:durable-tool-replay": "node --test test/durable-tool-replay.test.ts",
 		"verify:workflow-task-survival": "node --test test/workflow-task-survival.test.ts",
 		"verify:role-capability-refusal": "node --test test/role-capability-refusal.test.ts",
-		"verify:cancellation-capacity": "node --test test/cancellation-capacity.test.ts"
+		"verify:cancellation-capacity": "node --test test/cancellation-capacity.test.ts test/role-recovery-startup.test.ts"
 	},
 	"dependencies": {
 		"@earendil-works/chord": "1.4.0",

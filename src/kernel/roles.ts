@@ -164,7 +164,6 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (
 			work.assignments.some(
 				(a) =>
-					a.workflow === c.workflow &&
 					a.slice === c.slice &&
 					((c.delivery && a.delivery && a.status !== "submitted" && a.status !== "canceled") ||
 						(c.packet.execution === "linux-writer" &&

@@ -50,6 +50,7 @@ export type RenderRuntimeOptions = HarnessOptions & {
 	roleTasks?: RoleTaskStaging;
 	bindLedger?(ledger: Ledger, harness: Harness): void;
 	beforeResume?(): Promise<void>;
+	afterResume?(): void;
 };
 
 export class Engine {
@@ -288,8 +289,11 @@ export class Engine {
 				this.#ledger = ledger;
 				this.#harness = harness;
 			},
-			beforeResume: async () => {
+			afterResume: () => {
 				this.#ready = true;
+				void this.reconcile().catch(() => {});
+			},
+			beforeResume: async () => {
 				for (const a of this.#assignments())
 					if (a.executing && a.status === "running" && a.packet.execution === "read-only")
 						await this.#command(a, {

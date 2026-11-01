@@ -72,6 +72,12 @@ test("R05 four executing attempts includes a blocked live owner; quiescence free
 	});
 	accept(s, { type: "stageTask", assignment: "assignment:5", generation: 1, attempt: "attempt:5", executorEpoch: "executor:1" });
 	refused(s, { type: "assignTask", slice: "slice:1", packet: packet(), delivery: true }, "ownership_conflict");
+	const otherWorkflow = { ...s, workflow: { id: "workflow:2", messageCount: 0 } };
+	refused(
+		otherWorkflow,
+		{ type: "assignTask", workflow: "workflow:2", slice: "slice:1", packet: packet(), delivery: true },
+		"ownership_conflict",
+	);
 });
 
 test("R06 cancellation fences first, keeps uncertain capacity, and stale role/Attempt cannot mutate or release", () => {
