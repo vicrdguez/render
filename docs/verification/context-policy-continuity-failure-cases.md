@@ -20,6 +20,8 @@ These are literal acceptance expectations, not generated snapshots.
 - If execution was already blocked, adoption must preserve the original runtime diagnostic in the current snapshot while refreshing its packet/binding. Cancellation still uses the same checked route.
 - The small-context compaction fixture must inherit the production enable/background settings, not substitute its own safe values.
 
+Integration with delivered recovery packages: a role-free store must package and restore policy defaults, immutable human revisions and adopt-away/back binding provenance using only the package after the original database is deleted. Missing/schema/digest/meaning/binding/placement/cache damage must refuse even with a recomputed outer checksum. Nonempty role work, including archived runtime/task records, remains explicitly unsupported rather than silently omitted or resumed. Restored admission remains fenced until the existing repair/reconciliation procedure; no role recovery capability is added.
+
 Unsafe controls must actually admit inherited private context or reuse the old adoption binding, then fail the corresponding behavioral oracle. Import/compilation/setup errors do not establish an unsafe control.
 
 Verification is through Kernel.change, Ledger.command/observe/artifact, Engine.render/reconcile and pinned Durable on owned SQLite fixtures. No live credentials or user services. Operational backups and physical-loss guarantees remain unproved; no generic transformation engine is introduced.

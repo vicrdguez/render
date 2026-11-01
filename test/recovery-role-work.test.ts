@@ -135,7 +135,7 @@ test("package-validation / restore-newer-world: role work explicitly refuses rec
 				if ("content" in response) {
 					const bytes: string | undefined = response.content[a.packetRef];
 					assert(bytes);
-					assert.equal(Buffer.from(bytes, "base64").toString(), JSON.stringify(packet()));
+					assert.equal(Buffer.from(bytes, "base64").toString(), JSON.stringify(a.packet));
 				} else {
 					assert("records" in response);
 					assert(response.records.some((r) => r.ref === a.packetRef && r.assignment === a.id && r.generation === 1));
