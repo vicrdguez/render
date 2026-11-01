@@ -1,0 +1,15 @@
+
+> render@0.0.0 verify:history-command-load
+> node --test test/history-command-load.ts
+
+{"messages":[300,1200],"exportMs":[7.069250000000011,19.990083000000595]}
+{"concurrentHistoryAckP95Ms":50.20670799999971}
+✔ history-command-load: retained messages scale without quadratic rescans or multi-second acknowledgement stalls (9610.370541ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 9683.0465

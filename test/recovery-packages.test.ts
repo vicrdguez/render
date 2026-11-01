@@ -20,6 +20,7 @@ import {
 	HOST_MAIN,
 	http,
 	save,
+	spawnHost,
 	startHost,
 	tempDir,
 } from "./support/host.ts";
@@ -299,6 +300,8 @@ test("package-validation: checksummed but semantically invalid retained relation
 			"unknown-kind",
 			"role-provenance",
 			"future-fact",
+			"backup-schema",
+			"backup-cutoff",
 			"message-text",
 			"message-digest",
 			"message-length",
@@ -315,6 +318,19 @@ test("package-validation: checksummed but semantically invalid retained relation
 				BACKGROUND_CONTEXT,
 			);
 			await harness.commit(async (tx) => {
+				if (kind.startsWith("backup-")) {
+					const meta = await tx.doc(Meta);
+					assert(meta.backup, "fixture must contain real retained backup status");
+					if (kind === "backup-schema") Object.assign(meta.backup, { version: 99 });
+					else
+						meta.backup.verified = {
+							id: "package-00000000-0000-0000-0000-000000000000",
+							cutoff: 999,
+							cutoffRecordedAt: 1,
+							verifiedAt: 2,
+							digest: "0".repeat(64),
+						};
+				}
 				if (kind === "pointer") {
 					const w = await tx.doc(Workflow, "workflow:3", null);
 					assert(w.exists && w.documents.ground);
@@ -378,6 +394,16 @@ test("package-validation: checksummed but semantically invalid retained relation
 			const direct = join(f.dir.path, `d${kind.indexOf("message-") === 0 ? kind.slice(8) : kind}`);
 			await mkdir(direct);
 			await cp(dbPath, join(direct, "render.db"));
+			if (kind.startsWith("backup-")) {
+				const blocked = spawnHost(direct);
+				assert.equal(
+					(await blocked.next("startup_blocked")).code,
+					"unsupported_schema",
+					"malformed backup state must block direct-copy startup",
+				);
+				assert.equal(await blocked.exited, 2);
+				continue;
+			}
 			const h = await startHost(direct);
 			try {
 				assert.notEqual(

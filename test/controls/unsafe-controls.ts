@@ -14,6 +14,20 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "offhost-backup-state-unvalidated",
+		expect: /backup-schema semantics must be validated beyond checksums/,
+		behavior: "a checksummed package with an unsupported retained backup schema is imported",
+		edits: [
+			{
+				file: "src/ledger/recovery.ts",
+				find: 'check(meta.backup === undefined || validBackup(meta.backup, meta.sequence), "backup state");',
+				replace: "void 0;",
+			},
+		],
+		test: "test/recovery-packages.test.ts",
+		pattern: "checksummed but semantically",
+	},
+	{
 		name: "offhost-copy-only",
 		expect: /copy-only must not advance protected cutoff/,
 		behavior: "a successful copy without a durable verified receipt establishes protection",

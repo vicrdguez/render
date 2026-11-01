@@ -53,7 +53,7 @@ async function fixture() {
 	// Only the external SSH boundary is substituted. The real production receiver validates and syncs real bytes.
 	await writeFile(
 		join(bin, "ssh"),
-		`#!${process.execPath}\nimport {spawn} from 'node:child_process';\nimport {readFileSync} from 'node:fs';\nconst mode=readFileSync(${JSON.stringify(mode)},'utf8');\nconst chunks=[]; for await(const c of process.stdin) chunks.push(c);\nlet bytes=Buffer.concat(chunks);\nif(mode==='fail') process.exit(1);\nif(mode==='corrupt'){const p=JSON.parse(bytes);p.database=Buffer.from('corrupt').toString('base64');bytes=Buffer.from(JSON.stringify(p));}\nconst child=spawn('/bin/sh',['-c',process.argv.at(-1)],{env:{...process.env,...(mode==='before'||mode==='after'?{RENDER_FAULT_BARRIER:'offhost-'+mode+'-publish',RENDER_FAULT_COMMAND:'offhost'}:{})},stdio:['pipe','pipe','inherit']});\nchild.stdin.on('error',()=>{}); child.stdin.end(bytes);\nlet output='';child.stdout.on('data',c=>{output+=c;if(output.includes('"event":"barrier"')) child.kill('SIGKILL');});\nchild.on('exit',code=>{if(code!==0)process.exit(1);process.stdout.write(mode==='copy-only'?'{}':output);});\n`,
+		`#!${process.execPath}\nimport {spawn} from 'node:child_process';\nimport {readFileSync,appendFileSync} from 'node:fs';\nconst mode=readFileSync(${JSON.stringify(mode)},'utf8');\nconst chunks=[]; for await(const c of process.stdin) chunks.push(c);\nlet bytes=Buffer.concat(chunks);\nif(mode==='fail') process.exit(1);\nif(mode==='corrupt'){const p=JSON.parse(bytes);p.database=Buffer.from('corrupt').toString('base64');bytes=Buffer.from(JSON.stringify(p));}\nconst child=spawn('/bin/sh',['-c',process.argv.at(-1)],{env:{...process.env,...(mode==='before'||mode==='after'?{RENDER_FAULT_BARRIER:'offhost-'+mode+'-publish',RENDER_FAULT_COMMAND:'offhost'}:{})},stdio:['pipe','pipe','inherit']});\nchild.stdin.on('error',()=>{}); child.stdin.end(bytes);\nlet output='';child.stdout.on('data',c=>{output+=c;if(output.includes('"event":"barrier"')) {appendFileSync(${JSON.stringify(join(dir.path, "barriers"))},mode+',');child.kill('SIGKILL');}});\nchild.on('exit',code=>{if(code!==0)process.exit(1);process.stdout.write(mode==='copy-only'?'{}':output);});\n`,
 	);
 	await chmod(join(bin, "ssh"), 0o700);
 	const path = process.env.PATH;
@@ -124,7 +124,8 @@ test("offhost-exposure-cutoff: configured/local-copy/copy-only cannot protect; o
 		const first = await f.wait((b) => b.verifiedOffHostCutoffSequence === 4);
 		assert.equal(first.unprotectedAcknowledgedWork, false);
 		assert.equal(first.exposedWorkSeconds, 0);
-		for (const mode of ["fail", "corrupt", "before", "after"]) {
+		const repetitions = Number(process.env.RENDER_V3_REPETITIONS ?? "1");
+		for (const mode of ["fail", "corrupt", ...Array.from({ length: repetitions }, () => ["before", "after"]).flat()]) {
 			await writeFile(f.mode, mode);
 			const result = await save(f.compatible(), f.device.bearer, f.workflow, mode, Buffer.from(mode), null, mode);
 			assert.equal(result.body.status, "accepted", "backup outage must not halt acknowledgement");
@@ -133,6 +134,18 @@ test("offhost-exposure-cutoff: configured/local-copy/copy-only cannot protect; o
 			assert.equal((await f.status()).verifiedOffHostCutoffSequence, 4, "failed transfer must retain last protected cutoff");
 			assert.equal((await f.status()).generation, first.generation);
 		}
+		assert.equal(
+			await readFile(join(f.dir.path, "barriers"), "utf8"),
+			"before,after,".repeat(repetitions),
+			"both receiver publication barriers must be reached before SIGKILL",
+		);
+		const publishedCutoffs = await Promise.all(
+			(await readdir(f.destination))
+				.filter((name) => !name.startsWith("."))
+				.map(async (name) => JSON.parse(await readFile(join(f.destination, name, "manifest.json"), "utf8")).cutoff),
+		);
+		assert(publishedCutoffs.includes(8), "kill after publication leaves a complete unclaimed cutoff-8 generation");
+		assert(!publishedCutoffs.includes(7), "kill before publication must not publish cutoff 7");
 		await f.restart();
 		assert.equal((await f.status()).generation, first.generation, "restart retains verified identity");
 		assert.equal((await f.status()).unprotectedAcknowledgedWork, true);
