@@ -418,6 +418,12 @@ export class Ledger {
 							attempt: a.attempt,
 						});
 					}
+					if (command.type === "recordRunnerObservation") {
+						const c = command as { assignment: string; generation: number; attempt: string; text: string };
+						const a = roles.assignments.find((a) => a.id === c.assignment);
+						if (!a?.report) throw new Error("owned check receipt identity omitted");
+						await this.#retainRoleText(tx, env, by, sequence, a.report, `owned-check/${a.id}`, c.text, c);
+					}
 					if (command.type === "recordRecoveryState" && typeof decision.result.quarantined === "string")
 						await this.#retainRoleText(
 							tx,
@@ -925,7 +931,7 @@ export class Ledger {
 									? [this.#meta.human]
 									: by.principal === "assignment-agent"
 										? [`agent:${by.assignment}:${by.generation}:${by.attempt}`]
-										: ["host:recovery", "host:scheduling"];
+										: ["host:recovery", "host:scheduling", "host:effects"];
 							// Older host facts omit scope. Match the actual receipt to this unique committed fact,
 							// never another scope that happened to reuse its command ID.
 							const candidates = await Promise.all(

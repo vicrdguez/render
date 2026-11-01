@@ -27,6 +27,9 @@ Strongest first. Render's ladder replaces the generic tests → build → inspec
 - macOS `hdiutil` for the real disk-full case (`B2-09`). Elsewhere that case reports `skipped: hdiutil unavailable`,
   not passed.
 - Write access to the OS temp directory. Loopback TCP must be available.
+- Owned-source rows additionally require Git 2.43+, a real Docker Linux runtime, and a local `node:24-alpine` fixture
+  image (resolved to its immutable ID in each run). Missing prerequisites fail visibly; they are not skipped into a pass.
+  See `docs/owned-checks.md` for the execution-time disk-containment blocker and unrun obligations.
 
 ## Channels
 
@@ -57,6 +60,10 @@ Strongest first. Render's ladder replaces the generic tests → build → inspec
 | history-command-load | Process | executed | `npm run verify:history-command-load` (extended, separate from smoke) | Retain 300 then 1,200 messages across ten workflows. Fourfold history must remain below 8× export time (600 ms noise floor), exact identities/bytes intact; concurrent pages/exports and writes acknowledgement p95 < 250 ms in this bounded local workload, not full V9. Prints measured values. | process |
 | history-cutoff-export | Process | executed | `npm run verify:history-cutoff-export` | V7: separate equal-byte revisions, fixed-cutoff pagination/export across concurrent writes and restart; scope/revocation, default selection never widening, page redactions/omissions, local-admin/device receipt-view cursor transfers refused in both directions, named unavailable filters, missing/corrupt/unsupported revisions and missing/malformed/tampered messages declared. R12 adds exact role packet/report/quarantine documents and task receipt bindings, trusted provenance, unchanged cutoff after reopen, standalone-reader consumption and missing/corrupt/unsupported packet declarations. Preimplementation oracles: `docs/verification/historical-export-failure-cases.md` and `docs/verification/durable-role-work-failure-cases.md`. | process |
 | independent-export-reader | Process | executed | `npm run verify:independent-export-reader` | V7: fresh standalone Node-builtins reader; literal content plus malformed/version/schema/digest/missing/link refusals. | process |
+| linux-profile-owned-check | Process/tests | executed | `npm run verify:linux-profile-owned-check` | Actual Linux/nonroot execution, explicit profile and stale scope refusals, absent credential/socket/mount canaries, owned host reachability documented, owned Render unauthorized; exact trusted receipt/history/export/reopen. Candidate coverage only: no aggregate execution-time workspace quota. | process |
+| literal-source-roundtrip | Process/tests | executed | `npm run verify:literal-source-roundtrip` | Literal attributes/CRLF/symlink/mode bytes, actual deletion despite ignores, hardlink contents, FIFO/sparse/name/exclusion refusals, inert diff and configuration warning; unsafe archive comparison. Full collision/representation corpus and mutation controls remain incomplete. | process |
+| whole-container-quiescence | Process/tests | executed | `npm run verify:whole-container-quiescence` | Background child stopped, synchronous execute fence, confirmed runtime/generation freeze, durable missing-runtime quarantine and no reuse. Freeze SIGKILL/early-reuse mutation coverage remains incomplete. | process |
+| source-root-crash | Process/tests | executed | `npm run verify:source-root-crash` (extended: `RENDER_V3_REPETITIONS=100`) | SIGKILL before/after private root, no accepted output before completion, exact retry and different-source refusal. SQL-reference/freeze barriers and physical-loss survival are not claimed. | process |
 | full-suite | Tests | executed | `npm test` | All rows with cheap counts (V1 10,000, V2 sampled 32, V3 one repetition per barrier) in < 5 min. | tests |
 | typecheck | Static | executed | `npm run typecheck` | `tsc --noEmit` clean. | build |
 | lint | Static | executed | `npm run lint` | `biome check` clean. | build |

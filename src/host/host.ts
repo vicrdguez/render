@@ -3,7 +3,7 @@
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
-import { runtimeOptions } from "../engine/runtime.ts";
+import { Engine, type OwnedChecks, runtimeOptions } from "../engine/runtime.ts";
 import type { Persistence } from "../kernel/kernel.ts";
 import { adminServer, deviceServer } from "../ledger/http.ts";
 import type { Ledger } from "../ledger/ledger.ts";
@@ -23,9 +23,14 @@ export async function openHost(options: {
 	readonly data: string;
 	readonly port?: number;
 	readonly hostname?: string;
+	readonly ownedChecks?: OwnedChecks;
 	readonly onFatal?: (error: unknown) => void;
 }): Promise<Host> {
-	const opened = await openLedger({ data: options.data, runtime: runtimeOptions, onFatal: (error) => options.onFatal?.(error) });
+	const opened = await openLedger({
+		data: options.data,
+		runtime: options.ownedChecks ? (report) => new Engine({ ownedChecks: options.ownedChecks }).options(report) : runtimeOptions,
+		onFatal: (error) => options.onFatal?.(error),
+	});
 	let device: Server | undefined;
 	let admin: Server | undefined;
 	try {

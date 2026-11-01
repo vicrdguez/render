@@ -2,7 +2,12 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { LedgerRefusal } from "./ledger.ts";
 
-export const EXCLUSIONS = ["unsaved_client_buffers", "uncommitted_provider_streams", "unsnapshotted_worker_files"];
+export const EXCLUSIONS = [
+	"unsaved_client_buffers",
+	"uncommitted_provider_streams",
+	"unsnapshotted_worker_files",
+	"private_git_source_objects",
+];
 export const UNAVAILABLE_KINDS = [
 	"proposal",
 	"assignment",

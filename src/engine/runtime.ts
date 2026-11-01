@@ -25,10 +25,12 @@ import {
 	type ToolExecutionApi,
 	type Tx,
 } from "@earendil-works/pi-durable";
+import { Effects, type SourceReceipt } from "../effects/source.ts";
 import { packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
 import { Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
+import { type ExecutionScope, type LinuxProfile, Sandboxes } from "../sandboxes/sandboxes.ts";
 
 const ctx = BACKGROUND_CONTEXT;
 const scheduling = mintContext({ kind: "host", scope: "scheduling" });
@@ -53,6 +55,18 @@ export type RenderRuntimeOptions = HarnessOptions & {
 	afterResume?(): void;
 };
 
+export type OwnedChecks = {
+	root: string;
+	repositories: Readonly<Record<string, string>>;
+	checks: Readonly<
+		Record<
+			string,
+			{ repository: string; commit: string; profile: LinuxProfile; argv: string[]; timeoutMs: number; verifierRevision: string }
+		>
+	>;
+};
+type EngineConfig = { apiKey?: string; families?: Readonly<Record<string, string>>; provider?: Provider; ownedChecks?: OwnedChecks };
+
 export class Engine {
 	#ledger: Ledger | undefined;
 	#harness: Harness | undefined;
@@ -60,14 +74,33 @@ export class Engine {
 	#reconcileAgain = false;
 	#ready = false;
 	#sessions = new Map<string, { assignment: string; task: number }>();
-	readonly #config: { apiKey?: string; families?: Readonly<Record<string, string>>; provider?: Provider };
+	readonly #config: EngineConfig;
+	readonly #effects: Effects | undefined;
+	readonly #sandboxes: Sandboxes | undefined;
+	readonly #ownedActive = new Set<string>();
 	readonly #roles;
 	readonly #run;
 	readonly #notify;
 	readonly #models;
 
-	constructor(config: { apiKey?: string; families?: Readonly<Record<string, string>>; provider?: Provider } = {}) {
+	constructor(config: EngineConfig = {}) {
 		this.#config = config;
+		if (config.ownedChecks) {
+			this.#effects = new Effects({ root: `${config.ownedChecks.root}/effects`, repositories: config.ownedChecks.repositories });
+			this.#sandboxes = new Sandboxes({
+				root: `${config.ownedChecks.root}/sandboxes`,
+				authorize: (scope) => {
+					const a = this.#assignment(scope.assignment);
+					return (
+						!!a &&
+						a.executing &&
+						a.status === "running" &&
+						JSON.stringify(this.#scope(a)) === JSON.stringify(scope) &&
+						a.executorEpoch === this.#ledger?.status().executorEpoch
+					);
+				},
+			});
+		}
 		this.#models = createModels({
 			authContext: { env: async (name) => (name === "ANTHROPIC_API_KEY" ? config.apiKey : undefined), fileExists: async () => false },
 		});
@@ -224,6 +257,10 @@ export class Engine {
 								continue;
 							}
 						}
+						if (a.packet.execution === "linux-writer") {
+							await this.#ownedCheck(this.#assignment(a.id)!);
+							return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
+						}
 						const conversation = await runtime.conversation(a.conversation as ConversationId, context);
 						if (!conversation) throw new Error("Missing role conversation");
 						const input = await conversation.submit({ type: "input", requestId: `role:${a.attempt}:${round}`, content: prompt }, context);
@@ -367,6 +404,22 @@ export class Engine {
 				void this.reconcile().catch(() => {});
 			},
 			beforeResume: async () => {
+				for (const a of this.#assignments()) {
+					if (!a.executing || a.packet.execution !== "linux-writer" || !this.#sandboxes) continue;
+					try {
+						await this.#sandboxes.stop({ scope: this.#scope(a, a.status === "canceling") });
+						if (a.status === "running")
+							await this.#command(a, { type: "recordBlocker", reason: "owned_check_interrupted_source_evidence_requires_reconciliation" });
+						await this.#command(this.#assignment(a.id)!, {
+							type: "recordQuiescence",
+							providerIdle: true,
+							environment: "stopped",
+							effects: "reconciled",
+						});
+					} catch {
+						await this.#command(a, { type: "recordBlocker", reason: "owned_check_quarantined_stop_unconfirmed" });
+					}
+				}
 				for (const a of this.#assignments())
 					if (a.executing && a.status === "running" && a.packet.execution === "read-only")
 						await this.#command(a, {
@@ -448,6 +501,16 @@ export class Engine {
 		try {
 			for (const a of this.#assignments())
 				if (a.status === "canceling") {
+					if (a.packet.execution !== "read-only" && a.executing && this.#sandboxes) {
+						try {
+							await this.#sandboxes.stop({ scope: this.#scope(a, true) });
+							if (this.#ownedActive.has(a.id)) continue;
+							await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "stopped", effects: "reconciled" });
+						} catch {
+							await this.#command(a, { type: "recordBlocker", reason: "owned_check_quarantined_stop_unconfirmed" });
+						}
+						continue;
+					}
 					if (a.packet.execution !== "read-only" && a.executing) {
 						if (a.blocker !== "whole_environment_stop_unavailable")
 							await this.#command(a, { type: "recordBlocker", reason: "whole_environment_stop_unavailable" });
@@ -500,7 +563,99 @@ export class Engine {
 	#assignment(id: string) {
 		return this.#assignments().find((a) => a.id === id);
 	}
+	#scope(a: RoleAssignment, fenced = false): ExecutionScope {
+		return {
+			assignment: a.id,
+			generation: a.generation - (fenced ? 1 : 0),
+			attempt: a.attempt,
+			executorEpoch: a.executorEpoch ?? "unbound",
+		};
+	}
+	async #ownedCheck(a: RoleAssignment): Promise<void> {
+		const check = this.#config.ownedChecks!.checks[a.packet.profile]!;
+		this.#ownedActive.add(a.id);
+		let stopped = false;
+		try {
+			const base = await this.#effects!.perform({ type: "resolve", repository: check.repository, commit: check.commit });
+			const handle = await this.#sandboxes!.prepare(this.#scope(a), check.profile, base);
+			const execution = await this.#sandboxes!.execute(handle, { scope: this.#scope(a), argv: check.argv, timeoutMs: check.timeoutMs });
+			const capture = await this.#sandboxes!.seal(handle);
+			stopped = true;
+			const source = await this.#effects!.perform({ type: "retain", base, capture });
+			await this.#effects!.reconcile(source);
+			const compact = (value: SourceReceipt["source"]) => ({
+				...value,
+				entries: value.entries.map(({ content, ...entry }) => ({ ...entry, byteLength: Buffer.from(content, "base64").length })),
+			});
+			const text = JSON.stringify({
+				schema: 1,
+				kind: "owned-check",
+				scope: this.#scope(a),
+				execution,
+				verifierRevision: check.verifierRevision,
+				verification: {
+					inputCommit: base.commit,
+					inputTree: base.tree,
+					resultTree: source.source.tree,
+					status: base.tree !== source.source.tree ? "source_changed" : execution.exitCode === 0 ? "passed" : "failed",
+				},
+				source: { ...source, base: compact(source.base), source: compact(source.source) },
+				limits: { network: "ordinary bridge; reachable host/LAN/tailnet are not confined", macOS: "unrun", profile: check.profile },
+				reviewWarning: source.configurationChanges.length
+					? `REVIEW SOURCE CONFIGURATION CHANGES: ${source.configurationChanges.join(", ")}; never activated on host`
+					: null,
+			});
+			const reply = await this.#ledger!.command(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId: `owned-check:${a.id}:${a.generation}`,
+					workflow: a.workflow,
+					command: { type: "recordRunnerObservation", assignment: a.id, generation: a.generation, attempt: a.attempt, text },
+				},
+				mintContext({ kind: "host", scope: "effects" }),
+			);
+			if (reply.status !== "accepted") {
+				if (this.#assignment(a.id)!.generation !== a.generation)
+					await this.#ledger!.command(
+						{
+							version: 1,
+							authorityEpoch: this.#ledger!.status().authorityEpoch,
+							commandId: `owned-quarantine:${a.id}:${a.generation}`,
+							workflow: a.workflow,
+							command: { type: "recordRecoveryState", assignment: a.id, generation: a.generation, attempt: a.attempt, text },
+						},
+						mintContext({ kind: "host", scope: "recovery" }),
+					);
+				else throw new Error(`Owned check receipt refused: ${reply.code}`);
+			}
+		} catch (error) {
+			await this.#command(this.#assignment(a.id)!, {
+				type: "recordBlocker",
+				reason: `owned_check_blocked: ${String(error).slice(0, 1900)}`,
+			});
+			if (!stopped) {
+				try {
+					await this.#sandboxes!.stop({ scope: this.#scope(a) });
+					stopped = true;
+				} catch {
+					/* Preserve executing capacity and quarantine until the original runtime is reconciled. */
+				}
+			}
+		} finally {
+			this.#ownedActive.delete(a.id);
+			if (stopped)
+				await this.#command(this.#assignment(a.id)!, {
+					type: "recordQuiescence",
+					providerIdle: true,
+					environment: "stopped",
+					effects: "reconciled",
+				});
+		}
+	}
 	#configurationBlocker(a: RoleAssignment): string | undefined {
+		if (a.packet.execution === "linux-writer" && this.#config.ownedChecks)
+			return Object.hasOwn(this.#config.ownedChecks.checks, a.packet.profile) ? undefined : "owned_check_profile_unavailable";
 		if (!this.#config.apiKey) return "native_provider_configuration_missing";
 		if (a.packet.execution !== "read-only") return "sandbox_capability_unavailable";
 		if (this.#config.provider && this.#config.provider.id !== "anthropic") return "native_provider_required";

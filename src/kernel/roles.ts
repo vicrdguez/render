@@ -60,7 +60,14 @@ export type RoleCommand =
 	| { type: "requestRole"; workflow: string; key: string }
 	| { type: "submitRoleResult"; workflow: string; text: string }
 	| { type: "requestOwnStop"; workflow: string }
-	| { type: "recordRecoveryState"; workflow: string; assignment: string; generation: number; attempt: string; text: string }
+	| {
+			type: "recordRecoveryState" | "recordRunnerObservation";
+			workflow: string;
+			assignment: string;
+			generation: number;
+			attempt: string;
+			text: string;
+	  }
 	| {
 			type: "cancelWork" | "fenceAttempt" | "stageTask";
 			workflow: string;
@@ -93,6 +100,7 @@ export const ROLE_COMMANDS = [
 	"recordBlocker",
 	"recordQuiescence",
 	"recordRecoveryState",
+	"recordRunnerObservation",
 	"rebindAttempt",
 ];
 
@@ -199,6 +207,16 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("stale_assignment", "Generation or Attempt is no longer current.");
 		result = { assignment: a.id };
 		switch (c.type) {
+			case "recordRunnerObservation":
+				if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
+					return refusal("stale_assignment", "Owned check receipt requires the current executing generation.");
+				if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024)
+					return refusal("invalid_content", "Owned check receipt exceeds evidence bounds.");
+				a.report = facts.ids.revision ?? null;
+				a.status = "submitted";
+				result.report = a.report;
+				if (a.parent) intents.push({ kind: "notify-role", assignment: a.id });
+				break;
 			case "stageTask":
 				if (a.status !== "queued") return refusal("assignment_not_queued", "Only queued work starts.");
 				if (c.executorEpoch !== facts.executorEpoch) return refusal("stale_executor", "Dispatch belongs to another executor epoch.");
