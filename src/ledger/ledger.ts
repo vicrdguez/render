@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId, EntryId, Harness } from "@earendil-works/pi-durable";
 import type { RoleTaskStaging } from "../engine/runtime.ts";
+import type { WebWorking } from "../engine/web.ts";
 import {
 	change,
 	type DocumentSummary,
@@ -91,6 +92,8 @@ export type Artifact = {
 	readonly commandId: string;
 	readonly recordedAtSequence: number;
 	readonly content: Buffer;
+	/** Expiring working data, not an acknowledged immutable Ledger revision. */
+	readonly temporary?: true;
 };
 
 export type HostMode = "active" | "failed" | "closing";
@@ -164,6 +167,7 @@ export class Ledger {
 	#mode: HostMode = "active";
 	#roleWork: RoleWorkState = { assignments: [] };
 	#roleTasks: RoleTaskStaging | undefined;
+	readonly #webWorking = new Map<string, WebWorking>();
 
 	private constructor(harness: Harness, meta: MetaState, persistence: Persistence, onFatal: (error: unknown) => void) {
 		this.#harness = harness;
@@ -340,6 +344,47 @@ export class Ledger {
 				const unsupported = unsupportedRecordSchema(input.data.schema, ref);
 				if (unsupported) throw new Abort(unsupported);
 			}
+		let webEvidence: string | undefined;
+		if (command.type === "retainWebEvidence" && current.kind === "assignment-agent") {
+			const c = command as Extract<import("../kernel/roles.ts").RoleCommand, { type: "retainWebEvidence" }>;
+			const working = this.#working(current, c.handle);
+			const observation = working?.inputs.flatMap((i) => i.observations).find((o) => o.id === c.observation);
+			if (!observation?.text || c.start < 0 || c.end <= c.start || c.end > observation.text.length || c.end - c.start > 65536)
+				throw new Abort({
+					status: "refused",
+					code: "missing_content",
+					reason: "Exact scoped working passage is unavailable; request a new observation, never replacement bytes.",
+				});
+			webEvidence = JSON.stringify({
+				schema: 1,
+				claim: c.claim,
+				stance: c.stance,
+				...observation,
+				text: observation.text.slice(c.start, c.end),
+				passageDigest: sha256(Buffer.from(observation.text.slice(c.start, c.end))),
+				omissions: ["Selected passage/context only; digest identifies the full bounded observation text."],
+				failures: working?.inputs.flatMap((i) => i.observations).filter((o) => o.outcome !== "success"),
+				selection: { start: c.start, end: c.end },
+				assignment: current.assignment,
+				generation: current.generation,
+				attempt: current.attempt,
+			});
+		}
+		if (command.type === "submitRoleResult" && current.kind === "assignment-agent") {
+			for (const ref of (command as { supports?: string[] }).supports ?? []) {
+				const own = roles.assignments.find((a) => sameAgent(a as RoleAssignment, current));
+				if (!own?.evidence?.includes(ref))
+					throw new Abort({ status: "refused", code: "missing_content", reason: `Promote required support ${ref} before reliance.` });
+				const location = await tx.doc(RevisionLocation, ref, null);
+				const entry = location.exists ? await tx.entry(RevisionEntry, location.entry as EntryId) : undefined;
+				if (!entry || entry.data.schema !== 1 || !intact(entry.data.text, entry.data.digest, entry.data.byteLength))
+					throw new Abort({
+						status: "refused",
+						code: "content_corrupt",
+						reason: `Restore exact evidence ${ref}; no refetch can replace it.`,
+					});
+			}
+		}
 		const target = command.type === "revokeDevice" ? await tx.doc(Device, (command as { device: string }).device, null) : undefined;
 		const text = env.content === undefined ? undefined : decodeUtf8(env.content);
 		const facts: VerifiedFacts = {
@@ -408,6 +453,10 @@ export class Ledger {
 							generation: a.generation,
 							attempt: a.attempt,
 						});
+					}
+					if (command.type === "retainWebEvidence" && current.kind === "assignment-agent" && webEvidence) {
+						const ref = decision.result.evidence as string;
+						await this.#retainRoleText(tx, env, by, sequence, ref, `web-evidence/${current.assignment}/${sequence}`, webEvidence, current);
 					}
 					if (command.type === "submitRoleResult" && current.kind === "assignment-agent") {
 						const a = roles.assignments.find((a) => a.id === current.assignment);
@@ -703,7 +752,58 @@ export class Ledger {
 		});
 	}
 
-	/** Immutable content reads. Uploads are not a separate capability in this version: saves carry complete bytes. */
+	#working(principal: Principal, handle: string): WebWorking | undefined {
+		const value = this.#webWorking.get(handle);
+		if (!value || value.expiresAt <= Date.now()) {
+			this.#webWorking.delete(handle);
+			return undefined;
+		}
+		const a = this.#roleWork.assignments.find((a) => a.id === value.assignment);
+		if (!a || a.generation !== value.generation || a.attempt !== value.attempt) return undefined;
+		if (principal.kind === "assignment-agent") return sameAgent(a, principal) ? value : undefined;
+		return (principal.kind === "human" && visible(principal, a.workflow)) || (principal.kind === "host" && principal.scope === "scheduling")
+			? value
+			: undefined;
+	}
+
+	#workingArtifact(principal: Principal, handle: string): Artifact | LedgerRefusal {
+		const value = this.#working(principal, handle);
+		if (!value)
+			return {
+				status: "refused",
+				code: "working_result_unavailable",
+				reason: "Working result expired, missing or outside current scope; no provider was contacted.",
+			};
+		const a = this.#roleWork.assignments.find((a) => a.id === value.assignment)!;
+		const content = Buffer.from(JSON.stringify(value));
+		return {
+			temporary: true,
+			artifact: handle,
+			kind: "document",
+			schema: 1,
+			workflow: a.workflow,
+			document: null,
+			mediaType: "application/json",
+			digest: sha256(content),
+			byteLength: content.length,
+			integrity: "verified",
+			parents: [],
+			supersedes: [],
+			source: null,
+			policy: null,
+			assignment: a.id,
+			generation: value.generation,
+			attempt: value.attempt,
+			decisionRefs: [],
+			outcomeRefs: [],
+			createdBy: { principal: "host", route: "host" },
+			commandId: value.request,
+			recordedAtSequence: this.#meta.sequence,
+			content,
+		};
+	}
+
+	/** Immutable artifact reads and explicitly temporary scoped working-result storage. */
 	artifact(context: AuthenticatedContext, request: { export: HistoryQuery }): Promise<HistoryExport | LedgerRefusal>;
 	artifact(context: AuthenticatedContext, request: { read: string } | { upload: unknown }): Promise<Artifact | LedgerRefusal>;
 	artifact(
@@ -712,6 +812,27 @@ export class Ledger {
 	): Promise<Artifact | HistoryExport | LedgerRefusal> {
 		if ("export" in request) return this.#history(context, request.export, true);
 		return this.#read(context, async (principal) => {
+			if ("upload" in request && principal.kind === "host" && principal.scope === "scheduling") {
+				const value = (request.upload as { webWorking?: WebWorking })?.webWorking;
+				const a = value && this.#roleWork.assignments.find((a) => a.id === value.assignment);
+				if (
+					!value ||
+					!a ||
+					a.status !== "running" ||
+					!a.executing ||
+					a.executorEpoch !== this.#meta.executorEpoch ||
+					a.generation !== value.generation ||
+					a.attempt !== value.attempt ||
+					!value.handle.startsWith("web:") ||
+					Buffer.byteLength(JSON.stringify(value)) > 4 * 1024 * 1024
+				)
+					return { status: "refused", code: "invalid_working_result", reason: "Working result is not bounded/current." };
+				// Bounded in-memory convenience only. Eviction never touches committed entries/revisions.
+				for (const [key, item] of this.#webWorking) if (item.expiresAt <= Date.now()) this.#webWorking.delete(key);
+				while (this.#webWorking.size >= 16) this.#webWorking.delete(this.#webWorking.keys().next().value!);
+				this.#webWorking.set(value.handle, structuredClone(value));
+				return this.#workingArtifact(principal, value.handle);
+			}
 			if (!("read" in request))
 				return {
 					status: "refused",
@@ -719,6 +840,7 @@ export class Ledger {
 					reason: "Separate artifact uploads are not available; saves carry bytes.",
 				};
 			const ref = request.read;
+			if (ref.startsWith("web:")) return this.#workingArtifact(principal, ref);
 			if (ref.startsWith("message:")) return this.#messageArtifact(principal, ref);
 			const location = await this.#harness.snapshot(RevisionLocation, ref, ctx);
 			if (!location?.exists || !visible(principal, location.workflow, this.#roleWork))
@@ -728,7 +850,8 @@ export class Ledger {
 				const results = this.#roleWork.assignments
 					.filter((child) => child.parent === own?.id && child.status === "submitted")
 					.map((child) => child.report);
-				if (!own || ![...packetRefs(own.packet), own.packetRef, own.report, ...results].includes(ref)) return NOT_FOUND;
+				if (!own || ![...packetRefs(own.packet), own.packetRef, own.report, ...(own.evidence ?? []), ...results].includes(ref))
+					return NOT_FOUND;
 			}
 			const entry = await this.#entry(location.conversation, location.entry);
 			const restore = { restore: ref };

@@ -29,6 +29,7 @@ import { packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
 import { Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
+import { previewWeb, research, type WebConfig } from "./web.ts";
 
 const ctx = BACKGROUND_CONTEXT;
 const scheduling = mintContext({ kind: "host", scope: "scheduling" });
@@ -60,13 +61,13 @@ export class Engine {
 	#reconcileAgain = false;
 	#ready = false;
 	#sessions = new Map<string, { assignment: string; task: number }>();
-	readonly #config: { apiKey?: string; families?: Readonly<Record<string, string>>; provider?: Provider };
+	readonly #config: { apiKey?: string; families?: Readonly<Record<string, string>>; provider?: Provider; web?: WebConfig };
 	readonly #roles;
 	readonly #run;
 	readonly #notify;
 	readonly #models;
 
-	constructor(config: { apiKey?: string; families?: Readonly<Record<string, string>>; provider?: Provider } = {}) {
+	constructor(config: { apiKey?: string; families?: Readonly<Record<string, string>>; provider?: Provider; web?: WebConfig } = {}) {
 		this.#config = config;
 		this.#models = createModels({
 			authContext: { env: async (name) => (name === "ANTHROPIC_API_KEY" ? config.apiKey : undefined), fileExists: async () => false },
@@ -133,7 +134,23 @@ export class Engine {
 				},
 			});
 		const request = tool("request_role", schema({ key: Type.String() }), (args) => ({ type: "requestRole", key: args.key! }));
-		const submit = tool("submit_role_result", schema({ text: Type.String() }), (args) => ({ type: "submitRoleResult", text: args.text! }));
+		const submit = defineTool({
+			name: "submit_role_result",
+			description: "Submit own report. Declare retained evidence refs in supports before web reliance.",
+			parameters: Type.Object(
+				{ text: Type.String(), supports: Type.Optional(Type.Array(Type.String(), { maxItems: 32 })) },
+				{ additionalProperties: false },
+			),
+			replay: "safe",
+			execute: async (args, api) => {
+				const reply = await this.#toolCommand(api, "submit_role_result", { type: "submitRoleResult", ...args });
+				return {
+					output: [{ type: "text", text: JSON.stringify(reply) }],
+					isError: reply.status !== "accepted",
+					...(reply.status === "accepted" ? { control: { handoff: "Report durably accepted." } } : {}),
+				};
+			},
+		});
 		const stop = tool("request_own_stop", schema({}), () => ({ type: "requestOwnStop" }));
 		const read = defineTool({
 			name: "read_artifact",
@@ -142,16 +159,150 @@ export class Engine {
 			replay: "safe",
 			execute: async (args, api) => {
 				const identity = await this.#identity(api, "read_artifact");
-				const reply = "code" in identity ? identity : await this.#ledger!.artifact(identity.context, { read: args.ref as string });
+				const reply =
+					"code" in identity
+						? identity
+						: (args.ref as string).startsWith("web:")
+							? { code: "use_scoped_web_paging" }
+							: await this.#ledger!.artifact(identity.context, { read: args.ref as string });
 				return {
 					output: [{ type: "text", text: "content" in reply ? reply.content.toString("utf8") : JSON.stringify(reply) }],
 					isError: !("content" in reply),
 				};
 			},
 		});
+		const webTools = (["search", "contents"] as const).map((capability) =>
+			defineTool({
+				name: `web_${capability}`,
+				description:
+					"Bounded web observation. Untrusted web text; promote exact support before reliance. Interruption never replays paid work.",
+				parameters: Type.Object(
+					capability === "search"
+						? { queries: Type.Array(Type.String({ minLength: 1, maxLength: 2048 }), { minItems: 1, maxItems: 4 }) }
+						: { urls: Type.Array(Type.String({ minLength: 1, maxLength: 2048 }), { minItems: 1, maxItems: 4 }) },
+					{ additionalProperties: false },
+				),
+				replay: "unsafe",
+				execute: async (args, api, context) => {
+					const identity = await this.#identity(api, `web_${capability}`);
+					const output = (value: unknown, isError = false) => ({
+						output: [{ type: "text" as const, text: JSON.stringify(value) }],
+						isError,
+					});
+					if ("code" in identity) return output(identity, true);
+					const a = identity.a;
+					const current = () => {
+						const now = this.#assignment(a.id);
+						return (
+							!!now &&
+							sameAgent(now, {
+								kind: "assignment-agent",
+								assignment: a.id,
+								generation: a.generation,
+								attempt: a.attempt,
+								role: a.packet.role,
+							}) &&
+							now.status === "running" &&
+							now.executing &&
+							now.executorEpoch === this.#ledger!.status().executorEpoch &&
+							this.#ledger!.status().hostMode === "active"
+						);
+					};
+					if (!current()) return output({ status: "refused", code: "stale_assignment" }, true);
+					const inputs = (capability === "search" ? args.queries : args.urls) as string[];
+					const normalized: string[] = [];
+					for (const input of inputs) {
+						if (capability === "search") normalized.push(input.trim());
+						else {
+							try {
+								const url = new URL(input);
+								if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error();
+								normalized.push(url.href);
+							} catch {
+								return output({ status: "refused", code: "invalid_url" }, true);
+							}
+						}
+					}
+					if (normalized.some((s) => !s)) return output({ status: "refused", code: "invalid_input" }, true);
+					const result = await research(
+						this.#config.web ?? {},
+						capability,
+						normalized,
+						{ assignment: a.id, generation: a.generation, attempt: a.attempt },
+						context.abortSignal ?? new AbortController().signal,
+						current,
+					);
+					const saved = await this.#ledger!.artifact(scheduling, { upload: { webWorking: result } });
+					return output({ ...previewWeb(result), ...("code" in saved ? { handle: undefined, workingUnavailable: saved.code } : {}) });
+				},
+			}),
+		);
+		const webRead = defineTool({
+			name: "read_web_result",
+			description: "Read own expiring full web envelope without network. Offsets are UTF-16 characters.",
+			parameters: Type.Object(
+				{
+					handle: Type.String({ maxLength: 128 }),
+					offset: Type.Optional(Type.Integer({ minimum: 0 })),
+					limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 16384 })),
+				},
+				{ additionalProperties: false },
+			),
+			replay: "safe",
+			execute: async (args, api) => {
+				const identity = await this.#identity(api, "read_web_result");
+				const reply =
+					"code" in identity
+						? identity
+						: !args.handle.startsWith("web:")
+							? { code: "invalid_working_handle" }
+							: await this.#ledger!.artifact(identity.context, { read: args.handle });
+				const text = "content" in reply ? reply.content.toString("utf8") : undefined;
+				const offset = args.offset ?? 0;
+				const limit = args.limit ?? 16384;
+				return {
+					output: [
+						{
+							type: "text",
+							text: JSON.stringify(
+								text === undefined
+									? reply
+									: {
+											text: text.slice(offset, offset + limit),
+											next: offset + limit < text.length ? offset + limit : null,
+											total: text.length,
+										},
+							),
+						},
+					],
+					isError: text === undefined,
+				};
+			},
+		});
+		const retain = defineTool({
+			name: "retain_web_evidence",
+			description:
+				"Retain exact passage and context for a claim, including negative/conflicting evidence. Offsets are UTF-16 characters in observation text.",
+			parameters: Type.Object(
+				{
+					handle: Type.String(),
+					observation: Type.String(),
+					start: Type.Integer({ minimum: 0 }),
+					end: Type.Integer({ minimum: 1 }),
+					claim: Type.String({ minLength: 1, maxLength: 2048 }),
+					stance: Type.Union([Type.Literal("supporting"), Type.Literal("negative"), Type.Literal("conflicting")]),
+				},
+				{ additionalProperties: false },
+			),
+			replay: "safe",
+			execute: async (args, api) => {
+				const reply = await this.#toolCommand(api, "retain_web_evidence", { type: "retainWebEvidence", ...args });
+				return { output: [{ type: "text", text: JSON.stringify(reply) }], isError: reply.status !== "accepted" };
+			},
+		});
 		this.#roles = defineExtension({
 			name: "render.roles",
-			tools: [read, request, submit, stop],
+			tools: [read, request, submit, stop, ...webTools, webRead, retain],
 			sections: [
 				section("role-packet", async (input) => {
 					const binding = await input.read.snapshot(RoleBinding, input.conversationId, ctx);

@@ -14,6 +14,76 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "web-quality-top-up",
+		expect: /no provider fanout or retry/,
+		behavior: "Tavily tops up successful primary inputs",
+		edits: [{ file: "src/engine/web.ts", find: 'if (!eligible || observation.outcome === "success") {', replace: "if (false) {" }],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "empty success",
+	},
+	{
+		name: "web-erased-primary-failure",
+		expect: /primary failure must survive fallback/,
+		behavior: "fallback erases primary failure provenance",
+		edits: [
+			{
+				file: "src/engine/web.ts",
+				find: "item.observations.push(observation);",
+				replace: 'if (provider === "tavily") item.observations = []; item.observations.push(observation);',
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "empty success",
+	},
+	{
+		name: "web-digest-observation",
+		expect: /observation identity must not be a digest/,
+		behavior: "identical bytes reuse an observation identity",
+		edits: [
+			{
+				file: "src/engine/web.ts",
+				find: "observation.digest = webTextDigest(observation.text);",
+				replace: "observation.digest = webTextDigest(observation.text); observation.id = observation.digest;",
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "identical bytes",
+	},
+	{
+		name: "web-cache-erases-evidence",
+		expect: /retained evidence remains available independently of working cache/,
+		behavior: "working cache cleanup makes retained evidence unavailable",
+		edits: [
+			{
+				file: "src/ledger/ledger.ts",
+				find: "const data = entry.data as unknown as RevisionData;",
+				replace:
+					'const data = entry.data as unknown as RevisionData; if (data.document.startsWith("web-evidence/") && this.#webWorking.size === 0) return NOT_FOUND;',
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "selected negative evidence",
+	},
+	{
+		name: "web-fallback-after-cancel",
+		expect: /fallback after cancellation is forbidden/,
+		behavior: "provider admission ignores cancellation and current authority",
+		edits: [
+			{
+				file: "src/engine/web.ts",
+				find: 'signal.aborted ? "canceled" : !current() ? "authority_revoked" : Date.now() >= deadline ? "overall_timeout" : undefined;',
+				replace: "undefined;",
+			},
+			{
+				file: "src/engine/web.ts",
+				find: "const options = { provider, signal, timeoutMs:",
+				replace: "const options = { provider, signal: undefined, timeoutMs:",
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "caller cancellation",
+	},
+	{
 		name: "blocked-slot-release",
 		expect: /capacity_exhausted/,
 		behavior: "a human-blocked but still executing Attempt releases its slot",
