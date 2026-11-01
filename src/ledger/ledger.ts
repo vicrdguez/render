@@ -103,6 +103,18 @@ function plain<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** Check compatibility before interpreting retained application content. */
+function unsupportedRecordSchema(schema: unknown, ref: string): LedgerRefusal | undefined {
+	if (schema === 1) return undefined;
+	return {
+		status: "refused",
+		code: "unsupported_schema",
+		reason: `Retained record ${ref} has schema ${String(schema)}; this host supports 1. Run a compatible Render version; the record was left unchanged.`,
+		refs: { record: ref },
+		supported: [1],
+	};
+}
+
 function sha256(bytes: Buffer): string {
 	return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
@@ -253,6 +265,10 @@ export class Ledger {
 			if (pointer !== undefined) {
 				// Table read before any table write: verify the bytes this save is based on.
 				const prior = await tx.entry(RevisionEntry, pointer.entry as EntryId);
+				if (prior !== undefined) {
+					const unsupported = unsupportedRecordSchema(prior.data.schema, pointer.revision);
+					if (unsupported !== undefined) throw new Abort(unsupported);
+				}
 				const integrity =
 					prior === undefined ? "missing" : intact(prior.data.text, pointer.digest, pointer.byteLength) ? "intact" : "corrupt";
 				document = { name: pointer.document, current: pointer.revision, integrity };
@@ -517,6 +533,8 @@ export class Ledger {
 			const restore = { restore: ref };
 			if (entry === undefined || entry.kind !== RevisionEntry.kind)
 				return { status: "refused", code: "missing_content", reason: `The retained bytes of ${ref} are missing.`, refs: restore };
+			const unsupported = unsupportedRecordSchema((entry.data as Record<string, unknown>).schema, ref);
+			if (unsupported !== undefined) return unsupported;
 			const data = entry.data as unknown as RevisionData;
 			const bytes = Buffer.from(data.text, "utf8");
 			if (data.revision !== ref || !intact(data.text, data.digest, data.byteLength))
@@ -566,6 +584,8 @@ export class Ledger {
 					last = e.id;
 					if (e.kind !== MessageEntry.kind) continue;
 					const d = e.data as Record<string, unknown>;
+					const unsupported = unsupportedRecordSchema(d.schema, `entry:${e.id}`);
+					if (unsupported !== undefined) return unsupported;
 					messages.push({
 						message: d.message,
 						text: d.text,

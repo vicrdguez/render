@@ -95,9 +95,10 @@ after the client gave up. Retry the original ID and payload. Do not mint a new I
 | `command_conflict` | 409 | The command ID was already used with a different payload. Use a new ID. No original content is disclosed. |
 | `already_revoked` | 409 | `revokeDevice` named a device that is already revoked. |
 | `stale_basis` | 409 | The expected revision is not current. `refs.current` and `reason` describe the difference. Nothing is rebased automatically. |
+| `unsupported_schema` | 409 | A retained revision or coordinator message has an unknown application schema. `refs.record` identifies it and `supported` lists readable versions. Run a compatible Render version; the record is preserved and affected saves are blocked. |
 | `content_corrupt`, `missing_content` | 409 | Retained bytes failed integrity checks. `refs.restore` names the exact revision to restore. No other bytes are substituted. |
 | `not_found` | 404 | Absent, or outside scope. |
-| `payload_too_large` | 413 | The request body exceeds 32 MiB; document content is limited to 16 MiB. |
+| `payload_too_large` | 413 | The request body exceeds 32 MiB. Document content above 16 MiB instead gets `400 malformed_envelope` with the byte limit. |
 | `untrusted_context` | 401 | In-process only: a caller passed a context no Ledger adapter established. |
 | `capability_unavailable` | 501 | Known command whose capability is not delivered in this host version. |
 | `outcome_unknown` | 503 | Storage failed during the commit; the host stops. Retry the original ID after restart. |
@@ -113,7 +114,7 @@ after the client gave up. Retry the original ID and payload. Do not mint a new I
 - `GET /v1/snapshot?version=1`: one snapshot frame (below).
 - `GET /v1/artifacts/<revision>`: exact bytes and provenance:
   `{ artifact, kind, schema, workflow, document, mediaType, digest, byteLength, parents, createdBy, commandId, recordedAtSequence, content }`.
-  `content` is base64. The digest and length are re-verified on every read.
+  `content` is base64. Schema compatibility is checked before interpreting content; the digest and length are re-verified on every read.
 - `GET /v1/workflows/<workflow>/messages?cursor=<next>&limit=<n>`: scoped coordinator messages, oldest first,
   `{ messages, next, complete }`. Pass `next` back as `cursor` for the following page; `complete: true` means there are
   no more.

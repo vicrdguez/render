@@ -495,15 +495,24 @@ describe("B2 supported document sizes and encoding boundaries", () => {
 			for (const content of ["A", "AAA", "A===", "====", "AA=A", "AA==AAAA", "AA-_", "AA\n=", `${"QUFB".repeat(1_048_576)}!`]) {
 				const bad = await http(host.url, "POST", "/v1/commands", {
 					bearer: dev.bearer,
-					body: envelope(String(host.ready.authorityEpoch), { type: "saveDocument", document: "ground", mediaType: "text/plain", content }, {
-						workflow: w, expected: { document: null },
-					}),
+					body: envelope(
+						String(host.ready.authorityEpoch),
+						{ type: "saveDocument", document: "ground", mediaType: "text/plain", content },
+						{
+							workflow: w,
+							expected: { document: null },
+						},
+					),
 				});
 				assert.equal(bad.status, 400, `malformed base64 must deliberately refuse: ${bad.text}`);
 				assert.equal(bad.body.code, "malformed_envelope");
 			}
 			assert.equal(Number((await snapshot(host, dev.bearer)).body.sequence), before);
-			for (const [document, bytes] of [["empty", Buffer.alloc(0)], ["pad2", Buffer.from("A")], ["pad1", Buffer.from("AA")]] as const) {
+			for (const [document, bytes] of [
+				["empty", Buffer.alloc(0)],
+				["pad2", Buffer.from("A")],
+				["pad1", Buffer.from("AA")],
+			] as const) {
 				const ok = await save(host, dev.bearer, w, document, bytes, null);
 				assert.equal(ok.status, 200, ok.text);
 				const art = await artifact(host, dev.bearer, String((ok.body.result as Record<string, unknown>).revision));
@@ -527,7 +536,11 @@ describe("B4 retained application schema compatibility", () => {
 			const ref = String((g.body.result as Record<string, unknown>).revision);
 			const message = await http(host.url, "POST", "/v1/commands", {
 				bearer: dev.bearer,
-				body: envelope(String(host.ready.authorityEpoch), { type: "postCoordinatorMessage", text: "retained message literal" }, { workflow: w }),
+				body: envelope(
+					String(host.ready.authorityEpoch),
+					{ type: "postCoordinatorMessage", text: "retained message literal" },
+					{ workflow: w },
+				),
 			});
 			assert.equal(message.status, 200);
 			await host.stop();
@@ -580,7 +593,8 @@ describe("B4 retained application schema compatibility", () => {
 			await host.stop();
 			const retained = new DatabaseSync(join(dir.path, "render.db"), { readOnly: true });
 			try {
-				for (const row of injected) assert.equal((retained.prepare("SELECT record FROM entries WHERE id = ?").get(row.id) as { record: string }).record, row.record);
+				for (const row of injected)
+					assert.equal((retained.prepare("SELECT record FROM entries WHERE id = ?").get(row.id) as { record: string }).record, row.record);
 			} finally {
 				retained.close();
 			}

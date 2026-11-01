@@ -1,6 +1,7 @@
 # durable-workspace: failure cases and independent expected outcomes
 
-Written before product code, as required by `AGENTS.md` and spec §13. Each case names the trigger and the literal
+The initial catalog was written before product code, as required by `AGENTS.md` and spec §13. Rework cases below
+were added to the executable suite and run red before their repairs (commits `cdd162f`, `4642811`). Each case names the trigger and the literal
 observable outcome. The catalog rows in `.render/verify.md` execute them. Literal content digests below were computed
 with `shasum -a 256` over the literal bytes, independently of Render.
 
@@ -50,6 +51,15 @@ with `shasum -a 256` over the literal bytes, independently of Render.
 | B2-10 | Offline tamper of the stored bytes of revision `RA` | Artifact read: `409 content_corrupt` with `refs.restore = RA`; no content. A save with expected `RA`: `409 content_corrupt`; nothing commits. No newer or older text is substituted. |
 | B2-11 | Any accepted command | `sequence` advances by exactly 1. Snapshot, artifact and receipt agree, and none shows one without the others. |
 
+### Rework size-boundary cases (B2-12/B2-13)
+
+The HTTP save interface must accept 4,194,304 and 16,777,216 ASCII `A` bytes, preserve exact bytes after restart and
+return the literal SHA-256 digests `a58789e910e5f939afc433a00fef5930702927dc192cb237fd9e7449bd6ffe1d` and
+`e6c907c2d418fa03118465063701b759c4f0f0a9d70ae90aa7cec552e2d33931`, respectively (computed independently
+with Python `hashlib`). A 16,777,217-byte document gets `400 malformed_envelope` with the byte limit, not an internal
+error. Invalid base64 alphabet, lengths or padding refuse deliberately without advancing sequence. Empty content and
+one-/two-byte padded content remain supported.
+
 ## B3: Observation is not ownership
 
 | Case | Trigger | Expected outcome |
@@ -77,4 +87,5 @@ with `shasum -a 256` over the literal bytes, independently of Render.
 | B4-07 | Read-only `render.db` | Exit `2` `persistence_unavailable`; bytes unchanged. |
 | B4-08 | Store holding a pending Durable task of a definition this host lacks | Exit `2` `unsupported_definitions`, naming the task kind. The task is still pending afterwards and was never dispatched. |
 | B4-09 | Ordinary restart | A new `executorEpoch` differs from every earlier one. `authorityEpoch` is unchanged; an enrolled bearer still works. |
+| B4-11 | Change only a retained revision/message's application schema to 99, preserving its other fields and store header | Affected artifact/message reads and saves over that revision get `409 unsupported_schema`, with compatibility guidance and no content. Save refusal leaves sequence/pointer unchanged; records remain byte-identical. Unaffected documents still save; foreign-scope artifact reads remain `404`. |
 | B4-10 | Startup ordering | A `startup` fact with the new `executorEpoch` is committed before admission. No submit, abort, wait or compact runs before `resume()` (inspection). |

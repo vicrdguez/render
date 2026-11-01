@@ -78,6 +78,15 @@ same human.
 | `startup_blocked` `unsupported_definitions` (exit 2) | Retained tasks have no compatible definition in this host. | Start the Render version that owns them. They were not run, aborted or migrated. |
 | `host_failed` (exit 1) | A storage commit failed, for example on a full disk. The in-flight command got `outcome_unknown`. | Free space or repair storage, restart, and retry the original command ID. |
 
+## Retained-record compatibility
+
+The database and runtime definitions are checked at startup. Application revision and coordinator-message schemas are
+also checked at their read/use boundary: an unknown schema returns `409 unsupported_schema` with `refs.record`, the
+supported versions and compatible-version guidance, without returning content. Saves over an unsupported current
+revision are blocked without a receipt or sequence advance. Unaffected documents remain usable. The host preserves the
+record rather than migrating it or relabeling it as version 1; run a Render version that supports its actual schema.
+No automatic migration or package recovery is available in this Slice.
+
 ## Content integrity
 
 Every artifact read re-verifies the stored bytes against their SHA-256 digest and length. A mismatch answers

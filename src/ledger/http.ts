@@ -24,6 +24,7 @@ const STATUS: Record<string, number> = {
 	command_conflict: 409,
 	stale_basis: 409,
 	content_corrupt: 409,
+	unsupported_schema: 409,
 	missing_content: 409,
 	already_revoked: 409,
 	not_found: 404,
