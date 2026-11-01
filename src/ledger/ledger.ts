@@ -644,6 +644,7 @@ export class Ledger {
 	}
 
 	async #messageArtifact(principal: Principal, ref: string): Promise<Artifact | LedgerRefusal> {
+		// Exact reads stop at their target; history owns an exhaustive scan. Keep both pagination paths aligned.
 		let acknowledged = false;
 		for (const w of this.#workflows.values()) {
 			if (!visible(principal, w.id)) continue;
@@ -656,36 +657,7 @@ export class Ledger {
 					const d = entry.data as Record<string, unknown>;
 					if (entry.kind === FactEntry.kind && (d.refs as Record<string, string>)?.message === ref) acknowledged = true;
 					if (entry.kind !== MessageEntry.kind || d.message !== ref) continue;
-					const unsupported = unsupportedRecordSchema(d.schema, ref);
-					if (unsupported) return unsupported;
-					if (typeof d.text !== "string") return refusal("content_corrupt", `Restore exact message ${ref}.`);
-					const bytes = Buffer.from(d.text, "utf8");
-					const legacy = d.digest === undefined && d.byteLength === undefined;
-					if (!legacy && (d.digest !== sha256(bytes) || d.byteLength !== bytes.length))
-						return refusal("content_corrupt", `Restore exact message ${ref}.`);
-					return {
-						artifact: ref,
-						kind: "message",
-						schema: 1,
-						workflow: w.id,
-						document: null,
-						mediaType: "text/plain",
-						digest: sha256(bytes),
-						byteLength: bytes.length,
-						integrity: legacy ? "unverified_legacy" : "verified",
-						parents: [],
-						supersedes: [],
-						source: null,
-						policy: null,
-						assignment: null,
-						attempt: null,
-						decisionRefs: [],
-						outcomeRefs: [],
-						createdBy: d.createdBy as AcceptedBy,
-						commandId: String(d.commandId),
-						recordedAtSequence: Number(d.recordedAtSequence),
-						content: bytes,
-					};
+					return messageArtifact(ref, w.id, d);
 				}
 				if (page.next === undefined) break;
 				cursor = page.next;
@@ -702,6 +674,7 @@ export class Ledger {
 			const selected = selectHistory(query, {
 				epoch: this.#meta.authorityEpoch,
 				owner: namespaceOf(principal),
+				receiptView: principal.route === "local-admin" ? "admin" : "device",
 				key: this.#meta.historyCursorKey ?? "",
 				sequence: this.#meta.sequence,
 				workflows: [...this.#workflows.keys()].filter((w) => visible(principal, w)),
@@ -714,6 +687,7 @@ export class Ledger {
 			const redactions: string[] = [];
 			const content: Record<string, string> = {};
 			const artifacts = new Set<string>();
+			const messages = new Map<string, Artifact | LedgerRefusal>();
 			const wanted = (kind: string) => state.scope.kinds.length === 0 || state.scope.kinds.includes(kind);
 			const add = (r: HistoryRecord) => {
 				if (wanted(r.kind)) records.push(r);
@@ -759,7 +733,10 @@ export class Ledger {
 						if (sequence > state.cutoff) continue;
 						const ref = String(d.revision ?? d.message ?? d.fact ?? `entry:${entry.id}`);
 						if (entry.kind === RevisionEntry.kind || entry.kind === MessageEntry.kind) {
-							if (wanted(entry.kind === MessageEntry.kind ? "message" : String(d.kind))) artifacts.add(ref);
+							if (wanted(entry.kind === MessageEntry.kind ? "message" : String(d.kind))) {
+								artifacts.add(ref);
+								if (entry.kind === MessageEntry.kind && owner.workflow !== null) messages.set(ref, messageArtifact(ref, owner.workflow, d));
+							}
 							continue;
 						}
 						const kind = entry.kind === FactEntry.kind ? "fact" : entry.kind === MessageEntry.kind ? "message" : entry.kind;
@@ -800,7 +777,9 @@ export class Ledger {
 				}
 			}
 			for (const ref of artifacts) {
-				const artifact = await this.artifact(context, { read: ref });
+				const artifact = ref.startsWith("message:")
+					? (messages.get(ref) ?? refusal("missing_content", `Restore exact message ${ref}.`))
+					: await this.artifact(context, { read: ref });
 				if ("status" in artifact) {
 					missing.push({ ref, code: artifact.code === "unauthorized" ? "missing_content" : artifact.code });
 					continue;
@@ -897,6 +876,40 @@ export class Ledger {
 		for (const o of [...this.#observers]) this.#endObserver(o, "host_closing");
 		await this.#harness.close(ctx);
 	}
+}
+
+/** Validate already-located message bytes identically for exact reads and history, without rescanning. */
+function messageArtifact(ref: string, workflow: string, d: Record<string, unknown>): Artifact | LedgerRefusal {
+	const unsupported = unsupportedRecordSchema(d.schema, ref);
+	if (unsupported) return unsupported;
+	if (typeof d.text !== "string") return refusal("content_corrupt", `Restore exact message ${ref}.`);
+	const bytes = Buffer.from(d.text, "utf8");
+	const legacy = d.digest === undefined && d.byteLength === undefined;
+	if (!legacy && (d.digest !== sha256(bytes) || d.byteLength !== bytes.length))
+		return refusal("content_corrupt", `Restore exact message ${ref}.`);
+	return {
+		artifact: ref,
+		kind: "message",
+		schema: 1,
+		workflow,
+		document: null,
+		mediaType: "text/plain",
+		digest: sha256(bytes),
+		byteLength: bytes.length,
+		integrity: legacy ? "unverified_legacy" : "verified",
+		parents: [],
+		supersedes: [],
+		source: null,
+		policy: null,
+		assignment: null,
+		attempt: null,
+		decisionRefs: [],
+		outcomeRefs: [],
+		createdBy: d.createdBy as AcceptedBy,
+		commandId: String(d.commandId),
+		recordedAtSequence: Number(d.recordedAtSequence),
+		content: bytes,
+	};
 }
 
 /** Document names are client-chosen keys: only own properties are documents, never inherited object members. */

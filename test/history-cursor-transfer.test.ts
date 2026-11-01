@@ -35,7 +35,13 @@ test("history-cutoff-export: different receipt views refuse cursor transfers in 
 			}
 			const whole = await origin(`/v1/export?cursor=${cursor}`);
 			assert.equal(whole.status, 200, whole.text);
-			assert.deepEqual(refs, String(whole.body.jsonl).trim().split("\n").map((l) => JSON.parse(l).ref));
+			assert.deepEqual(
+				refs,
+				String(whole.body.jsonl)
+					.trim()
+					.split("\n")
+					.map((l) => JSON.parse(l).ref),
+			);
 			assert.equal(new Set(refs).size, refs.length);
 		}
 	} finally {

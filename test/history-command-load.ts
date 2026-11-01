@@ -12,11 +12,15 @@ test("history-command-load: retained messages scale without quadratic rescans or
 		const workflows: string[] = [];
 		for (let i = 0; i < 10; i++) workflows.push(await createWorkflow(host, device.bearer, `Messages ${i}`));
 		const refs: string[] = [];
-		const post = (i: number) => http(host.url, "POST", "/v1/commands", {
-			bearer: device.bearer,
-			body: envelope(String(host.ready.authorityEpoch), { type: "postCoordinatorMessage", text: `message ${i}\r\n☃` },
-				{ workflow: workflows[i % 10], commandId: `load-${i}` }),
-		});
+		const post = (i: number) =>
+			http(host.url, "POST", "/v1/commands", {
+				bearer: device.bearer,
+				body: envelope(
+					String(host.ready.authorityEpoch),
+					{ type: "postCoordinatorMessage", text: `message ${i}\r\n☃` },
+					{ workflow: workflows[i % 10], commandId: `load-${i}` },
+				),
+			});
 		const durations: number[] = [];
 		for (const count of [300, 1200]) {
 			while (refs.length < count) {
@@ -33,7 +37,8 @@ test("history-command-load: retained messages scale without quadratic rescans or
 				assert.equal((bundle.body.manifest as { complete: boolean }).complete, true);
 				const content = bundle.body.content as Record<string, string>;
 				assert.deepEqual(new Set(Object.keys(content)), new Set(refs));
-				for (const i of [0, count - 1]) assert.equal(Buffer.from(content[refs[i] as string] as string, "base64").toString(), `message ${i}\r\n☃`);
+				for (const i of [0, count - 1])
+					assert.equal(Buffer.from(content[refs[i] as string] as string, "base64").toString(), `message ${i}\r\n☃`);
 			}
 			durations.push(Math.min(...samples));
 		}
@@ -49,7 +54,10 @@ test("history-command-load: retained messages scale without quadratic rescans or
 		}
 		const ackP95 = percentile(acknowledgements, 95);
 		console.log(JSON.stringify({ concurrentHistoryAckP95Ms: ackP95 }));
-		assert.ok((durations[1] as number) < Math.max(600, (durations[0] as number) * 8), "fourfold history must not cause quadratic export cost");
+		assert.ok(
+			(durations[1] as number) < Math.max(600, (durations[0] as number) * 8),
+			"fourfold history must not cause quadratic export cost",
+		);
 		assert.ok(ackP95 < 250, `concurrent history acknowledgement p95 ${ackP95} ms must stay below 250 ms in this local workload`);
 	} finally {
 		await host.stop();

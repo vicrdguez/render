@@ -18,7 +18,14 @@ export const UNAVAILABLE_KINDS = [
 const KINDS = ["workflow", "ground", "document", "message", "fact", "receipt"];
 export type HistoryQuery = Readonly<Record<string, string | undefined>>;
 export type HistoryScope = { workflows: string[]; global: boolean; kinds: string[] };
-export type HistoryState = { epoch: string; owner: string; cutoff: number; offset: number; scope: HistoryScope };
+export type HistoryState = {
+	epoch: string;
+	owner: string;
+	receiptView: "admin" | "device";
+	cutoff: number;
+	offset: number;
+	scope: HistoryScope;
+};
 export type HistoryRecord = {
 	ref: string;
 	kind: string;
@@ -72,7 +79,15 @@ export function refusal(code: string, reason: string): LedgerRefusal {
 
 export function selectHistory(
 	query: HistoryQuery,
-	options: { epoch: string; owner: string; key: string; sequence: number; workflows: string[]; global: boolean },
+	options: {
+		epoch: string;
+		owner: string;
+		receiptView: "admin" | "device";
+		key: string;
+		sequence: number;
+		workflows: string[];
+		global: boolean;
+	},
 ): { state: HistoryState; limit: number } | LedgerRefusal {
 	if (query.version !== undefined && query.version !== "1") return refusal("unsupported_version", "History protocol supports version 1.");
 	if (Object.keys(query).some((k) => !["version", "workflow", "proposal", "assignment", "kind", "outcome", "cursor", "limit"].includes(k)))
@@ -96,6 +111,7 @@ export function selectHistory(
 			if (
 				state.epoch !== options.epoch ||
 				state.owner !== options.owner ||
+				state.receiptView !== options.receiptView ||
 				!Number.isSafeInteger(state.cutoff) ||
 				state.cutoff < 0 ||
 				state.cutoff > options.sequence ||
@@ -123,6 +139,7 @@ export function selectHistory(
 		state = {
 			epoch: options.epoch,
 			owner: options.owner,
+			receiptView: options.receiptView,
 			cutoff: options.sequence,
 			offset: 0,
 			scope: {
