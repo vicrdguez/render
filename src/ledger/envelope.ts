@@ -149,15 +149,16 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 		case "submitRoleResult": {
 			only(c, ["type", "text", "supports"], "command");
 			if (
-				c.supports !== undefined &&
-				(!Array.isArray(c.supports) || c.supports.length > 32 || !c.supports.every((v) => typeof v === "string" && v.length <= 128))
+				!Array.isArray(c.supports) ||
+				c.supports.length > 32 ||
+				!c.supports.every((v) => typeof v === "string" && v.length > 0 && v.length <= 128)
 			)
-				malformed("supports must be bounded retained refs");
+				malformed("Declare required retained supports (at most 32 refs), or [] for no web reliance.");
 			return {
 				type,
 				workflow,
 				text: text(c.text, "text", 1024 * 1024),
-				...(c.supports === undefined ? {} : { supports: c.supports as string[] }),
+				supports: c.supports as string[],
 			};
 		}
 		case "retainWebEvidence":

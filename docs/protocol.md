@@ -52,7 +52,7 @@ Ordinary restart preserves them, and revocation takes effect at once.
 
 The trusted in-process Engine can schedule `assignTask`, `stageTask`, `fenceAttempt`, `recordBlocker`,
 `recordQuiescence` and checked `rebindAttempt`; none is a device/admin scheduling override. Assignment tools admit only
-`requestRole` for a predefined packet key, `submitRoleResult` for their own report, and `requestOwnStop`. Recovery alone
+`requestRole` for a predefined packet key, `submitRoleResult` for their own report, `retainWebEvidence` for exact scoped passages, and `requestOwnStop`. `submitRoleResult` requires `text` and `supports` (at most 32 exact promoted revision refs). An empty list explicitly declares no web reliance; omission is malformed, not an implicit empty list. Required missing/corrupt support blocks acceptance. Accepted report receipts retain `webEvidence: none|retained` and exact support refs; older receipts without the field remain unclassified. See [scoped web research](web-research.md). Recovery alone
 can retain fenced late results with `recordRecoveryState`; they are quarantined artifacts, not accepted role reports.
 These commands require a workflow and strict typed fields; task names, principals and transaction callbacks are never
 command fields. See [role operations](operations.md#durable-role-work).

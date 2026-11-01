@@ -18,7 +18,7 @@
 		"verify:persistence-startup": "node --test test/persistence-startup.test.ts test/role-recovery-startup.test.ts",
 		"verify:local-command-load": "node --test test/local-command-load.test.ts",
 		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts",
-		"verify:scoped-web-research": "node --test test/scoped-web-research.test.ts",
+		"verify:scoped-web-research": "node --test test/scoped-web-research.test.ts test/web-report-declaration.test.ts",
 		"verify:web-negative-journey": "node --test --test-name-pattern='selected negative evidence' test/scoped-web-research.test.ts",
 		"verify:durable-tool-replay": "node --test test/durable-tool-replay.test.ts",
 		"verify:workflow-task-survival": "node --test test/workflow-task-survival.test.ts",

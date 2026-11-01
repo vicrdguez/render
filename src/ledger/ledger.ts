@@ -362,7 +362,7 @@ export class Ledger {
 				...observation,
 				text: observation.text.slice(c.start, c.end),
 				passageDigest: sha256(Buffer.from(observation.text.slice(c.start, c.end))),
-				omissions: ["Selected passage/context only; digest identifies the full bounded observation text."],
+				omissions: [...(working?.omissions ?? []), "Selected passage/context only; digest identifies the full bounded observation text."],
 				failures: working?.inputs.flatMap((i) => i.observations).filter((o) => o.outcome !== "success"),
 				selection: { start: c.start, end: c.end },
 				assignment: current.assignment,
@@ -371,7 +371,7 @@ export class Ledger {
 			});
 		}
 		if (command.type === "submitRoleResult" && current.kind === "assignment-agent") {
-			for (const ref of (command as { supports?: string[] }).supports ?? []) {
+			for (const ref of (command as { supports: string[] }).supports) {
 				const own = roles.assignments.find((a) => sameAgent(a as RoleAssignment, current));
 				if (!own?.evidence?.includes(ref))
 					throw new Abort({ status: "refused", code: "missing_content", reason: `Promote required support ${ref} before reliance.` });

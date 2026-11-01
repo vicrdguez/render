@@ -59,7 +59,7 @@ export type RoleIntent = { kind: "run-role" | "notify-role"; assignment: string 
 export type RoleCommand =
 	| { type: "assignTask"; workflow: string; slice: string; delivery: boolean; packet: RolePacket }
 	| { type: "requestRole"; workflow: string; key: string }
-	| { type: "submitRoleResult"; workflow: string; text: string; supports?: string[] }
+	| { type: "submitRoleResult"; workflow: string; text: string; supports: string[] }
 	| {
 			type: "retainWebEvidence";
 			workflow: string;
@@ -206,11 +206,17 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (!a) return refusal("stale_assignment", "No current assignment.");
 		if (!c.text || Buffer.byteLength(c.text) > 1024 * 1024)
 			return refusal("invalid_content", "Report must contain at most 1 MiB of complete UTF-8 text.");
-		if ((c.supports ?? []).some((ref) => !a.evidence?.includes(ref)))
+		if (!Array.isArray(c.supports)) return refusal("invalid_content", "Declare required retained supports, or [] for no web reliance.");
+		if (c.supports.some((ref) => !a.evidence?.includes(ref)))
 			return refusal("missing_content", "Promote exact required web support before reliance.");
 		a.status = "submitted";
 		a.report = facts.ids.revision ?? null;
-		result = { assignment: a.id, report: a.report, ...Object.fromEntries((c.supports ?? []).map((ref, i) => [`support${i}`, ref])) };
+		result = {
+			assignment: a.id,
+			report: a.report,
+			webEvidence: c.supports.length ? "retained" : "none",
+			...Object.fromEntries(c.supports.map((ref, i) => [`support${i}`, ref])),
+		};
 		if (a.parent) intents.push({ kind: "notify-role", assignment: a.id });
 	} else {
 		if (!a || a.workflow !== c.workflow) return refusal("not_found", "Assignment is outside this workflow.");
@@ -279,10 +285,10 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			type: "fact.record",
 			fact: facts.ids.fact,
 			command: c.type,
-			refs: { workflow: c.workflow, ...Object.fromEntries(Object.entries(result).filter(([, v]) => typeof v === "string")) } as Record<
-				string,
-				string
-			>,
+			refs: {
+				workflow: c.workflow,
+				...Object.fromEntries(Object.entries(result).filter(([key, v]) => key !== "webEvidence" && typeof v === "string")),
+			} as Record<string, string>,
 		},
 	];
 	return { outcome: "accepted", result, writes, facts: [facts.ids.fact] };

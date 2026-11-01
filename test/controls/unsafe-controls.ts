@@ -42,7 +42,10 @@ const CONTROLS: Control[] = [
 		name: "web-expired-deadline",
 		expect: /overall expiry must prohibit fallback admission/,
 		behavior: "Engine admits fallback after the overall deadline",
-		edits: [{ file: "src/engine/web.ts", find: 'Date.now() >= deadline ? "overall_timeout" : undefined', replace: "undefined" }],
+		edits: [
+			{ file: "src/engine/web.ts", find: 'Date.now() >= deadline ? "overall_timeout" : undefined', replace: "undefined" },
+			{ file: "src/engine/web.ts", find: "Math.max(1, Math.min(attemptMs, deadline - Date.now()))", replace: "attemptMs" },
+		],
 		test: "test/scoped-web-research.test.ts",
 		pattern: "remaining=false",
 	},

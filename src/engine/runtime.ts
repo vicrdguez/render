@@ -136,9 +136,10 @@ export class Engine {
 		const request = tool("request_role", schema({ key: Type.String() }), (args) => ({ type: "requestRole", key: args.key! }));
 		const submit = defineTool({
 			name: "submit_role_result",
-			description: "Submit own report. Declare retained evidence refs in supports before web reliance.",
+			description:
+				"Submit own report. Required supports lists every relied-on web evidence revision, including negative/conflicting context. Promote exact passages first; use [] only to explicitly declare no web reliance.",
 			parameters: Type.Object(
-				{ text: Type.String(), supports: Type.Optional(Type.Array(Type.String(), { maxItems: 32 })) },
+				{ text: Type.String(), supports: Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 32 }) },
 				{ additionalProperties: false },
 			),
 			replay: "safe",
