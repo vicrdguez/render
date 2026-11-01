@@ -14,6 +14,34 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "web-allowance-refusal",
+		expect: /documented allowance exhaustion must admit exactly one sequential fallback/,
+		behavior: "Engine refuses classified allowance fallback",
+		edits: [
+			{
+				file: "src/engine/web.ts",
+				find: 'return code === "PROVIDER_UNAVAILABLE" || (code === "PROVIDER_FAILURE" && retryable === true);',
+				replace: "return false;",
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "documented allowance exhaustion",
+	},
+	{
+		name: "web-cancel-uncertainty",
+		expect: /in-flight cancellation must retain possibly-charged uncertainty/,
+		behavior: "Engine labels an unsettled cancelled SDK call as a plain error",
+		edits: [
+			{
+				file: "src/engine/web.ts",
+				find: 'observation.error === "TIMEOUT" || observation.error === "CANCELLED"',
+				replace: 'observation.error === "TIMEOUT"',
+			},
+		],
+		test: "test/web-cancellation-outcome.test.ts",
+		pattern: "in-flight",
+	},
+	{
 		name: "web-omitted-declaration",
 		expect: /omitted declaration must not authorize report reliance/,
 		behavior: "Kernel silently treats an omitted declaration as no web reliance",

@@ -171,7 +171,7 @@ test("B1/B3 empty success is final; provider refusal falls back once with distin
 });
 
 test("B1 unknown/page/invalid failures do not qualify, and missing fallback provisioning is explicit", async () => {
-	for (const status of [400, 403, 404, 418, 503]) {
+	for (const status of [400, 401, 403, 404, 418, 503]) {
 		const http = await fixture(() => ({ status, body: { error: "failure" } }));
 		try {
 			const { f, reply } = await run({ exaKey: "fixture", exaBaseUrl: http.url }, "web_search", { queries: ["failure"] });
@@ -187,6 +187,43 @@ test("B1 unknown/page/invalid failures do not qualify, and missing fallback prov
 		}
 	}
 });
+
+for (const capability of ["search", "contents"] as const)
+	test(`B1 documented allowance exhaustion admits one sequential fallback for ${capability}`, async () => {
+		const http = await fixture((path) => {
+			if (path.startsWith("/exa")) return { status: 402, body: { error: "Credits are exhausted", tag: "NO_MORE_CREDITS" } };
+			return capability === "search"
+				? { body: { images: [], results: [{ url: "https://example.org/page", content: "Fallback evidence." }] } }
+				: { body: { results: [{ url: "https://example.org/page", raw_content: "Fallback evidence." }], failed_results: [] } };
+		});
+		try {
+			const { f, reply, output } = await run(
+				{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily` },
+				capability === "search" ? "web_search" : "web_contents",
+				capability === "search" ? { queries: ["allowance"] } : { urls: ["https://example.org/page"] },
+			);
+			try {
+				assert.deepEqual(
+					http.calls.map((c) => c.path),
+					capability === "search" ? ["/exa/search", "/tavily/search"] : ["/exa/contents", "/tavily/extract"],
+					"documented allowance exhaustion must admit exactly one sequential fallback",
+				);
+				assert.deepEqual(
+					reply.inputs[0]!.observations.map((o) => [o.provider, o.outcome]),
+					[
+						["exa", "error"],
+						["tavily", "success"],
+					],
+				);
+				assert.equal(reply.inputs[0]!.fallback, "completed");
+				assert.match(output, /Fallback evidence/);
+			} finally {
+				await f.close();
+			}
+		} finally {
+			await http.close();
+		}
+	});
 
 test("B3/B5 identical bytes remain distinct observations; own tail paging is scoped and network-free", async () => {
 	const tail = "TAIL-CANARY-9281";
