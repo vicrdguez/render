@@ -10,7 +10,6 @@ export const UNAVAILABLE_KINDS = [
 	"decision",
 	"outcome",
 	"policy",
-	"retained_packet",
 	"execution",
 	"effect",
 	"runtime_transcript",
@@ -210,7 +209,7 @@ export function exportHistory(
 						.flatMap((r) => [...r.parents, ...r.supersedes, ...Object.values(r.refs)])
 						.filter(
 							(ref) =>
-								/^(workflow|revision|fact|message|receipt):/.test(ref) && !includedRefs.has(ref) && !missing.some((m) => m.ref === ref),
+								/^(workflow|revision|packet|fact|message|receipt):/.test(ref) && !includedRefs.has(ref) && !missing.some((m) => m.ref === ref),
 						),
 				),
 			].sort(),

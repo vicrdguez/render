@@ -167,6 +167,8 @@ export const Device = defineDocFamily<DeviceRecord, null>({
 });
 
 export type RevisionData = {
+	/** Trusted immutable role provenance, absent on older revisions; never inferred from a document name. */
+	roleBinding?: { assignment: string; generation: number; attempt: string };
 	schema: number;
 	revision: string;
 	workflow: string;

@@ -22,7 +22,7 @@
 		"verify:workflow-task-survival": "node --test test/workflow-task-survival.test.ts",
 		"verify:role-capability-refusal": "node --test test/role-capability-refusal.test.ts",
 		"verify:cancellation-capacity": "node --test test/cancellation-capacity.test.ts test/role-recovery-startup.test.ts test/role-waiting.test.ts test/role-wait-restart.test.ts",
-		"verify:history-cutoff-export": "node --test test/history-cutoff-export.test.ts test/history-missing-data.test.ts test/history-message.test.ts test/history-completeness.test.ts test/history-cursor-transfer.test.ts",
+		"verify:history-cutoff-export": "node --test test/history-cutoff-export.test.ts test/history-missing-data.test.ts test/history-message.test.ts test/history-completeness.test.ts test/history-cursor-transfer.test.ts test/role-history.test.ts",
 		"verify:history-command-load": "node --test test/history-command-load.ts",
 		"verify:independent-export-reader": "node --test test/independent-export-reader.test.ts"
 	},

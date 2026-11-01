@@ -82,8 +82,8 @@ export type Artifact = {
 	readonly supersedes: readonly string[];
 	readonly source: null;
 	readonly policy: null;
-	readonly assignment: null;
-	readonly attempt: null;
+	readonly assignment: string | null;
+	readonly attempt: string | null;
 	readonly decisionRefs: readonly string[];
 	readonly outcomeRefs: readonly string[];
 	readonly createdBy: AcceptedBy;
@@ -402,12 +402,20 @@ export class Ledger {
 							attempt: a.attempt,
 							role: a.packet.role,
 						});
-						await this.#retainRoleText(tx, env, by, sequence, a.packetRef, `role-packet/${a.id}`, JSON.stringify(a.packet));
+						await this.#retainRoleText(tx, env, by, sequence, a.packetRef, `role-packet/${a.id}`, JSON.stringify(a.packet), {
+							assignment: a.id,
+							generation: a.generation,
+							attempt: a.attempt,
+						});
 					}
 					if (command.type === "submitRoleResult" && current.kind === "assignment-agent") {
 						const a = roles.assignments.find((a) => a.id === current.assignment);
 						if (!a?.report) throw new Error("role report identity omitted");
-						await this.#retainRoleText(tx, env, by, sequence, a.report, `role-report/${a.id}`, (command as { text: string }).text);
+						await this.#retainRoleText(tx, env, by, sequence, a.report, `role-report/${a.id}`, (command as { text: string }).text, {
+							assignment: a.id,
+							generation: a.generation,
+							attempt: a.attempt,
+						});
 					}
 					if (command.type === "recordRecoveryState" && typeof decision.result.quarantined === "string")
 						await this.#retainRoleText(
@@ -418,6 +426,7 @@ export class Ledger {
 							decision.result.quarantined,
 							`quarantined-role-result/${(command as { assignment: string }).assignment}`,
 							JSON.stringify(command),
+							command as { assignment: string; generation: number; attempt: string },
 						);
 					for (const intent of write.intents) {
 						const a = roles.assignments.find((a) => a.id === intent.assignment);
@@ -662,6 +671,7 @@ export class Ledger {
 		revision: string,
 		document: string,
 		text: string,
+		binding: { assignment: string; generation: number; attempt: string },
 	) {
 		const w = await tx.doc(Workflow, env.workflow as string, null);
 		if (!w.exists) throw new Error("role text without workflow");
@@ -669,6 +679,7 @@ export class Ledger {
 		const entry = await tx.appendEntry(RevisionEntry, w.conversation as ConversationId, {
 			data: {
 				schema: 1,
+				roleBinding: { assignment: binding.assignment, generation: binding.generation, attempt: binding.attempt },
 				revision,
 				workflow: w.id,
 				document,
@@ -747,8 +758,8 @@ export class Ledger {
 				supersedes: data.parent === null ? [] : [data.parent],
 				source: null,
 				policy: null,
-				assignment: null,
-				attempt: null,
+				assignment: data.roleBinding?.assignment ?? null,
+				attempt: data.roleBinding?.attempt ?? null,
 				decisionRefs: [],
 				outcomeRefs: [],
 				createdBy: data.createdBy,
@@ -903,9 +914,21 @@ export class Ledger {
 							const refs = d.refs as Record<string, string>;
 							if (refs.revision && (wanted("ground") || wanted("document"))) artifacts.add(refs.revision);
 							if (refs.message && wanted("message")) artifacts.add(refs.message);
+							if (wanted("document")) for (const key of ["packet", "report", "quarantined"]) if (refs[key]) artifacts.add(refs[key]);
 							add({ ...base(ref, kind, owner.workflow, sequence, String(d.commandId)), command: d.command, refs, createdBy: d.by });
-							const namespace = (d.by as AcceptedBy).principal === "human" ? this.#meta.human : "host:recovery";
-							const receipt = await this.#harness.snapshot(Receipt, `${namespace} ${String(d.commandId)}`, ctx);
+							const by = d.by as AcceptedBy;
+							const namespaces =
+								by.principal === "human"
+									? [this.#meta.human]
+									: by.principal === "assignment-agent"
+										? [`agent:${by.assignment}:${by.generation}:${by.attempt}`]
+										: ["host:recovery", "host:scheduling"];
+							// Older host facts omit scope. Match the actual receipt to this unique committed fact,
+							// never another scope that happened to reuse its command ID.
+							const candidates = await Promise.all(
+								namespaces.map((namespace) => this.#harness.snapshot(Receipt, `${namespace} ${String(d.commandId)}`, ctx)),
+							);
+							const receipt = candidates.find((r) => r?.exists && r.body.sequence === sequence && r.body.facts.includes(ref));
 							if (!receipt?.exists) {
 								missing.push({ ref: `receipt:${sequence}`, code: "missing_content" });
 								continue;

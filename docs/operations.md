@@ -149,8 +149,11 @@ and uncertainty inspection and fresh executor fence. Unsafe interrupted tools or
 `uncertain_execution`; timeout does not establish death. There is no generic repair/replay override: retain the store,
 inspect original task/effect evidence, and use a compatible, explicitly authorized recovery implementation. Do not delete
 task records or issue a new command to guess away an unknown effect. Missing/corrupt packet inputs require restoration
-of those exact refs. Full history/export/package/restore are not delivered by the prepared dependency; packet/report
-revisions and their binding identities are retained for those later owners, not advertised as a supported package.
+of those exact refs. Fixed-cutoff history/export includes packet, report and quarantine bytes as immutable documents,
+plus acceptance facts and receipts with original task bindings. Newly retained role documents carry trusted assignment
+and Attempt provenance; older entries keep absent provenance rather than inferring it from client-chosen names.
+Standalone assignment/Attempt chronologies and runtime transcript export are not delivered. Package/restore remains
+unavailable: inspection exports are not supported recovery packages.
 
 ## Historical browsing and export
 
@@ -158,7 +161,7 @@ Use authenticated `GET /v1/history?workflow=<ref>&limit=100`; retain its opaque 
 
 Ordinary restart preserves enrollment, epoch and a private cursor HMAC key. Existing schema-1 stores acquire that optional housekeeping key atomically before admission; immutable records/receipt identities and Render sequence are not rewritten. Never export the live Meta document or cursor key. A cursor is not a credential: revoked/narrowed devices cannot use it to recover broader history. Start a new traversal for later writes or a changed selection. Local-admin and device receipt views differ, so cursors cannot move between those routes: `invalid_cursor` requires starting again on the desired route. Cursors issued before receipt-view binding similarly require a fresh traversal; saved version-1 exports remain readable.
 
-Missing/corrupt or unknown-schema content appears in `manifest.missing` with its exact ref and makes the export incomplete; exact reads refuse with the corresponding named outcome. Preserve the store and use a compatible version for unsupported schemas. Exact-content restore/package repair is not delivered yet: do not fabricate replacement bytes, silently drop the declaration, edit the DB as a repair, or claim export is a backup. Unsaved buffers/uncommitted streams/unsnapshotted files are always outside history. Classified outcomes, retained role packets and runtime records are not yet produced; their unavailable kinds are explicit. No external service, worker, model or human trial is required for these local history checks.
+Missing/corrupt or unknown-schema content appears in `manifest.missing` with its exact ref and makes the export incomplete; exact reads refuse with the corresponding named outcome. Preserve the store and use a compatible version for unsupported schemas. Exact-content restore/package repair is not delivered yet: do not fabricate replacement bytes, silently drop the declaration, edit the DB as a repair, or claim export is a backup. Unsaved buffers/uncommitted streams/unsnapshotted files are always outside history. Classified outcomes and runtime transcript export remain unavailable. Role packets/reports/quarantine are retained document records; the acceptance receipt preserves each original task binding. Standalone assignment/Attempt history selectors remain unavailable rather than pretending to provide an execution chronology. No external service, worker, model or human trial is required for these local history checks.
 
 Pages/exports scan their whole selection on each request. Message validation reuses the entries from that scan, but sorting, serialization and shared SQLite/event-loop work can still delay writes as history grows. Page limits do not bound that work or memory; prefer a workflow/kind filter for large stores. Run `npm run verify:history-command-load` separately from the cheap suite to measure the bounded ten-workflow, 1,200-message concurrent workload; this is not a latency guarantee for an arbitrary retained store.
 
