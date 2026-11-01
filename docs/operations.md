@@ -85,16 +85,81 @@ also checked at their read/use boundary: an unknown schema returns `409 unsuppor
 supported versions and compatible-version guidance, without returning content. Saves over an unsupported current
 revision are blocked without a receipt or sequence advance. Unaffected documents remain usable. The host preserves the
 record rather than migrating it or relabeling it as version 1; run a Render version that supports its actual schema.
-No automatic migration or package recovery is available in this Slice.
+No automatic migration is available. Local recovery packages and restricted repair are described below.
 
 ## Content integrity
 
 Every document revision artifact read re-verifies the stored bytes against their SHA-256 digest and length. Newly saved messages also retain and verify their original digest/length. Legacy message reads compute a digest/length from retained text and explicitly report `integrity: unverified_legacy`; no independent original digest is invented. A mismatch answers
 `content_corrupt`, with `refs.restore` naming the exact revision. A save over that revision is refused the same way.
-The host never substitutes other bytes. Supported restore of an exact revision needs recovery packages, which a later
-Slice delivers. Until then there is no supported restore: the corrupt bytes stay preserved and the affected document
-stays blocked. Do not roll the data directory back to an older file copy. Unmarked file-level rollback is unsupported
+The host never substitutes other bytes. Restore a validated complete package into a clean directory to recover retained
+bytes at its declared cutoff; no partial revision import is supported. Preserve the original corrupt store for diagnostics.
+Do not roll the data directory back to an older live-file copy. Unmarked file-level rollback is unsupported
 (spec §5.3.1) and can bring revoked devices back.
+
+## Local recovery packages
+
+While the host is running, the OS owner creates a package through the owner-only socket:
+
+```sh
+node src/client/cli.ts admin --data ~/.render/data package
+```
+
+The reply is `status: packaged`, with an immutable generation directory under `data/recovery-packages`, a package ID,
+snapshot cutoff, prior authority epoch, database checksum and explicit source roots. This management operation does
+not add a domain receipt/sequence or mark the live store. Repeating it makes a new independent generation, not a
+replacement. A hidden `.incomplete` directory after a crash is not a package; remove it only after stopping the host.
+The format is a closed directory containing exactly `manifest.json` and `render.db`, not a tar/zip archive. Checksums
+provide integrity, not authentication against a malicious package author. Use an operator-controlled source.
+
+The snapshot uses SQLite `VACUUM INTO`, including committed WAL content, and all retained document/history/runtime
+bytes at its own cutoff. SQLite holds the read snapshot while collecting those roots; there is no separately pruned
+content store. Only the offline copy gets `restoreRequired`. No source Git or external-effect owner exists;
+`sourceRoots` is explicitly empty. Empty role indexes are supported, but nonempty role work (including bindings,
+tasks and submissions) explicitly refuses packaging/import/repair because current-world role/effect reconciliation
+is unavailable. A refused generation leaves the prior good package and original store intact; do not delete role
+records to bypass it. Marked direct copies with role work stay diagnostic-only: local-admin history/export remains
+available, but repair, assignment-agent reads/submissions, both Engine resume hooks and dispatch stay fenced.
+Restricted starts mint executor epochs without rebinding assignments or claiming quiescence. A newer compatible
+implementation must reconcile original processes/effects and current assignment authority before restoring such stores.
+Unknown records or nonempty future roots likewise refuse, rather than copying a mutable HEAD or unsafe worker configuration. Raw bearer/provider/forge secrets are not
+stored in this version and are not added to the format. The private history cursor key is excluded from the offline
+Meta, including all prior current-only bases/deltas; the closed offline DB is compacted to remove deleted-page remnants.
+Live cursor authority is unchanged. Files and the published directory are synchronized before
+success. This is local recovery, not a verified off-host generation or a physical power-loss guarantee.
+
+Stop the destination host, preserve its old data separately, and restore to a **clean** directory:
+
+```sh
+node src/host/main.ts restore --data ~/.render/restored --package /safe/path/package-ID
+node src/host/main.ts serve --data ~/.render/restored --port 7420
+node src/client/cli.ts admin --data ~/.render/restored status
+node src/client/cli.ts admin --data ~/.render/restored repair
+node src/client/cli.ts admin --data ~/.render/restored enroll --label replacement-laptop
+```
+
+Restore takes the owner lock and checks that the destination is clean before changing recovery state. A nonclean
+destination refuses without overwriting data or disabling the existing store; restart that store normally and choose
+a different, clean destination. For a clean destination, restore synchronizes `recovery-disabled` **before reading the
+input**. Even a malformed-input refusal then leaves that destination admission-disabled across restart; retry in a new
+clean directory rather than deleting its fence and trusting partial data. A running destination refuses at the owner
+lock without importing. A direct copy of the package DB, even without its manifest, is detected by the embedded marker.
+Remote requests receive `recovery_required` before bearer authentication or receipt disclosure. Do not remove the
+marker or edit SQL manually.
+
+Repair validates supported schemas, SQLite integrity, exact content digests, indexes, revision chains, current
+pointers, facts/receipts/provenance, workflow/message/device relationships and the origin cutoff. One transaction
+revokes all backed-up devices, rotates authority and the private cursor key, records the repair receipt/fact, clears the marker and retains
+`recovery-reconciling`. Kill-before-commit leaves the marker; kill-after-commit leaves the rotated restricted state.
+Every start mints a fresh executor fence without resuming runtime work in restricted recovery. The filesystem fence
+remains as a fail-closed record of the managed import attempt; committed restricted state takes precedence over it.
+
+Re-pair devices once through local admin. Reads then use current scoped authorization: cutoff receipts and exact
+artifacts remain available. A missing receipt reports `outcome_unknown_after_restore`, not an invitation to retry as
+new work. An old envelope reports `authority_epoch_mismatch`. Current-epoch writes report `recovery_required`.
+**There is intentionally no automatic recovery exit or replay:** Effects/newer-world/workspace reconciliation is not
+available in this target. A future checked reconciliation and explicit recovery decision must permit affected writes;
+neither an operator retry nor an empty dedup table supplies that evidence. Ordinary live restarts still preserve
+existing enrollment/authority; restricted restarts preserve the rotated epoch and replacement credentials.
 
 ## Durable role work
 
@@ -152,8 +217,7 @@ task records or issue a new command to guess away an unknown effect. Missing/cor
 of those exact refs. Fixed-cutoff history/export includes packet, report and quarantine bytes as immutable documents,
 plus acceptance facts and receipts with original task bindings. Newly retained role documents carry trusted assignment
 and Attempt provenance; older entries keep absent provenance rather than inferring it from client-chosen names.
-Standalone assignment/Attempt chronologies and runtime transcript export are not delivered. Package/restore remains
-unavailable: inspection exports are not supported recovery packages.
+Standalone assignment/Attempt chronologies and runtime transcript export are not delivered. Local recovery packages currently refuse nonempty role work because restored-task/effect reconciliation is unavailable; inspection exports are not recovery packages.
 
 ## Historical browsing and export
 
@@ -161,7 +225,13 @@ Use authenticated `GET /v1/history?workflow=<ref>&limit=100`; retain its opaque 
 
 Ordinary restart preserves enrollment, epoch and a private cursor HMAC key. Existing schema-1 stores acquire that optional housekeeping key atomically before admission; immutable records/receipt identities and Render sequence are not rewritten. Never export the live Meta document or cursor key. A cursor is not a credential: revoked/narrowed devices cannot use it to recover broader history. Start a new traversal for later writes or a changed selection. Local-admin and device receipt views differ, so cursors cannot move between those routes: `invalid_cursor` requires starting again on the desired route. Cursors issued before receipt-view binding similarly require a fresh traversal; saved version-1 exports remain readable.
 
-Missing/corrupt or unknown-schema content appears in `manifest.missing` with its exact ref and makes the export incomplete; exact reads refuse with the corresponding named outcome. Preserve the store and use a compatible version for unsupported schemas. Exact-content restore/package repair is not delivered yet: do not fabricate replacement bytes, silently drop the declaration, edit the DB as a repair, or claim export is a backup. Unsaved buffers/uncommitted streams/unsnapshotted files are always outside history. Classified outcomes and runtime transcript export remain unavailable. Role packets/reports/quarantine are retained document records; the acceptance receipt preserves each original task binding. Standalone assignment/Attempt history selectors remain unavailable rather than pretending to provide an execution chronology. No external service, worker, model or human trial is required for these local history checks.
+Missing/corrupt or unknown-schema content appears in `manifest.missing` with its exact ref and makes the export incomplete; exact reads refuse with the corresponding named outcome. Preserve the store and use a compatible version for unsupported schemas. Use a supported complete recovery package and clean destination for exact-content restore and validated local-admin repair; never fabricate replacement bytes, silently drop a missing declaration, edit the DB as a repair, or claim a portable history export is a recovery backup. Unsaved buffers/uncommitted streams/unsnapshotted files are always outside history. Classified outcomes and runtime transcript export remain unavailable. Role packets/reports/quarantine remain immutable documents with original task bindings and provenance; standalone assignment/Attempt chronologies remain unavailable. No external service, worker, model or human trial is required for these local history checks.
+
+During restricted recovery, pages and exports include a `recovery` declaration: current mode, original `restoredCutoff`
+(or null when no validated origin exists), and `newerWorld: unreconciled`. Their `complete` flag describes only the
+selected retained cutoff, not lost later admissions or external outcomes. Old cursors are invalid after repair; start
+a fresh traversal after replacement enrollment. New cursors and enrollment survive restricted restarts. Before repair,
+only local-admin diagnostics can read history/export; remote reads refuse before interpreting backed-up credentials.
 
 Pages/exports scan their whole selection on each request. Message validation reuses the entries from that scan, but sorting, serialization and shared SQLite/event-loop work can still delay writes as history grows. Page limits do not bound that work or memory; prefer a workflow/kind filter for large stores. Run `npm run verify:history-command-load` separately from the cheap suite to measure the bounded ten-workflow, 1,200-message concurrent workload; this is not a latency guarantee for an arbitrary retained store.
 

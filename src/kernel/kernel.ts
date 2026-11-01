@@ -367,7 +367,6 @@ export const UNAVAILABLE = [
 	"intake-acceptance",
 	"assignments",
 	"evidence-receipts",
-	"recovery-packages",
 	"off-host-protection",
 ] as const;
 

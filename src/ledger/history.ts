@@ -44,8 +44,14 @@ export type HistoryRecord = {
 	[key: string]: unknown;
 };
 export type Missing = { ref: string; code: string };
+export type RecoveryNotice = {
+	mode: "admission-disabled" | "recovery-reconciling";
+	restoredCutoff: number | null;
+	newerWorld: "unreconciled";
+};
 export type HistoryPage = {
 	version: 1;
+	recovery?: RecoveryNotice;
 	cutoff: number;
 	scope: HistoryScope;
 	records: HistoryRecord[];
@@ -58,6 +64,7 @@ export type HistoryPage = {
 };
 export type HistoryExport = {
 	version: 1;
+	recovery?: RecoveryNotice;
 	manifest: {
 		format: "render-history";
 		version: 1;

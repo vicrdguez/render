@@ -1,6 +1,6 @@
 # Render host protocol, version 1
 
-This is the client-facing wire contract delivered by `durable-workspace` and extended by `durable-role-work` and `historical-export`. It implements the semantic envelope of
+This is the client-facing wire contract delivered by `durable-workspace` and extended by `durable-role-work`, `historical-export` and local `recovery-packages`. It implements the semantic envelope of
 [spec §5.2–5.3](spec.md#53-command-receipt-and-snapshot-contract) on a loopback HTTP listener. Route names are
 implementation choices; the envelope, receipt, refusal and frame semantics are the contract.
 
@@ -151,6 +151,25 @@ observations, not a portable source-object package. Attribute/module change warn
 
 Engineering bound: every page and export scans selected retained conversations and assembles results in memory; page size bounds returned records, not scan cost or export size. Message entries are located and validated once per scan, rather than rescanning conversations for each message; sorting and serialization still grow with the selection. The shared SQLite runtime and host event loop mean scan/validation/serialization work can delay concurrent command acknowledgements. There is no snapshot-isolation worker or fixed latency guarantee for arbitrarily large selections; use workflow/kind filters to reduce work, and measure the actual store. `verify:history-command-load` exercises 300/1,200 retained messages over ten workflows and concurrent page/export writes; it is a bounded local regression, not full V9. This intentionally avoids a new history index/storage migration. Legacy message records lack independently stored digest metadata: export/read computes their digest and labels them `unverified_legacy`, while immutable document revisions and newly saved messages verify their original stored digest. No new integrity guarantee for arbitrary filesystem/database replacement is claimed.
 
+### History during recovery
+
+Remote history/export reads are fenced before authentication until validated local-admin repair. After replacement
+enrollment they enforce current workflow scope and receipt view exactly as ordinary reads; an old cursor is not
+restored authority. Repair rotates the private cursor key with authority/credential invalidation, while ordinary
+restricted restart preserves the replacement key and credentials. The key itself is excluded from package bytes.
+
+Pages and export bundles add optional top-level `recovery: { mode, restoredCutoff, newerWorld: "unreconciled" }` in
+`admission-disabled` (local-admin diagnostics only) or `recovery-reconciling` mode. `restoredCutoff` is the original
+package cutoff, or null without a validated origin. `complete`/`manifest.complete` still describe the selected retained
+history at its fixed cutoff, **not** completeness of the newer world. Missing post-cutoff receipts/admissions do not
+prove work was unsent; writes remain blocked pending unavailable reconciliation and an explicit recovery decision.
+
+Recovery packages support empty role indexes, but refuse nonempty assignments, role bindings and runtime tasks/submissions
+rather than omitting or replaying them. Marked direct copies containing role work remain diagnostic-only: local-admin
+history/export preserves role document bytes and provenance with restored uncertainty; repair refuses. Assignment-agent
+authority is fenced in all restricted modes. Neither Engine resume hooks nor task scheduling run; no assignment is rebound
+without current-world checks and confirmed quiescence. This is an explicit supported-package limit, not a generic migration.
+
 ## Observation
 
 `GET /v1/observe?version=1` returns NDJSON frames. Every frame carries `version`, `kind`, `scope`, `authorityEpoch` and
@@ -172,7 +191,8 @@ stream begins with a fresh snapshot.
 
 Each workflow view carries `ground`, `documents`, `messages`, `commitment`, `owner`, `evidence`, `blocker`,
 `nextHumanAction` and `unavailable`. `unavailable` names the capabilities this host version does not deliver yet, for
-example full coordinator replies, checkpoints and recovery packages. They are reported as
+example full coordinator replies, checkpoints and off-host protection. Local recovery packages are delivered,
+with role-work recovery explicitly refused until current-world reconciliation is available. Undelivered capabilities are reported as
 absent, never as empty successes. The snapshot also reports `hostMode`, `executorEpoch`, the persistence readback and
 the backup state. Off-host protection is reported `unavailable` until it is delivered.
 
