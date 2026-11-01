@@ -1,0 +1,32 @@
+{
+	"name": "render",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"engines": {
+		"node": "24.21.0"
+	},
+	"scripts": {
+		"start": "node src/host/main.ts serve",
+		"test": "node --test --test-concurrency=1 test/*.test.ts",
+		"typecheck": "tsc --noEmit -p .",
+		"lint": "biome check .",
+		"verify:kernel-authority-schedules": "RENDER_V1_SCHEDULES=10000 node --test test/kernel-authority-schedules.test.ts",
+		"verify:sqlite-command-atomicity": "RENDER_V2_SCHEDULES=256 node --test test/sqlite-command-atomicity.test.ts",
+		"verify:command-crash-recovery": "node --test test/command-crash-recovery.test.ts",
+		"verify:two-client-reattach": "node --test test/two-client-reattach.test.ts",
+		"verify:persistence-startup": "node --test test/persistence-startup.test.ts",
+		"verify:local-command-load": "node --test test/local-command-load.test.ts",
+		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts"
+	},
+	"dependencies": {
+		"@earendil-works/chord": "1.4.0",
+		"@earendil-works/pi-ai": "1.4.0",
+		"@earendil-works/pi-durable": "1.4.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.6.4",
+		"@types/node": "24.19.2",
+		"typescript": "7.0.2"
+	}
+}

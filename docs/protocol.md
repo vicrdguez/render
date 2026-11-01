@@ -1,0 +1,131 @@
+# Render host protocol, version 1
+
+This is the client-facing wire contract delivered by the `durable-workspace` Slice. It implements the semantic envelope of
+[spec §5.2–5.3](spec.md#53-command-receipt-and-snapshot-contract) on a loopback HTTP listener. Route names are
+implementation choices; the envelope, receipt, refusal and frame semantics are the contract.
+
+## Transports and authentication
+
+| Route | Who | Authentication |
+|---|---|---|
+| `http://127.0.0.1:<port>/v1/...` | enrolled devices | `Authorization: Bearer <token>` only. No query-string or cookie credentials. |
+| `<data>/admin.sock` (HTTP over a Unix socket) | the host OS owner (local admin) | Filesystem permissions: the data directory is `0700` and the socket `0600`. |
+
+The loopback listener is meant to sit behind private Tailscale Serve HTTPS (spec §5.1); Serve itself is operator
+provisioning, not part of this Slice. Tailnet membership, a loopback route or any request header or body field confers no
+Render authority. Only the two adapters above establish human context; host context exists only inside the host process.
+
+A device bearer is `render_<device>_<secret>`, where `<secret>` is 256 random bits in base64url. The host stores only the
+SHA-256 verifier of the secret, with the device's principal, scope and revocation metadata. The secret is returned once,
+in the enrollment reply. It is never written to the store, receipts, logs or observation frames. Bearers do not expire.
+Ordinary restart preserves them, and revocation takes effect at once.
+
+## Command envelope
+
+`POST /v1/commands` (devices) or `POST /v1/admin/commands` (local admin) with:
+
+```json
+{
+  "version": 1,
+  "authorityEpoch": "authority-…",
+  "commandId": "laptop-0001",
+  "workflow": "workflow:3",
+  "expected": { "document": "revision:41" },
+  "command": { "type": "saveDocument", "document": "ground", "mediaType": "text/markdown", "content": "<base64>" }
+}
+```
+
+- Unknown top-level or command fields are refused as `malformed_envelope`. That includes any attempt to name a
+  principal, device, route or capability.
+- `commandId` is 1–128 characters from `[A-Za-z0-9._:-]`. IDs are namespaced by the authenticated human, not the device.
+  A second device of the same human may retry an ID and receives that human's original receipt.
+- The payload fingerprint covers `command`, `workflow` and `expected`, not the device.
+
+| Command | Fields | `workflow` | `expected` | Route |
+|---|---|---|---|---|
+| `createWorkflow` | `title` (1–200 chars) | absent | absent | device with `all` scope, or local admin |
+| `saveDocument` | `document` (`[a-z0-9][a-z0-9._/-]{0,127}`; `ground` is the workflow's Ground), `mediaType` (`text/markdown` or `text/plain`), `content` (base64 of the complete UTF-8 bytes) | required | `document`: the current revision ref, or `null` for a new document | device or local admin |
+| `postCoordinatorMessage` | `text` (1–65,536 chars) | required | absent | device or local admin |
+| `enrollDevice` | `label` (1–100 chars), `scope`: `{ "workflows": "all" }` or `{ "workflows": ["workflow:1", …] }` | absent | absent | local admin only |
+| `revokeDevice` | `device` | absent | absent | local admin only |
+
+Other command families named in spec §4 are known to this host and refuse with `capability_unavailable`, or with
+`forbidden_principal` when the principal is wrong. That covers human checkpoint/intake/cancel/local-prompt decisions, role
+work, scheduling and source/effect work. Unknown types refuse with `unknown_command`.
+
+## Receipts
+
+```json
+{
+  "status": "accepted",
+  "duplicate": false,
+  "commandId": "laptop-0001",
+  "receipt": "receipt:7",
+  "sequence": 7,
+  "authorityEpoch": "authority-…",
+  "workflow": "workflow:3",
+  "result": { "revision": "revision:41", "document": "ground", "digest": "sha256:…", "byteLength": 56, "parent": null },
+  "facts": ["fact:42"],
+  "acceptedBy": { "principal": "human", "route": "device", "device": "device:2" }
+}
+```
+
+A receipt is returned only after the accepted state commits. A duplicate returns the original receipt with
+`duplicate: true`; `acceptedBy` still names the original accepting device. `GET /v1/commands/<commandId>` looks up a
+receipt by original ID. It answers `404 not_found` both when the receipt is absent and when it is outside the caller's
+current scope.
+
+A timeout, dropped connection or `503 outcome_unknown` means the outcome is unknown: an admitted commit can complete
+after the client gave up. Retry the original ID and payload. Do not mint a new ID.
+
+## Refusals
+
+```json
+{ "status": "refused", "code": "stale_basis", "reason": "…", "refs": { … }, "repair": [ { "action": "…", … } ] }
+```
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `unauthorized` | 401 | Missing, unknown or revoked credential. Nothing else is disclosed. |
+| `forbidden_principal` | 403 | The command family does not admit this principal or route. |
+| `forbidden_scope` | 403 | The workflow is outside the device's scope. |
+| `malformed_envelope`, `unknown_command`, `invalid_content` | 400 | Rejected before any domain decision. |
+| `unsupported_version` | 400 | Unknown protocol version; the body names supported versions and upgrade guidance. |
+| `authority_epoch_mismatch` | 409 | The envelope names a different authority epoch. Take a fresh snapshot. |
+| `command_conflict` | 409 | The command ID was already used with a different payload. Use a new ID. No original content is disclosed. |
+| `stale_basis` | 409 | The expected revision is not current. `refs.current` and `reason` describe the difference. Nothing is rebased automatically. |
+| `content_corrupt`, `missing_content` | 409 | Retained bytes failed integrity checks. `refs.restore` names the exact revision to restore. No other bytes are substituted. |
+| `not_found` | 404 | Absent, or outside scope. |
+| `capability_unavailable` | 501 | Known command whose capability is not delivered in this host version. |
+| `outcome_unknown` | 503 | Storage failed during the commit; the host stops. Retry the original ID after restart. |
+| `host_unavailable` | 503 | The host is not admitting commands. |
+
+## Reads
+
+- `GET /v1/snapshot?version=1`: one snapshot frame (below).
+- `GET /v1/artifacts/<revision>`: exact bytes and provenance:
+  `{ artifact, kind, schema, workflow, document, mediaType, digest, byteLength, parents, createdBy, commandId, recordedAtSequence, content }`.
+  `content` is base64. The digest and length are re-verified on every read.
+- `GET /v1/workflows/<workflow>/messages?after=<sequence>&limit=<n>`: scoped coordinator messages,
+  `{ messages, next, complete }`.
+
+## Observation
+
+`GET /v1/observe?version=1` returns NDJSON frames. Every frame carries `version`, `kind`, `scope`, `authorityEpoch` and
+`sequence`.
+
+- The first frame is always `kind: "snapshot"`: the complete scoped state at `sequence`.
+- `kind: "change"` carries `base` (the sequence of the previous frame on this stream) and the updated workflow views.
+  A client that sees `base` differ from its last sequence has a gap and must take a fresh snapshot. A client discards
+  frames whose `sequence` is not greater than its last.
+- `kind: "end"` carries `reason` (`credential_revoked`, `host_closing`) before the server closes the stream.
+- A consumer that stops reading is disconnected once its backlog exceeds the bound; commits never wait for observers.
+  Reconnect and take a fresh snapshot. Disconnecting cancels only observation, never accepted work.
+
+A client must refuse a frame whose `version` it does not understand, and tell the user to upgrade.
+
+Each workflow view carries `ground`, `documents`, `messages`, `commitment`, `owner`, `evidence`, `blocker`,
+`nextHumanAction` and `unavailable`. `unavailable` names the capabilities this host version does not deliver yet, for
+example coordinator replies, checkpoints, assignments, historical export and recovery packages. They are reported as
+absent, never as empty successes. The snapshot also reports `hostMode`, `executorEpoch`, the persistence readback and
+the backup state. Off-host protection is reported `unavailable` until it is delivered.
