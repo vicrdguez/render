@@ -38,7 +38,6 @@ test("history-command-load: retained messages scale without quadratic rescans or
 			durations.push(Math.min(...samples));
 		}
 		console.log(JSON.stringify({ messages: [300, 1200], exportMs: durations }));
-		assert.ok((durations[1] as number) < Math.max(600, (durations[0] as number) * 8), "fourfold history must not cause quadratic export cost");
 		const acknowledgements: number[] = [];
 		for (let run = 0; run < 12; run++) {
 			const reading = http(host.url, "GET", run % 2 ? "/v1/history?limit=3" : "/v1/export", { bearer: device.bearer });
@@ -50,6 +49,7 @@ test("history-command-load: retained messages scale without quadratic rescans or
 		}
 		const ackP95 = percentile(acknowledgements, 95);
 		console.log(JSON.stringify({ concurrentHistoryAckP95Ms: ackP95 }));
+		assert.ok((durations[1] as number) < Math.max(600, (durations[0] as number) * 8), "fourfold history must not cause quadratic export cost");
 		assert.ok(ackP95 < 250, `concurrent history acknowledgement p95 ${ackP95} ms must stay below 250 ms in this local workload`);
 	} finally {
 		await host.stop();
