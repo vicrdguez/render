@@ -25,18 +25,24 @@ for (const scenario of ["policy adoption", "policy adoption across restart", "re
 					transcripts.push(text);
 					if (parentCalls++ === 0) return fauxAssistantMessage(fauxToolCall("request_role", { key: "review" }), { stopReason: "toolUse" });
 					if (parentCalls === 2) return fauxAssistantMessage(fauxToolCall("read_artifact", { ref: resultRef }), { stopReason: "toolUse" });
-					return fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "OWNER-COMPLETE" }), { stopReason: "toolUse" });
+					return fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "OWNER-COMPLETE" }), {
+						stopReason: "toolUse",
+					});
 				}
 				childCalls++;
 				if (text.includes("Required output: Interrupted child")) {
 					await oldGate.promise;
 					return scenario === "repeated unsubmitted child"
 						? fauxAssistantMessage("No result submitted.")
-						: fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "CANCELED-ATTEMPT-CANARY" }), { stopReason: "toolUse" });
+						: fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "CANCELED-ATTEMPT-CANARY" }), {
+								stopReason: "toolUse",
+							});
 				}
 				if (text.includes("Required output: Unsubmitted replacement")) return fauxAssistantMessage("Still no result.");
 				await freshGate.promise;
-				return fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "LINKED-CHILD-RESULT" }), { stopReason: "toolUse" });
+				return fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "LINKED-CHILD-RESULT" }), {
+					stopReason: "toolUse",
+				});
 			}),
 		);
 		const engine = () => new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } });
@@ -130,7 +136,7 @@ for (const scenario of ["policy adoption", "policy adoption across restart", "re
 			};
 			await cancelFromHandover(snapshot().assignments[1]!);
 			const stale = mintContext({ kind: "assignment-agent", ...identity(original), role: "challenger" });
-			assert.equal((await f.command({ type: "submitRoleResult", text: "CANCELED-ATTEMPT-CANARY" }, stale)).status, "refused");
+			assert.equal((await f.command({ type: "submitRoleResult", supports: [], text: "CANCELED-ATTEMPT-CANARY" }, stale)).status, "refused");
 			assert.equal(snapshot().assignments[1]!.report, null);
 			assertWaiting();
 			const rebind = () =>

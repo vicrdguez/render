@@ -74,7 +74,9 @@ test("context-continuation-independence: same-family review requires recorded hu
 	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
 	p.setResponses([
 		fauxAssistantMessage(fauxToolCall("request_role", { key: "review" }), { stopReason: "toolUse" }),
-		fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "UNAUTHORIZED-SAME-FAMILY-CANARY" }), { stopReason: "toolUse" }),
+		fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "UNAUTHORIZED-SAME-FAMILY-CANARY" }), {
+			stopReason: "toolUse",
+		}),
 	]);
 	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
 	try {
@@ -125,7 +127,7 @@ for (const source of [
 	test(`context-continuation-independence: watchdog cannot inherit earlier ${source.role} ${source.kind}`, async () => {
 		const canary = "PRIVATE-RESULT-CANARY-6";
 		const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
-		p.setResponses([fauxAssistantMessage(fauxToolCall("submit_role_result", { text: canary }), { stopReason: "toolUse" })]);
+		p.setResponses([fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: canary }), { stopReason: "toolUse" })]);
 		const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
 		try {
 			assert.equal(
