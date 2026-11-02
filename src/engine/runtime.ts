@@ -665,7 +665,7 @@ export class Engine {
 				...value,
 				entries: value.entries.map(({ content, ...entry }) => ({ ...entry, byteLength: Buffer.from(content, "base64").length })),
 			});
-			const text = JSON.stringify({
+			const receipt = {
 				schema: 1,
 				kind: "owned-check",
 				scope: this.#scope(a),
@@ -682,7 +682,8 @@ export class Engine {
 				reviewWarning: source.configurationChanges.length
 					? `REVIEW SOURCE CONFIGURATION CHANGES: ${source.configurationChanges.join(", ")}; never activated on host`
 					: null,
-			});
+			};
+			const text = JSON.stringify(receipt);
 			const reply = await this.#ledger!.command(
 				{
 					version: 1,
@@ -705,13 +706,22 @@ export class Engine {
 						},
 						mintContext({ kind: "host", scope: "recovery" }),
 					);
-				else throw new Error(`Owned check receipt refused: ${reply.status === "refused" ? reply.code : reply.status}`);
+				else {
+					// Policy adoption keeps the generation current, so this evidence cannot enter the fenced-identity quarantine.
+					await this.#retainDiagnostic(
+						a.workflow,
+						this.#scope(a),
+						JSON.stringify({ ...receipt, kind: "owned-check-diagnostic", observed: receipt.verification, verification: "unaccepted" }),
+					);
+					throw new Error(`Owned check receipt refused: ${reply.status === "refused" ? reply.code : reply.status}`);
+				}
 			}
 		} catch (error) {
 			if (error instanceof SandboxInputRefusal) environment = "absent";
-			await this.#command(this.#assignment(a.id)!, {
+			const current = this.#assignment(a.id)!;
+			await this.#command(current, {
 				type: "recordBlocker",
-				reason: `owned_check_blocked: ${String(error).slice(0, 1900)}`,
+				reason: `owned_check_blocked: ${current.blocker ? `${current.blocker}: ` : ""}${error}`.slice(0, 1900),
 			});
 			if (!environment) {
 				try {
@@ -751,12 +761,15 @@ export class Engine {
 			verifierRevision: execution?.verifierRevision ?? null,
 			verification: "unaccepted",
 		});
+		await this.#retainDiagnostic(a.workflow, scope, text);
+	}
+	async #retainDiagnostic(workflow: string, scope: ExecutionScope, text: string): Promise<void> {
 		const reply = await this.#ledger!.command(
 			{
 				version: 1,
 				authorityEpoch: this.#ledger!.status().authorityEpoch,
 				commandId: `owned-diagnostic:${createHash("sha256").update(text).digest("hex")}`,
-				workflow: a.workflow,
+				workflow,
 				command: {
 					type: "recordRunnerDiagnostic",
 					assignment: scope.assignment,

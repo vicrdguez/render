@@ -101,6 +101,11 @@ A cancellation landing while trusted resolve is still running, before prepare, c
 it holds capacity and Slice writer ownership even though nothing was allocated. The human slice decision waives this as a
 gate; the behavior is tracked separately in [render#43](https://github.com/vicrdguez/render/issues/43).
 
+Policy adoption while an owned command runs holds capacity until confirmed stop and refuses the pass receipt on the old
+basis. The complete collected evidence stays retained as an unaccepted `owned-check-diagnostic` with its source roots,
+manifests and configuration warning. The blocker keeps the adoption cause. Cancel, wait for quiescence, then schedule a
+fresh check on the current binding.
+
 Preparation journals whether runtime creation may have been issued. After preparation settles under a stop fence,
 an explicit durable never-issued record confirms absence: a missing image, failed materialization or cancellation
 before create releases execution capacity without permitting workspace reuse. Cancellation can then release Slice
