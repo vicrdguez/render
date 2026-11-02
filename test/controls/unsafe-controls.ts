@@ -56,6 +56,20 @@ const CONTROLS: Control[] = [
 		],
 	},
 	{
+		name: "owned-possibly-created-absent",
+		behavior: "Engine classifies a preparation failure after create was issued as a pre-allocation refusal",
+		test: "test/owned-source-recovery.test.ts",
+		pattern: "possibly created",
+		expect: /a possibly created runtime must not be recorded absent/,
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: 'if (error instanceof SandboxInputRefusal) environment = "absent";',
+				replace: 'if (error instanceof SandboxInputRefusal || /Docker create failed/.test(String(error))) environment = "absent";',
+			},
+		],
+	},
+	{
 		name: "owned-host-fallback",
 		behavior: "executor runs the actual coding command on the host",
 		test: "test/owned-source-controls.test.ts",

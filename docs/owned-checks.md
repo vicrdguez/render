@@ -97,6 +97,9 @@ retains its actionable blocker and records an absent environment through Ledger,
 committed state survives reopen; cancellation then releases Slice writer ownership so a corrected assignment can proceed.
 The proof is the observed refusal before allocation in that invocation, not a missing journal. If a process dies before
 committing quiescence, recovery still treats an unjournaled executing scope as uncertain, never infers absence or reruns it.
+A cancellation landing while trusted resolve is still running, before prepare, currently stays canceling and quarantined:
+it holds capacity and Slice writer ownership even though nothing was allocated. The human slice decision waives this as a
+gate; the behavior is tracked separately in [render#43](https://github.com/vicrdguez/render/issues/43).
 
 Preparation journals whether runtime creation may have been issued. After preparation settles under a stop fence,
 an explicit durable never-issued record confirms absence: a missing image, failed materialization or cancellation

@@ -578,6 +578,7 @@ export class Engine {
 		this.#ownedActive.add(a.id);
 		// A fresh execution has not called prepare yet. Recovery never uses this local proof:
 		// beforeResume reconciles the original scope and keeps uncertain journals quarantined.
+		// Debt: a cancellation landing during trusted resolve fences prepare, finds no journal and stays quarantined.
 		let environment: "absent" | "stopped" | undefined = "absent";
 		try {
 			const base = await this.#effects!.perform({ type: "resolve", repository: check.repository, commit: check.commit });

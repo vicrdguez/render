@@ -1,5 +1,7 @@
 // Failure oracles authored before recovery/diagnostic implementation.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
@@ -196,3 +198,88 @@ for (const trigger of ["absent image", "absent commit", "gitlink", "base exclusi
 			await source.close();
 		}
 	});
+
+test("possibly created runtime is never recorded absent: capacity and writer ownership stay held", async () => {
+	const source = await sourceFixture();
+	// Controlled fault at the runtime boundary: the container really exists, but Render never learns its identity.
+	const tools = join(source.root, "tools");
+	await mkdir(tools);
+	const docker = execFileSync("sh", ["-c", "command -v docker"], { encoding: "utf8" }).trim();
+	await writeFile(
+		join(tools, "docker"),
+		`#!/bin/sh\nif [ "$1" = create ]; then "${docker}" "$@" >/dev/null 2>&1; echo 'lost create response' >&2; exit 1; fi\nexec "${docker}" "$@"\n`,
+		{ mode: 0o755 },
+	);
+	const path = process.env.PATH;
+	process.env.PATH = `${tools}:${path}`;
+	const config = {
+		root: join(source.root, "owned"),
+		repositories: { owned: source.repo },
+		checks: {
+			"revision:3": {
+				repository: "owned",
+				commit: source.commit,
+				profile: source.profile,
+				argv: ["true"],
+				timeoutMs: 10000,
+				verifierRevision: source.commit,
+			},
+		},
+	};
+	const f = await roleFixture(new Engine({ ownedChecks: config }));
+	const snapshot = () => {
+		const value = f.ledger.snapshot(admin);
+		assert.ok("assignments" in value);
+		return (value.assignments as RoleAssignment[])[0]!;
+	};
+	const assign = () =>
+		f.command({ type: "assignTask", slice: "possibly:created", delivery: true, packet: packet({ execution: "linux-writer" }) });
+	const held = "a possibly created runtime must not be recorded absent";
+	try {
+		assert.equal((await assign()).status, "accepted");
+		const deadline = Date.now() + 20000;
+		while (snapshot().status !== "blocked") {
+			assert.ok(Date.now() < deadline, JSON.stringify(snapshot()));
+			await setTimeout(20);
+		}
+		assert.match(snapshot().blocker!, /Docker create failed: lost create response/);
+		// Quiescence commits right after the blocker when absence is wrongly inferred; let that happen before judging.
+		const settled = Date.now() + 1000;
+		while (Date.now() < settled) {
+			assert.equal(snapshot().executing, true, held);
+			await setTimeout(20);
+		}
+		const sandboxes = join(config.root, "sandboxes");
+		const [id] = await readdir(sandboxes);
+		const { handle } = JSON.parse(await readFile(join(sandboxes, id!, "state.json"), "utf8"));
+		const created = execFileSync(docker, ["ps", "-aq", "--filter", `name=^${handle.runtime}$`], { encoding: "utf8" }).trim();
+		assert.notEqual(created, "", "the fault must leave an actual runtime behind");
+
+		const a = snapshot();
+		assert.equal(
+			(await f.command({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, admin)).status,
+			"accepted",
+		);
+		while (snapshot().blocker !== "owned_check_quarantined_stop_unconfirmed") {
+			assert.ok(Date.now() < deadline, JSON.stringify(snapshot()));
+			await setTimeout(20);
+		}
+		assert.equal(snapshot().status, "canceling");
+		assert.equal(snapshot().executing, true, held);
+
+		await f.reopen(new Engine({ ownedChecks: config }));
+		assert.equal(snapshot().status, "canceling");
+		assert.equal(snapshot().executing, true, held);
+		const replacement = await assign();
+		assert.ok(replacement.status === "refused" && replacement.code === "ownership_conflict", JSON.stringify(replacement));
+		assert.equal(
+			execFileSync(docker, ["ps", "-aq", "--filter", `name=^${handle.runtime}$`], { encoding: "utf8" }).trim(),
+			created,
+			"recovery must not remove the uncertain runtime to manufacture quiescence",
+		);
+	} finally {
+		process.env.PATH = path;
+		await f.close();
+		await source.close();
+	}
+});
