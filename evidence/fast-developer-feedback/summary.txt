@@ -1,0 +1,16 @@
+fast-1 exit=0 wall=15
+fast-2 exit=0 wall=15
+fast-3 exit=0 wall=14
+fast-4 exit=0 wall=14
+fast-5 exit=0 wall=15
+gate exit=0 wall=216
+full-2 exit=0 wall=215
+integration-1 exit=0 wall=165
+integration-2 exit=0 wall=175
+performance-1 exit=0 wall=19
+performance-2 exit=0 wall=20
+controls exit=0 wall=138
+v1 exit=0 wall=0
+extended-host exit=0 wall=689
+extended-containers exit=0 wall=1827
+finished

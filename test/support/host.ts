@@ -265,3 +265,21 @@ export function percentile(values: number[], p: number): number {
 	const sorted = [...values].sort((a, b) => a - b);
 	return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)] ?? Number.NaN;
 }
+
+export async function artifact(host: HostProcess, bearer: string, ref: string) {
+	return http(host.url, "GET", `/v1/artifacts/${encodeURIComponent(ref)}`, { bearer });
+}
+
+export async function snapshot(host: HostProcess, bearer: string) {
+	return http(host.url, "GET", "/v1/snapshot?version=1", { bearer });
+}
+
+export function workflowView(snap: Record<string, unknown>, id: string): Record<string, unknown> | undefined {
+	return (snap.workflows as Record<string, unknown>[]).find((w) => w.workflow === id);
+}
+
+export function currentRevision(snap: Record<string, unknown>, workflow: string, document: string): string | null {
+	const docs = (workflowView(snap, workflow)?.documents ?? []) as Record<string, unknown>[];
+	const d = docs.find((x) => x.document === document);
+	return d === undefined ? null : String(d.revision);
+}

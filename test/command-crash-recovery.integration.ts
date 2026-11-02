@@ -114,7 +114,14 @@ describe("B2-09 real disk exhaustion", () => {
 			}));
 			assert.notEqual(attempt.status, 200, `disk-full save was acknowledged: ${attempt.text}`);
 			if (attempt.status !== 0) assert.equal(attempt.body.code, "outcome_unknown");
-			const code = await Promise.race([host.exited, new Promise<string>((r) => setTimeout(() => r("still running"), 10_000))]);
+			let deadline: ReturnType<typeof setTimeout> | undefined;
+			const code = await Promise.race([
+				host.exited,
+				new Promise<string>((r) => {
+					deadline = setTimeout(() => r("still running"), 10_000);
+				}),
+			]);
+			clearTimeout(deadline);
 			assert.notEqual(code, "still running", "host must stop after a storage failure");
 			await unlink(filler);
 			const restarted = await startHost(data);

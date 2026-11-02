@@ -1,7 +1,14 @@
-// Independent Git-generated source and literal outcomes, before additional product changes.
+// Refusals that happen at source resolution, before any sandbox preparation: real Git, no container runtime.
 import assert from "node:assert/strict";
-import { test } from "node:test";
-import { git, sourceFixture } from "./support/source.ts";
+import { after, before, test } from "node:test";
+import { git, gitSourceFixture } from "./support/source.ts";
+
+// Each case adds its own tree and commit to one real repository; resolution refuses before anything else is touched.
+let f: Awaited<ReturnType<typeof gitSourceFixture>>;
+before(async () => {
+	f = await gitSourceFixture();
+});
+after(() => f.close());
 
 for (const [label, names] of [
 	["case collision", [Buffer.from("Readme"), Buffer.from("README")]],
@@ -12,64 +19,20 @@ for (const [label, names] of [
 	["backslash", [Buffer.from("a\\b")]],
 ] as const)
 	test(`literal-source-roundtrip refuses ${label} before materialization`, async () => {
-		const f = await sourceFixture();
-		try {
-			const blob = git(f.repo, ["hash-object", "-w", "--stdin"], "literal").toString().trim();
-			const tree = git(
-				f.repo,
-				["mktree", "-z"],
-				Buffer.concat(names.map((name) => Buffer.concat([Buffer.from(`100644 blob ${blob}\t`), name, Buffer.from([0])]))),
-			)
-				.toString()
-				.trim();
-			const commit = git(f.repo, ["commit-tree", tree], "invalid names\n").toString().trim();
-			await assert.rejects(f.effects.perform({ type: "resolve", repository: "owned", commit }), /name|collision|UTF8|representation/i);
-		} finally {
-			await f.close();
-		}
+		const blob = git(f.repo, ["hash-object", "-w", "--stdin"], "literal").toString().trim();
+		const tree = git(
+			f.repo,
+			["mktree", "-z"],
+			Buffer.concat(names.map((name) => Buffer.concat([Buffer.from(`100644 blob ${blob}\t`), name, Buffer.from([0])]))),
+		)
+			.toString()
+			.trim();
+		const commit = git(f.repo, ["commit-tree", tree], "invalid names\n").toString().trim();
+		await assert.rejects(f.effects.perform({ type: "resolve", repository: "owned", commit }), /name|collision|UTF8|representation/i);
 	});
 
-test("literal-source-roundtrip keeps newline, tab, leading dash and Unicode literal names", async () => {
-	const names = ["line\nbreak", "tab\tname", "-option", "café"];
-	const f = await sourceFixture(Object.fromEntries(names.map((name) => [name, { text: "exact\r\n" }])));
-	try {
-		const base = await f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit });
-		const handle = await f.sandboxes.prepare(f.scope, f.profile, base);
-		const capture = await f.sandboxes.seal(handle);
-		assert.deepEqual(capture.entries.map((e) => e.path).sort(), [...names].sort());
-		for (const entry of capture.entries) assert.equal(entry.content, Buffer.from("exact\r\n").toString("base64"));
-		const result = await f.effects.perform({ type: "retain", base, capture });
-		assert.equal(result.source.tree, base.tree);
-	} finally {
-		await f.close();
-	}
-});
-
-for (const [label, script, expected] of [
-	["entry quota", "for n in 1 2 3 4 5 6 7; do mkdir dir$n; done", /entries.*bound/i],
-	["partial execute mode", "chmod 700 crlf", /mode/i],
-	["invalid symlink text", 'node -e \'require("fs").symlinkSync(Buffer.from([255]), "invalid-link")\'', /representation/i],
-] as const)
-	test(`literal-source-roundtrip egress refuses ${label}`, async () => {
-		const f = await sourceFixture();
-		try {
-			const base = await f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit });
-			const handle = await f.sandboxes.prepare(f.scope, { ...f.profile, maxEntries: label === "entry quota" ? 6 : 10000 }, base);
-			const run = await f.sandboxes.execute(handle, { scope: f.scope, argv: ["sh", "-c", script], timeoutMs: 10000 });
-			assert.equal(run.exitCode, 0, run.stderr);
-			await assert.rejects(f.sandboxes.seal(handle), expected);
-		} finally {
-			await f.close();
-		}
-	});
-
-test("literal-source-roundtrip ingress bounds reject instead of reducing source", async () => {
-	const f = await sourceFixture();
-	try {
-		const base = await f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit });
-		await assert.rejects(f.sandboxes.prepare(f.scope, { ...f.profile, maxEntries: 5 }, base), /entry bound/i);
-		await assert.rejects(f.sandboxes.prepare(f.scope, { ...f.profile, maxBytes: 1 }, base), /bytes bound/i);
-	} finally {
-		await f.close();
-	}
+test("literal-source-roundtrip: gitlinks refuse rather than fetch modules", async () => {
+	const tree = git(f.repo, ["mktree"], `160000 commit ${f.commit}\tmodule\n`).toString().trim();
+	const commit = git(f.repo, ["commit-tree", tree], "Gitlink fixture\n").toString().trim();
+	await assert.rejects(f.effects.perform({ type: "resolve", repository: "owned", commit }), /gitlink|submodule/i);
 });

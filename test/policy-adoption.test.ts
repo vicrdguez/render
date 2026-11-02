@@ -401,7 +401,7 @@ test("policy-adoption: future defaults, checked adoption away/back, old pending 
 	}
 });
 
-test("policy-adoption: refresh pending packets without deleting completed reports or review counts", async () => {
+test("policy-adoption: a pending assignment gets a new packet and binding while its old packet stays retained", async () => {
 	const f = await roleFixture();
 	const frame = () => f.ledger.snapshot(admin) as Record<string, any>;
 	try {

@@ -72,11 +72,17 @@ test("context-continuation-independence: replacement requires fencing and quiesc
 
 test("context-continuation-independence: same-family review requires recorded human policy direction", async () => {
 	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
+	let requestOutput = "";
 	p.setResponses([
 		fauxAssistantMessage(fauxToolCall("request_role", { key: "review" }), { stopReason: "toolUse" }),
-		fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "UNAUTHORIZED-SAME-FAMILY-CANARY" }), {
-			stopReason: "toolUse",
-		}),
+		(ctx) => {
+			const result = ctx.messages.find((m) => m.role === "toolResult" && m.toolName === "request_role");
+			assert.ok(result?.role === "toolResult", "the parent's role request must reach its tool");
+			requestOutput = result.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+			return fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "Parent report without a review.\n" }), {
+				stopReason: "toolUse",
+			});
+		},
 	]);
 	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
 	try {
@@ -86,8 +92,16 @@ test("context-continuation-independence: same-family review requires recorded hu
 			delivery: true,
 			packet: packet({ requests: [{ key: "review", packet: packet({ role: "challenger" }) }] }),
 		});
-		for (let n = 0; n < 300 && !assignments(f)[0]?.runtimeTaskCaptured; n++) await setTimeout(10);
+		for (let n = 0; n < 300 && assignments(f).length === 1 && assignments(f)[0]?.status !== "submitted"; n++) await setTimeout(10);
 		assert.equal(assignments(f).length, 1, "same-family review must not silently start without human direction");
+		assert.equal(assignments(f)[0]?.status, "submitted", "the parent must reach and continue past its role request");
+		const reply = JSON.parse(requestOutput);
+		assert.deepEqual(
+			[reply.status, reply.code],
+			["refused", "capability_unavailable"],
+			"same-family request must be refused for missing human direction",
+		);
+		assert.match(reply.reason, /recorded human policy direction/);
 	} finally {
 		await f.close();
 	}

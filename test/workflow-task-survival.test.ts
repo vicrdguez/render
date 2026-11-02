@@ -74,27 +74,62 @@ test("R01/R07 accepted child survives submitting turn abort; own report and fixe
 });
 
 test("R02 same scoped role submission returns one receipt; new call rechecks eligibility; stale worker learns no receipt", async () => {
-	const f = await roleFixture();
+	const p = provider();
+	const held = Promise.withResolvers<void>();
+	p.setResponses([
+		async () => {
+			await held.promise;
+			return fauxAssistantMessage("Done");
+		},
+	]);
+	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }));
 	try {
 		const accepted = await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet() }, undefined, "root");
 		assert.equal(accepted.status, "accepted");
 		const duplicate = await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet() }, undefined, "root");
 		assert.ok(duplicate.status === "accepted" && duplicate.duplicate);
 		assert.equal(assignments(f).length, 1);
+		await until(() => assignments(f)[0]?.executing === true);
 		const a = assignments(f)[0]!;
-		const scoped = mintContext({
+		const identity = {
 			kind: "assignment-agent",
 			assignment: a.id,
 			generation: a.generation,
 			attempt: a.attempt,
 			role: a.packet.role,
-		});
-		const forged = await f.command({ type: "submitRoleResult", supports: [], text: "not running" }, scoped, "forged");
-		assert.equal(forged.status, "refused");
-		const canceled = await f.command({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, admin);
-		assert.equal(canceled.status, "accepted");
-		assert.equal((await f.ledger.receipt(scoped, "forged")).status, "refused");
+		} as const;
+		const scoped = mintContext(identity);
+		const submit = { type: "submitRoleResult", supports: [], text: "One exact report.\n" };
+
+		const first = await f.command(submit, scoped, "submit-once");
+		assert.ok(first.status === "accepted", JSON.stringify(first));
+		const retried = await f.command(submit, scoped, "submit-once");
+		assert.ok(retried.status === "accepted" && retried.duplicate, "retrying the same call must return its receipt");
+		assert.deepEqual([retried.sequence, retried.result], [first.sequence, first.result]);
+		assert.equal(assignments(f)[0]?.report, first.result.report);
+
+		const second = await f.command(submit, scoped, "submit-again");
+		assert.equal(
+			"code" in second ? second.code : second.status,
+			"assignment_not_running",
+			"a new call must be rechecked against current executing authority",
+		);
+		assert.equal(assignments(f)[0]?.report, first.result.report);
+
+		const own = await f.ledger.receipt(scoped, "submit-once");
+		assert.ok(own.status === "accepted");
+		assert.deepEqual(own.result, first.result);
+		const stale = mintContext({ ...identity, attempt: "attempt:stale" });
+		const learned = await f.ledger.receipt(stale, "submit-once");
+		assert.equal(
+			"code" in learned ? learned.code : learned.status,
+			"unauthorized",
+			"a stale worker must not learn another Attempt's receipt",
+		);
+		const refused = await f.ledger.receipt(scoped, "submit-again");
+		assert.equal("code" in refused ? refused.code : refused.status, "not_found", "a refused call retains no receipt");
 	} finally {
+		held.resolve();
 		await f.close();
 	}
 });

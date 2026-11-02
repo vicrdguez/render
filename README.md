@@ -9,6 +9,7 @@ A durable, event-backed orchestration kernel built around pure domain transition
 
 ```sh
 npm ci --ignore-scripts
-npm test && npm run typecheck && npm run lint
+npm test                # fast functional feedback, not the full suite
+npm run verify:gate     # typecheck, lint and every test selection
 node src/host/main.ts serve --data ~/.render/data
 ```
