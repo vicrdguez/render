@@ -4,6 +4,9 @@ export async function faultBarrier(
 	name:
 		| "before-commit"
 		| "after-commit"
+		| "before-source-root"
+		| "after-source-root"
+		| "after-sandbox-stop"
 		| "package-snapshot"
 		| "package-publish"
 		| "repair-before-commit"
@@ -14,5 +17,6 @@ export async function faultBarrier(
 ): Promise<void> {
 	if (process.env.RENDER_FAULT_BARRIER !== name || process.env.RENDER_FAULT_COMMAND !== commandId) return;
 	process.stdout.write(`${JSON.stringify({ event: "barrier", name, commandId })}\n`);
+	// Controlled tests may release an admitted operation to observe a cancellation race.
 	await new Promise<void>((resolve) => process.once("SIGUSR2", resolve));
 }

@@ -7,6 +7,7 @@ export const EXCLUSIONS = [
 	"unsaved_client_buffers",
 	"uncommitted_provider_streams",
 	"unsnapshotted_worker_files",
+	"private_git_source_objects",
 	"latest_only_live_partials",
 	"unpromoted_nested_results",
 	"active_task_memos",

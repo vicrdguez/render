@@ -36,6 +36,10 @@
 		"verify:policy-adoption": "node --test test/policy-adoption.test.ts test/child-replacement.test.ts",
 		"verify:task-version-recovery": "node --test test/task-version-recovery.test.ts test/role-recovery-startup.test.ts",
 		"verify:independent-export-reader": "node --test test/independent-export-reader.test.ts",
+		"verify:linux-profile-owned-check": "node --test test/linux-profile-owned-check.test.ts test/owned-check-history.test.ts test/owned-source-recovery.test.ts",
+		"verify:literal-source-roundtrip": "node --test test/literal-source-roundtrip.test.ts test/literal-source-names.test.ts test/owned-source-controls.test.ts",
+		"verify:whole-container-quiescence": "node --test test/whole-container-quiescence.test.ts test/owned-source-recovery.test.ts test/owned-check-cancellation.test.ts",
+		"verify:source-root-crash": "node --test test/source-root-crash.test.ts test/owned-check-crash.test.ts",
 		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts"
 	},
 	"dependencies": {
