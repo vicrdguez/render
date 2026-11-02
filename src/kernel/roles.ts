@@ -122,6 +122,14 @@ export function sameAgent(a: RoleAssignment, p: Principal): boolean {
 		a.status !== "canceled"
 	);
 }
+/** Linked replacements satisfy the same child obligation; predecessors remain historical.
+ * A canceled child with no replacement still blocks its parent.
+ */
+export function currentChildren(assignments: readonly RoleAssignment[], parent: string): RoleAssignment[] {
+	const children = assignments.filter((child) => child.parent === parent);
+	const replaced = new Set(children.map((child) => child.predecessor));
+	return children.filter((child) => !replaced.has(child.id));
+}
 export function packetRefs(p: RolePacket): string[] {
 	return [...new Set([...p.inputs, p.principles, p.instructions, p.policy, p.profile])];
 }
@@ -264,7 +272,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 						a.status === "blocked" &&
 						a.blocker === "awaiting_role_results" &&
 						!a.executing &&
-						work.assignments.filter((child) => child.parent === a.id).every((child) => child.status === "submitted")
+						currentChildren(work.assignments, a.id).every((child) => child.status === "submitted")
 					) {
 						a.status = "queued";
 						a.blocker = null;

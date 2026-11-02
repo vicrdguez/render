@@ -25,7 +25,7 @@ import {
 	type ToolExecutionApi,
 	type Tx,
 } from "@earendil-works/pi-durable";
-import { packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
+import { currentChildren, packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
 import { Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
@@ -289,9 +289,9 @@ export class Engine {
 					await submission.wait(context);
 					const a = this.#assignment(task.input.assignment);
 					// Results already delivered to a prior round cannot trigger another continuation.
-					const children = this.#assignments().filter(
-						(child) => child.parent === a?.id && !task.state.checkpoint.consumed?.includes(child.id),
-					);
+					const children = a
+						? currentChildren(this.#assignments(), a.id).filter((child) => !task.state.checkpoint.consumed?.includes(child.id))
+						: [];
 					if (a) {
 						if (a.status === "running")
 							await this.#command(a, { type: "recordBlocker", reason: children.length ? "awaiting_role_results" : "role_did_not_submit" });
@@ -323,9 +323,7 @@ export class Engine {
 							(a.status === "blocked" &&
 								a.blocker === "awaiting_role_results" &&
 								!a.executing &&
-								this.#assignments()
-									.filter((child) => child.parent === a.id)
-									.every((child) => child.status === "submitted"))
+								currentChildren(this.#assignments(), a.id).every((child) => child.status === "submitted"))
 						);
 					});
 					const a = this.#assignment(task.input.assignment);
@@ -351,9 +349,7 @@ export class Engine {
 							checkpoint: {
 								phase: "run",
 								round: round + 1,
-								consumed: this.#assignments()
-									.filter((child) => child.parent === a.id)
-									.map((child) => child.id),
+								consumed: currentChildren(this.#assignments(), a.id).map((child) => child.id),
 							},
 						}),
 						context,
@@ -481,8 +477,8 @@ export class Engine {
 			if (!("content" in value)) throw new Error(`Required exact input ${ref}: ${value.code}`);
 			inputs.push({ ref, text: value.content.toString("utf8") });
 		}
-		const results = this.#assignments()
-			.filter((child) => child.parent === a.id && child.status === "submitted")
+		const results = currentChildren(this.#assignments(), a.id)
+			.filter((child) => child.status === "submitted")
 			.map((child) => ({ assignment: child.id, report: child.report }));
 		const frame = this.#ledger.snapshot(scheduling);
 		if (!("policy" in frame)) throw new Error("Current policy is unavailable.");

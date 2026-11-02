@@ -29,9 +29,9 @@
 		"verify:history-cutoff-export": "node --test test/history-cutoff-export.test.ts test/history-missing-data.test.ts test/history-message.test.ts test/history-completeness.test.ts test/history-cursor-transfer.test.ts test/role-history.test.ts",
 
 		"verify:history-command-load": "node --test test/history-command-load.ts",
-		"verify:context-continuation-independence": "node --test test/context-continuation-independence.test.ts test/workflow-task-survival.test.ts test/role-wait-restart.test.ts",
+		"verify:context-continuation-independence": "node --test test/context-continuation-independence.test.ts test/workflow-task-survival.test.ts test/role-wait-restart.test.ts test/child-replacement.test.ts",
 		"verify:native-compaction-history": "node --test test/native-compaction-history.test.ts",
-		"verify:policy-adoption": "node --test test/policy-adoption.test.ts",
+		"verify:policy-adoption": "node --test test/policy-adoption.test.ts test/child-replacement.test.ts",
 		"verify:task-version-recovery": "node --test test/task-version-recovery.test.ts test/role-recovery-startup.test.ts",
 		"verify:independent-export-reader": "node --test test/independent-export-reader.test.ts",
 		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts"
