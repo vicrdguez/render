@@ -11,7 +11,7 @@ const base = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "")
 const { Engine } = await import(base + "/src/engine/runtime.ts");
 const { openLedger } = await import(base + "/src/ledger/startup.ts");
 const { mintContext } = await import(base + "/src/ledger/principals.ts");
-const { roleFixture, packet, admin, scheduler, recovery } = await import(base + "/test/support/roles.ts");
+const { roleFixture, packet, admin, scheduler, recovery, allowSameFamily } = await import(base + "/test/support/roles.ts");
 const { fauxProvider, fauxAssistantMessage, fauxToolCall, Type } = await import(base + "/node_modules/@earendil-works/pi-ai/dist/index.js");
 const { configure, defineTool, defineExtension, createRegistry, defineTask } = await import(
 	base + "/node_modules/@earendil-works/pi-durable/dist/index.js"
@@ -116,6 +116,7 @@ if (process.argv[2] === "fence-worker") {
 	);
 	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }));
 	try {
+		await allowSameFamily(f.ledger);
 		for (let i = 1; i <= 5; i++)
 			assert.equal(
 				(

@@ -1,5 +1,7 @@
 // Pure role ownership and execution legality, reached only through Kernel.change.
+
 import type { Decision, DomainWrite, KernelState, Principal, VerifiedFacts } from "./kernel.ts";
+import { bindingFor, initialPolicy } from "./policy.ts";
 
 export const ROLES = [
 	"coordinator",
@@ -14,6 +16,8 @@ export const ROLES = [
 ] as const;
 export type Role = (typeof ROLES)[number];
 export type RolePacket = {
+	/** Ledger-generated binding; callers cannot submit or inherit it. */
+	policyBinding?: string;
 	role: Role;
 	inputs: string[];
 	principles: string;
@@ -42,6 +46,10 @@ export type RoleAssignment = {
 	executorEpoch: string | null;
 	packet: RolePacket;
 	packetRef: string;
+	policyBinding?: string;
+	predecessor?: string | null;
+	runtimeHistory?: string;
+	runtimeTaskCaptured?: boolean;
 	conversation: number;
 	task: number;
 	parent: string | null;
@@ -57,6 +65,8 @@ export type RoleWorkState = { assignments: RoleAssignment[] };
 export type RoleIntent = { kind: "run-role" | "notify-role"; assignment: string };
 export type RoleCommand =
 	| { type: "assignTask"; workflow: string; slice: string; delivery: boolean; packet: RolePacket }
+	| { type: "replaceTask"; workflow: string; assignment: string; generation: number; attempt: string; packet: RolePacket }
+	| { type: "recordRuntimeHistory"; workflow: string; assignment: string; generation: number; attempt: string; key: string }
 	| { type: "requestRole"; workflow: string; key: string }
 	| { type: "submitRoleResult"; workflow: string; text: string }
 	| { type: "requestOwnStop"; workflow: string }
@@ -91,6 +101,8 @@ export type RoleCommand =
 
 export const ROLE_COMMANDS = [
 	"assignTask",
+	"replaceTask",
+	"recordRuntimeHistory",
 	"requestRole",
 	"submitRoleResult",
 	"requestOwnStop",
@@ -118,6 +130,14 @@ export function sameAgent(a: RoleAssignment, p: Principal): boolean {
 		a.status !== "canceling" &&
 		a.status !== "canceled"
 	);
+}
+/** Linked replacements satisfy the same child obligation; predecessors remain historical.
+ * A canceled child with no replacement still blocks its parent.
+ */
+export function currentChildren(assignments: readonly RoleAssignment[], parent: string): RoleAssignment[] {
+	const children = assignments.filter((child) => child.parent === parent);
+	const replaced = new Set(children.map((child) => child.predecessor));
+	return children.filter((child) => !replaced.has(child.id));
 }
 export function packetRefs(p: RolePacket): string[] {
 	return [...new Set([...p.inputs, p.principles, p.instructions, p.policy, p.profile])];
@@ -150,7 +170,9 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			generation: 1,
 			attempt,
 			executorEpoch: null,
-			packet,
+			packet: { ...packet, policyBinding: bindingFor(state.policy ?? initialPolicy(), c.workflow).revision },
+			policyBinding: bindingFor(state.policy ?? initialPolicy(), c.workflow).revision,
+			predecessor: c.type === "replaceTask" ? c.assignment : null,
 			packetRef: `packet:${facts.sequence}`,
 			conversation: 0,
 			task: 0,
@@ -170,23 +192,31 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 	if (c.type === "assignTask") {
 		if (!c.packet || !c.slice || typeof c.delivery !== "boolean")
 			return refusal("invalid_content", "Assignment requires an explicit packet, Slice and ownership mode.");
-		if (
-			work.assignments.some(
-				(a) =>
-					a.slice === c.slice &&
-					((c.delivery && a.delivery && a.status !== "submitted" && a.status !== "canceled") ||
-						(c.packet.execution === "linux-writer" &&
-							a.packet.execution === "linux-writer" &&
-							(a.executing || (a.status !== "submitted" && a.status !== "canceled")))),
-			)
-		)
+		if (hasOwner(work, c.packet, c.slice, c.delivery))
 			return refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer.");
 		create(c.packet, c.slice, c.delivery, null, null);
+	} else if (c.type === "replaceTask") {
+		if (!a || a.generation !== c.generation || a.attempt !== c.attempt || a.workflow !== c.workflow)
+			return refusal("stale_assignment", "Replacement predecessor differs.");
+		if (a.status !== "canceled" || a.executing)
+			return refusal("quiescence_unconfirmed", "Fence and quiesce the predecessor before replacement.");
+		if (work.assignments.some((child) => child.predecessor === a.id))
+			return refusal("ownership_conflict", "Predecessor already has a replacement.");
+		if (hasOwner(work, c.packet, a.slice, a.delivery))
+			return refusal("ownership_conflict", "Replacement would overlap a current delivery owner or writer.");
+		create(c.packet, a.slice, a.delivery, a.parent, a.requestKey);
+		result.predecessor = a.id;
 	} else if (c.type === "requestRole") {
 		if (!a) return refusal("stale_assignment", "No current assignment.");
 		const request = a.packet.requests.find((r) => r.key === c.key);
 		if (!request || !mayRequest(a.packet.role, request.packet.role))
 			return refusal("forbidden_scope", "Request is not a predefined role within this packet.");
+		const policy = state.policy ?? initialPolicy();
+		if (
+			request.packet.family === a.packet.family &&
+			policy.revisions[bindingFor(policy, a.workflow).policy]?.reviewerDiversity !== "human-directed-same-family"
+		)
+			return refusal("capability_unavailable", "Same-family independent work needs recorded human policy direction; no family fallback.");
 		if (work.assignments.some((child) => child.parent === a.id && child.requestKey === c.key))
 			return refusal("role_already_requested", "This bounded role request already has durable work.");
 		create(request.packet, a.slice, false, a.id, c.key);
@@ -223,6 +253,10 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				a.status = "submitted";
 				result.report = a.report;
 				if (a.parent) intents.push({ kind: "notify-role", assignment: a.id });
+				break;
+			case "recordRuntimeHistory":
+				a.runtimeHistory = `runtime-history:${facts.sequence}`;
+				result.runtimeHistory = a.runtimeHistory;
 				break;
 			case "stageTask":
 				if (a.status !== "queued") return refusal("assignment_not_queued", "Only queued work starts.");
@@ -263,7 +297,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 						a.status === "blocked" &&
 						a.blocker === "awaiting_role_results" &&
 						!a.executing &&
-						work.assignments.filter((child) => child.parent === a.id).every((child) => child.status === "submitted")
+						currentChildren(work.assignments, a.id).every((child) => child.status === "submitted")
 					) {
 						a.status = "queued";
 						a.blocker = null;
@@ -292,6 +326,16 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		},
 	];
 	return { outcome: "accepted", result, writes, facts: [facts.ids.fact] };
+}
+function hasOwner(work: RoleWorkState, packet: RolePacket, slice: string, delivery: boolean): boolean {
+	return work.assignments.some(
+		(a) =>
+			a.slice === slice &&
+			((delivery && a.delivery && a.status !== "submitted" && a.status !== "canceled") ||
+				(packet.execution === "linux-writer" &&
+					a.packet.execution === "linux-writer" &&
+					(a.executing || (a.status !== "submitted" && a.status !== "canceled")))),
+	);
 }
 function mayRequest(parent: Role, child: Role): boolean {
 	return parent === "coordinator"

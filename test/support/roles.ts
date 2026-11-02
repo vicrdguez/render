@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Harness, Registry } from "@earendil-works/pi-durable";
 import { Engine } from "../../src/engine/runtime.ts";
+import type { PolicyState } from "../../src/kernel/policy.ts";
 import type { RolePacket } from "../../src/kernel/roles.ts";
+import type { Ledger } from "../../src/ledger/ledger.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
 
@@ -33,6 +35,38 @@ export function packet(overrides: Partial<RolePacket> = {}): RolePacket {
 export const admin = mintContext({ kind: "human", human: "human:owner", route: "local-admin" });
 export const scheduler = mintContext({ kind: "host", scope: "scheduling" });
 export const recovery = mintContext({ kind: "host", scope: "recovery" });
+/** Explicit fixture human direction, not a provider/host family fallback. */
+export async function allowSameFamily(ledger: Ledger) {
+	const frame = ledger.snapshot(admin);
+	if (!("policy" in frame)) throw new Error("Missing policy snapshot");
+	const policy = frame.policy as PolicyState;
+	const changed = await ledger.command(
+		{
+			version: 1,
+			authorityEpoch: ledger.status().authorityEpoch,
+			commandId: "fixture-family-direction",
+			command: {
+				type: "changePolicy",
+				expectedRevision: policy.defaultRevision,
+				policy: { completedReviewLimit: 2, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+			},
+		},
+		admin,
+	);
+	if (changed.status !== "accepted") throw new Error(JSON.stringify(changed));
+	const adopted = await ledger.command(
+		{
+			version: 1,
+			authorityEpoch: ledger.status().authorityEpoch,
+			commandId: "fixture-family-adoption",
+			workflow: "workflow:2",
+			command: { type: "adoptPolicy", revision: changed.result.policy, expectedBinding: policy.bindings["workflow:2"]!.revision },
+		},
+		admin,
+	);
+	if (adopted.status !== "accepted") throw new Error(JSON.stringify(adopted));
+}
+
 export async function roleFixture(engine = new Engine()) {
 	const data = await mkdtemp(join(tmpdir(), "render-role-"));
 	let harness!: Harness;

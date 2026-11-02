@@ -78,6 +78,9 @@ test("history-cutoff-export: exact separate identities, fixed pages/export after
 			"uncommitted_provider_streams",
 			"unsnapshotted_worker_files",
 			"private_git_source_objects",
+			"latest_only_live_partials",
+			"unpromoted_nested_results",
+			"active_task_memos",
 		]);
 		const revisions = rows(bundle).filter((r) => r.kind === "ground");
 		assert.deepEqual(
@@ -106,7 +109,7 @@ test("history-cutoff-export: exact separate identities, fixed pages/export after
 		const decoded = JSON.parse(execFileSync(process.execPath, [join(ROOT, "src/client/read-export.ts"), path], { encoding: "utf8" }));
 		assert.equal(decoded.complete, true);
 		assert.deepEqual(
-			decoded.documents.map((d: { text: string }) => d.text),
+			decoded.documents.filter((d: { kind: string }) => d.kind === "ground").map((d: { text: string }) => d.text),
 			["original\r\n☃\n", "original\r\n☃\n"],
 		);
 		const fresh = await http(host.url, "GET", `/v1/history?${q}`, { bearer: a.bearer });
