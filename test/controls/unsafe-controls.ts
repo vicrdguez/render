@@ -148,7 +148,7 @@ const CONTROLS: Control[] = [
 				replace: "if (false)",
 			},
 		],
-		test: "test/scoped-web-research.test.ts",
+		test: "test/web-evidence-retention.test.ts",
 		pattern: "required corrupt support",
 	},
 	{
@@ -209,7 +209,7 @@ const CONTROLS: Control[] = [
 				replace: "observation.digest = webTextDigest(observation.text); observation.id = observation.digest;",
 			},
 		],
-		test: "test/scoped-web-research.test.ts",
+		test: "test/web-evidence-retention.test.ts",
 		pattern: "identical bytes",
 	},
 	{
@@ -224,7 +224,7 @@ const CONTROLS: Control[] = [
 					'const data = entry.data as unknown as RevisionData; if (data.document.startsWith("web-evidence/") && this.#webWorking.size === 0) return NOT_FOUND;',
 			},
 		],
-		test: "test/scoped-web-research.test.ts",
+		test: "test/web-evidence-retention.test.ts",
 		pattern: "selected negative evidence",
 	},
 	{

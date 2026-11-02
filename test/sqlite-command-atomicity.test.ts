@@ -12,7 +12,6 @@ import {
 	type HostProcess,
 	http,
 	save,
-	sha256,
 	startHost,
 	tempDir,
 } from "./support/host.ts";

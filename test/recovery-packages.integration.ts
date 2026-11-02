@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash, createHmac } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { cp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openNodeSqliteDatabase } from "@earendil-works/chord/sqlite/node";
 import { Harness } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
 import { runtimeOptions } from "../src/engine/runtime.ts";
-import { Device, Meta, Receipt, Workflow } from "../src/ledger/records.ts";
+import { Meta } from "../src/ledger/records.ts";
 import {
 	adminRequest,
 	assertNoDisclosure,

@@ -25,6 +25,8 @@ Choose the least complexity that satisfies the accepted scope, repository standa
 
 Separate the edit loop from acceptance verification. Use focused checks while iterating; run the required cumulative gate at the workflow’s verification boundary on the actual candidate source.
 
+`npm test` is the edit-loop selection and never the cumulative gate. The Full Gate is `npm run verify:gate`. Before choosing or adding a selection, read the Selections section of [.render/verify.md](.render/verify.md).
+
 - **Select deliberately.** Inspect what a test command runs before invoking it. Choose the smallest set that covers the changed behavior, its affected callers and relevant failure modes—not merely the changed files.
 - **Expand with cause.** Broaden checks when changes cross boundaries, touch shared infrastructure or leave impact uncertain. A focused pass is not evidence that the full suite passed.
 - **Avoid redundant runs.** During iteration, run overlapping checks once and rerun when relevant source, dependencies, configuration or environment changes. Preserve required source-specific verification at handoff.

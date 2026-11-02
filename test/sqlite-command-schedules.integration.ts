@@ -1,8 +1,6 @@
 // V2: the seeded real-SQLite schedules and large-document boundaries; literal command cases stay in sqlite-command-atomicity.test.ts.
 import assert from "node:assert/strict";
-import { readdir, readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
-import { after, before, describe, test } from "node:test";
+import { describe, test } from "node:test";
 import {
 	adminRequest,
 	assertNoDisclosure,
@@ -16,7 +14,6 @@ import {
 	startHost,
 	tempDir,
 } from "./support/host.ts";
-import { A1, B1, B2, BAD, BOM, G1 } from "./support/literals.ts";
 import { seeded } from "./support/random.ts";
 
 const SCHEDULES = Number(process.env.RENDER_V2_SCHEDULES ?? 32);
