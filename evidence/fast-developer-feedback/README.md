@@ -27,7 +27,7 @@ Latency in the performance runs: V9 acknowledgement p95 132.9 and 129.4 ms, snap
 
 ## Residual cost
 
-- More workers stop helping: earlier selections took 17.5 s at four workers, 17.0 at six and 16.9 at eight. On a RAM volume `TMPDIR`, the final selection took 4.44, 4.39 and 4.39 s with the same 121 passes. About 10 of the 14 seconds is therefore `F_FULLFSYNC` waiting on the device, which real commits require. No command uses a RAM volume; it was a measurement only.
+- More workers stop helping: earlier selections took 17.5 s at four workers, 17.0 at six and 16.9 at eight. On a RAM volume `TMPDIR`, the final selection took 4.44, 4.39 and 4.39 s with the same 121 passes. About 10 of the 14 seconds is therefore device I/O. `F_FULLFSYNC` on each real commit is the likely main part, inferred from this difference and not traced separately. No command uses a RAM volume; it was a measurement only.
 - Largest fast files, serial: `web-evidence-retention` 4.1 s, `child-replacement` 2.8, `scoped-web-research` 2.6, `policy-adoption` 2.4, `sqlite-command-atomicity` 2.3, `native-compaction-history` 2.2. Total 26.4 s of case time. Further cuts would remove real journeys from the edit loop.
 - Node sorts test files, so the file order is not tunable without renames.
 - Retained fixed waits are observations: R10's settle and idle windows, its blocked-owner 150 ms, the web no-request 200 ms and the real 1 s working-cache expiry.
@@ -67,7 +67,7 @@ Baseline and candidate case names differ only by five intended renames (one poli
 ## Not run or not established
 
 - `verify:complete` was run as its parts, listed in `summary.txt`, not as one command.
-- Named `verify:*` rows that are subsets of `test:full` were not run separately except where listed.
+- Every named `verify:*` row ran and selected at least one case: `named-rows.txt` on `0de45ce`, the rest in `summary.txt` and the extended logs. Those on `0de45ce` differ from the candidate only by evidence files.
 - No Linux host, deployed off-host, live provider or physical power-loss claim. Docker runs on this macOS host. The B2-09 disk-full case and its control need `hdiutil`.
 - Concurrency at four workers was repeated on this machine only.
 - Biome warnings went from 297 to 301, all `noNonNullAssertion` in moved test code; errors stayed at zero.
