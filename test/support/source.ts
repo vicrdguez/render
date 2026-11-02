@@ -69,6 +69,8 @@ export async function gitSourceFixture(
 }
 
 export async function sourceFixture(files?: Record<string, { mode?: string; text: string }>) {
+	// Before any fixture directory exists: a missing runtime or image fails here and leaves nothing behind.
+	const image = execFileSync("docker", ["image", "inspect", "node:24-alpine", "--format", "{{.Id}}"], { encoding: "utf8" }).trim();
 	const source = await gitSourceFixture(files);
 	const { root } = source;
 	let current = true;
@@ -77,7 +79,6 @@ export async function sourceFixture(files?: Record<string, { mode?: string; text
 		root: join(root, "sandboxes"),
 		authorize: (s) => current && JSON.stringify(s) === JSON.stringify(scope),
 	});
-	const image = execFileSync("docker", ["image", "inspect", "node:24-alpine", "--format", "{{.Id}}"], { encoding: "utf8" }).trim();
 	const profile = { image, exclusions: [".git"], maxBytes: 64 * 1024 * 1024, maxEntries: 10000 };
 	return {
 		...source,
