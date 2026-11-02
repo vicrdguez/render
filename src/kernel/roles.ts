@@ -2,6 +2,7 @@
 
 import type { Decision, DomainWrite, KernelState, Principal, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
+import { completionGap, type VerificationAssessment, type VerificationSelection } from "./verification.ts";
 
 export const ROLES = [
 	"coordinator",
@@ -16,6 +17,7 @@ export const ROLES = [
 ] as const;
 export type Role = (typeof ROLES)[number];
 export type RolePacket = {
+	verification?: VerificationSelection;
 	/** Ledger-generated binding; callers cannot submit or inherit it. */
 	policyBinding?: string;
 	role: Role;
@@ -69,7 +71,7 @@ export type RoleCommand =
 	| { type: "replaceTask"; workflow: string; assignment: string; generation: number; attempt: string; packet: RolePacket }
 	| { type: "recordRuntimeHistory"; workflow: string; assignment: string; generation: number; attempt: string; key: string }
 	| { type: "requestRole"; workflow: string; key: string }
-	| { type: "submitRoleResult"; workflow: string; text: string; supports: string[] }
+	| { type: "submitRoleResult"; workflow: string; text: string; supports: string[]; verification?: VerificationAssessment }
 	| {
 			type: "retainWebEvidence";
 			workflow: string;
@@ -152,7 +154,16 @@ export function currentChildren(assignments: readonly RoleAssignment[], parent: 
 	return children.filter((child) => !replaced.has(child.id));
 }
 export function packetRefs(p: RolePacket): string[] {
-	return [...new Set([...p.inputs, p.principles, p.instructions, p.policy, p.profile])];
+	return [
+		...new Set([
+			...p.inputs,
+			p.principles,
+			p.instructions,
+			p.policy,
+			p.profile,
+			...(p.verification ? [p.verification.contract, ...p.verification.receipts] : []),
+		]),
+	];
 }
 export function changeRole(state: KernelState, command: RoleCommand, facts: VerifiedFacts): Decision {
 	if (!state.workflow || state.workflow.id !== command.workflow) return refusal("not_found", "Role work requires an existing workflow.");
@@ -254,12 +265,23 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (!Array.isArray(c.supports)) return refusal("invalid_content", "Declare required retained supports, or [] for no web reliance.");
 		if (c.supports.some((ref) => !a.evidence?.includes(ref)))
 			return refusal("missing_content", "Promote exact required web support before reliance.");
+		if (a.packet.verification) {
+			if (!c.verification?.reason || !["pass", "non-pass"].includes(c.verification.outcome))
+				return refusal("invalid_content", "Declare catalog adequacy and rationale; command exit is not judgment.");
+			const policy = state.policy ?? initialPolicy();
+			const minimum = policy.revisions[bindingFor(policy, a.workflow).policy]!.minimumEvidenceRank;
+			const gap = completionGap(a.packet.verification, a.packet.role, c.verification, facts.verificationEvidence ?? [], minimum);
+			if (gap) return refusal("missing_content", gap);
+		} else if (c.verification) return refusal("invalid_content", "Assessment requires a selected verification catalog.");
 		a.status = "submitted";
 		a.report = facts.ids.revision ?? null;
 		result = {
 			assignment: a.id,
 			report: a.report,
 			webEvidence: c.supports.length ? "retained" : "none",
+			...(c.verification
+				? { verificationOutcome: c.verification.outcome, verificationRank: c.verification.rank, verificationReason: c.verification.reason }
+				: {}),
 			...Object.fromEntries(c.supports.map((ref, i) => [`support${i}`, ref])),
 		};
 		if (a.parent) intents.push({ kind: "notify-role", assignment: a.id });

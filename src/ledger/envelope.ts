@@ -99,8 +99,8 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 			only(p, ["completedReviewLimit", "reviewerDiversity", "minimumEvidenceRank"], "policy");
 			if (!Number.isSafeInteger(p.completedReviewLimit) || Number(p.completedReviewLimit) < 0)
 				malformed("completedReviewLimit must be a nonnegative integer");
-			if (!["process", "tests", "build", "inspection"].includes(String(p.minimumEvidenceRank)))
-				malformed("minimumEvidenceRank must name the current project ladder");
+			// Membership is checked against the selected repository catalog at completion, never a second ladder.
+			text(p.minimumEvidenceRank, "minimumEvidenceRank", 128);
 			if (p.reviewerDiversity !== "different-family" && p.reviewerDiversity !== "human-directed-same-family")
 				malformed("unknown reviewer diversity policy");
 			return {
@@ -191,18 +191,30 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 			only(c, ["type", "key"], "command");
 			return { type, workflow, key: text(c.key, "key", 128) };
 		case "submitRoleResult": {
-			only(c, ["type", "text", "supports"], "command");
+			only(c, ["type", "text", "supports", "verification"], "command");
 			if (
 				!Array.isArray(c.supports) ||
 				c.supports.length > 32 ||
 				!c.supports.every((v) => typeof v === "string" && v.length > 0 && v.length <= 128)
 			)
 				malformed("Declare required retained supports (at most 32 refs), or [] for no web reliance.");
+			let verification: import("../kernel/verification.ts").VerificationAssessment | undefined;
+			if (c.verification !== undefined) {
+				const v = object(c.verification, "verification assessment");
+				only(v, ["outcome", "rank", "reason"], "verification assessment");
+				if (v.outcome !== "pass" && v.outcome !== "non-pass") malformed("unknown verification outcome");
+				verification = {
+					outcome: v.outcome,
+					rank: v.rank === null ? null : text(v.rank, "rank", 128),
+					reason: text(v.reason, "reason", 4096),
+				};
+			}
 			return {
 				type,
 				workflow,
 				text: text(c.text, "text", 1024 * 1024),
 				supports: c.supports as string[],
+				...(verification ? { verification } : {}),
 			};
 		}
 		case "retainWebEvidence":
@@ -292,6 +304,7 @@ function parsePacket(raw: unknown, depth = 0): RolePacket {
 			"expectedOutput",
 			"submission",
 			"requests",
+			"verification",
 		],
 		"role packet",
 	);
@@ -319,6 +332,20 @@ function parsePacket(raw: unknown, depth = 0): RolePacket {
 		keys.add(key);
 		return { key, packet: parsePacket(r.packet, depth + 1) };
 	});
+	if (p.verification !== undefined) {
+		const v = object(p.verification, "verification selection");
+		only(v, ["repository", "commit", "path", "digest", "contract", "rows", "receipts"], "verification selection");
+		for (const name of ["repository", "commit", "path", "digest", "contract"]) text(v[name], name, 4096);
+		if (!/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(String(v.commit)) || !/^[a-f0-9]{64}$/.test(String(v.digest)))
+			malformed("verification requires exact commit and SHA-256 catalog digest");
+		for (const name of ["rows", "receipts"])
+			if (
+				!Array.isArray(v[name]) ||
+				v[name].length > 64 ||
+				!v[name].every((s: unknown) => typeof s === "string" && s.length > 0 && s.length <= 128)
+			)
+				malformed(`verification ${name} must be a bounded list`);
+	}
 	return { ...p, requests } as RolePacket;
 }
 

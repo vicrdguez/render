@@ -27,10 +27,12 @@ import {
 } from "@earendil-works/pi-durable";
 import { Effects, type Source, type SourceReceipt } from "../effects/source.ts";
 import { currentChildren, packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
+import type { CatalogResult, SelectedCatalog } from "../kernel/verification.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
 import { Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
 import { type ExecutionResult, type ExecutionScope, type LinuxProfile, Sandboxes, SandboxInputRefusal } from "../sandboxes/sandboxes.ts";
+import { selectCatalog } from "./catalog.ts";
 import { previewWeb, research, type WebConfig } from "./web.ts";
 
 const ctx = BACKGROUND_CONTEXT;
@@ -62,7 +64,10 @@ export type OwnedChecks = {
 	checks: Readonly<
 		Record<
 			string,
-			{ repository: string; commit: string; profile: LinuxProfile; argv: string[]; timeoutMs: number; verifierRevision: string }
+			{ repository: string; commit: string; profile: LinuxProfile; timeoutMs: number } & (
+				| { catalog: true }
+				| { argv: string[]; verifierRevision: string }
+			)
 		>
 	>;
 };
@@ -210,7 +215,20 @@ export class Engine {
 			description:
 				"Submit own report. Required supports lists every relied-on web evidence revision, including negative/conflicting context. Promote exact passages first; use [] only to explicitly declare no web reliance.",
 			parameters: Type.Object(
-				{ text: Type.String(), supports: Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 32 }) },
+				{
+					text: Type.String(),
+					supports: Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 32 }),
+					verification: Type.Optional(
+						Type.Object(
+							{
+								outcome: Type.Union([Type.Literal("pass"), Type.Literal("non-pass")]),
+								rank: Type.Union([Type.String(), Type.Null()]),
+								reason: Type.String(),
+							},
+							{ additionalProperties: false },
+						),
+					),
+				},
 				{ additionalProperties: false },
 			),
 			replay: "safe",
@@ -437,13 +455,15 @@ export class Engine {
 								.then(() => this.reconcile());
 						const blocker = this.#configurationBlocker(a);
 						let prompt: string;
+						let catalogGap: string | undefined;
 						try {
 							prompt = blocker ? "" : await this.render(a);
-						} catch {
+						} catch (error) {
 							prompt = "";
+							if (a.packet.verification) catalogGap = `verification_unrun: ${error}`.slice(0, 1900);
 						}
 						if (blocker || !prompt || Buffer.byteLength(prompt) > a.packet.maxInputBytes) {
-							await this.#command(a, { type: "recordBlocker", reason: blocker ?? "required_inputs_do_not_fit" });
+							await this.#command(a, { type: "recordBlocker", reason: blocker ?? catalogGap ?? "required_inputs_do_not_fit" });
 							return runtime
 								.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context)
 								.then(() => this.reconcile());
@@ -701,7 +721,18 @@ export class Engine {
 		const binding = policy.bindings[a.workflow];
 		if (!binding || (a.policyBinding !== undefined && a.policyBinding !== binding.revision))
 			throw new Error("Stale workflow policy binding.");
+		let verification: SelectedCatalog | undefined;
+		if (a.packet.verification) {
+			if (!this.#effects) throw new Error("Verification catalog trusted source capability unavailable.");
+			const source = await this.#effects.perform({
+				type: "resolve",
+				repository: a.packet.verification.repository,
+				commit: a.packet.verification.commit,
+			});
+			verification = selectCatalog(source, a.packet.verification);
+		}
 		return JSON.stringify({
+			...(verification ? { verification } : {}),
 			assignment: a.id,
 			generation: a.generation,
 			attempt: a.attempt,
@@ -806,15 +837,53 @@ export class Engine {
 		let environment: "absent" | "stopped" | undefined = "absent";
 		try {
 			const base = await this.#effects!.perform({ type: "resolve", repository: check.repository, commit: check.commit });
+			if ("catalog" in check !== !!a.packet.verification)
+				throw new Error("Catalog execution must be explicitly authorized; no operator-command fallback.");
+			const catalog = a.packet.verification ? selectCatalog(base, a.packet.verification) : undefined;
 			environment = undefined;
 			const handle = await this.#sandboxes!.prepare(this.#scope(a), check.profile, base);
-			const execution = await this.#sandboxes!.execute(handle, {
-				scope: this.#scope(a),
-				argv: check.argv,
-				timeoutMs: check.timeoutMs,
-				verifierRevision: check.verifierRevision,
-			});
-			await this.#diagnostic(a, this.#scope(a), base, execution);
+			const run = async (argv: string[]) => {
+				const execution = await this.#sandboxes!.execute(handle, {
+					scope: this.#scope(a),
+					argv,
+					timeoutMs: check.timeoutMs,
+					verifierRevision: catalog?.selection.digest ?? ("verifierRevision" in check ? check.verifierRevision : undefined),
+				});
+				await this.#diagnostic(a, this.#scope(a), base, execution);
+				return execution;
+			};
+			let execution: ExecutionResult | undefined;
+			const results: CatalogResult[] = [];
+			const cleanup: { status: "complete" | "pending"; results: ExecutionResult[] } = { status: "complete", results: [] };
+			if (catalog) {
+				// Decisive results are committed before cleanup can remove any owned fixture bytes.
+				for (const row of catalog.rows) {
+					const result: CatalogResult = { name: row.name, status: row.kind === "human" ? "advisory" : "completed", steps: [] };
+					if (row.kind !== "human") {
+						for (const command of row.journey?.steps ?? [row.run]) result.steps.push(await run(["sh", "-c", command]));
+						if (row.journey) result.sanity = await run(["sh", "-c", row.journey.sanity]);
+						const actual = [...result.steps, ...(result.sanity ? [result.sanity] : [])];
+						if (actual.some((r) => r.exitCode === 126 || r.exitCode === 127)) result.status = "unrun";
+						else if (actual.some((r) => r.exitCode !== 0 || r.timedOut)) result.status = "failed";
+					}
+					results.push(result);
+				}
+				await this.#retainDiagnostic(
+					a.workflow,
+					this.#scope(a),
+					JSON.stringify({
+						schema: 1,
+						kind: "catalog-results",
+						scope: this.#scope(a),
+						catalog,
+						results,
+						cleanup: "pending",
+						verification: "unaccepted",
+					}),
+				);
+				for (const command of catalog.cleanup) cleanup.results.push(await run(["sh", "-c", command]));
+				if (cleanup.results.some((r) => r.exitCode !== 0 || r.timedOut)) cleanup.status = "pending";
+			} else if ("argv" in check) execution = await run(check.argv);
 			const capture = await this.#sandboxes!.seal(handle);
 			environment = "stopped";
 			const source = await this.#effects!.perform({ type: "retain", base, capture });
@@ -825,15 +894,25 @@ export class Engine {
 			});
 			const receipt = {
 				schema: 1,
-				kind: "owned-check",
+				kind: catalog ? "catalog-check" : "owned-check",
+				...(catalog ? { role: a.packet.role, catalog, results, cleanup } : {}),
 				scope: this.#scope(a),
 				execution,
-				verifierRevision: check.verifierRevision,
+				verifierRevision: catalog?.selection.digest ?? ("verifierRevision" in check ? check.verifierRevision : undefined),
 				verification: {
 					inputCommit: base.commit,
 					inputTree: base.tree,
 					resultTree: source.source.tree,
-					status: base.tree !== source.source.tree ? "source_changed" : execution.exitCode === 0 ? "passed" : "failed",
+					status:
+						base.tree !== source.source.tree
+							? "source_changed"
+							: catalog
+								? cleanup.status === "complete" && results.every((r) => r.status === "completed")
+									? "needs_assessment"
+									: "non-pass"
+								: execution?.exitCode === 0
+									? "passed"
+									: "failed",
 				},
 				source: { ...source, base: compact(source.base), source: compact(source.source) },
 				limits: { network: "ordinary bridge; reachable host/LAN/tailnet are not confined", macOS: "unrun", profile: check.profile },
