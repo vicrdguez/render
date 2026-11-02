@@ -3,7 +3,7 @@
 {"capability":"contents","fixtureStatus":400,"error":{"code":"PROVIDER_FAILURE","message":"Request rejected","retryable":false}}
 {"capability":"contents","fixtureStatus":402,"error":{"code":"PROVIDER_FAILURE","message":"Request rejected","retryable":false}}
 {"category":"page","error":{"code":"PROVIDER_FAILURE","message":"No content returned for this URL."}}
-✔ B1/A1 supported root loses the invalid-request versus allowance distinction (35.764959ms)
+✔ B1/A1 supported root loses the invalid-request versus allowance distinction (38.935958ms)
 ℹ tests 1
 ℹ suites 0
 ℹ pass 1
@@ -11,4 +11,4 @@
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 199.53325
+ℹ duration_ms 223.753625
