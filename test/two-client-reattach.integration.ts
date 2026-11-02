@@ -263,7 +263,15 @@ describe("V4 two stateless clients", () => {
 			`POST /v1/commands HTTP/1.1\r\nHost: ${url.host}\r\nAuthorization: Bearer ${bearer}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
 		);
 		socket.destroy();
-		await new Promise((r) => setTimeout(r, 500));
+		// The commit is asynchronous to the vanished client: observe it, then show the retry finds it.
+		const end = Date.now() + 5_000;
+		while (true) {
+			const snap = await http(host.url, "GET", "/v1/snapshot?version=1", { bearer });
+			const view = (snap.body.workflows as Record<string, unknown>[]).find((x) => x.workflow === w);
+			if (((view?.documents ?? []) as unknown[]).length > 0) break;
+			assert.ok(Date.now() < end, "work sent before the disconnect must commit");
+			await new Promise((r) => setTimeout(r, 10));
+		}
 		const retry = await save(host, bearer, w, "ground", A1.bytes, null, commandId);
 		assert.equal(retry.status, 200, retry.text);
 		assert.equal(retry.body.duplicate, true);

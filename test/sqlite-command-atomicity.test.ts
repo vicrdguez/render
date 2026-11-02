@@ -5,8 +5,10 @@ import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import {
 	adminRequest,
+	artifact,
 	assertNoDisclosure,
 	createWorkflow,
+	currentRevision,
 	enroll,
 	envelope,
 	type HostProcess,
@@ -16,24 +18,6 @@ import {
 	tempDir,
 } from "./support/host.ts";
 import { A1, B1, B2, BAD, BOM, G1 } from "./support/literals.ts";
-
-async function artifact(host: HostProcess, bearer: string, ref: string) {
-	return http(host.url, "GET", `/v1/artifacts/${encodeURIComponent(ref)}`, { bearer });
-}
-
-async function snapshot(host: HostProcess, bearer: string) {
-	return http(host.url, "GET", "/v1/snapshot?version=1", { bearer });
-}
-
-function workflowView(snap: Record<string, unknown>, id: string): Record<string, unknown> | undefined {
-	return (snap.workflows as Record<string, unknown>[]).find((w) => w.workflow === id);
-}
-
-function currentRevision(snap: Record<string, unknown>, workflow: string, document: string): string | null {
-	const docs = (workflowView(snap, workflow)?.documents ?? []) as Record<string, unknown>[];
-	const d = docs.find((x) => x.document === document);
-	return d === undefined ? null : String(d.revision);
-}
 
 describe("B1 authority precedes disclosure (literal cases)", () => {
 	let dir: Awaited<ReturnType<typeof tempDir>>;

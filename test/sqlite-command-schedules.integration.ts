@@ -3,14 +3,17 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
 	adminRequest,
+	artifact,
 	assertNoDisclosure,
 	createWorkflow,
+	currentRevision,
 	enroll,
 	envelope,
 	type HostProcess,
 	http,
 	save,
 	sha256,
+	snapshot,
 	startHost,
 	tempDir,
 } from "./support/host.ts";
@@ -18,24 +21,6 @@ import { seeded } from "./support/random.ts";
 
 const SCHEDULES = Number(process.env.RENDER_V2_SCHEDULES ?? 32);
 const BATCH = 32;
-
-async function artifact(host: HostProcess, bearer: string, ref: string) {
-	return http(host.url, "GET", `/v1/artifacts/${encodeURIComponent(ref)}`, { bearer });
-}
-
-async function snapshot(host: HostProcess, bearer: string) {
-	return http(host.url, "GET", "/v1/snapshot?version=1", { bearer });
-}
-
-function workflowView(snap: Record<string, unknown>, id: string): Record<string, unknown> | undefined {
-	return (snap.workflows as Record<string, unknown>[]).find((w) => w.workflow === id);
-}
-
-function currentRevision(snap: Record<string, unknown>, workflow: string, document: string): string | null {
-	const docs = (workflowView(snap, workflow)?.documents ?? []) as Record<string, unknown>[];
-	const d = docs.find((x) => x.document === document);
-	return d === undefined ? null : String(d.revision);
-}
 
 describe("B2 supported document sizes and encoding boundaries", () => {
 	for (const [size, digest] of [

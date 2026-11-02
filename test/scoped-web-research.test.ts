@@ -4,7 +4,7 @@ import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { Engine } from "../src/engine/runtime.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
-import { classify, webHttpFixture as fixture, run } from "./support/web-http.ts";
+import { classify, webHttpFixture as fixture, roleWebJourney } from "./support/web-http.ts";
 
 test("B1/B3 empty success is final; provider refusal falls back once with distinct provenance", async () => {
 	const http = await fixture((path, body) => {
@@ -23,7 +23,7 @@ test("B1/B3 empty success is final; provider refusal falls back once with distin
 		tavilyBaseUrl: `${http.url}/tavily`,
 	};
 	try {
-		const { f, reply, output } = await run(web, "web_search", { queries: ["empty", "bounded"] });
+		const { f, reply, output } = await roleWebJourney(web, "web_search", { queries: ["empty", "bounded"] });
 		try {
 			assert.deepEqual(
 				http.calls.map((c) => c.path),
@@ -272,7 +272,7 @@ test("B1/B3 mixed contents batch keeps partial success final and preserves both 
 		return { body: { results: [{ url, text: url.endsWith("partial") ? "x".repeat(262145) : "Exact usable content." }] } };
 	});
 	try {
-		const { f, reply } = await run(
+		const { f, reply } = await roleWebJourney(
 			{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily` },
 			"web_contents",
 			{ urls },
@@ -342,7 +342,10 @@ test("B5 model cannot select host paths, configuration or arbitrary provider sem
 			["provider", "custom"],
 			["cwd", "/"],
 		] as const) {
-			const { f, output } = await run({ exaKey: "fixture", exaBaseUrl: http.url }, "web_search", { queries: ["safe"], [property]: value });
+			const { f, output } = await roleWebJourney({ exaKey: "fixture", exaBaseUrl: http.url }, "web_search", {
+				queries: ["safe"],
+				[property]: value,
+			});
 			try {
 				assert.match(
 					output,

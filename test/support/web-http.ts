@@ -69,7 +69,8 @@ export type WebReply = {
 		fallback: string;
 	}[];
 };
-export async function run(
+/** A registered web tool call inside a real role: Engine, Durable transcript and SQLite. */
+export async function roleWebJourney(
 	web: Record<string, unknown>,
 	name: string,
 	args: Record<string, unknown>,

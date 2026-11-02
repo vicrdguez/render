@@ -11,7 +11,7 @@ import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
-import { webHttpFixture as fixture, retainedEvidenceRef, run } from "./support/web-http.ts";
+import { webHttpFixture as fixture, retainedEvidenceRef, roleWebJourney } from "./support/web-http.ts";
 
 test("B3/B4 retained fallback evidence keeps the Exa failure and eligibility uncertainty", async () => {
 	const http = await fixture((path) =>
@@ -20,7 +20,7 @@ test("B3/B4 retained fallback evidence keeps the Exa failure and eligibility unc
 			: { body: { results: [{ url: "https://example.org/page", raw_content: "Fallback evidence." }], failed_results: [] } },
 	);
 	try {
-		const { f } = await run(
+		const { f } = await roleWebJourney(
 			{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily` },
 			"web_contents",
 			{ urls: ["https://example.org/page"] },
@@ -69,10 +69,10 @@ test("B3/B5 identical bytes remain distinct observations; own tail paging is sco
 	}));
 	try {
 		const web = { exaKey: "fixture", exaBaseUrl: http.url };
-		const first = await run(web, "web_contents", { urls: ["https://example.org/page"] }, (r) =>
+		const first = await roleWebJourney(web, "web_contents", { urls: ["https://example.org/page"] }, (r) =>
 			fauxAssistantMessage(fauxToolCall("read_web_result", { handle: r.handle!, offset: 40000, limit: 4096 }), { stopReason: "toolUse" }),
 		);
-		const second = await run(web, "web_contents", { urls: ["https://example.org/page"] });
+		const second = await roleWebJourney(web, "web_contents", { urls: ["https://example.org/page"] });
 		try {
 			const a = first.reply.inputs[0]!.observations[0]!;
 			const b = second.reply.inputs[0]!.observations[0]!;
@@ -103,7 +103,6 @@ test("B3/B5 identical bytes remain distinct observations; own tail paging is sco
 				if (!tailOutput) await setTimeout(10);
 			}
 			assert.match(JSON.parse(tailOutput).text, /TAIL-CANARY-9281/, "registered scoped paging must retrieve the exact tail");
-			const { mintContext } = await import("../src/ledger/principals.ts");
 			const own = mintContext({
 				kind: "assignment-agent",
 				assignment: assignment.id,
@@ -148,7 +147,7 @@ test("B4 selected negative evidence survives expiry/reopen/export; old working h
 		body: { results: [{ url: "https://example.org/negative", text: "Context: no support for this claim. Conflicting result remains." }] },
 	}));
 	try {
-		const { f, reply } = await run(
+		const { f, reply } = await roleWebJourney(
 			{ exaKey: "fixture", exaBaseUrl: http.url, cacheTtlMs: 1000 },
 			"web_contents",
 			{ urls: ["https://example.org/negative"] },
@@ -187,7 +186,6 @@ test("B4 selected negative evidence survives expiry/reopen/export; old working h
 				"submitted",
 				"report reliance must link retained support",
 			);
-			const { mintContext } = await import("../src/ledger/principals.ts");
 			const a = (f.ledger.snapshot(admin) as unknown as { assignments: { id: string; generation: number; attempt: string }[] })
 				.assignments[0]!;
 			const missing = await f.command(
@@ -221,7 +219,7 @@ test("B3 explicit missing credentials and echoed credentials never become retain
 	const http = await fixture(() => ({ body: { images: [], results: [{ url: "https://example.org", content: "fixture-secret" }] } }));
 	try {
 		for (const provisioned of [false, true]) {
-			const { f, reply, output } = await run(
+			const { f, reply, output } = await roleWebJourney(
 				{ ...(provisioned ? { tavilyKey: "fixture-secret" } : {}), tavilyBaseUrl: http.url },
 				"web_search",
 				{ queries: ["provision"] },
@@ -296,25 +294,25 @@ for (const damage of ["missing", "corrupt"])
 							}[]
 						).find((r) => JSON.parse(r.record).data?.document?.startsWith("web-evidence/"))!;
 						assert.ok(row);
-						if (damage === "missing") db.prepare("DELETE FROM entries WHERE id = ?").run(row.id);
+						if (damage === "missing") db.prepare("DELETE FROM entries WHERE id = ?").roleWebJourney(row.id);
 						else {
 							const record = JSON.parse(row.record);
 							record.data.text = "replacement bytes";
-							db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(record), row.id);
+							db.prepare("UPDATE entries SET record = ? WHERE id = ?").roleWebJourney(JSON.stringify(record), row.id);
 						}
 						const denied = await f.command({ type: "submitRoleResult", text: "Claim", supports: [evidence] }, own);
 						assert.equal("code" in denied ? denied.code : denied.status, "content_corrupt", "damaged required support must block reliance");
 						assert.match("reason" in denied ? denied.reason : "", new RegExp(`Restore exact evidence ${evidence}`));
 						// Restore the exact retained record, not new network bytes.
 						if (damage === "missing")
-							db.prepare("INSERT INTO entries (id, conversation_id, head, commit_seq, record) VALUES (?, ?, ?, ?, ?)").run(
+							db.prepare("INSERT INTO entries (id, conversation_id, head, commit_seq, record) VALUES (?, ?, ?, ?, ?)").roleWebJourney(
 								row.id,
 								row.conversation_id,
 								row.head,
 								row.commit_seq,
 								row.record,
 							);
-						else db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(row.record, row.id);
+						else db.prepare("UPDATE entries SET record = ? WHERE id = ?").roleWebJourney(row.record, row.id);
 					} finally {
 						db.close();
 					}
