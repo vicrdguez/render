@@ -19,7 +19,7 @@ Written before remediation (AGENTS.md rules, T1). The historical test audit is a
 - H3: replacing the stalled-observer sleep loses the disconnect oracle. Expected: `slow-consumer-kept` still fails with `the stalled stream must have been disconnected by the host`, after the same 1,500 commits and real paused socket.
 - H4: a role-wait regression is reduced below its trigger. Expected: R11 still performs eight unclean kills for both modes; no ordinary-restart check is substituted.
 - H5: idle observation is treated as waste. Expected: R10 keeps its settle and observation windows, zero idle WAL writes and the separate-process watchdog.
-- H6: moving semantic corruption variants to in-process interfaces drops a variant or accepts any failure. Expected: all 15 kinds still refuse at managed restore with the validator's own reason; representative CLI import, direct-copy startup and direct-copy repair witnesses stay in process form; `unsupported-backup-state` keeps its control.
+- H6: moving semantic corruption variants to in-process interfaces drops a variant or accepts any failure. Expected: all 15 kinds still refuse at managed restore with the validator's own reason; representative CLI import, direct-copy startup and direct-copy repair witnesses stay in process form; `offhost-backup-state-unvalidated` keeps its control.
 - H7: a web status moved to `research` loses the supported root. Expected: real Webfox 4.8.0 and owned HTTP, one request per status, literal fallback and uncertainty results; a registered-tool journey remains for wiring and provenance.
 - H8: Git-only refusals keep requiring Docker, or Git semantics are mocked. Expected: refusal cases pass with Docker stopped using real `git`; materialization, execution and quiescence keep actual containers.
 - H9: fast concurrency shares state or starves a timing assertion. Expected: repeated runs pass with no leftover temp stores or owned processes; latency-bearing checks stay serial and out of the fast selection.
@@ -35,7 +35,7 @@ Each strengthened check must reject the intended wrong behavior for its own reas
 - W5 unused backup copy: removed. The title claims compatible reopen, not restore from backup, and the catalog says so.
 - W6 pending-policy title: names the pending-packet behavior it establishes. Completed-review preservation stays with the completed Watchdog case.
 - W7 V1 generated decisions: every generated step is compared with an expected decision derived from the literal matrix and test-owned model. Wrong behavior: an eligible command refused for an ordinary reason, or a refusal with the wrong ordinary code. Reachability counts and 10,000 schedules stay.
-- W8 workflow-task-survival R02: the scoped submission is actually accepted, retrying its command returns the same receipt as a duplicate, a new submission call is rechecked and refused, and a stale worker's unknown command learns nothing. Wrong behavior: a retried submission gets a second report or a second call is accepted.
+- W8 workflow-task-survival R02: the scoped submission is actually accepted, retrying its command returns the same receipt as a duplicate, a new submission call is rechecked and refused, and a stale worker is refused and learns no receipt. Wrong behavior: a retried submission gets a second report or a second call is accepted.
 
 ## Timing (B5)
 

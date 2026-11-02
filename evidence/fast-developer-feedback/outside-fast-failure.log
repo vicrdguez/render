@@ -1,0 +1,32 @@
+
+> render@0.0.0 test:performance
+> node --test --test-concurrency=1 test/*.performance.ts
+
+{"measure":"v9_slice1","saves":400,"ackMs":{"p50":52.87758300000041,"p95":121.64129099999991,"max":187.064167},"snapshotMs":{"p50":1.4752500000004147,"p95":2.269499999999425}}
+✔ V9: two clients, 100 workflows, p95 acknowledgement < 250 ms and snapshot < 1 s (4340.881625ms)
+{"measure":"stalled_observer_ack_p95_ms","value":10.16}
+✖ B3-05 a stalled observer cannot block commits and is disconnected (16925.566958ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 21416.832917
+
+✖ failing tests:
+
+test at test/stalled-observer.performance.ts:7:1
+✖ B3-05 a stalled observer cannot block commits and is disconnected (16925.566958ms)
+  AssertionError [ERR_ASSERTION]: the stalled stream must have been disconnected by the host
+      at TestContext.<anonymous> (file:///private/tmp/claude-501/-Users-vr-osxs-dev-render/da9dc92d-349c-42ab-90d1-35847b145d99/scratchpad/s5/test/stalled-observer.performance.ts:49:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
