@@ -294,25 +294,25 @@ for (const damage of ["missing", "corrupt"])
 							}[]
 						).find((r) => JSON.parse(r.record).data?.document?.startsWith("web-evidence/"))!;
 						assert.ok(row);
-						if (damage === "missing") db.prepare("DELETE FROM entries WHERE id = ?").roleWebJourney(row.id);
+						if (damage === "missing") db.prepare("DELETE FROM entries WHERE id = ?").run(row.id);
 						else {
 							const record = JSON.parse(row.record);
 							record.data.text = "replacement bytes";
-							db.prepare("UPDATE entries SET record = ? WHERE id = ?").roleWebJourney(JSON.stringify(record), row.id);
+							db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(record), row.id);
 						}
 						const denied = await f.command({ type: "submitRoleResult", text: "Claim", supports: [evidence] }, own);
 						assert.equal("code" in denied ? denied.code : denied.status, "content_corrupt", "damaged required support must block reliance");
 						assert.match("reason" in denied ? denied.reason : "", new RegExp(`Restore exact evidence ${evidence}`));
 						// Restore the exact retained record, not new network bytes.
 						if (damage === "missing")
-							db.prepare("INSERT INTO entries (id, conversation_id, head, commit_seq, record) VALUES (?, ?, ?, ?, ?)").roleWebJourney(
+							db.prepare("INSERT INTO entries (id, conversation_id, head, commit_seq, record) VALUES (?, ?, ?, ?, ?)").run(
 								row.id,
 								row.conversation_id,
 								row.head,
 								row.commit_seq,
 								row.record,
 							);
-						else db.prepare("UPDATE entries SET record = ? WHERE id = ?").roleWebJourney(row.record, row.id);
+						else db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(row.record, row.id);
 					} finally {
 						db.close();
 					}
