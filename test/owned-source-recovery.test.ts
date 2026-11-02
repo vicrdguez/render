@@ -285,7 +285,7 @@ test("possibly created runtime is never recorded absent: capacity and writer own
 	}
 });
 
-async function slowCheck() {
+async function slowCheck(argv = ["sleep", "2"]) {
 	const source = await sourceFixture();
 	const config = {
 		root: join(source.root, "owned"),
@@ -295,7 +295,7 @@ async function slowCheck() {
 				repository: "owned",
 				commit: source.commit,
 				profile: source.profile,
-				argv: ["sleep", "2"],
+				argv,
 				timeoutMs: 20000,
 				verifierRevision: source.commit,
 			},
@@ -307,33 +307,29 @@ async function slowCheck() {
 		assert.ok("assignments" in value);
 		return value.assignments as RoleAssignment[];
 	};
-	const until = async (check: () => boolean) => {
+	const until = async (check: () => boolean | Promise<boolean>) => {
 		const deadline = Date.now() + 30000;
-		while (!check()) {
+		while (!(await check())) {
 			assert.ok(Date.now() < deadline, JSON.stringify(assignments()));
 			await setTimeout(20);
 		}
 	};
-	// A workspace journaled as running: cancellation during trusted resolve has its own tracked behavior.
-	const commandAdmitted = async () => {
-		const sandboxes = join(config.root, "sandboxes");
-		const deadline = Date.now() + 30000;
-		for (;;) {
-			const states = await Promise.all(
-				(await readdir(sandboxes).catch(() => [])).map(async (id) =>
-					JSON.parse(await readFile(join(sandboxes, id, "state.json"), "utf8").catch(() => "{}")),
-				),
-			);
-			if (states.some((state) => state.phase === "running")) return;
-			assert.ok(Date.now() < deadline, JSON.stringify(assignments()));
-			await setTimeout(20);
-		}
-	};
-	return { f, assignments, until, commandAdmitted, close: async () => (await f.close(), await source.close()) };
+	// The command's private journal precedes its dispatch. Cancellation before this point has its own tracked behavior.
+	const commandAdmitted = () =>
+		until(async () => {
+			const sandboxes = join(config.root, "sandboxes");
+			const journals = await Promise.all((await readdir(sandboxes).catch(() => [])).map((id) => readdir(join(sandboxes, id))));
+			return journals.flat().some((name) => name.startsWith("execution-"));
+		});
+	return { f, assignments, until, commandAdmitted, source };
 }
 
 test("policy adoption during an owned command holds capacity until stop and refuses the old-basis pass", async () => {
-	const { f, assignments, until, commandAdmitted, close } = await slowCheck();
+	const { f, assignments, until, commandAdmitted, source } = await slowCheck([
+		"sh",
+		"-c",
+		"sleep 2; printf 'late filter\n' >> .gitattributes",
+	]);
 	try {
 		const assign = () =>
 			f.command({ type: "assignTask", slice: "policy:owned", delivery: true, packet: packet({ execution: "linux-writer" }) });
@@ -366,6 +362,22 @@ test("policy adoption during an owned command holds capacity until stop and refu
 		await until(() => !assignments()[0]!.executing);
 		assert.equal(assignments()[0]!.status, "blocked");
 		assert.equal(assignments()[0]!.report, null, "a pass receipt must not land on the superseded policy basis");
+		assert.match(assignments()[0]!.blocker!, /policy_refresh_required.*stale_assignment/);
+		const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in exported);
+		const collected = Object.values(exported.content).flatMap((bytes) => {
+			try {
+				const value = JSON.parse(Buffer.from(bytes, "base64").toString());
+				return value.kind === "owned-check-diagnostic" && value.source ? [value] : [];
+			} catch {
+				return [];
+			}
+		});
+		assert.equal(collected.length, 1, "collected evidence must survive the refused receipt");
+		assert.equal(collected[0].verification, "unaccepted");
+		assert.equal(collected[0].observed.status, "source_changed");
+		assert.equal(collected[0].source.source.tree, collected[0].observed.resultTree);
+		assert.match(collected[0].reviewWarning, /REVIEW SOURCE CONFIGURATION CHANGES: \.gitattributes/);
 		const a = assignments()[0]!;
 		assert.equal(
 			(await f.command({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, admin)).status,
@@ -376,12 +388,13 @@ test("policy adoption during an owned command holds capacity until stop and refu
 		await until(() => assignments()[1]!.report !== null);
 		assert.notEqual(assignments()[1]!.policyBinding, binding);
 	} finally {
-		await close();
+		await f.close();
+		await source.close();
 	}
 });
 
 test("canceled owned check replacement runs in its own workspace and retains its own receipt", async () => {
-	const { f, assignments, until, commandAdmitted, close } = await slowCheck();
+	const { f, assignments, until, commandAdmitted, source } = await slowCheck();
 	try {
 		assert.equal(
 			(await f.command({ type: "assignTask", slice: "replace:owned", delivery: true, packet: packet({ execution: "linux-writer" }) }))
@@ -424,6 +437,7 @@ test("canceled owned check replacement runs in its own workspace and retains its
 		assert.equal(receipt.verification.status, "passed");
 		await until(() => assignments()[1]!.runtimeTaskCaptured === true);
 	} finally {
-		await close();
+		await f.close();
+		await source.close();
 	}
 });
