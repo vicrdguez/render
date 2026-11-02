@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { Sandboxes } from "../src/sandboxes/sandboxes.ts";
@@ -56,6 +56,28 @@ test("whole-container-quiescence: missing runtime quarantines durably and cannot
 		await f.close();
 	}
 });
+
+for (const journal of ["missing", "legacy"] as const)
+	test(`whole-container-quiescence: ${journal} journal never proves runtime absence`, async () => {
+		const f = await sourceFixture();
+		try {
+			const source = await f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit });
+			const handle = await f.sandboxes.prepare(f.scope, f.profile, source);
+			execFileSync("docker", ["rm", "-f", handle.runtime]);
+			const path = join(f.root, "sandboxes", handle.id, "state.json");
+			if (journal === "missing") await rm(path);
+			else {
+				const state = JSON.parse(await readFile(path, "utf8"));
+				delete state.createIssued;
+				await writeFile(path, JSON.stringify(state));
+			}
+			const reopened = new Sandboxes({ root: join(f.root, "sandboxes"), authorize: () => true });
+			await assert.rejects(reopened.stop(handle), journal === "missing" ? /ENOENT/ : /quarant|inspect/i);
+			await assert.rejects(reopened.prepare(f.scope, f.profile, source), /reuse|exist/i);
+		} finally {
+			await f.close();
+		}
+	});
 
 for (const trigger of ["absent image", "canceled preparation"] as const)
 	test(`whole-container-quiescence: ${trigger} confirms no runtime without allowing workspace reuse`, async () => {
