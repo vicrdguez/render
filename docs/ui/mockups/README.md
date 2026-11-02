@@ -10,17 +10,21 @@ They show layout, type and copy as of their build. They do not show GPUI's text 
 
 ## Colour reference
 
-The closest renders to the current colours are the `colour-*` images, from the colour pass (`experiments/e9-colour/`, Ember at 1512). **All of them show the previous link and inline-code colours:** references and links are still gold, and inline code and code frames still orange. They draw nothing in Soft or Light. Other differences per image:
+The `colour-*` images show the current colour system, from the final colour render (`experiments/e9-colour/png/final/`, 1512 px). They are prototype renders: IDs are coloured by a text match standing in for the client's typed fields, so a few differ from the rules. In particular, `Q1` and `op9` in the queue's reason column should be neutral. Differences per image:
 
-| File | Shows | Also not current |
+| File | Shows | Not current or not real |
 |---|---|---|
 | `colour-SC-02-queue-ember.png` | Count tags, plain coral diamonds, the coral `NEEDS YOU` caption, steel labels, sage projects, orange IDs and key chips, role hues | — |
 | `colour-SC-02-calm-ember.png` | The calm queue: colour, and nothing that reads as needs-you | OWNER prints `undefined`, a fake-host glitch |
-| `colour-SC-04-review-ember.png` | `h1` rose and `h2` orange in a review; thin coral on the cursor bar and tab | — |
-| `colour-SC-04-markdown-ember.png` | Inline forms and heading levels: bold steel, `h3` and below in `fg`, dangling references | Italic is mauve here; it is neutral |
-| `colour-SC-03-chat-ember.png` | Roles and IDs in a transcript, the caret, the info pane | The strip's NEXT is a tag; it is the plain diamond. The rose and mauve counts have no tag |
-| `colour-SC-09-readback-ember.png` | The grey readback, verb tag, solid `READBACK` badge, steel field names | The strip and REVISIONS draw tags, the top-bar rose and mauve counts have no tag, and headings are steel |
-| `colour-SC-19-package-ember.png` | The quiet Slice rows, typed outcome words, top-bar tags | — |
+| `colour-SC-03-chat-ember.png` | Roles and IDs in a transcript | — |
+| `colour-SC-04-review-ember.png` | `h2` orange beside gold inline code and code frames, salmon references, thin coral on the cursor bar and tab | — |
+| `colour-SC-04-markdown-ember.png` | Inline forms and heading levels: `h1` rose, `h2` orange, `h3` and below in `fg`, bold steel, neutral italic, salmon links and references | The frontmatter line's `za` isn't a chip in this build |
+| `colour-h1-h2-code-frame-ember.png` | `h1`, `h2` and a gold-ruled code frame together | Injected document |
+| `colour-rose-h1-beside-failure-ember.png` | A rose `h1` in the same pane as a failed tool block | Injected title, about 340 px from the block |
+| `colour-SC-09-readback-ember.png` | The grey readback, verb tag, solid `READBACK` badge, steel field names | — |
+| `colour-SC-19-package-ember.png` | The quiet Slice rows with K and columns next to the name, CHECKS, BLOCKER, top-bar tags | CHECKS and BLOCKER are hard-coded spec text |
+| `colour-SC-02-queue-light.png`, `colour-SC-04-markdown-light.png` | Light | As their Ember versions |
+| `colour-SC-04-review-soft.png` | Soft | As its Ember version |
 
 ## Older renders
 

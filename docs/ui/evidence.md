@@ -54,7 +54,7 @@ No single build carries all of this; each row names its own copy. Reports: `repo
 
 ### 1.1b The colour pass (`experiments/e9-colour/`, HTML render, 2026-11-02)
 
-One render with no fix loop, in Ember at 1512 with one Light and one Soft, then variants of the flag, headings, emphasis and Slice rows for the user's eye. Data: `experiments/e9-colour/data/`. **The renders predate the last two choices:** references and links are still gold, inline code and code frames still orange. The earlier VISUAL results in §1.1 measured the old rules, which these replace.
+One render with no fix loop, in Ember at 1512 with one Light and one Soft, then variants of the flag, headings, emphasis and Slice rows for the user's eye. Data: `experiments/e9-colour/data/`. **These first renders predate the last two choices (the final render is below):** references and links are still gold, inline code and code frames still orange. The earlier VISUAL results in §1.1 measured the old rules, which these replace.
 
 | Check | Result | Evidence |
 |---|---|---|
@@ -64,6 +64,15 @@ One render with no fix loop, in Ember at 1512 with one Light and one Soft, then 
 | Knocked-out text on the tags, on the final tag size (34 × 16) | coral 6.51 / 6.09 / 4.55, rose 5.09 / 4.76 / 5.00, mauve 5.11 / 4.77 / 4.79 | `contrast2.py`, recomputed |
 | Accent share of a pane's text | transcript 4.8 %, evidence 10.1 %, review 18.1 %, queue 20.6 %, strip up to 39.1 %, **calm queue list 49.5 %** (short titles). The user accepted this, so it stays a reported number with no limit. The old build was 0–13.2 % | `data/analysis.json` |
 | Slice rows | The `slices-quieter` variant, chosen over the proposed set | `png/variants/slices-current-vs-new.png` |
+
+**Final render, on the committed values** (`png/final/`, 19 full screens across the three variants, plus crops; IDs coloured by a text match, and three screens injected):
+
+| Check | Result | Evidence |
+|---|---|---|
+| Coral test on the plain diamond, 12 and 16 px | Every survivor inside `[data-attn]`, in all three variants; the calm queue has 0. In the prototype the readback's verb half lacks the attribute, though it is the tag | `data/final/flag.json` |
+| Coral mask pixels in content | 32 on SC-04: the caret in a note being typed. 9 and 7 with the cursor on a reference (Ember, Light), probably `kind.link_active` edges, not confirmed; none survive erosion | `data/final/flag.json` |
+| On-screen text contrast | No pair under AA. Selected text, and diffs in Soft and Light, were not on these screens | `data/final/` |
+| Rose `h1` beside a failed tool block | Did not read as a failure to the render's reader (Ember, Light). Harmless title, about 340 px from the block | `png/final/rose-h1-beside-failure*.png` |
 
 ### 1.2 Fonts (CoreText on the bundled WOFF2)
 
@@ -205,11 +214,11 @@ Source: `trial-notes.md`, `experiments/trial-phase3/results/human/*.jsonl`. **Ca
 | **Merge package** (FC-M58, FC-M60) | CHECKS on the first screen; BLOCKER `none · 1 uncertainty`; Slice row with K fits at 800 (651 px measured without K, against 744); `␣ol` live; the pane scrolls back to its top; every Slice opens a real SC-07; `none yet` and a bare verdict never appear on the path; the URL path with a real host `url` |
 | **Delegated request** (FC-M45) | The card's sentence and `␣ax` chip; the same in the review header; `␣ax` resolves in `review`; WAITING reason's drop order |
 | **Queue** | Card below the list under a 1180 px pane; counts equal between bufferline and headers |
-| **VISUAL FLAG** (FC-M26, FC-M61, FC-S21) | Mask pixels within ΔE2000 5 of `state.attn`, erode 5 × 5: every survivor lies inside `[data-attn]`, and the rose and mauve tags and `kind.link_active` don't trip it. Calm screens: no survivors, no flag element, no coral caption. No coral in agent content; a caret in text being typed is allowed. Coral elsewhere only in the six keyboard elements and the caption. Every needs-you row, NEXT and count has its flag. Includes the plain row diamond, which the e9 test did not cover |
+| **VISUAL FLAG** (FC-M26, FC-M61, FC-S21) | Mask pixels within ΔE2000 5 of `state.attn`, erode 5 × 5: every survivor lies inside `[data-attn]`, and the rose and mauve tags and `kind.link_active` leave no survivors. Calm screens: no survivors, no flag element, no coral caption. No survivors in agent content; a caret in text being typed is allowed. Coral elsewhere only in the six keyboard elements and the caption. Every needs-you row, NEXT and count has its flag. Includes the plain row diamond, which the e9 test did not cover |
 | **VISUAL BUDGET** (FC-M27, FC-M28) | Fails on accent-coloured body text, an inline background other than `surface.code`, a coordinator name or icon in a hue, a hue outside its family's elements (`visual-language.md` §5.3), or olive or rose outside outcomes and content `h1`. Host sentences stay neutral. Accent share is reported, with no limit. Replaces the three-hue count |
 | **CONTRAST, new pairs** | Coloured chrome text ≥ 4.5 on read, side, bar, both cursors and readback. `kind.link` and `kind.link_active` ≥ 4.5 on read, side, both cursors, the human band and the diff tints. `surface.read` on each count tag and the verb tag ≥ 4.5. Coral ≥ 3 on chrome surfaces and `surface.code`. The `NEEDS YOU` caption ≥ 4.5 on `surface.read`. Coloured text falls to `fg` under `surface.selection` |
 | **SPOOF, new fixtures** (FC-S10, FC-S21, FC-S22, FC-M63) | 🔶 🟧 `◆`, a bold `NEEDS YOU`, a bold `you:`, a keyword-dense block, a filled Mermaid node, `# Audit failed`, and host text with ID-shaped and role-shaped words |
-| **Colour never rendered** | **A rose `h1` beside a failed row or tool block** (FC-S22). **`h1`, `h2` and a code frame in one view** with the gold frame rule. **Gold inline code, and salmon references and links,** in any variant. **All of it in Soft and Light,** where these colours are only computed. In Light a link and a rose `h1` are ΔE 0.8 apart (Q33). The current-match outline, which no e9 screen showed |
+| **Colour not yet seen** | A rose `h1` beside a failure with an alarming title ("Build failed"), or directly above the block (FC-S22). `kind.link_active` on the real client, which the prototype has no state for. Selected text in any variant, and diffs in Soft and Light. The current-match outline. In Light, a link and a rose `h1` are ΔE 0.8 apart (Q33): they read apart by size, mono and underline in the render, so judge it again on real documents |
 | **Key budgets** | T27 ≤ 8; T27b ≤ 21; COV reaches a tool block by `]t za`; T28 ≤ 9 |
 | **Wording never rendered** | SC-18, SC-10 i, host wording per mode, `pass N` in queue and agent rows, the review count in the readback, `za` outcome vocabulary, delegated DONE and REVISIONS wording, the FC-M11 hint |
 | **Suites not re-run on the last builds** | VISUAL, CONTRAST and SPOOF after the last chips; READ and VISUAL on the v0b dialect; `… 37 more lines` from a real host frame (it was injected); recorded host fixtures |
