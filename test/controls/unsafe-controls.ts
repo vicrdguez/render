@@ -20,9 +20,9 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/verification.ts",
-				find: "for (const name of selection.rows) {",
+				find: "for (const name of requiredCatalogRows(selection)) {",
 				replace:
-					'for (const name of selection.rows.filter(name => receipt.catalog.rows.find(r => r.name === name)?.kind !== "generated")) {',
+					'for (const name of requiredCatalogRows(selection).filter(name => receipt.catalog.rows.find(r => r.name === name)?.kind !== "generated")) {',
 			},
 		],
 		test: "test/verification-catalog.integration.ts",

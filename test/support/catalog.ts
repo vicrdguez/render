@@ -13,8 +13,9 @@ import { git, gitSourceFixture, sourceFixture } from "./source.ts";
 
 export const catalog = (_sanity = "exit 0", cleanup = "true") => `# Owned catalog
 ## Ranks
-1. \`endpoint\`: actual driven behavior
-2. \`static\`: static compatibility
+1. \`live\`: stronger project evidence
+2. \`endpoint\`: actual driven behavior
+3. \`static\`: static compatibility
 ## Launch
 Owned fixture only.
 ## Doctor
@@ -66,6 +67,7 @@ export async function catalogFixture(linux = false, options: { sanity?: string; 
 		digest: createHash("sha256").update(text).digest("hex"),
 		contract: "revision:3",
 		rows,
+		behavioralRows: ["behavior"],
 		receipts: [] as string[],
 	};
 	const config = {
@@ -119,12 +121,16 @@ export async function settled(f: Awaited<ReturnType<typeof catalogFixture>>, id:
 		await setTimeout(20);
 	}
 }
-export async function runCatalog(f: Awaited<ReturnType<typeof catalogFixture>>, extraRows: string[] = []) {
+export async function runCatalog(f: Awaited<ReturnType<typeof catalogFixture>>, extraRows: string[] = [], required = extraRows) {
 	const reply = await f.command({
 		type: "assignTask",
 		slice: "catalog:run",
 		delivery: false,
-		packet: packet({ role: "implementer", execution: "linux-writer", verification: { ...f.selection, rows: [...rows, ...extraRows] } }),
+		packet: packet({
+			role: "implementer",
+			execution: "linux-writer",
+			verification: { ...f.selection, rows: [...rows, ...extraRows], behavioralRows: ["behavior", ...required] },
+		}),
 	});
 	assert.equal(reply.status, "accepted", "selected catalog packet must be admitted");
 	assert.ok(reply.status === "accepted");
@@ -138,7 +144,7 @@ export async function assess(
 	f: Awaited<ReturnType<typeof catalogFixture>>,
 	receipts: string[],
 	overrides: Record<string, unknown> = {},
-	rank = "static",
+	rank = "endpoint",
 	role = "implementer",
 ) {
 	const selected = { ...f.selection, receipts, ...overrides };

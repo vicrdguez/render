@@ -8,7 +8,7 @@ import { git } from "./support/source.ts";
 test("catalog Linux results require assessment, retain independent evidence and survive export/reopen", async () => {
 	const f = await catalogFixture(true);
 	try {
-		const { a, read, receipt } = await runCatalog(f);
+		const { a, read, receipt } = await runCatalog(f, ["discover", "human"], []);
 		assert.equal(receipt.kind, "catalog-check");
 		assert.equal(receipt.verification.status, "needs_assessment", "exit zero must not decide adequacy");
 		assert.equal(receipt.catalog.selection.commit, f.selection.commit);
@@ -19,10 +19,14 @@ test("catalog Linux results require assessment, retain independent evidence and 
 		assert.equal(receipt.results[0].sanity.platform.os, "linux");
 		assert.equal(receipt.cleanup.status, "complete");
 		assert.equal(receipt.source.base.tree, receipt.source.source.tree);
-		assert.equal((await assess(f, [a.report!])).status, "accepted");
-		const excessive = await assess(f, [a.report!], {}, "endpoint");
+		assert.equal(
+			(await assess(f, [a.report!])).status,
+			"accepted",
+			"weaker static gates and optional advisory rows must not cap behavioral rank",
+		);
+		const excessive = await assess(f, [a.report!], {}, "live");
 		assert.equal(excessive.status, "refused", "rank cannot exceed weakest required evidence");
-		const otherRole = await assess(f, [a.report!], {}, "static", "watchdog");
+		const otherRole = await assess(f, [a.report!], {}, "endpoint", "watchdog");
 		assert.equal(otherRole.status, "refused", "Watchdog must independently run its checks");
 		const tree = git(f.source.repo, ["rev-parse", `${f.selection.commit}^{tree}`])
 			.toString()
@@ -40,7 +44,7 @@ test("catalog Linux results require assessment, retain independent evidence and 
 				command: {
 					type: "changePolicy",
 					expectedRevision: "policy:initial",
-					policy: { completedReviewLimit: 2, reviewerDiversity: "different-family", minimumEvidenceRank: "endpoint" },
+					policy: { completedReviewLimit: 2, reviewerDiversity: "different-family", minimumEvidenceRank: "live" },
 				},
 			},
 			admin,
@@ -93,7 +97,10 @@ test("generated discovery and advisory human observation cannot hide failed jour
 		assert.equal(receipt.cleanup.status, "pending");
 		assert.equal(receipt.cleanup.results[0].stdout, "CLEANUP FAILED");
 		assert.equal(receipt.source.freeze.running, false);
-		const result = await assess(f, [a.report!], { rows: [...f.selection.rows, "discover", "human"] });
+		const result = await assess(f, [a.report!], {
+			rows: [...f.selection.rows, "discover", "human"],
+			behavioralRows: ["behavior", "discover", "human"],
+		});
 		assert.equal(result.status, "refused", "discovery must not count as behavioral evidence");
 	} finally {
 		await f.close();
@@ -106,7 +113,7 @@ for (const kind of ["discover", "human"])
 		try {
 			const { a } = await runCatalog(f, [kind]);
 			assert.equal(
-				(await assess(f, [a.report!], { rows: [...f.selection.rows, kind] })).status,
+				(await assess(f, [a.report!], { rows: [...f.selection.rows, kind], behavioralRows: ["behavior", kind] })).status,
 				"refused",
 				"non-executable evidence must not qualify as behavioral proof",
 			);

@@ -21,7 +21,7 @@ test("selected legacy catalog renders its exact source, rows, prerequisites and 
 		assert.equal(rendered.verification.selection.commit, f.selection.commit);
 		assert.equal(rendered.verification.selection.digest, f.selection.digest);
 		assert.equal(rendered.verification.text, f.text);
-		assert.deepEqual(rendered.verification.ranks, ["endpoint", "static"]);
+		assert.deepEqual(rendered.verification.ranks, ["live", "endpoint", "static"]);
 		assert.match(rendered.verification.sections.Doctor, /Linux with sh; no host fallback/);
 		assert.deepEqual(
 			rendered.verification.rows.map((r: { name: string }) => r.name),

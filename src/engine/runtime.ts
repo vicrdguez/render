@@ -27,7 +27,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { Effects, type Source, type SourceReceipt } from "../effects/source.ts";
 import { currentChildren, packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
-import type { CatalogResult, SelectedCatalog } from "../kernel/verification.ts";
+import { type CatalogResult, requiredCatalogRows, type SelectedCatalog } from "../kernel/verification.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
 import { Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
@@ -907,7 +907,8 @@ export class Engine {
 						base.tree !== source.source.tree
 							? "source_changed"
 							: catalog
-								? cleanup.status === "complete" && results.every((r) => r.status === "completed")
+								? cleanup.status === "complete" &&
+									results.filter((r) => requiredCatalogRows(catalog.selection).includes(r.name)).every((r) => r.status === "completed")
 									? "needs_assessment"
 									: "non-pass"
 								: execution?.exitCode === 0

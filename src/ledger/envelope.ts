@@ -334,11 +334,11 @@ function parsePacket(raw: unknown, depth = 0): RolePacket {
 	});
 	if (p.verification !== undefined) {
 		const v = object(p.verification, "verification selection");
-		only(v, ["repository", "commit", "path", "digest", "contract", "rows", "receipts"], "verification selection");
+		only(v, ["repository", "commit", "path", "digest", "contract", "rows", "behavioralRows", "receipts"], "verification selection");
 		for (const name of ["repository", "commit", "path", "digest", "contract"]) text(v[name], name, 4096);
 		if (!/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(String(v.commit)) || !/^[a-f0-9]{64}$/.test(String(v.digest)))
 			malformed("verification requires exact commit and SHA-256 catalog digest");
-		for (const name of ["rows", "receipts"])
+		for (const name of ["rows", "behavioralRows", "receipts"])
 			if (
 				!Array.isArray(v[name]) ||
 				v[name].length > 64 ||
