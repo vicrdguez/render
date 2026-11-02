@@ -13,8 +13,6 @@ import type { ConversationId, JsonObject } from "@earendil-works/pi-durable";
 import { Engine } from "../src/engine/runtime.ts";
 import { research } from "../src/engine/web.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
-import type { HistoryExport } from "../src/ledger/history.ts";
-import type { LedgerRefusal } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
 
@@ -128,6 +126,22 @@ async function run(
 	for (let n = 0; n < 500 && !output; n++) await setTimeout(10);
 	assert.ok(output, "registered web tool must commit substantive output");
 	return { f, reply, output };
+}
+
+async function retainedEvidenceRef(f: Awaited<ReturnType<typeof roleFixture>>): Promise<string | undefined> {
+	for (let n = 0; n < 200; n++) {
+		const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		if ("jsonl" in exported) {
+			const ref = exported.jsonl
+				.split("\n")
+				.filter(Boolean)
+				.map((l) => JSON.parse(l))
+				.find((r) => String(r.document).startsWith("web-evidence/"))?.ref;
+			if (ref) return ref;
+		}
+		await setTimeout(10);
+	}
+	return undefined;
 }
 
 test("B1/B3 empty success is final; provider refusal falls back once with distinct provenance", async () => {
@@ -362,17 +376,7 @@ test("B3/B4 retained fallback evidence keeps the Exa failure and eligibility unc
 				),
 		);
 		try {
-			let ref: string | undefined;
-			for (let n = 0; n < 200 && !ref; n++) {
-				const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
-				if ("jsonl" in exported)
-					ref = exported.jsonl
-						.split("\n")
-						.filter(Boolean)
-						.map((l) => JSON.parse(l))
-						.find((r) => String(r.document).startsWith("web-evidence/"))?.ref;
-				if (!ref) await setTimeout(10);
-			}
+			const ref = await retainedEvidenceRef(f);
 			assert.ok(ref, "selected evidence must enter Ledger before reliance");
 			const retained = await f.ledger.artifact(admin, { read: ref });
 			assert.ok("content" in retained);
@@ -526,18 +530,7 @@ test("B4 selected negative evidence survives expiry/reopen/export; old working h
 				),
 		);
 		try {
-			let exported!: HistoryExport | LedgerRefusal;
-			let ref: string | undefined;
-			for (let n = 0; n < 200 && !ref; n++) {
-				exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
-				if ("jsonl" in exported)
-					ref = exported.jsonl
-						.split("\n")
-						.filter(Boolean)
-						.map((l) => JSON.parse(l))
-						.find((r) => String(r.document).startsWith("web-evidence/"))?.ref;
-				if (!ref) await setTimeout(10);
-			}
+			const ref = await retainedEvidenceRef(f);
 			assert.ok(ref, "selected evidence must enter Ledger before reliance");
 			const retained = await f.ledger.artifact(admin, { read: ref });
 			assert.ok("content" in retained);

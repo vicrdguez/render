@@ -3,7 +3,7 @@
 Source before this round: 57967ea553b86ff1d7cbe01fd46741a4282b32be.
 Human decision: a settled provider error indistinguishable from Exa allowance exhaustion at the supported Webfox boundary is eligible for one best-effort sequential Tavily fallback, even when a controlled test shows the underlying response could have been an invalid-request refusal. The human accepts that this can produce an unnecessary, potentially charged request. It supersedes the invalid-request exclusion recorded in `scoped-web-research-ambiguity.md`, only for refusals whose category Webfox has erased.
 
-"Indistinguishable" means `{code: "PROVIDER_FAILURE", retryable: false}`. The message is not a classifier: it is provider-controlled text and the root diagnostic shows equal text for different categories.
+"Indistinguishable" means `{code: "PROVIDER_FAILURE", retryable: false}`. The message is not a classifier: it is provider-controlled text. The root diagnostic shows that status and tag are lost; the equal text in that diagnostic is imposed by the fixture, and with it the two errors are identical.
 
 ## Failure cases and literal outcomes
 

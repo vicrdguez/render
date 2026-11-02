@@ -47,7 +47,7 @@ const ELIGIBILITY_UNCERTAINTY =
 	"Fallback eligibility uncertain: Webfox does not expose this refusal's status or reason. It may be allowance exhaustion or another refusal; check Exa provisioning. Any fallback request may be unnecessary and separately charged.";
 // Webfox 4.8.0 erases provider status and tag, so a nonretryable provider failure counts as allowance exhaustion.
 // Failures without retryable (page results) and other codes (local validation, unsupported semantics) stay identifiable.
-function recordFailure(observation: WebObservation, code: string | undefined, retryable: boolean | undefined): boolean {
+function classifyFailure(observation: WebObservation, code: string | undefined, retryable: boolean | undefined): boolean {
 	observation.error = code ?? "UNKNOWN_FAILURE";
 	if (code !== "PROVIDER_FAILURE") return code === "PROVIDER_UNAVAILABLE";
 	if (retryable === false && observation.provider === "exa") observation.uncertainty = ELIGIBILITY_UNCERTAINTY;
@@ -149,7 +149,7 @@ export async function research(
 				const value = document.results[0];
 				if (!value) throw new Error("Missing provider result.");
 				if (!value.ok) {
-					eligible = recordFailure(observation, value.error.code, value.error.retryable);
+					eligible = classifyFailure(observation, value.error.code, value.error.retryable);
 				} else {
 					observation.outcome = "success";
 					const raw = value.value;
@@ -164,7 +164,7 @@ export async function research(
 				}
 			} catch (error) {
 				const e = error as { code?: string; options?: { retryable?: boolean } };
-				eligible = recordFailure(observation, e.code, e.options?.retryable);
+				eligible = classifyFailure(observation, e.code, e.options?.retryable);
 			} finally {
 				observation.observedAt = new Date().toISOString();
 			}
