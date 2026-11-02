@@ -3,19 +3,16 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Backup } from "./backup.ts";
 import type { LedgerRefusal } from "./ledger.ts";
 
-export const EXCLUSIONS = ["unsaved_client_buffers", "uncommitted_provider_streams", "unsnapshotted_worker_files"];
-export const UNAVAILABLE_KINDS = [
-	"proposal",
-	"assignment",
-	"attempt",
-	"decision",
-	"outcome",
-	"policy",
-	"execution",
-	"effect",
-	"runtime_transcript",
+export const EXCLUSIONS = [
+	"unsaved_client_buffers",
+	"uncommitted_provider_streams",
+	"unsnapshotted_worker_files",
+	"latest_only_live_partials",
+	"unpromoted_nested_results",
+	"active_task_memos",
 ];
-const KINDS = ["workflow", "ground", "document", "message", "fact", "receipt"];
+export const UNAVAILABLE_KINDS = ["proposal", "assignment", "attempt", "decision", "outcome", "execution", "effect"];
+const KINDS = ["workflow", "ground", "document", "message", "fact", "receipt", "policy", "runtime_transcript", "runtime_task"];
 export type HistoryQuery = Readonly<Record<string, string | undefined>>;
 export type HistoryScope = { workflows: string[]; global: boolean; kinds: string[] };
 export type HistoryState = {
@@ -219,7 +216,7 @@ export function exportHistory(
 						.flatMap((r) => [...r.parents, ...r.supersedes, ...Object.values(r.refs)])
 						.filter(
 							(ref) =>
-								/^(workflow|revision|packet|fact|message|receipt):/.test(ref) &&
+								/^(workflow|revision|packet|fact|message|receipt|policy|policy-binding|runtime-history):/.test(ref) &&
 								!includedRefs.has(ref) &&
 								!missing.some((m) => m.ref === ref),
 						),

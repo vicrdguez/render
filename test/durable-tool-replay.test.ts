@@ -11,7 +11,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import { type ConversationId, configure, defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
-import { admin, packet, roleFixture } from "./support/roles.ts";
+import { admin, allowSameFamily, packet, roleFixture } from "./support/roles.ts";
 
 for (const replay of ["safe", "unsafe"] as const)
 	test(`R03 ${replay} programmatic ancestor cannot admit a Ledger mutation`, async () => {
@@ -41,6 +41,7 @@ for (const replay of ["safe", "unsafe"] as const)
 		]);
 		const engine = new Engine({ provider: p.provider, apiKey: "fixture", families: { "claude-sonnet-4-6": "claude" } });
 		const f = await roleFixture(engine);
+		await allowSameFamily(f.ledger);
 		try {
 			f.registry.install(defineExtension({ name: "fixture-wrapper", tools: [wrapper] }));
 			await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet() });

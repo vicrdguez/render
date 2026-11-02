@@ -13,6 +13,75 @@ type Edit = { file: string; find: string; replace: string };
 type Control = { name: string; edits: Edit[]; test: string; pattern: string; behavior: string; expect: RegExp };
 
 const CONTROLS: Control[] = [
+	...[
+		{
+			name: "inherited-noncandidate-packet",
+			clause: 'input.data.document.startsWith("role-packet/")',
+			pattern: "watchdog cannot inherit earlier watchdog packet",
+		},
+		{
+			name: "inherited-candidate-report",
+			clause: 'owner?.packet.role === "candidate"',
+			pattern: "watchdog cannot inherit earlier candidate report",
+		},
+		{
+			name: "inherited-experiment-candidate-report",
+			clause: 'owner?.packet.role === "experiment-candidate"',
+			pattern: "watchdog cannot inherit earlier experiment-candidate report",
+		},
+	].map(
+		({ name, clause, pattern }): Control => ({
+			name,
+			expect: /"status":"accepted"/,
+			behavior: pattern.replace("cannot inherit", "inherits"),
+			edits: [{ file: "src/ledger/ledger.ts", find: clause, replace: "false" }],
+			test: "test/context-continuation-independence.test.ts",
+			pattern,
+		}),
+	),
+	{
+		name: "inherited-private-context",
+		expect: /"status":"accepted"/,
+		behavior: "an independent role inherits a candidate-private packet",
+		edits: [
+			{
+				file: "src/ledger/ledger.ts",
+				find: 'if (input.data.roleBinding && packet.role !== "coordinator" && packet.role !== "implementer")',
+				replace: 'if (false && input.data.roleBinding && packet.role !== "coordinator" && packet.role !== "implementer")',
+			},
+		],
+		test: "test/context-continuation-independence.test.ts",
+		pattern: "candidate cannot inherit",
+	},
+	{
+		name: "adopt-back-revives-basis",
+		expect: /strictly unequal/,
+		behavior: "adopting the initial policy revives its original prepared binding",
+		edits: [
+			{
+				file: "src/kernel/policy.ts",
+				find: "const revision = `policy-binding:${facts.sequence}`;",
+				replace: 'const revision = c.revision === "policy:initial" ? "policy-binding:2" : `policy-binding:${facts.sequence}`;',
+			},
+		],
+		test: "test/policy-adoption.test.ts",
+		pattern: "old pending basis",
+	},
+	{
+		name: "policy-resets-review-count",
+		expect: /completed review count must never reset/,
+		behavior: "policy adoption deletes completed Watchdog history/count",
+		edits: [
+			{
+				file: "src/kernel/policy.ts",
+				find: "const work = structuredClone(state.roleWork ?? { assignments: [] });",
+				replace:
+					'const work = structuredClone(state.roleWork ?? { assignments: [] }); work.assignments = work.assignments.filter(a => a.status !== "submitted");',
+			},
+		],
+		test: "test/policy-adoption.test.ts",
+		pattern: "completed Watchdog",
+	},
 	{
 		name: "web-page-failure-fallback",
 		expect: /identifiable page failure must not admit fallback/,

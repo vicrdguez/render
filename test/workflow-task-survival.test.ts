@@ -7,7 +7,7 @@ import type { ConversationId } from "@earendil-works/pi-durable";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
-import { admin, packet, roleFixture } from "./support/roles.ts";
+import { admin, allowSameFamily, packet, roleFixture } from "./support/roles.ts";
 
 export async function until(check: () => boolean | Promise<boolean>) {
 	const end = Date.now() + 5000;
@@ -42,6 +42,7 @@ test("R01/R07 accepted child survives submitting turn abort; own report and fixe
 	]);
 	const engine = new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } });
 	const f = await roleFixture(engine);
+	await allowSameFamily(f.ledger);
 	try {
 		const accepted = await f.command({
 			type: "assignTask",

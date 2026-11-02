@@ -78,7 +78,8 @@ async function main(): Promise<void> {
 			...strings(r.parents),
 			...strings(r.supersedes),
 			...Object.values(object(r.refs)).filter(
-				(v): v is string => typeof v === "string" && /^(workflow|revision|packet|fact|message|receipt):/.test(v),
+				(v): v is string =>
+					typeof v === "string" && /^(workflow|revision|packet|fact|message|receipt|policy|policy-binding|runtime-history):/.test(v),
 			),
 		]) {
 			requireExport(refs.has(ref) || external.has(ref) || declaredMissing.has(ref), `Undeclared relationship ${ref}.`);

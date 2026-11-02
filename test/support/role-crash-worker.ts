@@ -10,7 +10,7 @@ import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import type { Frame } from "../../src/ledger/ledger.ts";
 import { RoleBinding } from "../../src/ledger/records.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
-import { admin, packet, scheduler } from "./roles.ts";
+import { admin, allowSameFamily, packet, scheduler } from "./roles.ts";
 
 const data = process.argv[2]!;
 const mode = process.argv[3]!;
@@ -108,6 +108,7 @@ try {
 			},
 			admin,
 		);
+		await allowSameFamily(opened.ledger);
 		const accepted = await opened.ledger.command(
 			{
 				version: 1,

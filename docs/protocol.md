@@ -48,13 +48,15 @@ Ordinary restart preserves them, and revocation takes effect at once.
 | `postCoordinatorMessage` | `text` (1–65,536 chars) | required | absent | device or local admin |
 | `enrollDevice` | `label` (1–100 chars), `scope`: `{ "workflows": "all" }` or `{ "workflows": ["workflow:1", …] }` | absent | absent | local admin only |
 | `revokeDevice` | `device` | absent | absent | local admin only |
+| `changePolicy` | `expectedRevision`, `policy`: `{ completedReviewLimit: nonnegative integer, reviewerDiversity: different-family or human-directed-same-family, minimumEvidenceRank: process or tests or build or inspection }` | absent | absent | project-wide human device or local admin |
+| `adoptPolicy` | selected immutable `revision`, current `expectedBinding` | required | absent | scoped human device or local admin |
 | `cancelWork` | `assignment`, current `generation` and `attempt` | required | absent | scoped device or local admin |
 
 The trusted in-process Engine can schedule `assignTask`, `stageTask`, `fenceAttempt`, `recordBlocker`,
-`recordQuiescence` and checked `rebindAttempt`; none is a device/admin scheduling override. Assignment tools admit only
+`recordQuiescence`, `replaceTask`, `recordRuntimeHistory` and checked `rebindAttempt`; none is a device/admin scheduling override. Assignment tools admit only
 `requestRole` for a predefined packet key, `submitRoleResult` for their own report, `retainWebEvidence` for exact scoped passages, and `requestOwnStop`. `submitRoleResult` requires `text` and `supports` (at most 32 exact promoted revision refs). An empty list explicitly declares no web reliance; omission is malformed, not an implicit empty list. Required missing/corrupt support blocks acceptance. Accepted report receipts retain `webEvidence: none|retained` and exact support refs; older receipts without the field remain unclassified. See [scoped web research](web-research.md). Recovery alone
 can retain fenced late results with `recordRecoveryState`; they are quarantined artifacts, not accepted role reports.
-These commands require a workflow and strict typed fields; task names, principals and transaction callbacks are never
+`replaceTask` names the fenced, quiescent predecessor `assignment`, `generation`, `attempt` and a fresh explicit `packet`; the Slice/ownership mode follows that retained predecessor. `recordRuntimeHistory` names the current assignment identity and bounded capture `key`; bytes are read from the owned native store, never command-supplied history. These commands require a workflow and strict typed fields; task names, principals and transaction callbacks are never
 command fields. See [role operations](operations.md#durable-role-work).
 
 Other command families named in spec §4 remain known and refuse with `capability_unavailable`, or with
@@ -191,6 +193,8 @@ example full coordinator replies, checkpoints and off-host protection. Local rec
 with role-work recovery explicitly refused until current-world reconciliation is available. Undelivered capabilities are reported as
 absent, never as empty successes. The snapshot also reports `hostMode`, `executorEpoch`, the persistence readback and
 the backup state. Off-host protection is reported `unavailable` until it is delivered.
+
+For blocked assignments other than a parent awaiting role results, `nextHumanAction` identifies `cancelWork` with `workflow`, `assignment`, `generation`, `attempt` and an explanatory `reason`. This takes priority over initial Ground setup. To submit it, place `workflow` on the envelope and only `type`, `assignment`, `generation`, `attempt` in `command`; `reason` is display guidance, not a command field. Cancellation still requires a human principal and the current identity. Quiescence and host-scheduled fresh replacement remain separate checked steps, not authority conveyed by the snapshot.
 
 Role-aware snapshots add scoped `assignments`, including exact packet/report refs, generation/Attempt, ownership,
 executing capacity and visible blockers. Workflow owner/evidence summaries reflect these assignments. A blocked owner
