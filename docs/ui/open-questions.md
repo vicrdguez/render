@@ -1,27 +1,25 @@
 # Open questions for the human
 
-> **Supporting file of the Render UI spec** ([`spec.md`](spec.md)). It is copied from the design workbench (`~/dev/render-ui-design/design/`) as of the final phase.
-> - **Phase tags** ("phase 3", "phase 6") mark when a rule was decided. Decision records (D…, F…, A…, challenges, evaluations) are workbench history, not requirements.
-> - **File names** in code spans map like this: `visual-language.md`, `grammar.md` and `stack.md` → [`reference/`](reference/); `wireframes.md` → [`wireframes/layout.md`](wireframes/layout.md); `screens.md` → [`wireframes/text-mocks.md`](wireframes/text-mocks.md).
-> - **Paths** under `experiments/`, `inputs/` and `evaluation-*.md` are in the workbench (`~/dev/render-ui-design/`).
+> **Supporting file of the Render UI spec** ([`spec.md`](spec.md)).
+> - **File names** in code spans: `visual-language.md`, `grammar.md` and `stack.md` are in [`reference/`](reference/); `layout.md` and `text-mocks.md` are in [`wireframes/`](wireframes/).
 > - **Measured, proposed and pending** claims are separated in [`evidence.md`](evidence.md).
 
 
 Decisions that are yours, each with my recommendation and what evidence (if any) will settle it. Inputs so far:
 - **Screen Recording permission is granted**, which unblocks screenshot checks of the real GPUI window (E-GPUI-2).
-- **Visual direction** (phase 2): "modern UI, with some icons, more aesthetic… not like a typical apple UI or AI slop… we don't need to inherit the limitations of text-only, terminal UI".
-- **Ember is the signature theme** (phase 2).
-- **Answers to challenge 1** (phase 5, `dispositions-1.md`):
-  - **Accepted:** 11 (the coordinator is neutral and gold means navigable only, which closes Q29), 21 (v1 ships 12 languages; Q35) and 9 (human trials now, on a frozen phase-3 copy; Q21).
-  - **Rejected:** 16 (keep `␣ht` and live theme switching) and 17 (keep named saved filters; Q30).
-- **Answers after E-PROTO-3** (phase 4):
+- **Visual direction**: "modern UI, with some icons, more aesthetic… not like a typical apple UI or AI slop… we don't need to inherit the limitations of text-only, terminal UI".
+- **Ember is the signature theme**.
+- **Answers to the first design review**:
+  - **Accepted:** the coordinator is neutral and gold means navigable only (closes Q29); v1 ships 12 languages (Q35); human trials before the final spec.
+  - **Kept against the review's advice:** `␣ht` and live theme switching; named saved filters (Q30).
+- **Answers after E-PROTO-3**:
   - Q28: Iosevka Etoile for chrome ("Iosevka Etoile, which is what I asked for"), so Plex Sans is dropped.
   - Tool tints should be "subtle but noticeable".
   - Q33: the gold underline.
   - Q35: all 22 languages plus Elixir.
   - Q29–Q32 and Q34 got no answer and stand as defaults.
-- **tldraw wireframe review** (after phase 3): the layouts are approved, with four comments. Tool calls need no icon. The readback stays grey with its coral rule and icon. References in content must stand apart. Markdown should read like a good Markdown reader, with syntax-highlighted code. These are folded in as `visual-language.md` §4.8, §5.4, §5.5, §5.9 and §5.10. They open Q33–Q35.
-- **Style check answers** (phase 3, on the E-PROTO-2 renders): Iosevka for mono and Iosevka Etoile for long prose; the darker background on the main reading area; the three variants chosen by config; more of Ember's colours to tell things apart (inline code, authors, code blocks, pi-style tool-call tints), "without the UI becoming a rainbow show"; and a view to explore slices by status. They close Q26, Q01 and Q02, and open Q28–Q32.
+- **tldraw wireframe review**: the layouts are approved, with four comments. Tool calls need no icon. The readback stays grey with its coral rule and icon. References in content must stand apart. Markdown should read like a good Markdown reader, with syntax-highlighted code. These are folded in as `visual-language.md` §4.8, §5.4, §5.5, §5.9 and §5.10. They open Q33–Q35.
+- **Style check answers**: Iosevka for mono and Iosevka Etoile for long prose; the darker background on the main reading area; the three variants chosen by config; more of Ember's colours to tell things apart (inline code, authors, code blocks, pi-style tool-call tints), "without the UI becoming a rainbow show"; and a view to explore slices by status. They close Q26, Q01 and Q02, and open Q28–Q32.
 
 Numbering is stable: other files cite these IDs. Status: **open**, **resolved** (you answered), **resolved by direction** (answered by your own words, shown so you can object), **default, user may override** (you didn't answer, so my recommendation stands as the design's default until you say otherwise), or **superseded** (the question no longer applies).
 
@@ -32,7 +30,7 @@ Numbering is stable: other files cite these IDs. Status: **open**, **resolved** 
 - Darker main reading area, lighter sidebars → `surface.read` / `surface.side` (§5.1). In Light the reading area is the lightest surface instead (Q31).
 - Three variants by config → `ui.theme`, switched live with `␣ht` (§5.1).
 - More Ember colour without a rainbow → accent roles, tool-call tints and a colour budget (§5.3–§5.6).
-- A slice explorer → SC-16 (`wireframes.md`).
+- A slice explorer → SC-16 (`layout.md`).
 
 *Follow-up:* done on the E-PROTO-3 renders. The answers are recorded under Q28, Q33 and Q35, plus the tint direction in `visual-language.md` §5.5. The next look is at the E-PROTO-4 renders (Q21).
 
@@ -40,14 +38,14 @@ Numbering is stable: other files cite these IDs. Status: **open**, **resolved** 
 - **Measured:** at 13 px Etoile is about 20 % wider than Plex Sans, with the same x-height. The chrome sizes therefore stay the same, and the layout absorbs the width: sibling-aware truncation, strips on their own line in the tree, statusline drop order (`visual-language.md` §3.1).
 - **Trade-off:** the face no longer separates chrome from content. Lanes, surfaces, size and case do (FC-S18).
 
-**Q29 Who gets which accent (resolved: challenge 11 accepted by you).** The coordinator's name is neutral (`fg`, icon `fg.alt`). Gold means navigable only: references (solid underline) and links (dotted). You steel, reviewers mauve, workers sage; code orange; tool tints by outcome; coral for "needs you" (`visual-language.md` §5.3).
+**Q29 Who gets which accent (resolved: accepted by you).** The coordinator's name is neutral (`fg`, icon `fg.alt`). Gold means navigable only: references (solid underline) and links (dotted). You steel, reviewers mauve, workers sage; code orange; tool tints by outcome; coral for "needs you" (`visual-language.md` §5.3).
 
-**Q30 Explorer defaults (resolved for saved filters: challenge 17 rejected by you; the rest default, user may override).**
+**Q30 Explorer defaults (resolved for saved filters: you kept them; the rest default, user may override).**
 - `␣os` reopens this device's last filter; the first open uses `review-queue` (needs human + awaiting review).
 - The three tabs are Slices, Proposals and Agents. The Agents tab replaces the separate agents view (SC-08).
 - Saved filters are device-local, not synced through the host.
 
-*Recommendation (the default):* accept all three. You kept named saved filters when the challenger proposed dropping them. Syncing them would need a host-side preference store, which nothing else needs yet (`proportionality.md` P16).
+*Recommendation (the default):* accept all three. You kept named saved filters when the challenger proposed dropping them. Syncing them would need a host-side preference store, which nothing else needs yet.
 
 **Q31 Light variant and `auto` (default, user may override).**
 - In Light the reading area is the lightest surface, `#f0e8d8`, and the sidebars use Ember Light's own `#e6dac4`. "Darker reading area" therefore means "the surface with the most contrast against text" in every variant.
@@ -63,15 +61,15 @@ Numbering is stable: other files cite these IDs. Status: **open**, **resolved** 
 **Q34 Markdown alerts stay neutral (default, user may override).** GitHub colours `NOTE`, `TIP`, `IMPORTANT`, `WARNING` and `CAUTION` blue, green, purple, yellow and red, each with an icon. Render draws them as a quote bar plus the kind word, with no hue and no icon. Otherwise a red CAUTION box written by an agent would read as a failed tool call or host state (FC-S17). The ledger has none today.
 *Recommendation:* accept. The cost is that alerts are less striking than on GitHub.
 
-**Q35 Code languages (resolved: answered after E-PROTO-3; staged by challenge 21, accepted).** v1 ships 12: rust, ts/tsx, js, json, toml, yaml, bash, sql, python, md, diff and elixir. The other 11 of the 23 stay the target set, each one crate and one alias row when a fence in it appears. Unknown fences render plain (`stack.md` §5a). `tree-sitter-elixir` 0.3.5 is Apache-2.0, so its notice ships with the app.
+**Q35 Code languages (resolved: answered after E-PROTO-3; staged, accepted).** v1 ships 12: rust, ts/tsx, js, json, toml, yaml, bash, sql, python, md, diff and elixir. The other 11 of the 23 stay the target set, each one crate and one alias row when a fence in it appears. Unknown fences render plain (`stack.md` §5a). `tree-sitter-elixir` 0.3.5 is Apache-2.0, so its notice ships with the app.
 
-**Q08 Light theme (resolved by direction).** Ember Light replaces the light variant derived from vague in phase 1. Its accents and muted text are nudged for AA (computed; `visual-language.md` §5.7).
+**Q08 Light theme (resolved by direction).** Ember Light replaces the light variant derived from vague. Its accents and muted text are nudged for AA (computed; `visual-language.md` §5.7).
 *Remaining choice:* the default variant. *Recommendation:* `ui.theme = "ember"` (dark) by default; Soft and Light by config or live with `␣ht`.
 
-**Q09 Heading colours (superseded).** Phase 1 dropped your nvim's per-level heading colours because they used state hues. With a proportional reading face, headings now get hierarchy from size, weight and space, and Ember colours stay off headings.
+**Q09 Heading colours (superseded).** The design dropped your nvim's per-level heading colours because they used state hues. With a proportional reading face, headings now get hierarchy from size, weight and space, and Ember colours stay off headings.
 
-**Q24 Icon set (new; open).** IBM Carbon icons (Apache-2.0): square-ish and flat. Plex is gone since phase 4; Carbon stands on its own. The alternatives considered: Phosphor (MIT; rounder, common in SaaS), VS Code Codicons (CC BY 4.0; strongly "VS Code"), and Lucide (ISC; the look you asked to avoid).
-*Recommendation:* Carbon. You raised no objection in the style check; still open until you say so. Phase 3's new icon names all exist in the pinned 11.90.0 (`visual-language.md` §7).
+**Q24 Icon set (new; open).** IBM Carbon icons (Apache-2.0): square-ish and flat. Plex is gone; Carbon stands on its own. The alternatives considered: Phosphor (MIT; rounder, common in SaaS), VS Code Codicons (CC BY 4.0; strongly "VS Code"), and Lucide (ISC; the look you asked to avoid).
+*Recommendation:* Carbon. You raised no objection in the style check; still open until you say so. The icon names all exist in the pinned 11.90.0 (`visual-language.md` §7).
 
 **Q25 Motion (new; open).** Two meaningful motions only:
 - a 600 ms tint when a row's state changes;
@@ -93,7 +91,7 @@ macOS Reduce Motion turns both off.
 
 **Q04 `c` means annotate in read-only views** (and `gc`, your mini.comment habit). *Recommendation:* accept.
 
-**Q05 Authority confirmation.** Phase 2 cut the typed check code: every authority command is now readback + `y`, with typeahead discarded and a read basis (`proportionality.md` P1).
+**Q05 Authority confirmation.** The design cut the typed check code: every authority command is now readback + `y`, with typeahead discarded and a read basis.
 *Recommendation:* accept. If the human trial shows reflexive confirms, add a typed code for accepting an intake only.
 
 **Q06 Arming delay** before `y` counts in a readback. *Recommendation:* none by default; measure accidental confirms in the trial.
@@ -112,24 +110,24 @@ macOS Reduce Motion turns both off.
 
 **Q13 Notifications.** *Recommendation:* off by default; dock badge count only.
 
-**Q27 Quarantine as "needs you" (resolved by the trials, phase 6).** A quarantined sandbox needs an operator action on the host. In a personal tool the operator is you, so it stays above WAITING, but in its own group, **ON THE HOST**, directly under NEEDS YOU.
+**Q27 Quarantine as "needs you".** A quarantined sandbox needs an operator action on the host. In a personal tool the operator is you, so it stays above WAITING, but in its own group, **ON THE HOST**, directly under NEEDS YOU.
 - **Why:** in trial (a) the NEEDS YOU header counted it (4) while the statusline did not (3), and a correct "3" was marked wrong (FC-M35).
 - **Now:** NEEDS YOU is decisions only, and each group has one number everywhere.
 
-## Protocol (feedback for the server spec; decided in the server design)
+**Q38 Where proposal progress lives (resolved: answered 11-01).** You: *"Move to Proposals tab"*. The PROPOSALS block and its legend left the landing queue, and the explorer's Proposals tab is the one home for proposal progress and readiness. T01 is still answered with 0 keys: every group fits without scrolling at 1512 (measured, groups end at y 552 of 932).
 
-**Q14 Who computes consequences.** *Recommendation:* the host sends permitted actions with EFFECT/NOT text (RQ-06). Every authority command needs a host decidable (D13).
+## Protocol (asks of the host)
+
+**Q14 Who computes consequences (resolved by the accepted spec for actions; EFFECT and NOT text remain the ask, RQ-06).** Snapshots carry exact available actions (S§5.2.1 L351). Every authority command needs a host decidable.
 
 **Q15 Search.** *Recommendation:* server-side search (RQ-21); client-only is acceptable for v1.
 
-**Q16 Revoking a device from another device.** Deferred in v1 (`proportionality.md` P3). *Recommendation:* add later as an authority command if the host's admin interface proves too slow in practice.
+**Q16 Revoking a device from another device.** Deferred in v1. *Recommendation:* add later as an authority command if the host's admin interface proves too slow in practice.
 
-**Q17 Approve-with-notes is `approveCheckpoint`** with a non-empty annotation set. *Recommendation:* accept.
+**Q17 Approve-with-notes (resolved by the accepted spec).** It approves the original emitted bytes, carrying saved notes as nonbinding (S§8 L959).
 
 **Q32 Slice lifecycle vocabulary (default, user may override).** The explorer filters on lifecycle states (needs human, failed, unknown, awaiting review, implementing, rework, waiting on a dependency, ready, merged, superseded). Their names, labels and mark class should come from the host with the slices scope (RQ-41), not be hard-coded in the client.
-*Recommendation:* the host owns the vocabulary and sends each state's label, mark classes and `open` flag. The client falls back to the raw state name with the unknown mark. The phase-3 fake host implements exactly this (10 states, `open: bool` each); RQ-41 now requires it.
-
-**Q22 Mermaid on the host (superseded, phase 5, challenge 8).** Diagrams render in the client (Pele in QuickJS, the measured path), because host-side SVG would be laid out for one client's fonts. RQ-40 is withdrawn (`stack.md` §5).
+*Recommendation:* the host owns the vocabulary and sends each state's label, mark classes and `open` flag. The client falls back to the raw state name with the unknown mark. The fake host implements exactly this (10 states, `open: bool` each); RQ-41 now requires it.
 
 ## Later
 
@@ -143,7 +141,7 @@ macOS Reduce Motion turns both off.
 - a timed checkpoint review against your nvim + review-TUI baseline;
 - the reading trial.
 
-*Status (phase 6):* run on the frozen phase-3 copy; results in `trial-notes.md`, dispositions in `dispositions-2.md`.
+*Status:* run on a frozen early copy; results in the workbench's `trial-notes.md`.
 - **(a) 5-second:** 18/25. Five of the seven misses came from inconsistent counts, now fixed.
 - **(b) Handover:** 3/5 answers within 10 s in both runs. Bare-dash fields were slow, now fixed.
 - **(c) Checkpoint review:** failed, a discovery failure, 264 command keys against 35 scripted. Now fixed with `␣mn` and visible hints.
@@ -152,14 +150,14 @@ macOS Reduce Motion turns both off.
 **Still owed:**
 - the reading comparison (mono vs prose, 80 vs 100);
 - a review baseline in your nvim + review TUI (none was logged);
-- re-runs of (a), (b) and (c) on the phase-6 build after E-PROTO-5;
-- Q36, which the trial couldn't judge because it ran on the phase-3 faces.
+- re-runs of (a), (b) and (c) on the final design;
+- Q36, which the trial couldn't judge because it ran on early faces.
 
-**Q36 Side-pane content: size step or weight (new; open, judge in the style check).** With Etoile everywhere, SC-02's card QUESTION and its fact values shared face, colour and nearly size (evaluation-4 §4, challenge 5).
-- **Phase 5's default:** side-pane content at `prose.small` 15/24, two steps above 13 px chrome, on a 2 px content bar. It costs the card question one more line than A2's 14/22.
+**Q36 Side-pane content: size step or weight (new; open, judge in the style check).** With Etoile everywhere, SC-02's card QUESTION and its fact values shared face, colour and nearly size.
+- **The default:** side-pane content at `prose.small` 15/24, two steps above 13 px chrome, on a 2 px content bar. It costs the card question one more line than A2's 14/22.
 - **Fallback:** weight instead of size, with chrome values at 500 and content at 400.
 
-The trial runs on phase-3 faces (Plex chrome), so it can't judge this; the next look at Etoile renders decides.
+The trial ran on early faces (Plex chrome), so it can't judge this; the next look at Etoile renders decides.
 *Recommendation:* the size step with the bar. The user kept the side-pane content bar (10-30); only the per-message chat bar was removed.
 
 **Q37 Mono variant: Iosevka or Iosevka Term (resolved: answered 11-01).** You: *"Keep Iosevka"*. The mono role stays Iosevka in default spacing; Iosevka Term was the recommendation and is not used. Measured (E-MYGO-TEXT T3): in Iosevka, `— → … ⏎ ▸ ↺` are two cells wide and `· ⟨ ⟩ ␣ • ◦` one. Monospace lines snap those glyphs to two cells, and column widths and truncation count them as two (`stack.md` §4).

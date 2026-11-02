@@ -617,13 +617,6 @@
       600,
       ""
     ],
-    "ui.quote": [
-      "Iosevka Etoile",
-      13,
-      18,
-      400,
-      "italic, fg.alt, ≤3 lines"
-    ],
     "mono.small": [
       "Iosevka",
       12,

@@ -34,6 +34,24 @@ Paths are in the design workbench, `~/dev/render-ui-design/`. Every measured res
 | COV | tasks 25/25, commands 116/116, review loop 35/40 keys, 0 pointer events |
 | CONTRAST | text 456 pairs, worst 4.55; non-text 536 pairs, 0 failing |
 
+### 1.1a The pass against the accepted server spec (copies under `experiments/e8-*`, HTML render, 2026-11-01)
+
+No single build carries all of this; each row names its own copy. Reports: `report*.md` in each copy.
+
+| Area | Measured | Copy |
+|---|---|---|
+| Pass lineage | 0 of 702 digests or IDs cut across 66 shots; all six lineage answers on screen, unclipped; no staleness word on an Audit line; the drift card reads `reviews 3 · limit 2 reached` | `e8-a-lineage` |
+| Web outcome column | `ok · Tavily · Exa failed · 2.4 s` fits the 216 px column; the drop order held over 36 blocks; a forced fixture drops the provider second; `za` rows 18/18 whole, with identical bytes visible as a new observation over the same digest; `]t` reaches tool blocks | `e8-a-lineage` |
+| Readiness row | P1–P12 fit, widest non-extreme 574 px at 1512; rows exactly 52 px in 30 states; P12 shows eligibility and promotion together on one line; the card holds four labelled fields on 13 of 13 fixtures. **Before the risk-first rule:** P13, a four-digit worst case, was 641 px at 1512 and cut the sticky risk at 800 (508 against 503 px); see §3 | `e8-b-readiness` |
+| Proposal scope | Slices scope 62,623 B against a 64 KB budget; attention index 30,361 B against 37,406 at phase 5 | `e8-b-readiness` |
+| Recovery path | `␣ad` refused on the operation view; `⏎` opens SC-09; BINDS includes the observations; each recovery option kind has one fixed NOT set across four states | `e8-b-readiness` |
+| Merge package | Two layouts at 1512 and 800. Layout A cuts Slice names at 800 (two Slices read `evaluate-basic…`) and loses advisory rows and readiness below the fold. Layout B shows everything but CHECKS on the first screen at both widths; its row needs 651 px against 744 at 800, without K. `␣n` path works; the three advisory checks carry no mark and no count | `e8-b-readiness`, `report-8p.md` |
+| Settings | Keymap lint clean with the settings commands; T27 = 8 keys; policy save and adopt = 16 from the policy row, 21 from the queue; 0 pointer events; readback 21.5 % of the window with three pending; `y` disabled on CHANGED and STALE; both rebase fixtures pass with no draft lost; C1's basis digest unchanged by a dial change | `e8-c-settings` |
+| Delegated placement | A delegated request sits in WAITING and leaves ◆ at 3; the card and `K` hold the full approver forms | `e8-c-settings` |
+| Simplified frame | Chrome on SC-02 −37.24 %, SC-04 −18.70 % (−16.15 % with the class in the breadcrumb) against phase 5; 13,173 against 15,758 characters over 66 screen-widths; ONE-NUMBER 0/183; no task's key count rose; READ FIT 0/153,741 | `e8-d-simplified` |
+| Printed keys | `␣n`: 8/8 targets open, `C-o` returns, and at the target the authority key prints. KL17 on the last full frame: 0 of 2,940 chips over 540 screen-widths, plus the which-key `y` found and removed. The Vim built-in lint trips on its mutant | `e8-d-simplified` |
+| Dropped: outline class icons | Measured and rejected: three 12 px icons were distinct in shape (silhouette 0.72–0.81) but a reader couldn't infer their meaning, and no task scans class | `e8-d-simplified`, `report-8e.md` |
+
 ### 1.2 Fonts (CoreText on the bundled WOFF2)
 
 Script `design/tools/font_metrics.swift`, output `design/tools/font_metrics.txt`, sample `design/tools/measure-sample.txt`. The challenger reproduced these on the installed TTC.
@@ -96,6 +114,14 @@ Workbench `experiments/text-gpui/` and `experiments/text-mygo/report.md`; same s
 - **Fonts:** raw TTCs resolve 8/12 roles (italic upright); split selected faces 12/12; the installed Iosevka 34.0.0 and Etoile 34.2.1 match the bundled advances, so only glyph ids or tables tell them apart. Iosevka applies contextual alternates by default (20/24 tokens). `— → … ⏎ ▸ ↺` are two cells in Iosevka, one in Iosevka Term.
 - **mygo** reached the same results on these checks, about 6× slower at warm streaming layout and 4–5× per cold message.
 
+### 1.4b GPUI trial build on Zed main `ba63a02` (offscreen, 2026-10-31; `gpui-bump/report.md`)
+
+- **Spike code:** 0 compile breaks; only the probe patch needed porting (52 lines).
+- **Tests:** editor 16/16, failure cases 18/18, GPUI-level 5/5, pipeline 4/4; glyph-check verdicts identical to the pin.
+- **Auto traits:** `WindowTextSystem` is `Send` but not `Sync` on main, `Send` + `Sync` at the pin.
+- **Break checks:** Render's wrapper keeps `well-known` whole on both revisions, inserts nothing, and `shape_line` doesn't re-wrap. U+2060 holds on main and not at the pin.
+- **Offscreen A/B:** no measurable processing difference, with one firehose outlier that did not reproduce and is unexplained. L5 soak 183.5 MB (pin), 185.1 MB (main).
+
 ### 1.5 Mermaid (E-MERMAID)
 
 Source: `experiments/mermaid-native/report.md`.
@@ -143,17 +169,50 @@ Source: `trial-notes.md`, `experiments/trial-phase3/results/human/*.jsonl`. **Ca
 - **Every wire requirement** in `protocol-requirements.md`: the fake host implements them, but the real host's shapes are the server spec's to decide.
 - **Every open-question default** in `open-questions.md`.
 
-## 3. Pending (owed, not yet run)
+## 3. Pending: everything still owed
 
-| Item | Where it runs |
+**None of this blocks building.** It is listed once, here. A failure in any item becomes an implementation fix, not a redesign, unless it shows a rule can't hold.
+
+### 3.1 Checks for the implementation's suite (unmeasured; they run on the real client)
+
+| Check | What it asserts |
 |---|---|
-| Human re-runs of (a) 5-second, (b) handover and (c) review on the final design | `experiments/trial-phase5/` (`human-trial.md` there), fake host `experiments/trial-fake-host-phase5/` |
-| A **review baseline** in the user's nvim + review TUI, which the ambition requires for "measurably better" | same trial session |
-| The **reading comparison** (mono vs prose, 80 vs 100 columns) | trial (d) |
-| **Q36** style check (side-pane step vs weight) on Etoile renders | human |
-| **GPUI on-screen latency** L1 on screen, L2 and L3 with a working present hook; a 120 Hz panel | `experiments/gpui-spike/run_real.sh` (E-GPUI-2) |
-| **Real IME** (Japanese input method, dead keys) in the modal editor | E-GPUI-2 |
-| **Pele and usvg in GPUI**: QuickJS with the Etoile measurer, natural widths at `fontSize` 16, note-box fit (Figure 1), GPUI's `img()` with its pinned resvg | E-GPUI-2 |
-| tree-sitter highlight p99; binary size of the 12 grammars; Etoile chrome shaping per frame; font registration at cold start | E-GPUI-2 |
-| READ and VISUAL on the v0b wire dialect (run on v0 only) | prototype |
-| Copy-only re-checks after the final copy rules (SC-10h text, BINDS `none`, host-segment separator) | prototype (READ COPY / MEASURE / FIT, VISUAL bufferline) |
+| **Title fit** (FC-Q27) | Outline title cell ≥ 125 px with no note, ≥ 100 px with one note mark. All `modules r2` titles whole; every `seams r3` title shows at least 12 characters before `…` |
+| **Class word** | Present on heading rows and sticky bands; the heading text wraps before it; the breadcrumb tail is whole at every width |
+| **R-B1 and R-B2, readiness row** (FC-M49, FC-M50, FC-Q26, FC-M59) | At 1512 the longest realistic line is ≤ 640 px and one row (P13's 641 px predates the risk-first rule and fits the 695 px list). At 800 every line is one row, and the sticky risk is wholly visible and never what is cut. Parts drop in the written order. Rows are exactly 52 px. Re-measure on GPUI: P10's and P13's margins are single-digit px |
+| **KL17** (FC-K20) | Every printed chip resolves in its active context, on every screen fixture; a view template with no fixture fails; only a modal's surfaces are judged while one is open |
+| **KL19** (FC-K25) | The chrome copy table has no key display form outside a chip slot; the flagged pattern gets a human read |
+| **KEY-LINE** | Every one-row key line: one visual row, first part visible, dropped parts are a suffix of the written order, no part or chip cut, every chip inside the content box |
+| **Strip values** (FC-Q25, FC-M09) | The §2.1 ladders at 1512, 1000 and 800, including `modules r1 · agent` (about 117 of 137 px) and the proposal forms. A mark in EVIDENCE moves it down the ladder |
+| **Readback fields** (FC-M38) | BINDS renders `request C2 · captured s2 · human`, not only the digest; missing values read `none`; chips outside the modal dim and do nothing |
+| **Merge package** (FC-M58, FC-M60) | CHECKS on the first screen; BLOCKER `none · 1 uncertainty`; Slice row with K fits at 800 (651 px measured without K, against 744); `␣ol` live; the pane scrolls back to its top; every Slice opens a real SC-07; `none yet` and a bare verdict never appear on the path; the URL path with a real host `url` |
+| **Delegated request** (FC-M45) | The card's sentence and `␣ax` chip; the same in the review header; `␣ax` resolves in `review`; WAITING reason's drop order |
+| **Queue** | Card below the list under a 1180 px pane; counts equal between bufferline and headers |
+| **Key budgets** | T27 ≤ 8; T27b ≤ 21; COV reaches a tool block by `]t za`; T28 ≤ 9 |
+| **Wording never rendered** | SC-18, SC-10 i, host wording per mode, `pass N` in queue and agent rows, the review count in the readback, `za` outcome vocabulary, delegated DONE and REVISIONS wording, the FC-M11 hint |
+| **Suites not re-run on the last builds** | VISUAL, CONTRAST and SPOOF after the last chips; READ and VISUAL on the v0b dialect; `… 37 more lines` from a real host frame (it was injected); recorded host fixtures |
+| **Fixtures** | Rebuild from the ledger, not by hand (FC-M24): the fake host disagrees with itself on 28 native-engine Slice marks, and one prototype test's loop never ran |
+
+### 3.2 On-screen GPUI (E-GPUI-2, `experiments/gpui-spike/run_real.sh`)
+
+| Item |
+|---|
+| **L1 on screen, L2 and L3** with a working present hook; a 120 Hz panel. L2 uses the external screen-capture harness (`stack.md` §6) |
+| **L2 additions:** the first key after a `CAMetalDisplayLink` idle pause (≥ 2 s), and a Low Power Mode run with both GPUI caps off |
+| **Real IME:** `jk` and `M-⏎` in Insert under a Japanese IME and a Chinese IME in ASCII mode; Google Japanese Input (crash #64687); dead keys. It settles the routing question recorded in `stack.md` §3 and FC-K21 to FC-K23 |
+| **Pele and usvg in GPUI:** QuickJS with the Etoile measurer, natural widths at `fontSize` 16, note-box fit (Figure 1), GPUI's `img()` with its pinned resvg |
+| tree-sitter highlight p99; binary size of the 12 grammars; Etoile chrome shaping per frame; font registration at cold start |
+| **The two-cell mono glyphs** (`— → … ⏎ ▸ ↺`) in chips and mono columns; all fit numbers in §1.1a, which are browser renders |
+| **The precompiled-shader path** on the next bump |
+| **V4 target:** reattach ≤ 5 s locally (S§13 L1555), with the client's share being L6 plus first-snapshot paint |
+
+### 3.3 Human trial (Q21; `experiments/trial-phase5/`, fake host `experiments/trial-fake-host-phase5/`)
+
+| Item |
+|---|
+| **V8 target:** the five handover questions in ≤ 2 min without chat (S§13 L1559); the client's own targets are T01 (0 keys, ≤ 10 s) and T02 (1 key) |
+| Re-runs of (a) 5-second, (b) handover and (c) review on the final design |
+| A **review baseline** in the user's nvim + review TUI, which the ambition requires for "measurably better" |
+| The **reading comparison** (mono vs prose, 80 vs 100 columns) |
+| **Q36** style check (side-pane step vs weight) on Etoile renders |
+| **Comprehension:** whether a pending request is believed to keep its routing (FC-M44); whether `ready: not eligible (29 not integrated)` without the second blocker is understood; whether `␣n` is found; whether the icon alone is enough at the narrow COMMITMENT steps; whether the landing frame's chrome reads easier; whether the package is read before merging |

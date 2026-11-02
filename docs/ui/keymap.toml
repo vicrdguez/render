@@ -1,7 +1,6 @@
 # Render client keymap: the single declarative table shared by the GPUI client and a future TUI.
-# Semantics: grammar.md. Lint rules KL1–KL16: grammar.md §15. Cheat sheet is generated from this file.
+# Semantics: grammar.md. Lint rules: grammar.md §15. Cheat sheet is generated from this file.
 # Tiers: local (no host effect) · write (host write, no authority) · decide (authority: readback + y).
-# Phase 2: the bind tier and its typed check codes are cut (proportionality.md P1); deferred commands are listed there.
 # Key syntax: <leader> <C-x> <M-x> <S-x> <CR> <Esc> <Tab> <BS>, printable keys otherwise.
 # The placeholder <label> (hint label) appears only in kind = "modal" entries; KL0 accepts it there.
 
@@ -26,6 +25,7 @@ chat = "reader"
 diagram = "reader"
 explorer = "list"
 filter = "explorer"
+settings = "reader"                # SC-17 project settings
 editor = "global"
 prompt = "editor"
 composer = "editor"
@@ -64,6 +64,8 @@ editor_normal = ["h", "j", "k", "l", "w", "b", "e", "W", "B", "E", "0", "^", "$"
                  "i", "a", "I", "A", "o", "O", "r", "n", "N", "/", "?", "%"]
 editor_textobjects = ["iw", "aw", "ip", "ap", "is", "as", "i\"", "a\"", "i(", "a(", "i[", "a[", "i{", "a{", "iq", "aq", "ib", "ab"]
 editor_insert = ["<Esc>", "jk", "<C-w>", "<C-u>", "<CR>", "<C-CR>", "<C-t>", "<C-d>", "<C-j>", "<C-k>", "<C-f>", "<C-n>", "<C-p>", "<Tab>", "<BS>"]
+hint = ["<Esc>", "a", "s", "d", "f", "g", "h", "j", "k", "l"]      # hint mode: Esc leaves; the hint_alphabet letters are the labels (printed as chips)
+pending = ["<Esc>"]                # Esc cancels a pending prefix (the which-key head prints it as a chip)
 timeout_ok = ["jk"]                # KL2 single exception (user's insert-mode escape)
 
 # ───────────────────────────── global: views, finders, panes ─────────────────────────────
@@ -210,6 +212,44 @@ ctx = ["global"]
 keys = [{ mode = "n", ctx = "global", seq = "<leader>da" }]
 
 [[command]]
+id = "open.settings"
+ex = "settings"
+desc = "project settings"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>op" }]
+
+[[command]]
+id = "open.localprompt"
+ex = "localprompt"
+desc = "local-verification prompt"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>ol" }]
+
+[[command]]
+id = "localprompt.request"
+ex = "request-prompt"
+desc = "request a new local prompt"
+tier = "write"
+kind = "command"
+ctx = ["reader"]
+wire = ["requestLocalVerificationPrompt"]
+keys = []
+
+[[command]]
+id = "next.go"
+ex = "next"
+desc = "next action"
+tier = "local"
+kind = "command"
+jump = true
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>n" }]
+
+[[command]]
 id = "open.overview"
 ex = "overview"
 desc = "overview / andon"
@@ -344,7 +384,7 @@ desc = "relative line numbers"
 tier = "local"
 kind = "command"
 ctx = ["reader", "editor"]
-keys = []   # ex only (:numbers) since phase 2
+keys = []   # ex only (:numbers)
 
 [[command]]
 id = "toggle.prosefont"
@@ -949,7 +989,7 @@ desc = "note on paragraph or selection"
 tier = "local"
 kind = "command"
 ctx = ["review", "diff"]
-note = "Phase 6 (trial c, FC-K19): the discoverable entry to annotate. Normal: notes the paragraph or node under the cursor (= c ip). Visual: notes the selection (= c). c stays the operator."
+note = "FC-K19: the discoverable entry to annotate. Normal: notes the paragraph or node under the cursor (= c ip). Visual: notes the selection (= c). c stays the operator."
 keys = [{ mode = "n", ctx = "review", seq = "<leader>mn" }, { mode = "v", ctx = "review", seq = "<leader>mn" }]
 
 [[command]]
@@ -1101,7 +1141,7 @@ keys = [{ mode = "n", ctx = "diagram", seq = "+" }, { mode = "n", ctx = "diagram
 
 # ───────────────────────────── authority (◆) ─────────────────────────────
 # KL4: only under <leader>a, never countable/repeatable, never in editors, backed by a host decidable (wire). The readback renders the host's Basis.fields, so commands no longer list fields (challenge 4). Commands whose readback needs the basis on screen are not offered in list contexts (challenge 2).
-# Phase 2: one authority tier (decide). Deferred: delegation (host config, A003), reissue, resolve-risk, revoke (proportionality.md).
+# One authority tier (decide). Deferred: revoking a device from a client (Q16).
 
 [[command]]
 id = "auth.approve"
@@ -1158,19 +1198,43 @@ desc = "◆ accept intake / Contract"
 tier = "decide"
 kind = "command"
 ctx = ["review", "evidence"]
-wire = ["acceptIntake", "acceptAmendment"]
+wire = ["acceptIntake", "acceptAmendment", "supersedeContract"]
 repeatable = false
 countable = false
 keys = [{ mode = "n", ctx = "global", seq = "<leader>ac" }]
 
 [[command]]
-id = "auth.cancel"
-ex = "cancel"
-desc = "◆ cancel assignment"
+id = "auth.routing"
+ex = "routing"
+desc = "◆ checkpoint routing"
 tier = "decide"
 kind = "command"
-ctx = ["list", "chat", "evidence"]
-wire = ["cancelAssignment"]
+ctx = ["settings"]
+wire = ["setCheckpointSettings"]
+repeatable = false
+countable = false
+keys = [{ mode = "n", ctx = "global", seq = "<leader>at" }]
+
+[[command]]
+id = "auth.policy"
+ex = "policy"
+desc = "◆ review policy: save / adopt"
+tier = "decide"
+kind = "command"
+ctx = ["settings"]
+wire = ["savePolicyRevision", "adoptPolicy"]
+repeatable = false
+countable = false
+keys = [{ mode = "n", ctx = "global", seq = "<leader>ap" }]
+
+[[command]]
+id = "auth.cancel"
+ex = "cancel"
+desc = "◆ cancel work"
+tier = "decide"
+kind = "command"
+ctx = ["list", "chat", "evidence", "review"]
+wire = ["cancelWork"]
 repeatable = false
 countable = false
 keys = [{ mode = "n", ctx = "global", seq = "<leader>ax" }]
