@@ -1,5 +1,5 @@
 {
-  "$schema_note": "Render client tokens, Ember palette (MIT, Hossam Saraya). Variant keys match ui.theme values.",
+  "$schema_note": "Render client tokens, Ember palette (MIT, Hossam Saraya). Variant keys match ui.theme values. Non-Ember values: kind.link and kind.link_active are the user's own link colours (Q33), raised only where visual-language.md §5.7 says.",
   "variants": {
     "ember": {
       "surface": {
@@ -33,13 +33,23 @@
         "ok": "#8a9868"
       },
       "kind": {
-        "you": "#7890a0",
+        "you": "#8097a6",
         "coordinator": "#d8d0c0",
-        "reviewer": "#9b8493",
+        "reviewer": "#a38e9b",
         "worker": "#80a090",
-        "code": "#c09058",
-        "reference": "#c8b468",
-        "link_underline": "#c8b468"
+        "literal": "#c09058",
+        "code": "#c8b468",
+        "link": "#c09080",
+        "link_active": "#eb9a7f"
+      },
+      "text": {
+        "ok": "#8b996a",
+        "failed": "#b98787"
+      },
+      "content": {
+        "h1": "#b98787",
+        "h2": "#c09058",
+        "strong": "#8097a6"
       },
       "tint": {
         "human": "#1d1e1d",
@@ -226,13 +236,23 @@
         "ok": "#8a9868"
       },
       "kind": {
-        "you": "#7d94a3",
+        "you": "#8a9fac",
         "coordinator": "#d8d0c0",
-        "reviewer": "#a08a98",
-        "worker": "#80a090",
-        "code": "#c09058",
-        "reference": "#c8b468",
-        "link_underline": "#c8b468"
+        "reviewer": "#aa96a2",
+        "worker": "#84a393",
+        "literal": "#c2935c",
+        "code": "#c8b468",
+        "link": "#c09181",
+        "link_active": "#eb9a7f"
+      },
+      "text": {
+        "ok": "#94a175",
+        "failed": "#bf9191"
+      },
+      "content": {
+        "h1": "#bf9191",
+        "h2": "#c2935c",
+        "strong": "#8a9fac"
       },
       "tint": {
         "human": "#232424",
@@ -411,7 +431,7 @@
         "muted": "#5e5646"
       },
       "state": {
-        "attn": "#b84c30",
+        "attn": "#af482e",
         "blocked": "#905050",
         "stale": "#3a6080",
         "unknown": "#706070",
@@ -419,13 +439,23 @@
         "ok": "#4a6830"
       },
       "kind": {
-        "you": "#3a6080",
+        "you": "#375a78",
         "coordinator": "#282418",
-        "reviewer": "#6b5b6b",
-        "worker": "#386858",
-        "code": "#83552b",
-        "reference": "#67581b",
-        "link_underline": "#7a6820"
+        "reviewer": "#615361",
+        "worker": "#335f51",
+        "literal": "#784e27",
+        "code": "#65561a",
+        "link": "#844949",
+        "link_active": "#913c28"
+      },
+      "text": {
+        "ok": "#445f2c",
+        "failed": "#814747"
+      },
+      "content": {
+        "h1": "#814747",
+        "h2": "#784e27",
+        "strong": "#375a78"
       },
       "tint": {
         "human": "#e1ddd1",

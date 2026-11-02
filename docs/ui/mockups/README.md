@@ -4,7 +4,25 @@ Every image here is a **render of the HTML prototype**, not of the GPUI client, 
 - **Size:** 1512 × 982 logical px (a maximised 14″ MacBook Pro window), unless the name ends in `-800` (an 800 px wide window).
 - **Variant:** `ember` (dark, the default) unless the name says `-soft` or `-light`.
 
-They show layout, type, colour and copy as of their build. They do not show GPUI's text rendering, real fonts at native hinting, or GPUI performance.
+They show layout, type and copy as of their build. They do not show GPUI's text rendering, real fonts at native hinting, or GPUI performance.
+
+**Every `proto-*` image predates the current colour system** (`reference/visual-language.md` §5.3–§5.6), so read their colours as history. The captions don't repeat this.
+
+## Colour reference
+
+The closest renders to the current colours are the `colour-*` images, from the colour pass (`experiments/e9-colour/`, Ember at 1512). **All of them show the previous link and inline-code colours:** references and links are still gold, and inline code and code frames still orange. They draw nothing in Soft or Light. Other differences per image:
+
+| File | Shows | Also not current |
+|---|---|---|
+| `colour-SC-02-queue-ember.png` | Count tags, plain coral diamonds, the coral `NEEDS YOU` caption, steel labels, sage projects, orange IDs and key chips, role hues | — |
+| `colour-SC-02-calm-ember.png` | The calm queue: colour, and nothing that reads as needs-you | OWNER prints `undefined`, a fake-host glitch |
+| `colour-SC-04-review-ember.png` | `h1` rose and `h2` orange in a review; thin coral on the cursor bar and tab | — |
+| `colour-SC-04-markdown-ember.png` | Inline forms and heading levels: bold steel, `h3` and below in `fg`, dangling references | Italic is mauve here; it is neutral |
+| `colour-SC-03-chat-ember.png` | Roles and IDs in a transcript, the caret, the info pane | The strip's NEXT is a tag; it is the plain diamond. The rose and mauve counts have no tag |
+| `colour-SC-09-readback-ember.png` | The grey readback, verb tag, solid `READBACK` badge, steel field names | The strip and REVISIONS draw tags, the top-bar rose and mauve counts have no tag, and headings are steel |
+| `colour-SC-19-package-ember.png` | The quiet Slice rows, typed outcome words, top-bar tags | — |
+
+## Older renders
 
 **No single build carries the whole spec, and the images were not re-rendered for the last design pass. The spec's text wins over any image.** Each caption in [`spec.md`](../spec.md) says what its render gets wrong. Four places matter most, because the old picture shows something now wrong rather than merely missing:
 
@@ -26,6 +44,7 @@ They show layout, type, colour and copy as of their build. They do not show GPUI
 
 | File | Screen |
 |---|---|
+| `colour-*.png` | The colour reference above |
 | `proto-SC-01-frame-ember*.png` | SC-01 workspace frame |
 | `proto-SC-02-queue-merge-row-ember.png`, `proto-SC-02-queue-ember-*.png`, `proto-CALM-queue-ember.png` | SC-02 needs-me queue, and the calm state |
 | `proto-SC-03-chat-*.png` | SC-03 chat: main, expanded tool call, candidate (Soft), Light, 800 px |

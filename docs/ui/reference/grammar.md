@@ -36,7 +36,7 @@ Notation: `␣` = leader (Space). `⏎` = Enter. `C-x` = Ctrl-x, `M-x` = Alt/Opt
 | **Hint** | `[H]` | `gs` | a label, `Esc` | every key selects a label |
 | **Readback** | `[◆]` | an authority command | `y`, cancel | only confirm, cancel and inspect keys |
 
-Mode badges are outlined chips (`layout.md` §0): neutral, except Insert (sage border, local editing) and Readback (coral border, the authority spark). Cursor shapes: block (Normal), bar (Insert), underline (Operator-pending), none (Readback).
+Mode badges are outlined chips (`layout.md` §0) with a coral border, because coral's thin marks follow the keyboard (`visual-language.md` §5.4), except Insert (sage border, local editing) and Readback (solid coral, the word knocked out). Cursor shapes: block (Normal), bar (Insert), underline (Operator-pending), none (Readback).
 
 ## 3. Contexts
 

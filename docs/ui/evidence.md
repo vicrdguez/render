@@ -52,6 +52,19 @@ No single build carries all of this; each row names its own copy. Reports: `repo
 | Printed keys | `␣n`: 8/8 targets open, `C-o` returns, and at the target the authority key prints. KL17 on the last full frame: 0 of 2,940 chips over 540 screen-widths, plus the which-key `y` found and removed. The Vim built-in lint trips on its mutant | `e8-d-simplified` |
 | Dropped: outline class icons | Measured and rejected: three 12 px icons were distinct in shape (silhouette 0.72–0.81) but a reader couldn't infer their meaning, and no task scans class | `e8-d-simplified`, `report-8e.md` |
 
+### 1.1b The colour pass (`experiments/e9-colour/`, HTML render, 2026-11-02)
+
+One render with no fix loop, in Ember at 1512 with one Light and one Soft, then variants of the flag, headings, emphasis and Slice rows for the user's eye. Data: `experiments/e9-colour/data/`. **The renders predate the last two choices:** references and links are still gold, inline code and code frames still orange. The earlier VISUAL results in §1.1 measured the old rules, which these replace.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Coral test on the proposed set (row tags, 9 Ember screens, Light, Soft) | 0 survivors outside `[data-attn]` on every screen; the calm queue has 0 survivors. Not re-run on the plain row diamond the user chose; the diamond carries `[data-attn]` | `data/analysis.json` |
+| Coral in content containers | 0, except 64 px on SC-04: the caret in a note the user is typing, which the rule now allows (`visual-language.md` §5.4). Coral keywords would add 700 px on a code screen, and were not adopted | `data/analysis.json` |
+| Greyscale, 6 px blur, final top bar and row diamond | Count tags take the top three tiles of about 1,100 on SC-02 and SC-04 (coral 71.4, mauve 69.6, rose 63.3 on SC-02). A row diamond ranks 75th of 1,127, against 79th on the old build, so **the top bar does the work without hue, not the rows**. The strip's NEXT diamond ranks 9th on SC-04. The calm queue has no flag element | `data/variants/analysis.json` |
+| Knocked-out text on the tags, on the final tag size (34 × 16) | coral 6.51 / 6.09 / 4.55, rose 5.09 / 4.76 / 5.00, mauve 5.11 / 4.77 / 4.79 | `contrast2.py`, recomputed |
+| Accent share of a pane's text | transcript 4.8 %, evidence 10.1 %, review 18.1 %, queue 20.6 %, strip up to 39.1 %, **calm queue list 49.5 %** (short titles). The user accepted this, so it stays a reported number with no limit. The old build was 0–13.2 % | `data/analysis.json` |
+| Slice rows | The `slices-quieter` variant, chosen over the proposed set | `png/variants/slices-current-vs-new.png` |
+
 ### 1.2 Fonts (CoreText on the bundled WOFF2)
 
 Script `design/tools/font_metrics.swift`, output `design/tools/font_metrics.txt`, sample `design/tools/measure-sample.txt`. The challenger reproduced these on the installed TTC.
@@ -80,10 +93,12 @@ Script `design/tools/font_metrics.swift`, output `design/tools/font_metrics.txt`
 | running vs code surface | 3.2 / 3.7 / 4.1 |
 | running vs reading surface | 7.8 / 8.0 / 7.7 |
 
-**Contrast** (computed, then measured by CONTRAST in E-PROTO-5):
-- worst text 4.55 (Light `fg.muted`);
+**Contrast** (computed for the current tokens on 11-02; E-PROTO-5 measured the earlier token set by CONTRAST, and the current chrome text and link tokens haven't been measured on pixels):
+- neutral text worst 4.55 (Light `fg.muted`);
+- coloured chrome text, worst over six chrome surfaces, 4.50 (Ember `text.ok`);
 - syntax worst 4.58 / 4.56 / 4.56;
-- references 6.68 / 6.04 / 4.61.
+- references and links 4.95 / 4.51 / 4.55, active 6.20 / 5.61 / 4.79, on the surfaces where they sit;
+- marks worst 3.81 / 3.44 / 3.48.
 
 **Colour-vision deficiency:**
 - ok vs failed under deuteranopia is 3.8 / 3.7 / 3.1 computed and 3.5 / 3.9 / 3.0 on pixels. The two differ by simulation pipeline. Neither is relied on: the outcome word carries the meaning.
@@ -173,6 +188,8 @@ Source: `trial-notes.md`, `experiments/trial-phase3/results/human/*.jsonl`. **Ca
 
 **None of this blocks building.** It is listed once, here. A failure in any item becomes an implementation fix, not a redesign, unless it shows a rule can't hold.
 
+**Skipped by the user on 11-02:** §3.2 and §3.3 will not be run for this design package. Their claims stay unmeasured, not met. In particular, the IME key routing in `stack.md` §3 stays unsettled, and V8 and the ambition's "measurably better" review have no result.
+
 ### 3.1 Checks for the implementation's suite (unmeasured; they run on the real client)
 
 | Check | What it asserts |
@@ -188,12 +205,17 @@ Source: `trial-notes.md`, `experiments/trial-phase3/results/human/*.jsonl`. **Ca
 | **Merge package** (FC-M58, FC-M60) | CHECKS on the first screen; BLOCKER `none · 1 uncertainty`; Slice row with K fits at 800 (651 px measured without K, against 744); `␣ol` live; the pane scrolls back to its top; every Slice opens a real SC-07; `none yet` and a bare verdict never appear on the path; the URL path with a real host `url` |
 | **Delegated request** (FC-M45) | The card's sentence and `␣ax` chip; the same in the review header; `␣ax` resolves in `review`; WAITING reason's drop order |
 | **Queue** | Card below the list under a 1180 px pane; counts equal between bufferline and headers |
+| **VISUAL FLAG** (FC-M26, FC-M61, FC-S21) | Mask pixels within ΔE2000 5 of `state.attn`, erode 5 × 5: every survivor lies inside `[data-attn]`, and the rose and mauve tags and `kind.link_active` don't trip it. Calm screens: no survivors, no flag element, no coral caption. No coral in agent content; a caret in text being typed is allowed. Coral elsewhere only in the six keyboard elements and the caption. Every needs-you row, NEXT and count has its flag. Includes the plain row diamond, which the e9 test did not cover |
+| **VISUAL BUDGET** (FC-M27, FC-M28) | Fails on accent-coloured body text, an inline background other than `surface.code`, a coordinator name or icon in a hue, a hue outside its family's elements (`visual-language.md` §5.3), or olive or rose outside outcomes and content `h1`. Host sentences stay neutral. Accent share is reported, with no limit. Replaces the three-hue count |
+| **CONTRAST, new pairs** | Coloured chrome text ≥ 4.5 on read, side, bar, both cursors and readback. `kind.link` and `kind.link_active` ≥ 4.5 on read, side, both cursors, the human band and the diff tints. `surface.read` on each count tag and the verb tag ≥ 4.5. Coral ≥ 3 on chrome surfaces and `surface.code`. The `NEEDS YOU` caption ≥ 4.5 on `surface.read`. Coloured text falls to `fg` under `surface.selection` |
+| **SPOOF, new fixtures** (FC-S10, FC-S21, FC-S22, FC-M63) | 🔶 🟧 `◆`, a bold `NEEDS YOU`, a bold `you:`, a keyword-dense block, a filled Mermaid node, `# Audit failed`, and host text with ID-shaped and role-shaped words |
+| **Colour never rendered** | **A rose `h1` beside a failed row or tool block** (FC-S22). **`h1`, `h2` and a code frame in one view** with the gold frame rule. **Gold inline code, and salmon references and links,** in any variant. **All of it in Soft and Light,** where these colours are only computed. In Light a link and a rose `h1` are ΔE 0.8 apart (Q33). The current-match outline, which no e9 screen showed |
 | **Key budgets** | T27 ≤ 8; T27b ≤ 21; COV reaches a tool block by `]t za`; T28 ≤ 9 |
 | **Wording never rendered** | SC-18, SC-10 i, host wording per mode, `pass N` in queue and agent rows, the review count in the readback, `za` outcome vocabulary, delegated DONE and REVISIONS wording, the FC-M11 hint |
 | **Suites not re-run on the last builds** | VISUAL, CONTRAST and SPOOF after the last chips; READ and VISUAL on the v0b dialect; `… 37 more lines` from a real host frame (it was injected); recorded host fixtures |
 | **Fixtures** | Rebuild from the ledger, not by hand (FC-M24): the fake host disagrees with itself on 28 native-engine Slice marks, and one prototype test's loop never ran |
 
-### 3.2 On-screen GPUI (E-GPUI-2, `experiments/gpui-spike/run_real.sh`)
+### 3.2 On-screen GPUI: skipped (E-GPUI-2, `experiments/gpui-spike/run_real.sh`)
 
 | Item |
 |---|
@@ -206,7 +228,7 @@ Source: `trial-notes.md`, `experiments/trial-phase3/results/human/*.jsonl`. **Ca
 | **The precompiled-shader path** on the next bump |
 | **V4 target:** reattach ≤ 5 s locally (S§13 L1555), with the client's share being L6 plus first-snapshot paint |
 
-### 3.3 Human trial (Q21; `experiments/trial-phase5/`, fake host `experiments/trial-fake-host-phase5/`)
+### 3.3 Human trial: skipped (Q21; `experiments/trial-phase5/`, fake host `experiments/trial-fake-host-phase5/`)
 
 | Item |
 |---|
@@ -214,5 +236,4 @@ Source: `trial-notes.md`, `experiments/trial-phase3/results/human/*.jsonl`. **Ca
 | Re-runs of (a) 5-second, (b) handover and (c) review on the final design |
 | A **review baseline** in the user's nvim + review TUI, which the ambition requires for "measurably better" |
 | The **reading comparison** (mono vs prose, 80 vs 100 columns) |
-| **Q36** style check (side-pane step vs weight) on Etoile renders |
 | **Comprehension:** whether a pending request is believed to keep its routing (FC-M44); whether `ready: not eligible (29 not integrated)` without the second blocker is understood; whether `␣n` is found; whether the icon alone is enough at the narrow COMMITMENT steps; whether the landing frame's chrome reads easier; whether the package is read before merging |

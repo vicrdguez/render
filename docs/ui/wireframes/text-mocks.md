@@ -43,7 +43,7 @@ The text grids are 160 columns (100 for the compact variant) only because a mono
 - `›` in column 1 = cursor row; `▌` = text cursor; `[a]` = a hint chip.
 - `[N]`, `[I]` and `[◆]` = the statusline mode badge.
 - Bracketed marks (`[+]`, `[!]`, `[?]`, `[×]`) and the glyphs `◆ ✗ ? ▸ # ↺ · ✓ ×` stand for the icons in `reference/visual-language.md` §8. They are also the TUI fallback. `◇` is the diamond outline, in `fg.alt`.
-- Colour follows the marks: coral only on `◆` that needs you now.
+- Colour is not drawn in these grids (`reference/visual-language.md` §5.3). `◆` that needs you now is the coral diamond; the bufferline's `◆3 ✗1 ?1` are solid count tags (§5.4).
 - A key printed as an invitation (`␣n`, `⏎ open`, `:filter clear`) is a chip in the client, which a grid can't draw (`reference/grammar.md` §18).
 - The strip's five columns are equal in pixels (`layout.md` §0). In a grid they flex by a few cells, so each value prints whole in its 1512 form (`spec.md` §2.1).
 - The bufferline prints no seq and no time. The statusline's right end is `seq N`, the read-basis token on workflow views, and position; when the view isn't live, `seq N · as of T`.
@@ -132,7 +132,7 @@ The andon board, shown here after one `j` from the landing position (the oldest 
 - Rows are stable (oldest first) and frozen while you navigate; arrivals wait in the echo area.
 - **Card:** the five facts in their full forms (`spec.md` §2.1). NEXT prints `␣n`, because the queue isn't the NEXT target, and never carries the recommendation. ACTIONS are the row's own: `⏎ …`, local keys, `␣ax`.
 - **Statusline:** mode, `queue › NEEDS YOU › 2 of 3`, seq, position. No group counts.
-- **Calm state:** NEEDS YOU empty, and no coral anywhere.
+- **Calm state:** NEEDS YOU empty, and nothing reads as needs-you: no coral tag, diamond or caption.
 
 ```
  1 queue │ 2 render-host·modules r2 │ 3 chat·render-host                                                 ◆3 ✗1 ?1   ● homeserver · protected to seq 18340 (2 m) 
@@ -274,7 +274,7 @@ The andon board, shown here after one `j` from the landing position (the oldest 
 - Authors come from host metadata in the gutter and header band, never from message text (FC-S10).
 - Prose wraps at words within the 68 ch measure.
 - Tool calls fold to one line. They have no icon: the tint shows the outcome, and the outcome word starts a fixed column (bold for failed and unknown; `reference/visual-language.md` §5.5). A text grid cannot draw tints, so `[ok tint]` marks them.
-- References in the host's index (`A020`, `A021`, `M3`) render in gold Iosevka with a solid underline, which a text grid cannot show either (`reference/visual-language.md` §5.9). Code blocks are syntax-highlighted (§5.10).
+- References in the host's index (`A020`, `A021`, `M3`) render in salmon Iosevka with a solid underline, which a text grid cannot show either (`reference/visual-language.md` §5.9). Code blocks are syntax-highlighted (§5.10).
 - Steering excerpts are `prose.small` on the content bar, clamped to 3 lines. Side-pane rows are structured: key · role · state · time.
 - The prompt header says **before** you send whether `⏎` prompts or steers.
 - A steer that arrives after the turn ended is refused with `turn_ended`, kept as a draft, and offered as a follow-up (RQ-09).
@@ -495,7 +495,7 @@ crd coordinator · continuing t42 · streaming                                  
 
 ## SC-06 Annotation disposition map
 
-The host enforces completeness (I11). The CHECK column maps the cited byte ranges to this client's diff hunks, and flags dismissals and product questions by their words (`dismissal: read the reason`, `product question`), with no icon and no coral. Host objection text is shown as sent (`C: incidental choice · four executing attempts`), and `C` stays as the authored node ID (FC-M57). Approving and rework happen on the review, which the strip's `␣n` opens.
+The host enforces completeness (I11). The CHECK column maps the cited byte ranges to this client's diff hunks, and flags dismissals and product questions by their words (`dismissal: read the reason`, `product question`), with no icon and no flag. Host objection text is shown as sent (`C: incidental choice · four executing attempts`), and `C` stays as the authored node ID (FC-M57). Approving and rework happen on the review, which the strip's `␣n` opens.
 
 ```
  1 queue │ 2 render-host·dispositions r1→r2 │ 3 chat·render-host                                         ◆3 ✗1 ?1   ● homeserver · protected to seq 18340 (2 m) 
@@ -1007,7 +1007,7 @@ The user's fzf-lua layout. A typed prefix (`slice:`, `doc:`, `agent:`) filters b
 
 ## SC-12 which-key
 
-Display-only. The authority group shows the diamond **outline** in `fg.alt`: coral means "needs you now", not "this command is authority". The basis sentence appears once, in the `␣a` header; there is no footer. The root's head reads `display only · decides nothing`, then the chip `Esc` `closes`.
+Display-only. The authority group shows the diamond **outline** in `fg.alt`: the coral diamond means "needs you now", not "this command is authority". The basis sentence appears once, in the `␣a` header; there is no footer. The root's head reads `display only · decides nothing`, then the chip `Esc` `closes`.
 
 ```
 ── ␣  leader · display only · decides nothing · Esc closes ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1415,7 +1415,7 @@ An advisory text artifact for a human's local agent (S§5.2.2 L357–386). `␣o
 - `gg␣yG` copies the artifact's source bytes, never rendered text (FC-M47).
 - **`:request-prompt`** (write tier) sends the proposal, source and basis shown. It has no readback, because it binds no authority. A stale basis refuses through SC-10 b.
 - **Regeneration creates a new artifact.** An older prompt says `for an older source (R5) · current is R7`, and older prompts are listed under HISTORY. Before publication the source line reads `not yet published`.
-- **Advisory:** it is never a NEEDS YOU row, a blocker or coral. Results come back as ordinary messages; there is no import or attestation (FC-M46).
+- **Advisory:** it is never a NEEDS YOU row, a blocker or a flag. Results come back as ordinary messages; there is no import or attestation (FC-M46).
 - **Where it is announced:** one advisory line on SC-07, SC-19 and the proposal card.
 
 ```

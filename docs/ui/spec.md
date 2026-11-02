@@ -17,7 +17,7 @@
 | [`keymap.toml`](keymap.toml) | The one declarative keymap: 122 commands, 189 bindings, lint-clean |
 | [`ember-tokens.json`](ember-tokens.json) | Every colour, tint, syntax, type, spacing and radius token for the three theme variants, loadable by a client |
 | [`protocol-requirements.md`](protocol-requirements.md) | What the host must send and accept, RQ-01…RQ-49 |
-| [`failure-catalogue.md`](failure-catalogue.md) | 196 failure cases, each with its design defence and the check that guards it |
+| [`failure-catalogue.md`](failure-catalogue.md) | 201 failure cases, each with its design defence and the check that guards it |
 | [`open-questions.md`](open-questions.md) | Decisions, the user's answers and the current defaults |
 | [`evidence.md`](evidence.md) | Measured, proposed and pending |
 | [`mockups/`](mockups/) | Renders of the **HTML prototype**, not GPUI. They predate parts of this spec; each caption and the README say what differs, and the text wins |
@@ -30,7 +30,7 @@
 
 ## 1. Identity and principles
 
-**Identity: Ember.** Warm graphite, ivory text, and one coral spark that means *you are needed here*. Ember's quieter accents name things, so the eye can tell a human turn from an agent turn, code from prose, a reference from a word, and a passed tool call from a failed one, without the screen turning into a rainbow. The palette is MIT, © 2026 Hossam Saraya.
+**Identity: Ember.** Warm graphite, ivory text, and coral, which marks where your keyboard is and, as a solid shape, what needs you. Ember's other accents name things, so the eye can tell parts of the screen and kinds of text apart by colour, not only by brightness, without the screen turning into a rainbow. The palette is MIT, © 2026 Hossam Saraya.
 
 The client is **keyboard-native and dense**, in the spirit of nvim and Doom Emacs, but a modern GUI:
 - real type and icons;
@@ -41,7 +41,7 @@ It is neither a terminal clone nor the macOS default or a SaaS dashboard: no pil
 
 **Principles:**
 1. **The five handover facts are always one glance away:** accepted commitment, active owner, latest evidence, blocker, and next human action. They come from structured host fields, never from reading chat.
-2. **Dark cockpit.** Normal is quiet. Colour and the coral spark mark only what needs the human. A calm screen has **zero coral pixels**.
+2. **Quiet means nothing asks.** Colour tells parts apart everywhere; only the flag asks for you (§5.3). A calm screen has colour, and nothing on it reads as needs-you: **no coral tag, diamond or caption**.
 3. **Authority is a separate dialect.** Every command that binds human authority lives under `␣a`. It reads back its exact basis and is confirmed with `y`. Nothing else reaches authority: not counts, `.`, macros, hints, links, `Esc`, `C-c` or host events.
 4. **You can only approve what you have been shown.** Authority keys work only in views that show the basis. A readback binds the basis you acknowledged, and an unacknowledged change makes it STALE.
 5. **Targets are pinned at the first key, against what was painted.** Host updates never retarget a key in flight.
@@ -58,7 +58,7 @@ Logical px in a maximised 1512 × 982 window (14″ MacBook Pro). The normative 
 
 | Region | Height | Surface | Contents |
 |---|---|---|---|
-| **Bufferline** | 30 | `surface.bar`, bottom 1 px `border.subtle` | Open views as tabs (16 px icon + `ui` label; the active tab has a 2 px `rule.focus` underline). Right end: attention counts, then the **host segment** |
+| **Bufferline** | 30 | `surface.bar`, bottom 1 px `border.subtle` | Open views as tabs (orange number, 16 px icon, `ui` label; the active tab has a 2 px coral underline). Right end: attention counts as solid count tags (§5.3), then the **host segment** |
 | **Handover strip** (workflow views only) | 48 | `surface.bar` | Five columns, COMMITMENT · OWNER · EVIDENCE · BLOCKER · NEXT; caption `ui.label`, value `ui`. Values follow §2.1. NEXT prints its key (§3.9) |
 | **Panes** | rest | main pane `surface.read`, side panes `surface.side` | The reading area is the surface with the most contrast against text; side areas are one step quieter |
 | **Statusline** | 24 | `surface.bar` | Mode badge, breadcrumb, SAVE segment; right: ledger seq, the read-basis token on workflow views, position. Host time only when the view isn't live (below) |
@@ -138,7 +138,7 @@ The complete table is [`keymap.toml`](keymap.toml); the full semantics are in [`
 | Hint | `[H]` | `gs` | a label, `Esc` | every key selects a label |
 | Readback | `[◆]` | an authority command | `y`, cancel | confirm, cancel, inspect only |
 
-Mode badges are outlined chips: neutral, except Insert (sage border) and Readback (coral border).
+Mode badges are outlined chips with a coral border and an `fg` word, except Insert (sage border) and Readback (solid coral, the word knocked out).
 
 **Contexts** form a tree. A command applies in its listed contexts and all their descendants; an inner context may shadow an outer binding only by declaring `shadows = "parent"`.
 
@@ -248,7 +248,7 @@ on key(e):          handled immediately against the last painted frame
 
 Scrolling does not count. Until then the change is *not yet acknowledged*: marked `[!]` in the sign column and the strip, shown in the statusline's basis token (`basis r2 v3→v4 [!] pol3 ]d`, with `]d` a chip), and reachable with `]d`. While a readback is open the token omits `]d`; the STALE line's `d` chip is the invitation there.
 
-**Readback** (a float on the grey `surface.readback`, 2 px coral top rule, 16 px coral diamond; no coral fill):
+**Readback** (a float on the grey `surface.readback`, 2 px coral top rule, a solid coral verb tag with `◆` and the verb knocked out; no coral fill on the panel):
 
 ```
 ◆ APPROVE render-host · modules r2
@@ -349,14 +349,14 @@ The andon board that answers "what needs me" with zero keys (T01). Proposal prog
 
 **List** (rows 26 px, group header 24 px). The columns are:
 - state icon;
-- project (`ui.small` `fg.muted`);
+- project (`ui.small` sage);
 - item (path truncation `…/leaf`);
 - reason (`fg.alt`), truncating at its end;
 - waiting (`mono.small`, 60 px);
 - downstream (`mono.small`, 84 px, the host's transitive count).
 
 **Groups:**
-- **NEEDS YOU · 3**: decisions and acts only you take, each with the coral diamond, oldest first. This includes the main merge: `merge main · on the forge`.
+- **NEEDS YOU · 3**: decisions and acts only you take, each with the coral diamond, oldest first. The caption and count are coral while the count is above 0; every other caption is steel. This includes the main merge: `merge main · on the forge`.
 - **ON THE HOST · 1**: operator remedies such as a quarantine, with the failed octagon and no diamond.
 - **WAITING · NOT ON YOU**: dependencies, slots and the forge, oldest first. "Awaiting publication" waits here, never in NEEDS YOU. A delegated checkpoint request waits here too: `delegated (s3) · agent decides`, dropping `· agent decides` first and then `(s3)`, while `delegated` stays whole.
 - **RUNNING · 4 · slots 4/4**: rows first, slots named. They differ while a cancelled assignment holds its slot through the grace period. Implementation rows name the pass: `implementer as19·g3 · pass 2`.
@@ -374,7 +374,7 @@ The andon board that answers "what needs me" with zero keys (T01). Proposal prog
 
 **Statusline on the queue:** mode, `queue › NEEDS YOU › 2 of 3`, seq, position. The group counts appear on the headers and in the bufferline, nowhere else.
 
-**Calm state:** NEEDS YOU empty, and no coral anywhere.
+**Calm state:** NEEDS YOU empty, and nothing reads as needs-you: no coral tag, diamond or caption. The keyboard's thin coral remains.
 
 ![SC-02 queue](mockups/proto-SC-02-queue-merge-row-ember.png)
 *HTML-prototype render from the package build, with the main-merge row selected. **Not drawn here:** its BLOCKER should read `none · 1 uncertainty`; the statusline should have no group counts; the bufferline no seq or time. [Light](mockups/proto-SC-02-queue-ember-light.png), [800 px](mockups/proto-SC-02-queue-ember-800.png) and [calm](mockups/proto-CALM-queue-ember.png) are **older and wrong** on: the PROPOSALS block and legend (gone), `rework 1/2` (now `reviews 1 of 2`), and a card NEXT of `␣ad` (now `␣n`). Wireframe: [`wireframe-SC-02.png`](wireframes/wireframe-SC-02.png) (older still).*
@@ -402,7 +402,7 @@ The andon board that answers "what needs me" with zero keys (T01). Proposal prog
   - **`za` rows:** `provider · observation · outcome · completeness · digest · time`, e.g. `Tavily  o2  ok  partial  9f2c·4e1a  09:31:00`. Outcomes are `ok`, `partial`, `failed: <class>`, `timed out`, `cancelled`, `interrupted`, `not attempted`. A missing digest reads `none`. A refetch of identical bytes shows as a new observation over the same digest (S§6.6 L774, L782).
   - An expired result handle reads `full result expired · the committed output above stays · a new fetch is a new observation`.
 
-**Code blocks** grow right from x 331 up to x 1155, with a 2 px orange left rule, an orange language label and syntax highlighting. **Inline code** is Iosevka 14 orange on a `surface.code` chip. **References** are gold Iosevka 500 with a solid underline.
+**Code blocks** grow right from x 331 up to x 1155, with a 2 px gold left rule, a gold language label and syntax highlighting. **Inline code** is Iosevka 14 gold on a `surface.code` chip. **References** are salmon Iosevka 500 with a solid underline.
 
 **Prompt:**
 - Its header says before you send whether `⏎` prompts or steers (`→ steer · turn t42 running · delivers after the current tool call`).
@@ -463,7 +463,7 @@ Side-by-side prose diff:
 
 Every note of the previous round, mapped to the host's disposition (acted on, considered, dismissed) and to where in the new emission it went.
 - The host enforces completeness.
-- Dismissals and product questions are flagged by their words in the CHECK column (`dismissal: read the reason`, `product question`); no icon, no coral.
+- Dismissals and product questions are flagged by their words in the CHECK column (`dismissal: read the reason`, `product question`); no icon, no flag.
 - Host objection text is shown as sent (`C: incidental choice · four executing attempts`); the client never rewrites it.
 - The footer prints `⏎ the note on r1 · gd the reference on r2`. Approving and rework happen on the review, which the strip's `␣n` opens.
 
@@ -489,7 +489,7 @@ PASS 2 · opened by Watchdog r1 rework · Audit done
 - **REPORTS** are grouped by pass: `pass 2 current`, then `pass 1 historical`, which collapses to its header and its Watchdog rounds, because they still count. Each round shows its verdict and a counted mark (`Watchdog r2 · pass · drift · counted`).
 - **FINDINGS** print the host's disposition word: fixed, considered, dismissed, needs-human.
 - Finding ↔ obligation links appear only where the report records one.
-- Gate passes use the olive `checkmark` in evidence.
+- Gate passes use the olive `checkmark`.
 - **Catalog rows** carry their kind (`executed`, `journey`, `generated · no proof rank`, `human · advisory`), and a maintenance report's `clean`, `changed` or `blocked` per row.
 - **Web evidence** is an item of its own: header `WEB PASSAGE retained for F16`, chrome `partial · Tavily · obs o2 · 10-25 09:31 · 9f2c·4e1a` and `URL → final URL`, with the passage as content on the content bar.
 - **Native checks** that can't run on Linux read `unrun on Linux · see local prompt` with the chip `␣ol`. They are advisory: never passed, never a readiness gap. The advisory line reads `local check (advisory) · prompt 3 for R7` with `␣ol`, or `not available yet: <what is missing>`.
@@ -696,7 +696,7 @@ LOCAL CHECK PROMPT 3 · advisory · nothing waits on this
 - The key line prints `gg␣yG` `copies it` and `:request-prompt` `makes a new one for the current source`. Yank copies the artifact's source bytes, never rendered text.
 - **`:request-prompt`** (write tier) sends the proposal, source and basis shown. It has no readback, because it binds no authority. A stale basis refuses through SC-10b.
 - **Regeneration creates a new artifact.** An older prompt says `for an older source (R5) · current is R7`, and older prompts are listed under HISTORY.
-- **Advisory:** it is never a NEEDS YOU row, a blocker or coral. Results come back as ordinary messages; there is no import or attestation.
+- **Advisory:** it is never a NEEDS YOU row, a blocker or a flag. Results come back as ordinary messages; there is no import or attestation.
 - **Where it is announced:** one advisory line on SC-07, SC-19 and the proposal card (SC-07 gives the wording).
 
 No render exists; this view reuses the SC-04 reader.
@@ -718,7 +718,7 @@ No render exists; this view reuses the SC-04 reader.
 | **ADVISORY CHECKS** n | `macOS native test suite  suggested · not run`, with **no** stale, failed or coral mark and not counted among findings or uncertainties, then the local prompt line. Missing advisory observations are never a gap (S§9.3 L1136) |
 | **SLICES** n | Dependency order; one row each |
 
-**Slice rows:** `<name>  K·40cc  pass 2  Audit examined 7bf2606  Watchdog r2 pass on 4026042  2 fixed`. `⏎` opens that Slice's SC-07 and `C-o` returns.
+**Slice rows:** `<name>  K·40cc  pass 2  Audit examined 7bf2606  Watchdog r2 pass on 4026042  2 fixed`. `⏎` opens that Slice's SC-07 and `C-o` returns. **Colour:** they are the quietest list, because a package repeats them dozens of times. The name is `fg`, the role name takes its hue, `K·40cc` and digests are orange, the verdict `pass` is olive, `2 fixed` and higher is `fg`, and everything else on the row is `fg.muted`.
 - **Columns sit next to the name:** the name column is as wide as the longest name, and the values follow it directly, not at the pane's right edge. A name is never cut.
 - **K is on the row,** because mapping commitments to source is the package's first duty.
 - **Per-Slice R is not on the row.** Its tree is exactly the reviewed source the row already prints (S§9.3 L1122), so it would be a second digest for the same content. It is in that Slice's SC-07 and in `K`.
@@ -764,51 +764,61 @@ Main panes use the surface with the most contrast against text (`surface.read`):
 | `fg.alt` | `#b0a898` | `#b0a898` | `#585040` |
 | `fg.muted` (nudged to ≥ 4.5:1 everywhere) | `#999489` | `#a19c92` | `#5e5646` |
 
-**The cursor row** is the pane's cursor surface plus a 2 px `rule.focus` bar. In the reading area, the cursor surface equals `surface.code`, so on code lines and inline-code chips the bar is the cursor cue.
+**The cursor row** is the pane's cursor surface plus a 2 px coral bar. In the reading area, the cursor surface equals `surface.code`, so on code lines and inline-code chips the bar is the cursor cue.
 
 ### 5.3 Colour roles
 
-Colour has **two channels**, separated by element type:
-- **state** colour, on marks and state tints only;
-- **kind** colour, on short labels: author names, inline code, code chrome, references.
+Every mockup predates this colour system ([`mockups/README.md`](mockups/README.md)). The full rules and every computed pair are in [`reference/visual-language.md`](reference/visual-language.md) §5.3–§5.8.
 
-Body prose, headings, list titles and chrome IDs are never accent-coloured.
+**Each hue names one family.** In chrome, a piece of text keeps its family's hue wherever the client draws it, on short fields whose type the client knows from a host field.
 
-**State marks:**
+| Hue | Means | Token | Ember (dark, default) | Ember Soft | Ember Light |
+|---|---|---|---|---|---|
+| **Steel** | a label: captions, field and strip labels, `SAVE`; the `you` role | `kind.you` | `#8097a6` | `#8a9fac` | `#375a78` |
+| **Orange** | literal machine text: chrome IDs, digests, revisions, key chips, tab numbers | `kind.literal` | `#c09058` | `#c2935c` | `#784e27` |
+| **Gold** | code as a thing: inline code, the code frame's left rule and language label | `kind.code` | `#c8b468` | `#c8b468` | `#65561a` |
+| **Salmon** | you can go there: references and links, in content only | `kind.link` | `#c09080` | `#c09181` | `#844949` |
+| | on hover, or under the document cursor | `kind.link_active` | `#eb9a7f` | `#eb9a7f` | `#913c28` |
+| **Sage** | where it lives: project, host name, first breadcrumb segment; the worker role | `kind.worker` | `#80a090` | `#84a393` | `#335f51` |
+| **Mauve** | independent review: every reviewer's role name (the word separates `Audit` from `Watchdog`) | `kind.reviewer` | `#a38e9b` | `#aa96a2` | `#615361` |
+| **Olive** | it passed: short typed outcome words | `text.ok` | `#8b996a` | `#94a175` | `#445f2c` |
+| **Rose** | it failed: short typed outcome words | `text.failed` | `#b98787` | `#bf9191` | `#814747` |
+
+The coordinator is neutral (`fg`). A role name takes its hue wherever it is a host field.
+
+**State marks** always carry their icon:
 
 | Token | Ember (dark, default) | Ember Soft | Ember Light |
 |---|---|---|---|
-| needs you (`state.attn`, coral) | `#e08060` | `#e08060` | `#b84c30` |
+| needs you (`state.attn`, coral) | `#e08060` | `#e08060` | `#af482e` |
 | failed (`state.blocked`, rose) | `#b07878` | `#b07878` | `#905050` |
 | stale (`state.stale`, steel) | `#7890a0` | `#7890a0` | `#3a6080` |
 | unknown (`state.unknown`, mauve) | `#988090` | `#988090` | `#706070` |
 | local (`state.local`, sage) | `#80a090` | `#80a090` | `#386858` |
 | ok (`state.ok`, olive) | `#8a9868` | `#8a9868` | `#4a6830` |
 
-**Kind roles.** The coordinator, the default voice, is neutral (`fg`). Gold means **navigable** and nothing else.
+**In content,** after the user's Ember setup: `h1` rose (`content.h1`, the `text.failed` values), `h2` orange (`content.h2`, the `kind.literal` values), `h3` and below `fg`, `strong` steel (`content.strong`, the `kind.you` values), `em` neutral italic. Size, weight and rule carry rank.
 
-| Token | Ember (dark, default) | Ember Soft | Ember Light |
-|---|---|---|---|
-| you (steel) | `#7890a0` | `#7d94a3` | `#3a6080` |
-| reviewers (mauve) | `#9b8493` | `#a08a98` | `#6b5b6b` |
-| workers (sage) | `#80a090` | `#80a090` | `#386858` |
-| code (orange) | `#c09058` | `#c09058` | `#83552b` |
-| references (gold) | `#c8b468` | `#c8b468` | `#67581b` |
-| link underline (gold) | `#c8b468` | `#c8b468` | `#7a6820` |
+**Stays neutral:** body prose, host sentences (colour needs a type, and parsing a sentence for one would assert what the host didn't say), row titles and field values, timestamps, counts, surfaces.
 
-**Coral** marks only "needs your decision now" and the open readback (its 2 px top rule and 16 px diamond).
-- Legends, which-key and filters draw the diamond in `fg.alt`.
-- Operator remedies get the failed octagon, not the diamond.
+**The flag: what needs you.** A decision that is yours now, from a host wait, in chrome lanes only:
+- the bufferline **count tag**: a solid block 34 × 16 px, radius 2, with `◆` and the number knocked out in `surface.read`, on every screen while the count is above 0. Rose `✗` and mauve `?` counts use the same tag, so coral, the diamond and first place are what say "needs you";
+- the **filled coral diamond** alone, with no background, on rows, strip and card NEXT, and REVISIONS;
+- the `NEEDS YOU` caption and count in coral text, only on `surface.read`;
+- while a readback is open, its verb tag and the solid `READBACK` mode badge.
+
+Legends, which-key and filters draw the diamond in `fg.alt`. Operator remedies get the failed octagon, not the diamond.
+
+**Thin coral: where your keyboard is.** Six elements at most 2 px, one of each per window, moving only on your keys: the caret, the cursor-row bar, the focused pane's top rule, the active tab's underline, the mode badge's border and the current search match's outline. The caret is allowed in text you are typing. What is excluded is **agent content**, which never draws coral.
 
 **The colour budget (no rainbow):**
-1. Coral as above, and nothing else.
-2. State colour only on marks and state tints; kind colour only on short labels and the human band.
-3. At most three kind hues per pane (a chat uses steel, gold, orange); a fourth role falls back to `fg.alt`.
-4. Lists stay neutral, so they scan by state.
-5. Tints are block-level only and paired with a word.
-6. No accent in chrome captions, bars or tabs.
-
-Syntax colour lives only inside code frames and doesn't count toward the budget.
+1. Solid coral only for a decision that is yours now, in chrome lanes. The count tag is the only coral block outside an open readback.
+2. Thin coral follows the keyboard. The `NEEDS YOU` caption is the one stated exception.
+3. One hue, one family, in chrome. Stated exceptions in content: `h1`, `h2` and `strong`.
+4. Neutral leads: accent text stays the minority of a pane's text. Its share is reported, with no limit.
+5. Olive and rose label nothing in chrome, only outcomes. Rose in content `h1` is the stated exception: a failed mark always has its icon and word, so it doesn't rely on hue.
+6. Tints are block-level only and paired with a word.
+7. Syntax colour lives only inside code frames, with no coral and no background.
 
 ### 5.4 Tints and tool-call blocks
 
@@ -833,7 +843,7 @@ Syntax colour lives only inside code frames and doesn't count toward the budget.
 
 **Tool blocks** come **only from host tool-call records** with an `outcome` field. They sit between messages, never inside one.
 - No icon; the outcome word carries the outcome for colour-blind readers.
-- A running block is told from a code block by shape: a code block has the orange rule and a language label.
+- A running block is told from a code block by shape: a code block has the gold rule and a language label.
 - Tints change instantly when an outcome arrives.
 
 ### 5.5 Typography
@@ -856,7 +866,7 @@ Etoile has a 0.520 em x-height, tabular digits, and one advance across weights; 
 | `prose` | Etoile | **15/24** | 400 | body |
 | `prose.small` | Etoile | 15/24 | 400 | side-pane content, on the content bar |
 | `prose.table` | Etoile | 14/22 | 400 (header 700) | table cells |
-| `prose.h1` … `h6` | Etoile | 24/32, 20/28, 17/26, 15/24, 13/20, 13/20 | 700 (h6 600 italic) | h1/h2 with a rule under; h5 uppercase `fg.alt` |
+| `prose.h1` … `h6` | Etoile | 24/32, 20/28, 17/26, 15/24, 13/20, 13/20 | 700 (h6 600 italic) | h1 rose and h2 orange, each with a rule under; h3 and below `fg`; h5 uppercase |
 | `prose.code`, `prose.ref` | Iosevka | 14/24 | 400 / 500 | inline code, references |
 
 **Spacing:** 2, 4, 8, 12, 16, 24, 32 px. **Radius:** 0 for panes, 2 px for chips, blocks and tool calls, 4 px for floats.
@@ -883,16 +893,16 @@ Etoile has a 0.520 em x-height, tabular digits, and one advance across weights; 
 | Block | Rendering |
 |---|---|
 | Paragraph | `prose`, 12 px between paragraphs |
-| Headings | the type scale; two cues per level; no heading hues |
+| Headings | the type scale; two cues per level; `h1` rose, `h2` orange, `h3` and below `fg` |
 | Lists | markers `• ◦ ▪` in `fg.muted`, 24 px per level, hanging indent |
 | Task lists | 14 px boxes in the marker column, `fg.muted`/`fg.alt`, never olive and never in the gutter |
 | Tables | header rule, row rules, no vertical rules; cells wrap at words; columns ≤ min(measure, 480 px); grow right, then scroll |
 | Blockquote | a 3 px `border.strong` bar on every line; Etoile italic `fg.alt` |
 | Alerts | the quote shape plus the kind word; **no icon, no hue** |
 | Frontmatter | one client-drawn line, `frontmatter · 6 fields`, then the chip `za` `expands`, the width of the text column |
-| Code | `surface.code`, a 2 px orange rule, an orange language label, `mono` 14/20, syntax-highlighted |
-| Inline code | orange on a `surface.code` chip |
-| Links | prose face, `fg`, dotted gold underline; the echo shows the URL; `gx` confirms |
+| Code | `surface.code`, a 2 px gold rule, a gold language label, `mono` 14/20, syntax-highlighted |
+| Inline code | gold on a `surface.code` chip |
+| Links | prose face, salmon with a dotted underline in the same colour, `kind.link_active` on hover or under the cursor; the echo shows the URL; `gx` confirms |
 | Images | not loaded in v1; a placeholder line with alt text and host |
 | Footnotes | superscript markers; `gd` jumps to the note |
 | Sticky headings | the band covers the pane; text and rule align with the column |
@@ -902,7 +912,7 @@ Etoile has a 0.520 em x-height, tabular digits, and one advance across weights; 
 ### 5.7 References
 
 A token in content that **exactly matches a label in the host's reference index** for its workflow scope (RQ-42) renders as a reference:
-- **resolved:** Iosevka 500 gold with a **solid** underline, and no chip;
+- **resolved:** Iosevka 500 salmon with a **solid** underline, and no chip; `kind.link_active` on hover or under the document cursor;
 - **dangling** (in the index, but no target): `fg.muted` with a **dashed** underline. `gd` stays put and the echo gives the host's reason.
 
 **Matching:**
@@ -920,7 +930,7 @@ A reference claims only that the label is a real object that `gd` opens, never t
 ### 5.8 Code highlighting
 
 - **Engine:** tree-sitter (`tree-sitter-highlight` 0.27.1).
-- **Colours:** Ember's own nvim capture → colour mapping, with three changes so coral never appears:
+- **Colours:** Ember's own nvim capture → colour mapping, with three changes so agent content never draws coral:
   - keywords are orange bold;
   - Ember's other coral uses (builtins, macros, tags, labels, diff deletions) are rose;
   - constants are mauve.
@@ -951,8 +961,8 @@ IBM Carbon (`@carbon/icons` 11.90.0, Apache-2.0), monochrome SVG in token colour
 | running | `play--filled--alt` | `fg.alt` | `▸` |
 | waiting | `hourglass` | `fg.muted` | `#` |
 | rework | `renew` | `fg.muted` | `↺` |
-| ready | dot (custom glyph) | `fg.muted` | `·` |
-| done | `checkmark` | `fg.muted` (olive in evidence) | `✓` |
+| ready | dot (custom glyph) | olive | `·` |
+| done | `checkmark` | olive | `✓` |
 | superseded | `subtract` | `fg.muted` | `×` |
 | stale / unacknowledged · local draft · conflict · suspicious | `time` · `edit` · `compare` · `warning--alt` | steel · sage · rose · `fg.muted` | `[!] [+] [≠] ⟨!⟩` |
 
@@ -971,8 +981,8 @@ Reduced Motion (or `ui.motion = "off"`) sets both to 0.
 
 1. **Lanes.** Gutter, bars, strip, statusline, echo, floats, hint labels, message header bands and tool-call blocks are chrome. Content renders only in content containers.
 2. **Typography.** Content cannot choose a face, size, tracking or colour. Content never takes the chrome caption style (11–12 px uppercase, +0.06 em). Side-pane content sits on the 2 px content bar, which chrome never has.
-3. **Icons and tints are chrome.** Code blocks are always neutral. Emoji stay glyphs inside content. Images are not loaded.
-4. **Author, role, the human band, tool outcomes and references** come only from host records.
+3. **Icons, tags and tints are chrome.** Code blocks are always neutral. Emoji stay glyphs inside content. Images are not loaded. Content never draws coral or a background.
+4. **Author, role, the human band, tool outcomes and references** come only from host records. Hue isn't provenance: bold content shares steel with the `you` name, and a content `h1` shares rose with a failed mark, so the header band, role icon and a mark's icon and word carry the proof.
 5. **Inert rendering.** No HTML. Bidi, zero-width and control characters show as visible escapes. Lookalike IDs are not linked and get `warning--alt` in the gutter.
 6. **Size caps:** a content block clips at 2,000 lines.
 7. **Client-drawn lines in a content lane** (the frontmatter summary, `… 37 more lines`, the diagram's `⏎ full view`, the class word on a heading row) are chrome. Content can't produce a chip or any of these.
@@ -1080,7 +1090,7 @@ The client is stateless and needs the host to send structured data rather than p
 
 ## 10. Failure handling
 
-Every failure case, its defence and its check is in [`failure-catalogue.md`](failure-catalogue.md): 196 cases, in categories M (misleading state), T (wrong target), S (spoofing), K (keyboard), L (lost input), W (wire), R (re-entry), P (performance) and Q (reading quality). The rules a builder must not miss:
+Every failure case, its defence and its check is in [`failure-catalogue.md`](failure-catalogue.md): 201 cases, in categories M (misleading state), T (wrong target), S (spoofing), K (keyboard), L (lost input), W (wire), R (re-entry), P (performance) and Q (reading quality). The rules a builder must not miss:
 
 ### 10.1 Host restore (S§5.3, S§5.3.1)
 
@@ -1116,12 +1126,13 @@ Every failure case, its defence and its check is in [`failure-catalogue.md`](fai
 
 ## 11. Accessibility, contrast and colour-vision deficiency
 
-- **Contrast** (WCAG 2.x, computed by `ember_tokens.py` and measured by the prototype's CONTRAST check):
-  - all text ≥ 4.5:1 on every surface and tint it can sit on, in all three variants (worst 4.55);
-  - marks, underlines and rules ≥ 3:1 (worst: Light coral 3.20);
+- **Contrast** (WCAG 2.x, computed; the prototype's CONTRAST check measured the earlier token set, and the current pairs are owed to the implementation's suite, [`evidence.md`](evidence.md) §3.1):
+  - all text ≥ 4.5:1 on every surface and tint it can sit on, in all three variants (worst 4.50);
+  - marks, underlines and rules ≥ 3:1 (worst: Soft rose 3.44, Light coral 3.48);
   - syntax ≥ 4.5:1 on code surfaces;
-  - references 6.68 / 6.04 / 4.61;
-  - ▲-nudged tokens: `fg.muted` in all variants; mauve in all; Soft steel; Light orange, gold, rose and reference gold.
+  - references and links 4.95 / 4.51 / 4.55, on the surfaces where they sit; under `surface.selection` coloured text falls to `fg`;
+  - knocked-out text on count tags ≥ 4.55;
+  - coloured chrome text ≥ 4.5:1 on all six chrome surfaces, each hue raised by the smallest lightness change that gets there.
 - **Shape first:**
   - Every state has a distinct silhouette (measured under protanopia, deuteranopia and tritanopia), and every mark has a word label.
   - Failed vs unknown is filled against outline-with-`?`.
@@ -1133,29 +1144,25 @@ Every failure case, its defence and its check is in [`failure-catalogue.md`](fai
 - **Type:** 15/24 prose with a 548 px measure. Chrome text is never below 11 px (captions), and diagram labels never below 12 px.
 - **Known gaps** (pending, [`evidence.md`](evidence.md) §3):
   - no screen-reader design yet;
-  - real IME is unverified in GPUI;
-  - the human style check of the final faces (Q36) is still owed.
+  - real IME is unverified in GPUI, and the user skipped that run for this package (11-02).
 
 ---
 
 ## 12. Open questions and current defaults
 
-All questions, answers and defaults are in [`open-questions.md`](open-questions.md). Open now:
+All questions, answers and defaults are in [`open-questions.md`](open-questions.md). None is open. The user took the defaults on the rest for now (11-02), so these stand until they say otherwise:
 
 | Q | Question | Current default |
 |---|---|---|
-| Q36 | Side-pane content: size step or weight? | `prose.small` 15/24 on the content bar, which the user kept; the fallback is weight (chrome 500, content 400) |
 | Q30 | Explorer defaults | `review-queue` on first open; three tabs; saved filters device-local (the user kept named filters) |
 | Q31 | Light variant and `auto` | Light's reading area is its lightest surface; `auto` maps dark → `ember` |
 | Q32 | Slice lifecycle vocabulary | owned by the host, with `open` flags |
 | Q34 | Markdown alerts | neutral (no hue, no icon) |
-| Q23 / Q24 / Q25 | Coral reserved for "needs you"; Carbon icons; two motions | the recommendations stand as defaults; still open for the user |
 | Q06 | Arming delay before `y` counts | none, unless trials show reflexive confirms |
-| Q21 | Human trials | the (a)–(c) re-runs, the review baseline and the reading comparison are owed ([`evidence.md`](evidence.md) §3) |
 
-The user has answered: Iosevka / Etoile everywhere (Q01, Q02, Q28), Iosevka for the mono role (Q37), proposals in the Proposals tab (Q38), the gold underline for references (Q33), the languages (Q35, staged to 12), a neutral coordinator (Q29), the live theme picker kept, and named filters kept.
+The user has answered: Iosevka / Etoile everywhere (Q01, Q02, Q28), Iosevka for the mono role (Q37), proposals in the Proposals tab (Q38), the reference and link colours (Q33, overriding gold), the languages (Q35, staged to 12), a neutral coordinator and role hues (Q29), the live theme picker kept, named filters kept, Carbon icons (Q24), the two motions for now (Q25), the side-pane size step (Q36), wider use of colour (Q23: the final set is §5.3), and the human trials skipped (Q21).
 
-Everything still owed (checks for the implementation's suite, trials, on-screen measurements) is listed in one place: [`evidence.md`](evidence.md) §3. None of it blocks building.
+Everything still unmeasured (checks for the implementation's suite, and the trials and on-screen runs the user skipped) is listed in one place: [`evidence.md`](evidence.md) §3. None of it blocks building.
 
 ---
 
