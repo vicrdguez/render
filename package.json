@@ -25,7 +25,7 @@
 		"verify:two-client-reattach": "node --test --test-concurrency=1 test/two-client-reattach.integration.ts test/stalled-observer.performance.ts test/history-cutoff-export.test.ts test/history-cursor-transfer.test.ts",
 		"verify:persistence-startup": "node --test test/persistence-startup.integration.ts test/role-recovery-startup.integration.ts",
 		"verify:local-command-load": "node --test test/local-command-load.performance.ts",
-		"verify:scoped-web-research": "node --test test/scoped-web-research.test.ts test/web-report-declaration.test.ts test/web-cancellation-outcome.test.ts",
+		"verify:scoped-web-research": "node --test test/scoped-web-research.test.ts test/web-crash.integration.ts test/web-report-declaration.test.ts test/web-cancellation-outcome.test.ts",
 		"verify:web-negative-journey": "node --test --test-name-pattern='selected negative evidence' test/scoped-web-research.test.ts",
 		"verify:offhost-exposure-cutoff": "node --test --test-name-pattern=offhost-exposure-cutoff test/offhost-protection.integration.ts",
 		"verify:manual-recovery-rehearsal": "node --test --test-name-pattern=manual-recovery-rehearsal test/offhost-protection.integration.ts",
@@ -38,7 +38,7 @@
 		"verify:workflow-task-survival": "node --test test/workflow-task-survival.test.ts",
 		"verify:role-capability-refusal": "node --test test/role-capability-refusal.test.ts",
 		"verify:cancellation-capacity": "node --test test/cancellation-capacity.test.ts test/role-recovery-startup.integration.ts test/role-waiting.integration.ts test/role-wait-restart.integration.ts",
-		"verify:history-cutoff-export": "node --test test/history-cutoff-export.test.ts test/history-missing-data.test.ts test/history-message.test.ts test/history-completeness.test.ts test/history-cursor-transfer.test.ts test/role-history.test.ts",
+		"verify:history-cutoff-export": "node --test test/history-cutoff-export.test.ts test/history-missing-data.integration.ts test/history-message.test.ts test/history-completeness.integration.ts test/history-cursor-transfer.test.ts test/role-history.test.ts",
 
 		"verify:history-command-load": "node --test test/history-command-load.ts",
 		"verify:context-continuation-independence": "node --test test/context-continuation-independence.test.ts test/workflow-task-survival.test.ts test/role-wait-restart.integration.ts test/child-replacement.test.ts",

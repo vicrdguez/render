@@ -1,8 +1,4 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { rm } from "node:fs/promises";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
@@ -15,36 +11,9 @@ import { research } from "../src/engine/web.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
+import { webHttpFixture as fixture } from "./support/web-http.ts";
 
 // Owned HTTP responses are the external variability. Engine, root Webfox, Durable and SQLite stay real.
-async function fixture(
-	handler: (
-		path: string,
-		body: Record<string, unknown>,
-	) => { status?: number; body: unknown } | Promise<{ status?: number; body: unknown }>,
-) {
-	const calls: { path: string; body: Record<string, unknown> }[] = [];
-	const server = createServer(async (req, res) => {
-		let text = "";
-		for await (const chunk of req) text += String(chunk);
-		const call = { path: req.url!, body: JSON.parse(text) as Record<string, unknown> };
-		calls.push(call);
-		const response = await handler(call.path, call.body);
-		res.writeHead(response.status ?? 200, { "content-type": "application/json" });
-		res.end(JSON.stringify(response.body));
-	});
-	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-	return {
-		calls,
-		url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-		close: () =>
-			new Promise<void>((r) => {
-				server.closeAllConnections();
-				server.close(() => r());
-			}),
-	};
-}
-
 /** The supported root behind `research`, for classification rows that do not depend on registered-tool wiring. */
 function classify(config: Parameters<typeof research>[0], capability: "search" | "contents", inputs: string[]) {
 	return research(
@@ -609,64 +578,6 @@ for (const status of [429, 402])
 			await http.close();
 		}
 	});
-
-for (const provider of ["exa", "tavily"])
-	for (let repetition = 0; repetition < Number(process.env.RENDER_V3_REPETITIONS ?? 1); repetition++)
-		test(`B2 V3 SIGKILL at ${provider} does not replay either charged observation (${repetition + 1})`, { timeout: 20000 }, async () => {
-			let reached = false;
-			const http = await fixture(async (path) => {
-				if (path.startsWith(`/${provider}`)) {
-					reached = true;
-					await new Promise(() => {});
-				}
-				return { status: 402, body: { error: "Credits are exhausted", tag: "NO_MORE_CREDITS" } };
-			});
-			const children: ReturnType<typeof spawn>[] = [];
-			const start = (mode: string, data: string) => {
-				const child = spawn(process.execPath, ["test/support/web-crash-worker.ts", mode, data, http.url], {
-					cwd: new URL("../", import.meta.url),
-					stdio: ["ignore", "pipe", "pipe"],
-				});
-				children.push(child);
-				return child;
-			};
-			let data: string | undefined;
-			try {
-				const first = start("crash", "unused");
-				let output = "";
-				let errors = "";
-				first.stdout.on("data", (s) => {
-					output += String(s);
-				});
-				first.stderr.on("data", (s) => {
-					errors += String(s);
-				});
-				for (let n = 0; n < 1000 && !reached; n++) {
-					assert.equal(first.exitCode, null, errors);
-					await setTimeout(10);
-				}
-				assert.ok(reached, errors);
-				data = JSON.parse(output.trim()).data;
-				assert.ok(data);
-				first.kill("SIGKILL");
-				await new Promise((r) => first.once("exit", r));
-				const second = start("recover", data);
-				second.stderr.on("data", (s) => {
-					errors += String(s);
-				});
-				const code = await new Promise((r) => second.once("exit", r));
-				assert.equal(code, 0, errors);
-				assert.equal(http.calls.length, provider === "exa" ? 1 : 2, "unsafe replay must never start charged work");
-			} finally {
-				for (const child of children)
-					if (child.exitCode === null && child.signalCode === null) {
-						child.kill("SIGKILL");
-						await new Promise((r) => child.once("exit", r));
-					}
-				await http.close();
-				if (data) await rm(data, { recursive: true, force: true });
-			}
-		});
 
 test("B1/B3 mixed contents batch keeps partial success final and preserves both failures", async () => {
 	const urls = [

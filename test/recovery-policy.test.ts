@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { test } from "node:test";
+import { after, before, describe, test } from "node:test";
 import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
 import { openNodeSqliteDatabase } from "@earendil-works/chord/sqlite/node";
 import { Harness } from "@earendil-works/pi-durable";
@@ -96,14 +96,21 @@ test("package-clean-restore: policy defaults, adopt-away/back provenance and exa
 	}
 });
 
-for (const damage of ["missing", "schema", "digest", "meaning", "binding", "placement", "cache"] as const) {
-	test(`package-validation: checksum-correct ${damage} policy damage refuses import`, async () => {
-		const f = await policyFixture();
-		try {
-			const packaged = await f.global({ type: "createRecoveryPackage" }, "policy-package");
-			assert.ok(packaged.status === "packaged", JSON.stringify(packaged));
+describe("policy package damage", () => {
+	let f: Awaited<ReturnType<typeof policyFixture>>;
+	let packagePath: string;
+	before(async () => {
+		f = await policyFixture();
+		const packaged = await f.global({ type: "createRecoveryPackage" }, "policy-package");
+		assert.ok(packaged.status === "packaged", JSON.stringify(packaged));
+		packagePath = packaged.path;
+	});
+	after(() => f.close());
+
+	for (const damage of ["missing", "schema", "digest", "meaning", "binding", "placement", "cache"] as const) {
+		test(`package-validation: checksum-correct ${damage} policy damage refuses import`, async () => {
 			const damaged = join(f.data, `damaged-${damage}`);
-			await cp(packaged.path, damaged, { recursive: true });
+			await cp(packagePath, damaged, { recursive: true });
 			const path = join(damaged, "render.db");
 			if (damage === "cache") {
 				const adapter = await openNodeSqliteDatabase(path);
@@ -153,12 +160,10 @@ for (const damage of ["missing", "schema", "digest", "meaning", "binding", "plac
 				.digest("hex");
 			await writeFile(join(damaged, "manifest.json"), JSON.stringify(manifest));
 			await assert.rejects(
-				managedRestore(join(f.data, "rejected"), damaged),
+				managedRestore(join(f.data, `rejected-${damage}`), damaged),
 				/invalid_recovery_package:.*policy/,
 				"policy semantics must be validated beyond the package checksum",
 			);
-		} finally {
-			await f.close();
-		}
-	});
-}
+		});
+	}
+});
