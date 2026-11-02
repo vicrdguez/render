@@ -92,6 +92,12 @@ directly; its result includes original source, executions and the retained quara
 execution or reuses the workspace. `seal(handle)` may then collect the stopped original workspace; invalid content
 still refuses. Quarantine reasons remain in the private journal after successful containment.
 
+A fresh check refused during trusted-source resolution or input/profile/authorization validation before allocation
+retains its actionable blocker and records an absent environment through Ledger, releasing executing capacity. This
+committed state survives reopen; cancellation then releases Slice writer ownership so a corrected assignment can proceed.
+The proof is the observed refusal before allocation in that invocation, not a missing journal. If a process dies before
+committing quiescence, recovery still treats an unjournaled executing scope as uncertain, never infers absence or reruns it.
+
 Preparation journals whether runtime creation may have been issued. After preparation settles under a stop fence,
 an explicit durable never-issued record confirms absence: a missing image, failed materialization or cancellation
 before create releases execution capacity without permitting workspace reuse. Cancellation can then release Slice

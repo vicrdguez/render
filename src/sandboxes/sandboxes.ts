@@ -34,6 +34,10 @@ type State = {
 	reason?: string;
 };
 
+// This prepare invocation refused its inputs before attempting allocation. This is not
+// evidence about an earlier invocation or a recovered scope with an uncertain journal.
+export class SandboxInputRefusal extends Error {}
+
 export class Sandboxes {
 	readonly #root: string;
 	readonly #authorize: (scope: ExecutionScope) => boolean;
@@ -57,31 +61,35 @@ export class Sandboxes {
 		return pending;
 	}
 	async #prepare(scope: ExecutionScope, profile: LinuxProfile, source: Source): Promise<SandboxHandle> {
-		if (!this.#authorize(scope)) throw new Error("Sandbox scope is fenced/unauthorized.");
-		if (
-			Object.keys(profile).some((key) => !["image", "exclusions", "maxBytes", "maxEntries"].includes(key)) ||
-			!/^sha256:[0-9a-f]{64}$/.test(profile.image) ||
-			!Number.isSafeInteger(profile.maxBytes) ||
-			profile.maxBytes < 1 ||
-			profile.maxBytes > 64 * 1024 * 1024 ||
-			!Number.isSafeInteger(profile.maxEntries) ||
-			profile.maxEntries < 1 ||
-			profile.maxEntries > 10000
-		)
-			throw new Error("Forbidden/unsupported Linux profile; require immutable local image and bounded limits.");
-		if (
-			!Array.isArray(profile.exclusions) ||
-			profile.exclusions[0] !== ".git" ||
-			new Set(profile.exclusions).size !== profile.exclusions.length
-		)
-			throw new Error("Collection profile must explicitly exclude .git exactly once.");
-		for (const path of profile.exclusions.slice(1)) validatePath(path);
-		validateEntries(source.entries, source.objectFormat, profile.maxBytes, profile.maxEntries);
-		if (treeOid(source.entries, source.objectFormat) !== source.tree)
-			throw new Error("Ingress source manifest differs from resolved tree.");
-		for (const entry of source.entries)
-			if (profile.exclusions.some((p) => entry.path === p || entry.path.startsWith(`${p}/`)))
-				throw new Error(`Exclusion profile conflicts with accepted base: ${entry.path}`);
+		try {
+			if (!this.#authorize(scope)) throw new Error("Sandbox scope is fenced/unauthorized.");
+			if (
+				Object.keys(profile).some((key) => !["image", "exclusions", "maxBytes", "maxEntries"].includes(key)) ||
+				!/^sha256:[0-9a-f]{64}$/.test(profile.image) ||
+				!Number.isSafeInteger(profile.maxBytes) ||
+				profile.maxBytes < 1 ||
+				profile.maxBytes > 64 * 1024 * 1024 ||
+				!Number.isSafeInteger(profile.maxEntries) ||
+				profile.maxEntries < 1 ||
+				profile.maxEntries > 10000
+			)
+				throw new Error("Forbidden/unsupported Linux profile; require immutable local image and bounded limits.");
+			if (
+				!Array.isArray(profile.exclusions) ||
+				profile.exclusions[0] !== ".git" ||
+				new Set(profile.exclusions).size !== profile.exclusions.length
+			)
+				throw new Error("Collection profile must explicitly exclude .git exactly once.");
+			for (const path of profile.exclusions.slice(1)) validatePath(path);
+			validateEntries(source.entries, source.objectFormat, profile.maxBytes, profile.maxEntries);
+			if (treeOid(source.entries, source.objectFormat) !== source.tree)
+				throw new Error("Ingress source manifest differs from resolved tree.");
+			for (const entry of source.entries)
+				if (profile.exclusions.some((p) => entry.path === p || entry.path.startsWith(`${p}/`)))
+					throw new Error(`Exclusion profile conflicts with accepted base: ${entry.path}`);
+		} catch (error) {
+			throw new SandboxInputRefusal(error instanceof Error ? error.message : String(error), { cause: error });
+		}
 		const id = identity(scope);
 		await mkdir(this.#root, { recursive: true, mode: 0o700 });
 		const dir = join(this.#root, id);

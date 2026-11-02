@@ -30,7 +30,7 @@ import { packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
 import { Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
-import { type ExecutionResult, type ExecutionScope, type LinuxProfile, Sandboxes } from "../sandboxes/sandboxes.ts";
+import { type ExecutionResult, type ExecutionScope, type LinuxProfile, Sandboxes, SandboxInputRefusal } from "../sandboxes/sandboxes.ts";
 
 const ctx = BACKGROUND_CONTEXT;
 const scheduling = mintContext({ kind: "host", scope: "scheduling" });
@@ -576,9 +576,12 @@ export class Engine {
 	async #ownedCheck(a: RoleAssignment): Promise<void> {
 		const check = this.#config.ownedChecks!.checks[a.packet.profile]!;
 		this.#ownedActive.add(a.id);
-		let stopped = false;
+		// A fresh execution has not called prepare yet. Recovery never uses this local proof:
+		// beforeResume reconciles the original scope and keeps uncertain journals quarantined.
+		let environment: "absent" | "stopped" | undefined = "absent";
 		try {
 			const base = await this.#effects!.perform({ type: "resolve", repository: check.repository, commit: check.commit });
+			environment = undefined;
 			const handle = await this.#sandboxes!.prepare(this.#scope(a), check.profile, base);
 			const execution = await this.#sandboxes!.execute(handle, {
 				scope: this.#scope(a),
@@ -588,7 +591,7 @@ export class Engine {
 			});
 			await this.#diagnostic(a, this.#scope(a), base, execution);
 			const capture = await this.#sandboxes!.seal(handle);
-			stopped = true;
+			environment = "stopped";
 			const source = await this.#effects!.perform({ type: "retain", base, capture });
 			await this.#effects!.reconcile(source);
 			const compact = (value: SourceReceipt["source"]) => ({
@@ -638,27 +641,28 @@ export class Engine {
 				else throw new Error(`Owned check receipt refused: ${reply.status === "refused" ? reply.code : reply.status}`);
 			}
 		} catch (error) {
+			if (error instanceof SandboxInputRefusal) environment = "absent";
 			await this.#command(this.#assignment(a.id)!, {
 				type: "recordBlocker",
 				reason: `owned_check_blocked: ${String(error).slice(0, 1900)}`,
 			});
-			if (!stopped) {
+			if (!environment) {
 				try {
 					const result = await this.#sandboxes!.stop({ scope: this.#scope(a) });
 					for (const diagnostic of result.executions)
 						await this.#diagnostic(a, this.#scope(a), result.source, diagnostic.result, diagnostic.result ? undefined : diagnostic);
-					stopped = true;
+					environment = "stopped";
 				} catch {
 					/* Preserve executing capacity and quarantine until the original runtime is reconciled. */
 				}
 			}
 		} finally {
 			this.#ownedActive.delete(a.id);
-			if (stopped)
+			if (environment)
 				await this.#command(this.#assignment(a.id)!, {
 					type: "recordQuiescence",
 					providerIdle: true,
-					environment: "stopped",
+					environment,
 					effects: "reconciled",
 				});
 		}
