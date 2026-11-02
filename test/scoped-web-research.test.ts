@@ -13,6 +13,7 @@ import type { ConversationId, JsonObject } from "@earendil-works/pi-durable";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import type { HistoryExport } from "../src/ledger/history.ts";
+import { research } from "../src/engine/web.ts";
 import type { LedgerRefusal } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
@@ -52,7 +53,16 @@ type WebReply = {
 	omissions: string[];
 	inputs: {
 		input: string;
-		observations: { id: string; provider: string; outcome: string; text?: string; digest?: string; error?: string; complete: boolean }[];
+		observations: {
+			id: string;
+			provider: string;
+			outcome: string;
+			text?: string;
+			digest?: string;
+			error?: string;
+			uncertainty?: string;
+			complete: boolean;
+		}[];
 		primaryNotAttempted?: string;
 		fallback: string;
 	}[];
@@ -160,6 +170,7 @@ test("B1/B3 empty success is final; provider refusal falls back once with distin
 				],
 				"primary failure must survive fallback",
 			);
+			assert.equal(reply.inputs[1]!.observations[0]!.uncertainty, undefined, "a retryable failure has known eligibility");
 			assert.match(output, /No support for the claim/);
 			assert.doesNotMatch(output, /fixture-exa-secret|fixture-tavily-secret|\/tmp\//);
 		} finally {
@@ -170,7 +181,7 @@ test("B1/B3 empty success is final; provider refusal falls back once with distin
 	}
 });
 
-test("B1 unknown/page/invalid failures do not qualify, and missing fallback provisioning is explicit", async () => {
+test("B1/B3 missing fallback key is explicit; only nonretryable refusals carry eligibility uncertainty", async () => {
 	for (const status of [400, 401, 403, 404, 418, 503]) {
 		const http = await fixture(() => ({ status, body: { error: "failure" } }));
 		try {
@@ -178,7 +189,9 @@ test("B1 unknown/page/invalid failures do not qualify, and missing fallback prov
 			try {
 				assert.equal(http.calls.length, 1, "no transport retries");
 				assert.equal(reply.inputs[0]!.observations.length, 1);
-				assert.equal(reply.inputs[0]!.fallback, status === 503 ? "credentials_missing" : "ineligible");
+				assert.equal(reply.inputs[0]!.fallback, "credentials_missing");
+				if (status === 503) assert.equal(reply.inputs[0]!.observations[0]!.uncertainty, undefined);
+				else assert.match(reply.inputs[0]!.observations[0]!.uncertainty!, /Fallback eligibility uncertain/);
 			} finally {
 				await f.close();
 			}
@@ -188,75 +201,200 @@ test("B1 unknown/page/invalid failures do not qualify, and missing fallback prov
 	}
 });
 
-for (const capability of ["search", "contents"] as const)
-	test(`B1 ambiguous upstream invalid request remains excluded for ${capability}`, async () => {
-		const http = await fixture((path) => {
-			if (path.startsWith("/exa")) return { status: 400, body: { error: "Request rejected", tag: "INVALID_REQUEST_BODY" } };
-			return capability === "search"
-				? { body: { images: [], results: [{ url: "https://example.org/page", content: "Unauthorized fallback." }] } }
-				: { body: { results: [{ url: "https://example.org/page", raw_content: "Unauthorized fallback." }], failed_results: [] } };
-		});
-		try {
-			const { f, reply } = await run(
-				{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily` },
-				capability === "search" ? "web_search" : "web_contents",
-				capability === "search" ? { queries: ["fixture"] } : { urls: ["https://example.org/page"] },
-			);
+const INDISTINGUISHABLE_REFUSALS = [
+	{ name: "documented allowance exhaustion", status: 402, error: "Credits are exhausted", tag: "NO_MORE_CREDITS" },
+	{ name: "erased upstream invalid request", status: 400, error: "Request rejected", tag: "INVALID_REQUEST_BODY" },
+];
+for (const refusal of INDISTINGUISHABLE_REFUSALS)
+	for (const capability of ["search", "contents"] as const)
+		test(`B1 ${refusal.name} admits one uncertain sequential fallback for ${capability}`, async () => {
+			const http = await fixture((path) => {
+				if (path.startsWith("/exa")) return { status: refusal.status, body: { error: refusal.error, tag: refusal.tag } };
+				return capability === "search"
+					? { body: { images: [], results: [{ url: "https://example.org/page", content: "Fallback evidence." }] } }
+					: { body: { results: [{ url: "https://example.org/page", raw_content: "Fallback evidence." }], failed_results: [] } };
+			});
 			try {
-				assert.deepEqual(
-					http.calls.map((c) => c.path),
-					capability === "search" ? ["/exa/search"] : ["/exa/contents"],
-					"excluded upstream invalid request must not admit fallback",
+				const { f, reply, output } = await run(
+					{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily` },
+					capability === "search" ? "web_search" : "web_contents",
+					capability === "search" ? { queries: ["refused"] } : { urls: ["https://example.org/page"] },
 				);
-				assert.equal(reply.inputs[0]!.fallback, "ineligible");
-				assert.deepEqual(
-					reply.inputs[0]!.observations.map((o) => [o.provider, o.outcome, o.error]),
-					[["exa", "error", "PROVIDER_FAILURE"]],
-				);
+				try {
+					assert.deepEqual(
+						http.calls.map((c) => c.path),
+						capability === "search" ? ["/exa/search", "/tavily/search"] : ["/exa/contents", "/tavily/extract"],
+						"an indistinguishable refusal must admit exactly one sequential fallback",
+					);
+					const [exa, tavily] = reply.inputs[0]!.observations;
+					assert.deepEqual(
+						[
+							[exa!.provider, exa!.outcome, exa!.error],
+							[tavily!.provider, tavily!.outcome, tavily!.error],
+						],
+						[
+							["exa", "error", "PROVIDER_FAILURE"],
+							["tavily", "success", undefined],
+						],
+					);
+					assert.equal(reply.inputs[0]!.fallback, "completed");
+					assert.match(exa!.uncertainty ?? "", /Fallback eligibility uncertain/, "ambiguous fallback must report uncertain eligibility");
+					assert.doesNotMatch(exa!.uncertainty!, /\b40[02]\b/, "the underlying status is not known");
+					assert.doesNotMatch(JSON.stringify(exa), /NO_MORE_CREDITS|INVALID_REQUEST_BODY|Credits are exhausted|Request rejected/);
+					assert.equal(tavily!.uncertainty, undefined);
+					assert.match(output, /Fallback evidence/);
+				} finally {
+					await f.close();
+				}
 			} finally {
-				await f.close();
+				await http.close();
 			}
-		} finally {
-			await http.close();
-		}
-	});
+		});
 
-for (const capability of ["search", "contents"] as const)
-	test(`B1 documented allowance exhaustion admits one sequential fallback for ${capability}`, async () => {
-		const http = await fixture((path) => {
-			if (path.startsWith("/exa")) return { status: 402, body: { error: "Credits are exhausted", tag: "NO_MORE_CREDITS" } };
-			return capability === "search"
-				? { body: { images: [], results: [{ url: "https://example.org/page", content: "Fallback evidence." }] } }
-				: { body: { results: [{ url: "https://example.org/page", raw_content: "Fallback evidence." }], failed_results: [] } };
-		});
+test("B1/B3 refused fallback after an uncertain refusal ends the input with no third attempt", async () => {
+	const http = await fixture(() => ({ status: 402, body: { error: "Credits are exhausted", tag: "NO_MORE_CREDITS" } }));
+	try {
+		const { f, reply } = await run(
+			{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily` },
+			"web_search",
+			{ queries: ["refused"] },
+		);
 		try {
-			const { f, reply, output } = await run(
-				{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily` },
-				capability === "search" ? "web_search" : "web_contents",
-				capability === "search" ? { queries: ["allowance"] } : { urls: ["https://example.org/page"] },
+			assert.deepEqual(
+				http.calls.map((c) => c.path),
+				["/exa/search", "/tavily/search"],
 			);
-			try {
-				assert.deepEqual(
-					http.calls.map((c) => c.path),
-					capability === "search" ? ["/exa/search", "/tavily/search"] : ["/exa/contents", "/tavily/extract"],
-					"documented allowance exhaustion must admit exactly one sequential fallback",
-				);
-				assert.deepEqual(
-					reply.inputs[0]!.observations.map((o) => [o.provider, o.outcome]),
-					[
-						["exa", "error"],
-						["tavily", "success"],
-					],
-				);
-				assert.equal(reply.inputs[0]!.fallback, "completed");
-				assert.match(output, /Fallback evidence/);
-			} finally {
-				await f.close();
-			}
+			const [exa, tavily] = reply.inputs[0]!.observations;
+			assert.deepEqual(
+				[
+					[exa!.provider, exa!.outcome],
+					[tavily!.provider, tavily!.outcome],
+				],
+				[
+					["exa", "error"],
+					["tavily", "error"],
+				],
+			);
+			assert.equal(reply.inputs[0]!.fallback, "failed");
+			assert.equal(tavily!.uncertainty, undefined, "fallback eligibility is a claim about the primary only");
 		} finally {
-			await http.close();
+			await f.close();
 		}
-	});
+	} finally {
+		await http.close();
+	}
+});
+
+test("B1 identifiable page failure admits no fallback", async () => {
+	const url = "https://example.org/page";
+	const http = await fixture((path) =>
+		path.startsWith("/exa")
+			? { body: { results: [], statuses: [{ id: url, status: "error", error: { tag: "CRAWL_NOT_FOUND", httpStatusCode: 404 } }] } }
+			: { body: { results: [{ url, raw_content: "Unauthorized fallback." }], failed_results: [] } },
+	);
+	try {
+		const { f, reply } = await run(
+			{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily` },
+			"web_contents",
+			{ urls: [url] },
+		);
+		try {
+			assert.deepEqual(
+				http.calls.map((c) => c.path),
+				["/exa/contents"],
+				"identifiable page failure must not admit fallback",
+			);
+			assert.equal(reply.inputs[0]!.fallback, "ineligible");
+			assert.equal(reply.inputs[0]!.observations[0]!.error, "PROVIDER_FAILURE");
+			assert.equal(reply.inputs[0]!.observations[0]!.uncertainty, undefined);
+		} finally {
+			await f.close();
+		}
+	} finally {
+		await http.close();
+	}
+});
+
+test("B1 input Webfox rejects locally admits no fallback and contacts no provider", async () => {
+	const http = await fixture(() => ({ body: { results: [] } }));
+	try {
+		const result = await research(
+			{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily` },
+			"contents",
+			["file:///private/example"],
+			{ assignment: "assignment:fixture", generation: 1, attempt: "attempt:fixture" },
+			new AbortController().signal,
+			() => true,
+		);
+		assert.equal(http.calls.length, 0);
+		assert.equal(result.inputs[0]!.fallback, "ineligible");
+		assert.deepEqual(
+			result.inputs[0]!.observations.map((o) => [o.provider, o.outcome, o.error, o.uncertainty]),
+			[["exa", "error", "INVALID_INPUT", undefined]],
+		);
+	} finally {
+		await http.close();
+	}
+});
+
+test("B3/B4 retained fallback evidence keeps the Exa failure and eligibility uncertainty", async () => {
+	const http = await fixture((path) =>
+		path.startsWith("/exa")
+			? { status: 402, body: { error: "Credits are exhausted", tag: "NO_MORE_CREDITS" } }
+			: { body: { results: [{ url: "https://example.org/page", raw_content: "Fallback evidence." }], failed_results: [] } },
+	);
+	try {
+		const { f } = await run(
+			{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily` },
+			"web_contents",
+			{ urls: ["https://example.org/page"] },
+			(r) =>
+				fauxAssistantMessage(
+					fauxToolCall("retain_web_evidence", {
+						handle: r.handle!,
+						observation: r.inputs[0]!.observations[1]!.id,
+						start: 0,
+						end: 18,
+						claim: "Fallback supports the claim",
+						stance: "supporting",
+					}),
+					{ stopReason: "toolUse" },
+				),
+		);
+		try {
+			let ref: string | undefined;
+			for (let n = 0; n < 200 && !ref; n++) {
+				const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+				if ("jsonl" in exported)
+					ref = exported.jsonl
+						.split("\n")
+						.filter(Boolean)
+						.map((l) => JSON.parse(l))
+						.find((r) => String(r.document).startsWith("web-evidence/"))?.ref;
+				if (!ref) await setTimeout(10);
+			}
+			assert.ok(ref, "selected evidence must enter Ledger before reliance");
+			const retained = await f.ledger.artifact(admin, { read: ref });
+			assert.ok("content" in retained);
+			const evidence = JSON.parse(retained.content.toString()) as {
+				provider: string;
+				text: string;
+				failures: { provider: string; error: string; uncertainty?: string }[];
+			};
+			assert.equal(evidence.provider, "tavily");
+			assert.equal(evidence.text, "Fallback evidence.");
+			assert.deepEqual(
+				evidence.failures.map((o) => [o.provider, o.error]),
+				[["exa", "PROVIDER_FAILURE"]],
+			);
+			assert.match(evidence.failures[0]!.uncertainty ?? "", /Fallback eligibility uncertain/);
+		} finally {
+			await f.close();
+		}
+	} finally {
+		await http.close();
+	}
+});
 
 test("B3/B5 identical bytes remain distinct observations; own tail paging is scoped and network-free", async () => {
 	const tail = "TAIL-CANARY-9281";
@@ -450,43 +588,44 @@ test("B4 selected negative evidence survives expiry/reopen/export; old working h
 	}
 });
 
-test("B2 caller cancellation/current revocation before fallback admits no provider request", async () => {
-	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
-	p.setResponses([fauxAssistantMessage(fauxToolCall("web_search", { queries: ["cancel"] }), { stopReason: "toolUse" })]);
-	let f!: Awaited<ReturnType<typeof roleFixture>>;
-	let stopped = false;
-	const http = await fixture(async () => {
-		if (stopped) return { status: 429, body: { error: "allowance" } };
-		const assignments = (f.ledger.snapshot(admin) as unknown as { assignments: { id: string; generation: number; attempt: string }[] })
-			.assignments;
-		const a = assignments[0]!;
-		const reply = await f.command({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, admin);
-		assert.equal(reply.status, "accepted");
-		stopped = true;
-		return { status: 429, body: { error: "allowance" } };
-	});
-	try {
-		f = await roleFixture(
-			new Engine({
-				provider: p.provider,
-				apiKey: "fixture",
-				families: { "claude-sonnet-4-6": "claude" },
-				web: { exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: http.url, tavilyBaseUrl: http.url },
-			}),
-		);
+for (const status of [429, 402])
+	test(`B2 caller cancellation/current revocation before fallback admits no provider request (HTTP ${status})`, async () => {
+		const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
+		p.setResponses([fauxAssistantMessage(fauxToolCall("web_search", { queries: ["cancel"] }), { stopReason: "toolUse" })]);
+		let f!: Awaited<ReturnType<typeof roleFixture>>;
+		let stopped = false;
+		const http = await fixture(async () => {
+			if (stopped) return { status, body: { error: "refused" } };
+			const assignments = (f.ledger.snapshot(admin) as unknown as { assignments: { id: string; generation: number; attempt: string }[] })
+				.assignments;
+			const a = assignments[0]!;
+			const reply = await f.command({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, admin);
+			assert.equal(reply.status, "accepted");
+			stopped = true;
+			return { status, body: { error: "refused" } };
+		});
 		try {
-			await f.command({ type: "assignTask", slice: "slice:cancel", delivery: true, packet: packet() });
-			for (let n = 0; n < 500 && !stopped; n++) await setTimeout(10);
-			assert.ok(stopped);
-			await setTimeout(200);
-			assert.equal(http.calls.length, 1, "fallback after cancellation is forbidden");
+			f = await roleFixture(
+				new Engine({
+					provider: p.provider,
+					apiKey: "fixture",
+					families: { "claude-sonnet-4-6": "claude" },
+					web: { exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: http.url, tavilyBaseUrl: http.url },
+				}),
+			);
+			try {
+				await f.command({ type: "assignTask", slice: "slice:cancel", delivery: true, packet: packet() });
+				for (let n = 0; n < 500 && !stopped; n++) await setTimeout(10);
+				assert.ok(stopped);
+				await setTimeout(200);
+				assert.equal(http.calls.length, 1, "fallback after cancellation is forbidden");
+			} finally {
+				await f.close();
+			}
 		} finally {
-			await f.close();
+			await http.close();
 		}
-	} finally {
-		await http.close();
-	}
-});
+	});
 
 for (const provider of ["exa", "tavily"])
 	for (let repetition = 0; repetition < Number(process.env.RENDER_V3_REPETITIONS ?? 1); repetition++)
@@ -497,7 +636,7 @@ for (const provider of ["exa", "tavily"])
 					reached = true;
 					await new Promise(() => {});
 				}
-				return { status: 429, body: { error: "allowance" } };
+				return { status: 402, body: { error: "Credits are exhausted", tag: "NO_MORE_CREDITS" } };
 			});
 			const children: ReturnType<typeof spawn>[] = [];
 			const start = (mode: string, data: string) => {
@@ -556,8 +695,9 @@ test("B1/B3 mixed contents batch keeps partial success final and preserves both 
 	const http = await fixture((path, body) => {
 		if (path.startsWith("/tavily")) return { status: 503, body: { error: "unavailable" } };
 		const url = (body.urls as string[])[0]!;
-		if (url.endsWith("page-error")) return { status: 404, body: { error: "missing page" } };
-		if (url.endsWith("allowance")) return { status: 429, body: { error: "allowance" } };
+		if (url.endsWith("page-error"))
+			return { body: { results: [], statuses: [{ id: url, status: "error", error: { tag: "CRAWL_NOT_FOUND", httpStatusCode: 404 } }] } };
+		if (url.endsWith("allowance")) return { status: 402, body: { error: "Credits are exhausted", tag: "NO_MORE_CREDITS" } };
 		return { body: { results: [{ url, text: url.endsWith("partial") ? "x".repeat(262145) : "Exact usable content." }] } };
 	});
 	try {
@@ -580,6 +720,7 @@ test("B1/B3 mixed contents batch keeps partial success final and preserves both 
 			assert.equal(reply.inputs[0]!.observations[0]!.complete, true);
 			assert.equal(reply.inputs[1]!.observations[0]!.complete, false);
 			assert.match(reply.omissions.join("\n"), /partial\/truncated/);
+			assert.equal(reply.inputs[2]!.fallback, "ineligible");
 			assert.deepEqual(
 				reply.inputs[3]!.observations.map((o) => [o.provider, o.outcome]),
 				[
@@ -596,34 +737,35 @@ test("B1/B3 mixed contents batch keeps partial success final and preserves both 
 	}
 });
 
-for (const remaining of [true, false])
-	test(`B2 overall deadline checks settled primary before fallback (remaining=${remaining})`, async (t) => {
-		const epoch = Date.now();
-		t.mock.timers.enable({ apis: ["Date"], now: epoch });
-		const http = await fixture((path) => {
-			if (path.startsWith("/exa")) {
-				t.mock.timers.setTime(epoch + (remaining ? 100 : 1000));
-				return { status: 429, body: { error: "allowance" } };
-			}
-			return { body: { images: [], results: [] } };
-		});
-		try {
-			const { f, reply } = await run(
-				{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily`, overallMs: 1000 },
-				"web_search",
-				{ queries: ["deadline"] },
-			);
+for (const status of [429, 402])
+	for (const remaining of [true, false])
+		test(`B2 overall deadline checks settled primary before fallback (HTTP ${status}, remaining=${remaining})`, async (t) => {
+			const epoch = Date.now();
+			t.mock.timers.enable({ apis: ["Date"], now: epoch });
+			const http = await fixture((path) => {
+				if (path.startsWith("/exa")) {
+					t.mock.timers.setTime(epoch + (remaining ? 100 : 1000));
+					return { status, body: { error: "refused" } };
+				}
+				return { body: { images: [], results: [] } };
+			});
 			try {
-				assert.equal(http.calls.length, remaining ? 2 : 1, "overall expiry must prohibit fallback admission");
-				assert.equal(reply.inputs[0]!.fallback, remaining ? "completed" : "overall_timeout");
+				const { f, reply } = await run(
+					{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily`, overallMs: 1000 },
+					"web_search",
+					{ queries: ["deadline"] },
+				);
+				try {
+					assert.equal(http.calls.length, remaining ? 2 : 1, "overall expiry must prohibit fallback admission");
+					assert.equal(reply.inputs[0]!.fallback, remaining ? "completed" : "overall_timeout");
+				} finally {
+					await f.close();
+				}
 			} finally {
-				await f.close();
+				await http.close();
+				t.mock.timers.reset();
 			}
-		} finally {
-			await http.close();
-			t.mock.timers.reset();
-		}
-	});
+		});
 
 test("B3 explicit missing credentials and echoed credentials never become retained text", async () => {
 	const http = await fixture(() => ({ body: { images: [], results: [{ url: "https://example.org", content: "fixture-secret" }] } }));

@@ -14,28 +14,30 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
-		name: "web-ambiguous-invalid-fallback",
-		expect: /excluded upstream invalid request must not admit fallback/,
-		behavior: "ambiguous nonretryable provider failures admit fallback even for excluded invalid requests",
-		edits: [
-			{
-				file: "src/engine/web.ts",
-				find: 'return code === "PROVIDER_UNAVAILABLE" || (code === "PROVIDER_FAILURE" && retryable === true);',
-				replace: 'return code === "PROVIDER_UNAVAILABLE" || (code === "PROVIDER_FAILURE" && retryable !== undefined);',
-			},
-		],
+		name: "web-page-failure-fallback",
+		expect: /identifiable page failure must not admit fallback/,
+		behavior: "Engine admits fallback for every provider failure, including identifiable page failures",
+		edits: [{ file: "src/engine/web.ts", find: "return retryable !== undefined;", replace: "return true;" }],
 		test: "test/scoped-web-research.test.ts",
-		pattern: "ambiguous upstream invalid request",
+		pattern: "identifiable page failure",
 	},
 	{
 		name: "web-allowance-refusal",
-		expect: /documented allowance exhaustion must admit exactly one sequential fallback/,
-		behavior: "Engine refuses classified allowance fallback",
+		expect: /an indistinguishable refusal must admit exactly one sequential fallback/,
+		behavior: "Engine refuses fallback for a refusal indistinguishable from allowance exhaustion",
+		edits: [{ file: "src/engine/web.ts", find: "return retryable !== undefined;", replace: "return retryable === true;" }],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "documented allowance exhaustion",
+	},
+	{
+		name: "web-eligibility-uncertainty-erased",
+		expect: /ambiguous fallback must report uncertain eligibility/,
+		behavior: "Engine reports an indistinguishable refusal as ordinary eligible fallback",
 		edits: [
 			{
 				file: "src/engine/web.ts",
-				find: 'return code === "PROVIDER_UNAVAILABLE" || (code === "PROVIDER_FAILURE" && retryable === true);',
-				replace: "return false;",
+				find: 'if (retryable === false && observation.provider === "exa") observation.uncertainty = ELIGIBILITY_UNCERTAINTY;',
+				replace: "",
 			},
 		],
 		test: "test/scoped-web-research.test.ts",
