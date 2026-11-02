@@ -66,7 +66,13 @@ export type OwnedChecks = {
 		>
 	>;
 };
-type EngineConfig = { apiKey?: string; families?: Readonly<Record<string, string>>; provider?: Provider; ownedChecks?: OwnedChecks; web?: WebConfig };
+type EngineConfig = {
+	apiKey?: string;
+	families?: Readonly<Record<string, string>>;
+	provider?: Provider;
+	ownedChecks?: OwnedChecks;
+	web?: WebConfig;
+};
 
 export class Engine {
 	#ledger: Ledger | undefined;
