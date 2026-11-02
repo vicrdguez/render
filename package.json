@@ -17,6 +17,8 @@
 		"verify:two-client-reattach": "node --test test/two-client-reattach.test.ts test/history-cutoff-export.test.ts test/history-cursor-transfer.test.ts",
 		"verify:persistence-startup": "node --test test/persistence-startup.test.ts test/role-recovery-startup.test.ts",
 		"verify:local-command-load": "node --test test/local-command-load.test.ts",
+		"verify:offhost-exposure-cutoff": "node --test --test-name-pattern=offhost-exposure-cutoff test/offhost-protection.test.ts",
+		"verify:manual-recovery-rehearsal": "node --test --test-name-pattern=manual-recovery-rehearsal test/offhost-protection.test.ts",
 		"verify:package-clean-restore": "node --test --test-name-pattern=package-clean-restore test/recovery-packages.test.ts test/recovery-policy.test.ts",
 		"verify:package-origin-auth-fence": "node --test --test-name-pattern=package-origin-auth-fence test/recovery-packages.test.ts",
 		"verify:repair-crash": "node --test --test-name-pattern=repair-crash test/recovery-packages.test.ts",

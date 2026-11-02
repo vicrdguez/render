@@ -19,6 +19,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
 import { type ExecutionPolicy, initialPolicy, type PolicyBinding } from "../kernel/policy.ts";
+import { validBackup } from "./backup-state.ts";
 import { faultBarrier } from "./barrier.ts";
 import { parseEnvelope } from "./envelope.ts";
 import {
@@ -156,6 +157,7 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 			new Set(meta.devices).size === meta.devices.length,
 		"meta indexes",
 	);
+	check(meta.backup === undefined || validBackup(meta.backup, meta.sequence), "backup state");
 	const recovery = values.get("render.recovery ") as RecoveryState | undefined;
 	if (recovery !== undefined) {
 		check(
@@ -589,14 +591,16 @@ export async function createRecoveryPackage(
 	data: string,
 	runtime: HarnessOptions,
 	commandId: string,
+	root = join(data, "recovery-packages"),
 ): Promise<Manifest & { path: string; status: "packaged" }> {
-	const root = join(data, "recovery-packages");
 	await mkdir(root, { recursive: true, mode: 0o700 });
 	const id = `package-${randomUUID()}`;
 	const staging = join(root, `.${id}.incomplete`);
 	await mkdir(staging, { mode: 0o700 });
 	try {
 		const path = join(staging, "render.db");
+		// Debt: automatic snapshots use synchronous SQLite here; measure configured-backup acknowledgement
+		// latency at larger store sizes before the full workload, or move snapshots off the host event loop.
 		const source = new DatabaseSync(join(data, "render.db"), { readOnly: true });
 		try {
 			source.exec(`VACUUM INTO '${path.replaceAll("'", "''")}'`);

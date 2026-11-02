@@ -12,7 +12,9 @@ import { Harness, type ReportInfo } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
 import type { RenderRuntimeOptions } from "../engine/runtime.ts";
 import type { Persistence } from "../kernel/kernel.ts";
+import type { BackupClock } from "./backup.ts";
 import { Ledger } from "./ledger.ts";
+import type { OffHostDestination } from "./offhost.ts";
 import { mintContext } from "./principals.ts";
 import { APPLICATION_ID, Meta, STORE_SCHEMA } from "./records.ts";
 import { DISABLED_FILE, Recovery, restorePackage } from "./recovery.ts";
@@ -50,6 +52,8 @@ export type OpenedLedger = {
 
 export async function openLedger(options: {
 	readonly data: string;
+	readonly backup?: OffHostDestination;
+	readonly backupClock?: BackupClock;
 	readonly runtime: (onReport: (error: unknown, info: ReportInfo) => void) => RenderRuntimeOptions;
 	readonly onFatal: (error: unknown) => void;
 }): Promise<OpenedLedger> {
@@ -165,7 +169,7 @@ export async function openLedger(options: {
 			harness,
 			opened.persistence,
 			options.onFatal,
-			{ data: options.data, runtime, storage },
+			{ data: options.data, runtime, storage, backup: options.backup, backupClock: options.backupClock },
 			runtime.roleTasks,
 		).catch((error: unknown) => {
 			throw blocked(
