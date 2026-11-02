@@ -20,3 +20,14 @@ Choose the least complexity that satisfies the accepted scope, repository standa
 
 - NEVER write unit tests after you write code
 • If you must test a system in isolation, FIRST write all the ways it cold fail, THEN write the    code
+
+## Fast developer feedback
+
+Separate the edit loop from acceptance verification. Use focused checks while iterating; run the required cumulative gate at the workflow’s verification boundary on the actual candidate source.
+
+- **Select deliberately.** Inspect what a test command runs before invoking it. Choose the smallest set that covers the changed behavior, its affected callers and relevant failure modes—not merely the changed files.
+- **Expand with cause.** Broaden checks when changes cross boundaries, touch shared infrastructure or leave impact uncertain. A focused pass is not evidence that the full suite passed.
+- **Avoid redundant runs.** During iteration, run overlapping checks once and rerun when relevant source, dependencies, configuration or environment changes. Preserve required source-specific verification at handoff.
+- **Keep expensive checks intentional.** Run load, repeated-fault, platform and infrastructure checks when the change affects their guarantees or the required gate calls for them, rather than after every edit.
+- **Preserve evidence.** Reduce unrelated setup, wasted waits and duplicate execution—not assertions, meaningful failure triggers or required real-system boundaries. Report what ran, what did not and any remaining verification required.
+- **Budget new coverage.** When adding or substantially changing tests, measure their runtime and consider their impact on the default test command. Use the least expensive existing seam that faithfully exposes the failure; reserve broader integration checks for guarantees that require those boundaries.
