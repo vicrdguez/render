@@ -81,7 +81,14 @@ export type RoleCommand =
 			stance: "supporting" | "negative" | "conflicting";
 	  }
 	| { type: "requestOwnStop"; workflow: string }
-	| { type: "recordRecoveryState"; workflow: string; assignment: string; generation: number; attempt: string; text: string }
+	| {
+			type: "recordRecoveryState" | "recordRunnerObservation" | "recordRunnerDiagnostic";
+			workflow: string;
+			assignment: string;
+			generation: number;
+			attempt: string;
+			text: string;
+	  }
 	| {
 			type: "cancelWork" | "fenceAttempt" | "stageTask";
 			workflow: string;
@@ -117,6 +124,8 @@ export const ROLE_COMMANDS = [
 	"recordBlocker",
 	"recordQuiescence",
 	"recordRecoveryState",
+	"recordRunnerObservation",
+	"recordRunnerDiagnostic",
 	"rebindAttempt",
 ];
 
@@ -223,6 +232,12 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (work.assignments.some((child) => child.parent === a.id && child.requestKey === c.key))
 			return refusal("role_already_requested", "This bounded role request already has durable work.");
 		create(request.packet, a.slice, false, a.id, c.key);
+	} else if (c.type === "recordRunnerDiagnostic") {
+		if (!a || a.workflow !== c.workflow || c.attempt !== a.attempt || c.generation > a.generation)
+			return refusal("stale_assignment", "Diagnostic identity must belong to the original assignment Attempt.");
+		if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024)
+			return refusal("invalid_content", "Diagnostic exceeds retained evidence bounds.");
+		result = { assignment: a.id, diagnostic: facts.ids.revision ?? null };
 	} else if (c.type === "recordRecoveryState") {
 		if (!a || a.workflow !== c.workflow || (c.generation >= a.generation && c.attempt === a.attempt))
 			return refusal("invalid_content", "Only evidence from a fenced prior identity is quarantined.");
@@ -254,6 +269,16 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("stale_assignment", "Generation or Attempt is no longer current.");
 		result = { assignment: a.id };
 		switch (c.type) {
+			case "recordRunnerObservation":
+				if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
+					return refusal("stale_assignment", "Owned check receipt requires the current executing generation.");
+				if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024)
+					return refusal("invalid_content", "Owned check receipt exceeds evidence bounds.");
+				a.report = facts.ids.revision ?? null;
+				a.status = "submitted";
+				result.report = a.report;
+				if (a.parent) intents.push({ kind: "notify-role", assignment: a.id });
+				break;
 			case "recordRuntimeHistory":
 				a.runtimeHistory = `runtime-history:${facts.sequence}`;
 				result.runtimeHistory = a.runtimeHistory;

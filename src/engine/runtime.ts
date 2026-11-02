@@ -25,10 +25,12 @@ import {
 	type ToolExecutionApi,
 	type Tx,
 } from "@earendil-works/pi-durable";
+import { Effects, type Source, type SourceReceipt } from "../effects/source.ts";
 import { currentChildren, packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
 import { Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
+import { type ExecutionResult, type ExecutionScope, type LinuxProfile, Sandboxes, SandboxInputRefusal } from "../sandboxes/sandboxes.ts";
 import { previewWeb, research, type WebConfig } from "./web.ts";
 
 const ctx = BACKGROUND_CONTEXT;
@@ -54,6 +56,18 @@ export type RenderRuntimeOptions = HarnessOptions & {
 	afterResume?(): void;
 };
 
+export type OwnedChecks = {
+	root: string;
+	repositories: Readonly<Record<string, string>>;
+	checks: Readonly<
+		Record<
+			string,
+			{ repository: string; commit: string; profile: LinuxProfile; argv: string[]; timeoutMs: number; verifierRevision: string }
+		>
+	>;
+};
+type EngineConfig = { apiKey?: string; families?: Readonly<Record<string, string>>; provider?: Provider; ownedChecks?: OwnedChecks; web?: WebConfig };
+
 export class Engine {
 	#ledger: Ledger | undefined;
 	#harness: Harness | undefined;
@@ -61,14 +75,33 @@ export class Engine {
 	#reconcileAgain = false;
 	#ready = false;
 	#sessions = new Map<string, { assignment: string; task: number }>();
-	readonly #config: { apiKey?: string; families?: Readonly<Record<string, string>>; provider?: Provider; web?: WebConfig };
+	readonly #config: EngineConfig;
+	readonly #effects: Effects | undefined;
+	readonly #sandboxes: Sandboxes | undefined;
+	readonly #ownedActive = new Set<string>();
 	readonly #roles;
 	readonly #run;
 	readonly #notify;
 	readonly #models;
 
-	constructor(config: { apiKey?: string; families?: Readonly<Record<string, string>>; provider?: Provider; web?: WebConfig } = {}) {
+	constructor(config: EngineConfig = {}) {
 		this.#config = config;
+		if (config.ownedChecks) {
+			this.#effects = new Effects({ root: `${config.ownedChecks.root}/effects`, repositories: config.ownedChecks.repositories });
+			this.#sandboxes = new Sandboxes({
+				root: `${config.ownedChecks.root}/sandboxes`,
+				authorize: (scope) => {
+					const a = this.#assignment(scope.assignment);
+					return (
+						!!a &&
+						a.executing &&
+						a.status === "running" &&
+						JSON.stringify(this.#scope(a)) === JSON.stringify(scope) &&
+						a.executorEpoch === this.#ledger?.status().executorEpoch
+					);
+				},
+			});
+		}
 		this.#models = createModels({
 			authContext: { env: async (name) => (name === "ANTHROPIC_API_KEY" ? config.apiKey : undefined), fileExists: async () => false },
 		});
@@ -417,6 +450,12 @@ export class Engine {
 								continue;
 							}
 						}
+						if (a.packet.execution === "linux-writer") {
+							await this.#ownedCheck(this.#assignment(a.id)!);
+							return runtime
+								.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context)
+								.then(() => this.reconcile());
+						}
 						const conversation = await runtime.conversation(a.conversation as ConversationId, context);
 						if (!conversation) throw new Error("Missing role conversation");
 						const input = await conversation.submit({ type: "input", requestId: `role:${a.attempt}:${round}`, content: prompt }, context);
@@ -560,6 +599,24 @@ export class Engine {
 				void this.reconcile().catch(() => {});
 			},
 			beforeResume: async () => {
+				for (const a of this.#assignments()) {
+					if (!a.executing || a.packet.execution !== "linux-writer" || !this.#sandboxes) continue;
+					try {
+						const scope = this.#scope(a, a.status === "canceling");
+						const stopped = await this.#sandboxes.stop({ scope });
+						for (const diagnostic of stopped.executions) await this.#diagnostic(a, scope, stopped.source, diagnostic.result, diagnostic);
+						if (a.status === "running")
+							await this.#command(a, { type: "recordBlocker", reason: "owned_check_interrupted_source_evidence_requires_reconciliation" });
+						await this.#command(this.#assignment(a.id)!, {
+							type: "recordQuiescence",
+							providerIdle: true,
+							environment: "stopped",
+							effects: "reconciled",
+						});
+					} catch {
+						await this.#command(a, { type: "recordBlocker", reason: "owned_check_quarantined_stop_unconfirmed" });
+					}
+				}
 				for (const a of this.#assignments())
 					if (a.executing && a.status === "running" && a.packet.execution === "read-only")
 						await this.#command(a, {
@@ -663,6 +720,16 @@ export class Engine {
 					if (task?.state.status === "terminal") await this.#command(a, { type: "recordRuntimeHistory", key: `settled:${a.task}` });
 				}
 				if (a.status === "canceling") {
+					if (a.packet.execution !== "read-only" && a.executing && this.#sandboxes) {
+						try {
+							await this.#sandboxes.stop({ scope: this.#scope(a, true) });
+							if (this.#ownedActive.has(a.id)) continue;
+							await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "stopped", effects: "reconciled" });
+						} catch {
+							await this.#command(a, { type: "recordBlocker", reason: "owned_check_quarantined_stop_unconfirmed" });
+						}
+						continue;
+					}
 					if (a.packet.execution !== "read-only" && a.executing) {
 						if (a.blocker !== "whole_environment_stop_unavailable")
 							await this.#command(a, { type: "recordBlocker", reason: "whole_environment_stop_unavailable" });
@@ -716,7 +783,161 @@ export class Engine {
 	#assignment(id: string) {
 		return this.#assignments().find((a) => a.id === id);
 	}
+	#scope(a: RoleAssignment, fenced = false): ExecutionScope {
+		return {
+			assignment: a.id,
+			generation: a.generation - (fenced ? 1 : 0),
+			attempt: a.attempt,
+			executorEpoch: a.executorEpoch ?? "unbound",
+		};
+	}
+	async #ownedCheck(a: RoleAssignment): Promise<void> {
+		const check = this.#config.ownedChecks!.checks[a.packet.profile]!;
+		this.#ownedActive.add(a.id);
+		// A fresh execution has not called prepare yet. Recovery never uses this local proof:
+		// beforeResume reconciles the original scope and keeps uncertain journals quarantined.
+		// Debt: a cancellation landing during trusted resolve fences prepare, finds no journal and stays quarantined.
+		let environment: "absent" | "stopped" | undefined = "absent";
+		try {
+			const base = await this.#effects!.perform({ type: "resolve", repository: check.repository, commit: check.commit });
+			environment = undefined;
+			const handle = await this.#sandboxes!.prepare(this.#scope(a), check.profile, base);
+			const execution = await this.#sandboxes!.execute(handle, {
+				scope: this.#scope(a),
+				argv: check.argv,
+				timeoutMs: check.timeoutMs,
+				verifierRevision: check.verifierRevision,
+			});
+			await this.#diagnostic(a, this.#scope(a), base, execution);
+			const capture = await this.#sandboxes!.seal(handle);
+			environment = "stopped";
+			const source = await this.#effects!.perform({ type: "retain", base, capture });
+			await this.#effects!.reconcile(source);
+			const compact = (value: SourceReceipt["source"]) => ({
+				...value,
+				entries: value.entries.map(({ content, ...entry }) => ({ ...entry, byteLength: Buffer.from(content, "base64").length })),
+			});
+			const receipt = {
+				schema: 1,
+				kind: "owned-check",
+				scope: this.#scope(a),
+				execution,
+				verifierRevision: check.verifierRevision,
+				verification: {
+					inputCommit: base.commit,
+					inputTree: base.tree,
+					resultTree: source.source.tree,
+					status: base.tree !== source.source.tree ? "source_changed" : execution.exitCode === 0 ? "passed" : "failed",
+				},
+				source: { ...source, base: compact(source.base), source: compact(source.source) },
+				limits: { network: "ordinary bridge; reachable host/LAN/tailnet are not confined", macOS: "unrun", profile: check.profile },
+				reviewWarning: source.configurationChanges.length
+					? `REVIEW SOURCE CONFIGURATION CHANGES: ${source.configurationChanges.join(", ")}; never activated on host`
+					: null,
+			};
+			const text = JSON.stringify(receipt);
+			const reply = await this.#ledger!.command(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId: `owned-check:${a.id}:${a.generation}`,
+					workflow: a.workflow,
+					command: { type: "recordRunnerObservation", assignment: a.id, generation: a.generation, attempt: a.attempt, text },
+				},
+				mintContext({ kind: "host", scope: "effects" }),
+			);
+			if (reply.status !== "accepted") {
+				if (this.#assignment(a.id)!.generation !== a.generation)
+					await this.#ledger!.command(
+						{
+							version: 1,
+							authorityEpoch: this.#ledger!.status().authorityEpoch,
+							commandId: `owned-quarantine:${a.id}:${a.generation}`,
+							workflow: a.workflow,
+							command: { type: "recordRecoveryState", assignment: a.id, generation: a.generation, attempt: a.attempt, text },
+						},
+						mintContext({ kind: "host", scope: "recovery" }),
+					);
+				else {
+					// Policy adoption keeps the generation current, so this evidence cannot enter the fenced-identity quarantine.
+					await this.#retainDiagnostic(
+						a.workflow,
+						this.#scope(a),
+						JSON.stringify({ ...receipt, kind: "owned-check-diagnostic", observed: receipt.verification, verification: "unaccepted" }),
+					);
+					throw new Error(`Owned check receipt refused: ${reply.status === "refused" ? reply.code : reply.status}`);
+				}
+			}
+		} catch (error) {
+			if (error instanceof SandboxInputRefusal) environment = "absent";
+			const current = this.#assignment(a.id)!;
+			await this.#command(current, {
+				type: "recordBlocker",
+				reason: `owned_check_blocked: ${current.blocker ? `${current.blocker}: ` : ""}${error}`.slice(0, 1900),
+			});
+			if (!environment) {
+				try {
+					const result = await this.#sandboxes!.stop({ scope: this.#scope(a) });
+					for (const diagnostic of result.executions)
+						await this.#diagnostic(a, this.#scope(a), result.source, diagnostic.result, diagnostic.result ? undefined : diagnostic);
+					environment = "stopped";
+				} catch {
+					/* Preserve executing capacity and quarantine until the original runtime is reconciled. */
+				}
+			}
+		} finally {
+			this.#ownedActive.delete(a.id);
+			if (environment)
+				await this.#command(this.#assignment(a.id)!, {
+					type: "recordQuiescence",
+					providerIdle: true,
+					environment,
+					effects: "reconciled",
+				});
+		}
+	}
+	async #diagnostic(
+		a: RoleAssignment,
+		scope: ExecutionScope,
+		base: Source,
+		execution?: ExecutionResult,
+		interrupted?: unknown,
+	): Promise<void> {
+		const text = JSON.stringify({
+			schema: 1,
+			kind: "owned-check-diagnostic",
+			scope,
+			input: { repository: base.repository, commit: base.commit, tree: base.tree, root: base.root, objectFormat: base.objectFormat },
+			execution,
+			interrupted,
+			verifierRevision: execution?.verifierRevision ?? null,
+			verification: "unaccepted",
+		});
+		await this.#retainDiagnostic(a.workflow, scope, text);
+	}
+	async #retainDiagnostic(workflow: string, scope: ExecutionScope, text: string): Promise<void> {
+		const reply = await this.#ledger!.command(
+			{
+				version: 1,
+				authorityEpoch: this.#ledger!.status().authorityEpoch,
+				commandId: `owned-diagnostic:${createHash("sha256").update(text).digest("hex")}`,
+				workflow,
+				command: {
+					type: "recordRunnerDiagnostic",
+					assignment: scope.assignment,
+					generation: scope.generation,
+					attempt: scope.attempt,
+					text,
+				},
+			},
+			mintContext({ kind: "host", scope: "effects" }),
+		);
+		if (reply.status !== "accepted")
+			throw new Error(`Owned diagnostic retention refused: ${reply.status === "refused" ? reply.code : reply.status}`);
+	}
 	#configurationBlocker(a: RoleAssignment): string | undefined {
+		if (a.packet.execution === "linux-writer" && this.#config.ownedChecks)
+			return Object.hasOwn(this.#config.ownedChecks.checks, a.packet.profile) ? undefined : "owned_check_profile_unavailable";
 		if (!this.#config.apiKey) return "native_provider_configuration_missing";
 		if (a.packet.execution !== "read-only") return "sandbox_capability_unavailable";
 		if (this.#config.provider && this.#config.provider.id !== "anthropic") return "native_provider_required";
