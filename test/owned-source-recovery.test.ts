@@ -7,7 +7,7 @@ import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { Sandboxes } from "../src/sandboxes/sandboxes.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
-import { sourceFixture } from "./support/source.ts";
+import { git, sourceFixture } from "./support/source.ts";
 
 test("quarantine reconciliation retries the original runtime without reopening execute or workspace reuse", async () => {
 	const f = await sourceFixture();
@@ -96,83 +96,103 @@ test("failed collection retains actual command diagnostics in history without a 
 	}
 });
 
-test("failure before runtime creation releases capacity, survives reopen and cancellation releases writer ownership", async () => {
-	const source = await sourceFixture();
-	const config = {
-		root: join(source.root, "owned"),
-		repositories: { owned: source.repo },
-		checks: {
-			"revision:3": {
-				repository: "owned",
-				commit: source.commit,
-				profile: { ...source.profile, image: `sha256:${"0".repeat(64)}` },
-				argv: ["true"],
-				timeoutMs: 10000,
-				verifierRevision: source.commit,
+for (const trigger of ["absent image", "absent commit", "gitlink", "base exclusion", "invalid profile"] as const)
+	test(`${trigger} refusal releases capacity, survives reopen and cancellation releases writer ownership`, async () => {
+		const source = await sourceFixture();
+		let commit = source.commit;
+		if (trigger === "absent commit") commit = "0".repeat(40);
+		if (trigger === "gitlink") {
+			const tree = git(source.repo, ["mktree"], `160000 commit ${source.commit}\tsubmodule\n`).toString().trim();
+			commit = git(source.repo, ["commit-tree", tree], "Gitlink refusal\n").toString().trim();
+		}
+		const profile = { ...source.profile };
+		if (trigger === "absent image") profile.image = `sha256:${"0".repeat(64)}`;
+		if (trigger === "base exclusion") profile.exclusions = [".git", "crlf"];
+		if (trigger === "invalid profile") profile.maxEntries = 0;
+		const reason = {
+			"absent image": /image.*failed/i,
+			"absent commit": /git|commit|object/i,
+			gitlink: /gitlink/i,
+			"base exclusion": /conflicts with accepted base/i,
+			"invalid profile": /unsupported Linux profile/i,
+		}[trigger];
+		const config = {
+			root: join(source.root, "owned"),
+			repositories: { owned: source.repo },
+			checks: {
+				"revision:3": {
+					repository: "owned",
+					commit,
+					profile,
+					argv: ["true"],
+					timeoutMs: 10000,
+					verifierRevision: source.commit,
+				},
 			},
-		},
-	};
-	const f = await roleFixture(new Engine({ ownedChecks: config }));
-	const snapshot = () => {
-		const value = f.ledger.snapshot(admin);
-		assert.ok("assignments" in value);
-		return (value.assignments as RoleAssignment[])[0]!;
-	};
-	try {
-		assert.equal(
-			(
-				await f.command({
-					type: "assignTask",
-					slice: "prepare:failure",
-					delivery: true,
-					packet: packet({ execution: "linux-writer" }),
-				})
-			).status,
-			"accepted",
-		);
-		const deadline = Date.now() + 10000;
-		while (snapshot().status !== "blocked" || snapshot().executing) {
-			assert.ok(Date.now() < deadline, JSON.stringify(snapshot()));
-			await setTimeout(20);
+		};
+		const f = await roleFixture(new Engine({ ownedChecks: config }));
+		const snapshot = () => {
+			const value = f.ledger.snapshot(admin);
+			assert.ok("assignments" in value);
+			return (value.assignments as RoleAssignment[])[0]!;
+		};
+		try {
+			assert.equal(
+				(
+					await f.command({
+						type: "assignTask",
+						slice: "prepare:failure",
+						delivery: true,
+						packet: packet({ execution: "linux-writer" }),
+					})
+				).status,
+				"accepted",
+			);
+			const deadline = Date.now() + 10000;
+			while (snapshot().status !== "blocked" || snapshot().executing) {
+				assert.ok(Date.now() < deadline, JSON.stringify(snapshot()));
+				await setTimeout(20);
+			}
+			assert.match(snapshot().blocker!, reason);
+			assert.equal(snapshot().report, null);
+			await f.reopen(new Engine({ ownedChecks: config }));
+			assert.equal(snapshot().executing, false);
+			assert.equal(snapshot().status, "blocked");
+			assert.match(snapshot().blocker!, reason);
+			const a = snapshot();
+			assert.equal(
+				(
+					await f.command(
+						{
+							type: "cancelWork",
+							assignment: a.id,
+							generation: a.generation,
+							attempt: a.attempt,
+						},
+						admin,
+					)
+				).status,
+				"accepted",
+			);
+			while (snapshot().status !== "canceled") {
+				assert.ok(Date.now() < deadline, JSON.stringify(snapshot()));
+				await setTimeout(20);
+			}
+			assert.equal(snapshot().executing, false);
+			assert.equal(
+				(
+					await f.command({
+						type: "assignTask",
+						slice: "prepare:failure",
+						delivery: true,
+						packet: packet({ execution: "linux-writer" }),
+					})
+				).status,
+				"accepted",
+				"a canceled writer must not keep Slice ownership",
+			);
+		} finally {
+			await f.close();
+			await source.close();
 		}
-		assert.match(snapshot().blocker!, /image.*failed/i);
-		assert.equal(snapshot().report, null);
-		await f.reopen(new Engine({ ownedChecks: config }));
-		assert.equal(snapshot().executing, false);
-		const a = snapshot();
-		assert.equal(
-			(
-				await f.command(
-					{
-						type: "cancelWork",
-						assignment: a.id,
-						generation: a.generation,
-						attempt: a.attempt,
-					},
-					admin,
-				)
-			).status,
-			"accepted",
-		);
-		while (snapshot().status !== "canceled") {
-			assert.ok(Date.now() < deadline, JSON.stringify(snapshot()));
-			await setTimeout(20);
-		}
-		assert.equal(snapshot().executing, false);
-		assert.equal(
-			(
-				await f.command({
-					type: "assignTask",
-					slice: "prepare:failure",
-					delivery: true,
-					packet: packet({ execution: "linux-writer" }),
-				})
-			).status,
-			"accepted",
-			"a canceled writer must not keep Slice ownership",
-		);
-	} finally {
-		await f.close();
-		await source.close();
-	}
-});
+	});
