@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
-import { git, sourceFixture } from "./support/source.ts";
+import { sourceFixture } from "./support/source.ts";
 
 test("literal-source-roundtrip: literal bytes, symlinks and actual deletions ignore worker Git", async () => {
 	const f = await sourceFixture();
@@ -63,17 +63,6 @@ for (const [name, command, expected] of [
 			await f.close();
 		}
 	});
-
-test("literal-source-roundtrip: gitlinks refuse rather than fetch modules", async () => {
-	const f = await sourceFixture();
-	try {
-		const tree = git(f.repo, ["mktree"], `160000 commit ${f.commit}\tmodule\n`).toString().trim();
-		const commit = git(f.repo, ["commit-tree", tree], "Gitlink fixture\n").toString().trim();
-		await assert.rejects(f.effects.perform({ type: "resolve", repository: "owned", commit }), /gitlink|submodule/i);
-	} finally {
-		await f.close();
-	}
-});
 
 test("literal-source-roundtrip: declared caches are excluded, base conflicts refuse and undeclared deliverables survive", async () => {
 	const f = await sourceFixture();

@@ -17,12 +17,17 @@ async function blocked(f: Awaited<ReturnType<typeof roleFixture>>) {
 }
 
 test("R04 missing provider, family, sandbox and overflowing constraints block without provider calls", async () => {
-	for (const overrides of [{}, { requiredFamily: "other" }, { execution: "linux-writer" as const }, { maxInputBytes: 1 }]) {
+	for (const [overrides, expected] of [
+		[{}, "native_provider_configuration_missing"],
+		[{ requiredFamily: "other" }, "required_model_family_unavailable"],
+		[{ execution: "linux-writer" as const }, "sandbox_capability_unavailable"],
+		[{ maxInputBytes: 1 }, "required_inputs_do_not_fit"],
+	] as const) {
 		const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
-		const engine =
-			Object.keys(overrides).length === 0
-				? new Engine()
-				: new Engine({ provider: p.provider, apiKey: "fixture", families: { "claude-sonnet-4-6": "claude" } });
+		const providerInstalled = Object.keys(overrides).length > 0;
+		const engine = providerInstalled
+			? new Engine({ provider: p.provider, apiKey: "fixture", families: { "claude-sonnet-4-6": "claude" } })
+			: new Engine();
 		const f = await roleFixture(engine);
 		try {
 			assert.equal(
@@ -30,9 +35,9 @@ test("R04 missing provider, family, sandbox and overflowing constraints block wi
 				"accepted",
 			);
 			const a = await blocked(f);
-			assert.ok(a.blocker);
+			assert.equal(a.blocker, expected, `${JSON.stringify(overrides)} must block for its own reason`);
 			assert.equal(a.executing, false);
-			assert.equal(p.state.callCount, 0);
+			if (providerInstalled) assert.equal(p.state.callCount, 0, "a blocked role must not reach its installed provider");
 			const own = mintContext({ kind: "assignment-agent", assignment: a.id, generation: 1, attempt: a.attempt, role: a.packet.role });
 			const foreign = await f.ledger.artifact(own, { read: "revision:999" });
 			assert.equal("code" in foreign ? foreign.code : "disclosed", "not_found");

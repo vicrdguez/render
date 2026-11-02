@@ -24,6 +24,7 @@ import {
 	startHost,
 	tempDir,
 } from "./support/host.ts";
+import { damagedPackage } from "./support/recovery-damage.ts";
 
 async function adminCommand(host: Awaited<ReturnType<typeof startHost>>, type: string, commandId = type) {
 	const status = await adminRequest(host.admin, "GET", "/v1/admin/status");
@@ -285,116 +286,20 @@ test("package-clean-restore: concurrent later writes and interrupted generation 
 	}
 });
 
-test("package-validation: checksummed but semantically invalid retained relationships cannot be repaired", async () => {
+// The full variant matrix runs in-process in recovery-package-semantics.test.ts; these are its process witnesses.
+test("package-validation: semantic damage refuses at the restore CLI and at direct-copy host startup or repair", async () => {
 	const f = await fixture();
 	try {
 		const p = await adminCommand(f.h, "createRecoveryPackage");
 		assert.equal(p.body.status, "packaged", p.text);
-		for (const kind of [
-			"pointer",
-			"receipt",
-			"receipt-result",
-			"device",
-			"parent",
-			"schema",
-			"unknown-kind",
-			"role-provenance",
-			"future-fact",
-			"backup-schema",
-			"backup-cutoff",
-			"message-text",
-			"message-digest",
-			"message-length",
-			"message-partial",
-		]) {
+		for (const kind of ["pointer", "message-digest", "backup-schema"] as const) {
 			const bad = join(f.dir.path, `semantic-${kind}`);
-			await cp(String(p.body.path), bad, { recursive: true });
-			const dbPath = join(bad, "render.db");
-			const adapter = await openNodeSqliteDatabase(dbPath);
-			const storage = await SqliteStorage.open(adapter);
-			const harness = await Harness.open(
-				storage,
-				runtimeOptions(() => undefined),
-				BACKGROUND_CONTEXT,
-			);
-			await harness.commit(async (tx) => {
-				if (kind.startsWith("backup-")) {
-					const meta = await tx.doc(Meta);
-					assert(meta.backup, "fixture must contain real retained backup status");
-					if (kind === "backup-schema") Object.assign(meta.backup, { version: 99 });
-					else
-						meta.backup.verified = {
-							id: "package-00000000-0000-0000-0000-000000000000",
-							cutoff: 999,
-							cutoffRecordedAt: 1,
-							verifiedAt: 2,
-							digest: "0".repeat(64),
-						};
-				}
-				if (kind === "pointer") {
-					const w = await tx.doc(Workflow, "workflow:3", null);
-					assert(w.exists && w.documents.ground);
-					w.documents.ground.revision = "revision:999";
-				}
-				if (kind === "receipt") {
-					const r = await tx.doc(Receipt, "human:owner first", null);
-					if (r.exists) r.body.facts = ["fact:999"];
-				}
-				if (kind === "receipt-result") {
-					const r = await tx.doc(Receipt, "human:owner first", null);
-					if (r.exists) r.body.result.revision = "revision:999";
-				}
-				if (kind === "device") {
-					const d = await tx.doc(Device, "device:2", null);
-					if (d.exists) d.scope.workflows = [""];
-				}
-			}, BACKGROUND_CONTEXT);
-			await harness.close(BACKGROUND_CONTEXT);
-			const sql = new DatabaseSync(dbPath);
-			if (kind.startsWith("message-")) {
-				const row = sql.prepare("SELECT id, record FROM entries WHERE json_extract(record, '$.kind') = 'render.message'").get() as {
-					id: number;
-					record: string;
-				};
-				const record = JSON.parse(row.record);
-				// Independent literal SHA-256/UTF-8 length for "hello"; also exercises pre-slice2 fixtures.
-				record.data.digest = "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
-				record.data.byteLength = 5;
-				if (kind === "message-text") record.data.text = "wrong";
-				if (kind === "message-digest") record.data.digest = "sha256:bad";
-				if (kind === "message-length") record.data.byteLength = 6;
-				if (kind === "message-partial") delete record.data.digest;
-				sql.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(record), row.id);
-			}
-			if (kind === "future-fact") {
-				sql.exec(
-					"UPDATE entries SET record = json_set(record, '$.data.command', 'admitEffect') WHERE json_extract(record, '$.kind') = 'render.fact' AND json_extract(record, '$.data.sequence') = 4",
-				);
-			}
-			if (kind === "parent" || kind === "schema" || kind === "unknown-kind" || kind === "role-provenance") {
-				const row = sql.prepare("SELECT id, record FROM entries WHERE json_extract(record, '$.kind') = 'render.revision'").get() as {
-					id: number;
-					record: string;
-				};
-				const record = JSON.parse(row.record);
-				if (kind === "parent") record.data.parent = "revision:999";
-				if (kind === "schema") record.data.schema = 99;
-				if (kind === "unknown-kind") record.kind = "render.future";
-				if (kind === "role-provenance") record.data.roleBinding = { assignment: "assignment:999", generation: 1, attempt: "attempt:999" };
-				sql.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(record), row.id);
-			}
-			sql.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-			sql.close();
-			const manifest = JSON.parse(await readFile(join(bad, "manifest.json"), "utf8"));
-			manifest.files["render.db"] = createHash("sha256")
-				.update(await readFile(dbPath))
-				.digest("hex");
-			await writeFile(join(bad, "manifest.json"), JSON.stringify(manifest));
+			await damagedPackage(String(p.body.path), bad, kind);
 			assert.notEqual(restore(join(f.dir.path, `reject-${kind}`), bad).status, 0, `${kind} semantics must be validated beyond checksums`);
-			const direct = join(f.dir.path, `d${kind.indexOf("message-") === 0 ? kind.slice(8) : kind}`);
+			const direct = join(f.dir.path, `direct-${kind}`);
 			await mkdir(direct);
-			await cp(dbPath, join(direct, "render.db"));
-			if (kind.startsWith("backup-")) {
+			await cp(join(bad, "render.db"), join(direct, "render.db"));
+			if (kind === "backup-schema") {
 				const blocked = spawnHost(direct);
 				assert.equal(
 					(await blocked.next("startup_blocked")).code,
@@ -406,11 +311,8 @@ test("package-validation: checksummed but semantically invalid retained relation
 			}
 			const h = await startHost(direct);
 			try {
-				assert.notEqual(
-					(await adminCommand(h, "repairRecovery")).body.status,
-					"accepted",
-					`${kind} direct-copy repair must validate semantics`,
-				);
+				const repair = await adminCommand(h, "repairRecovery");
+				assert.equal(repair.body.code, "invalid_recovery_package", `${kind} direct-copy repair must validate semantics`);
 			} finally {
 				await h.stop();
 			}

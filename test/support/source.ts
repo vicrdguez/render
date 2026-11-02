@@ -36,7 +36,8 @@ export function git(repo: string, args: string[], input?: string | Buffer): Buff
 		},
 	});
 }
-export async function sourceFixture(
+/** Real Git and Effects only: for refusals that happen before any sandbox preparation. */
+export async function gitSourceFixture(
 	files: Record<string, { mode?: string; text: string }> = {
 		".gitattributes": { text: "crlf text eol=lf\nignored export-ignore\nsubst export-subst\n*.txt filter=hostile\n" },
 		crlf: { text: "literal\r\nbytes\r\n" },
@@ -64,6 +65,12 @@ export async function sourceFixture(
 	const commit = git(repo, ["commit-tree", tree], "Owned literal fixture\n").toString().trim();
 	git(repo, ["update-ref", "refs/heads/fixture", commit]);
 	const effects = new Effects({ root: join(root, "effects"), repositories: { owned: repo } });
+	return { root, repo, commit, effects, close: () => rm(root, { recursive: true, force: true }) };
+}
+
+export async function sourceFixture(files?: Record<string, { mode?: string; text: string }>) {
+	const source = await gitSourceFixture(files);
+	const { root } = source;
 	let current = true;
 	const scope = { assignment: "assignment:owned", generation: 1, attempt: "attempt:owned", executorEpoch: "executor:owned" };
 	const sandboxes = new Sandboxes({
@@ -73,10 +80,7 @@ export async function sourceFixture(
 	const image = execFileSync("docker", ["image", "inspect", "node:24-alpine", "--format", "{{.Id}}"], { encoding: "utf8" }).trim();
 	const profile = { image, exclusions: [".git"], maxBytes: 64 * 1024 * 1024, maxEntries: 10000 };
 	return {
-		root,
-		repo,
-		commit,
-		effects,
+		...source,
 		sandboxes,
 		profile,
 		scope,
@@ -85,7 +89,7 @@ export async function sourceFixture(
 		},
 		close: async () => {
 			await cleanup(root);
-			await rm(root, { recursive: true, force: true });
+			await source.close();
 		},
 	};
 }

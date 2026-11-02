@@ -7,19 +7,7 @@ import { connect } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { after, before, describe, test } from "node:test";
-import {
-	CLIENT_CLI,
-	createWorkflow,
-	envelope,
-	type HostProcess,
-	http,
-	percentile,
-	save,
-	sha256,
-	startHost,
-	tempDir,
-	track,
-} from "./support/host.ts";
+import { CLIENT_CLI, createWorkflow, envelope, type HostProcess, http, save, sha256, startHost, tempDir, track } from "./support/host.ts";
 import { A1, B1, G1 } from "./support/literals.ts";
 
 type CliResult = { code: number | null; stdout: string; stderr: string; json: Record<string, unknown> };
@@ -255,42 +243,6 @@ describe("V4 two stateless clients", () => {
 			assert.deepEqual(r.body.supported, [1]);
 			assert.match(String(r.body.reason), /upgrade/i);
 		}
-	});
-
-	test("B3-05 a stalled observer cannot block commits and is disconnected", async () => {
-		const bearer = (await readFile(tokenB, "utf8")).trim();
-		const w = await createWorkflow(host, bearer, "slow consumer");
-		const url = new URL(host.url);
-		const socket = connect(Number(url.port), url.hostname);
-		await new Promise<void>((r) => socket.once("connect", () => r()));
-		socket.write(`GET /v1/observe?version=1 HTTP/1.1\r\nHost: ${url.host}\r\nAuthorization: Bearer ${bearer}\r\n\r\n`);
-		await new Promise<void>((r) => socket.once("data", () => r()));
-		socket.pause();
-		let closed = false;
-		socket.on("close", () => {
-			closed = true;
-		});
-		const latencies: number[] = [];
-		for (let i = 0; i < 1_500; i++) {
-			const t0 = performance.now();
-			const r = await http(host.url, "POST", "/v1/commands", {
-				bearer,
-				body: envelope(
-					String(host.ready.authorityEpoch),
-					{ type: "postCoordinatorMessage", text: `${"backlog ".repeat(40)}${i}` },
-					{ workflow: w },
-				),
-			});
-			latencies.push(performance.now() - t0);
-			assert.equal(r.status, 200, r.text);
-		}
-		const p95 = percentile(latencies, 95);
-		console.log(JSON.stringify({ measure: "stalled_observer_ack_p95_ms", value: Number(p95.toFixed(2)) }));
-		assert.ok(p95 < 250, `p95 ${p95} ms`);
-		socket.resume();
-		socket.on("data", () => undefined);
-		await new Promise((r) => setTimeout(r, 1_000));
-		assert.ok(closed || socket.destroyed, "the stalled stream must have been disconnected by the host");
 	});
 
 	test("B3-06 a client that disconnects after sending still gets its work committed", async () => {

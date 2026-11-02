@@ -214,6 +214,67 @@ function inScope(p: Principal, workflow: unknown): boolean {
 // Outcome counts guard against a generator that never reaches the interesting cases.
 const outcomes = new Map<string, number>();
 
+// Generated role commands carry no identities or packet and no assignment exists in this model, so each eligible one has
+// one ordinary refusal: no target to act on, or no content to act with.
+const BARE_ROLE_REFUSAL: Record<string, string> = {
+	assignTask: "invalid_content",
+	recordRecoveryState: "invalid_content",
+	replaceTask: "stale_assignment",
+	requestRole: "stale_assignment",
+	requestOwnStop: "stale_assignment",
+	submitRoleResult: "stale_assignment",
+	recordRunnerDiagnostic: "stale_assignment",
+	cancelWork: "not_found",
+	fenceAttempt: "not_found",
+	stageTask: "not_found",
+	rebindAttempt: "not_found",
+	recordBlocker: "not_found",
+	recordQuiescence: "not_found",
+	recordRunnerObservation: "not_found",
+	recordRuntimeHistory: "not_found",
+};
+
+// The decision every generated step must get, derived from the literal matrix and the test-owned model.
+function expectedDecision(m: Model, principal: Principal, step: Step, command: Record<string, unknown>, state: KernelState): string {
+	const type = String(command.type);
+	const row = MATRIX[type];
+	if (row === undefined) return "unknown_command";
+	if (!classOf(principal).some((c) => row.admits.includes(c))) return "forbidden_principal";
+	if (!row.available) return "capability_unavailable";
+	const wholeProject = principal.kind !== "human" || principal.route !== "device" || principal.workflows === "all";
+	const workflow = String(command.workflow);
+	const exists = m.workflows.has(workflow);
+	switch (type) {
+		case "createWorkflow":
+			return wholeProject ? "accepted" : "forbidden_scope";
+		case "changePolicy":
+			return wholeProject ? "stale_basis" : "forbidden_scope"; // Generated without the expected default revision.
+		case "adoptPolicy":
+			if (!exists) return "not_found";
+			return inScope(principal, workflow) ? "stale_basis" : "forbidden_scope"; // Generated without the expected binding.
+		case "saveDocument": {
+			if (!inScope(principal, workflow)) return "forbidden_scope";
+			if (!exists) return "not_found";
+			if (step.invalidUtf8) return "invalid_content";
+			if (state.document?.integrity === "corrupt") return "content_corrupt";
+			return command.expected === (state.document?.current ?? null) ? "accepted" : "stale_basis";
+		}
+		case "postCoordinatorMessage":
+			if (!inScope(principal, workflow)) return "forbidden_scope";
+			return exists ? "accepted" : "not_found";
+		case "enrollDevice":
+		case "recordStartup":
+			return "accepted";
+		case "revokeDevice": {
+			const device = m.devices.get(String(command.device));
+			if (device === undefined) return "not_found";
+			return device.revoked ? "already_revoked" : "accepted";
+		}
+		default:
+			return exists ? (BARE_ROLE_REFUSAL[type] as string) : "not_found";
+	}
+}
+
 // Returns a violation message, or undefined. Applies accepted writes to the model.
 function checkStep(m: Model, step: Step): string | undefined {
 	const principal = PRINCIPALS[step.principal] as Principal;
@@ -225,33 +286,16 @@ function checkStep(m: Model, step: Step): string | undefined {
 	const d: Decision = change(state, command as never, f);
 	if (JSON.stringify([state, command, f]) !== inputs) return `Kernel mutated its inputs for ${String(command.type)}`;
 	const type = String(command.type);
-	const label = `${type}:${d.outcome === "accepted" ? "accepted" : d.code}`;
+	const decided = d.outcome === "accepted" ? "accepted" : d.code;
+	const label = `${type}:${decided}`;
 	outcomes.set(label, (outcomes.get(label) ?? 0) + 1);
-	const row = MATRIX[type];
-	if (d.outcome === "refused") {
-		if ("writes" in d) return `refusal carried writes for ${type}`;
-		if (row === undefined && d.code !== "unknown_command") return `unknown ${type} refused as ${d.code}`;
-		if (row !== undefined && !classOf(principal).some((c) => row.admits.includes(c)) && d.code !== "forbidden_principal")
-			return `${type} from ${JSON.stringify(principal)} refused as ${d.code}, expected forbidden_principal`;
-		if (
-			row !== undefined &&
-			!row.available &&
-			classOf(principal).some((c) => row.admits.includes(c)) &&
-			d.code !== "capability_unavailable"
-		)
-			return `${type} unavailable but refused as ${d.code}`;
-		return undefined;
+	const expected = expectedDecision(m, principal, step, command, state);
+	if (decided !== expected) {
+		if (d.outcome === "accepted" && expected === "forbidden_principal")
+			return `${type} accepted from forbidden ${JSON.stringify(principal)}`;
+		return `${type} from ${JSON.stringify(principal)} decided ${decided}, expected ${expected}`;
 	}
-	// Accepted: every literal rule must hold.
-	if (row === undefined) return `unknown command ${type} accepted`;
-	if (!row.available) return `unavailable command ${type} accepted`;
-	if (!classOf(principal).some((c) => row.admits.includes(c))) return `${type} accepted from forbidden ${JSON.stringify(principal)}`;
-	if (type === "createWorkflow" && principal.kind === "human" && principal.route === "device" && principal.workflows !== "all")
-		return "scoped device created a workflow";
-	if ((type === "saveDocument" || type === "postCoordinatorMessage") && !inScope(principal, command.workflow))
-		return `${type} accepted outside device scope`;
-	if ((type === "saveDocument" || type === "postCoordinatorMessage") && !m.workflows.has(String(command.workflow)))
-		return `${type} accepted for absent workflow`;
+	if (d.outcome === "refused") return "writes" in d ? `refusal carried writes for ${type}` : undefined;
 	m.sequence = f.sequence;
 	switch (type) {
 		case "createWorkflow": {
@@ -260,12 +304,9 @@ function checkStep(m: Model, step: Step): string | undefined {
 			return undefined;
 		}
 		case "saveDocument": {
-			if (step.invalidUtf8) return "invalid UTF-8 accepted";
-			if (state.document?.integrity === "corrupt") return "save accepted over corrupt basis";
 			const wf = m.workflows.get(String(command.workflow));
 			const doc = wf?.documents.get(String(command.document));
 			const current = doc?.current ?? null;
-			if (command.expected !== current) return `stale basis accepted: expected ${command.expected}, current ${current}`;
 			if (d.result.parent !== current) return `parent ${d.result.parent} is not previous current ${current}`;
 			if (d.result.revision !== f.ids.revision) return "revision id not the supplied one";
 			const revs = doc?.revisions ?? [];
@@ -286,9 +327,7 @@ function checkStep(m: Model, step: Step): string | undefined {
 			return undefined;
 		case "revokeDevice": {
 			const dev = m.devices.get(String(command.device));
-			if (dev === undefined) return "revoked a device that does not exist";
-			if (dev.revoked) return "revoked a device twice";
-			dev.revoked = true;
+			if (dev) dev.revoked = true;
 			return undefined;
 		}
 		default:

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -28,7 +28,7 @@ function definition(version: number, throwing = false) {
 }
 
 for (const failure of ["missing", "older", "missing-migration", "throwing-migration"] as const) {
-	test(`task-version-recovery: ${failure} preserves exact work and compatible rollback`, async () => {
+	test(`task-version-recovery: ${failure} preserves exact work and reopens with the compatible definition`, async () => {
 		const data = await mkdtemp(join(tmpdir(), "render-version-"));
 		let opened: OpenedLedger | undefined;
 		let harness!: Harness;
@@ -55,7 +55,6 @@ for (const failure of ["missing", "older", "missing-migration", "throwing-migrat
 			assert.ok(before);
 			await opened.close();
 			opened = undefined;
-			await copyFile(join(data, "render.db"), join(data, "stopped-backup.db"));
 			const next = failure === "missing" ? null : definition(failure === "older" ? 1 : 2, failure === "throwing-migration");
 			if (failure === "throwing-migration") {
 				opened = await openLedger({ data, runtime: runtime(next), onFatal: () => {} });

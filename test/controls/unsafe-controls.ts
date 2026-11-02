@@ -249,7 +249,7 @@ const CONTROLS: Control[] = [
 	{
 		name: "owned-hidden-base",
 		behavior: "collector trusts a worker ignore to drop accepted base source",
-		test: "test/owned-source-controls.test.ts",
+		test: "test/owned-source-controls.integration.ts",
 		pattern: "worker ignore",
 		expect: /worker ignores must not hide accepted literal source/,
 		edits: [
@@ -263,7 +263,7 @@ const CONTROLS: Control[] = [
 	{
 		name: "owned-follow-symlink",
 		behavior: "collector follows a worker symlink into host bytes",
-		test: "test/owned-source-controls.test.ts",
+		test: "test/owned-source-controls.integration.ts",
 		pattern: "symlink stays",
 		expect: /collector must retain symlink text, never host target bytes/,
 		edits: [
@@ -277,7 +277,7 @@ const CONTROLS: Control[] = [
 	{
 		name: "owned-early-reuse",
 		behavior: "prepare returns an already-live workspace",
-		test: "test/owned-source-controls.test.ts",
+		test: "test/owned-source-controls.integration.ts",
 		pattern: "workspace never reused",
 		expect: /live workspace must not be reused before confirmed quiescence/,
 		edits: [
@@ -291,7 +291,7 @@ const CONTROLS: Control[] = [
 	{
 		name: "owned-possibly-created-absent",
 		behavior: "Engine classifies a preparation failure after create was issued as a pre-allocation refusal",
-		test: "test/owned-source-recovery.test.ts",
+		test: "test/owned-source-recovery.integration.ts",
 		pattern: "possibly created",
 		expect: /a possibly created runtime must not be recorded absent/,
 		edits: [
@@ -305,7 +305,7 @@ const CONTROLS: Control[] = [
 	{
 		name: "owned-host-fallback",
 		behavior: "executor runs the actual coding command on the host",
-		test: "test/owned-source-controls.test.ts",
+		test: "test/owned-source-controls.integration.ts",
 		pattern: "fall back",
 		expect: /host-shell fallback exposes an owned host-only canary/,
 		edits: [
@@ -328,7 +328,7 @@ const CONTROLS: Control[] = [
 				replace: "void 0;",
 			},
 		],
-		test: "test/recovery-packages.test.ts",
+		test: "test/recovery-package-semantics.test.ts",
 		pattern: "checksummed but semantically",
 	},
 	{
@@ -342,7 +342,7 @@ const CONTROLS: Control[] = [
 				replace: "// unsafe: accept a copy without verification",
 			},
 		],
-		test: "test/offhost-protection.test.ts",
+		test: "test/offhost-protection.integration.ts",
 		pattern: "configured/local-copy",
 	},
 	{
@@ -356,7 +356,7 @@ const CONTROLS: Control[] = [
 				replace: "try { await transferPackage(local.path, this.#destination); } catch {}",
 			},
 		],
-		test: "test/offhost-protection.test.ts",
+		test: "test/offhost-protection.integration.ts",
 		pattern: "configured/local-copy",
 	},
 	{
@@ -364,7 +364,7 @@ const CONTROLS: Control[] = [
 		expect: /repaired cursors must use a fresh private secret/,
 		behavior: "repair omits key rotation and restored history signs with the public empty fallback",
 		edits: [{ file: "src/ledger/ledger.ts", find: "meta.historyCursorKey = randomUUID();", replace: "delete meta.historyCursorKey;" }],
-		test: "test/recovery-packages.test.ts",
+		test: "test/recovery-packages.integration.ts",
 		pattern: "history scope, secret exclusion",
 	},
 	{
@@ -387,7 +387,7 @@ const CONTROLS: Control[] = [
 					'await harness.commit(async tx => Object.assign(await tx.doc(Recovery), { mode: "active", restoreRequired: false }), ctx);\n\t\trecovery = await harness.snapshot(Recovery, ctx);\n\t\tconst restricted = recovery !== undefined && recovery.mode !== "active";',
 			},
 		],
-		test: "test/recovery-packages.test.ts",
+		test: "test/recovery-packages.integration.ts",
 		pattern: "package-origin-auth-fence",
 	},
 	{
@@ -401,7 +401,7 @@ const CONTROLS: Control[] = [
 				replace: "if (false)",
 			},
 		],
-		test: "test/recovery-packages.test.ts",
+		test: "test/recovery-packages.integration.ts",
 		pattern: "package-origin-auth-fence",
 	},
 	{
@@ -591,7 +591,7 @@ const CONTROLS: Control[] = [
 				replace: '\t\tconst fresh = identifyStore(path) === "new";\n\t\tlock = acquireOwnerLock(join(options.data, "owner.lock"));',
 			},
 		],
-		test: "test/persistence-startup.test.ts",
+		test: "test/persistence-startup.integration.ts",
 		pattern: "B4-01/B4-02",
 	},
 	{
@@ -606,7 +606,7 @@ const CONTROLS: Control[] = [
 			},
 			{ file: "src/ledger/startup.ts", find: "if (mismatched.length > 0)", replace: "if (false)" },
 		],
-		test: "test/persistence-startup.test.ts",
+		test: "test/persistence-startup.integration.ts",
 		pattern: "B4-03/B4-09/B4-10",
 	},
 	{
@@ -650,7 +650,7 @@ const CONTROLS: Control[] = [
 				replace: "void 0;",
 			},
 		],
-		test: "test/two-client-reattach.test.ts",
+		test: "test/two-client-reattach.integration.ts",
 		pattern: "B2-03 race",
 	},
 	{
@@ -673,8 +673,81 @@ const CONTROLS: Control[] = [
 		expect: /the stalled stream must have been disconnected by the host/,
 		behavior: "a stalled observer is never disconnected",
 		edits: [{ file: "src/ledger/http.ts", find: "if (++pending > MAX_PENDING_FRAMES) {", replace: "if (false) {" }],
-		test: "test/two-client-reattach.test.ts",
+		test: "test/stalled-observer.performance.ts",
 		pattern: "B3-05",
+	},
+	{
+		name: "kernel-eligible-refused",
+		expect: /postCoordinatorMessage from .* decided not_found, expected accepted/,
+		behavior: "the Kernel refuses an eligible message for an ordinary reason",
+		edits: [
+			{
+				file: "src/kernel/kernel.ts",
+				find: 'if (state.workflow === null) return refuse("not_found", `${c.workflow} does not exist.`, { workflow: c.workflow });\n\t\t\tconst message = required',
+				replace:
+					'if (state.workflow === null || state.workflow.messageCount > 0) return refuse("not_found", `${c.workflow} does not exist.`, { workflow: c.workflow });\n\t\t\tconst message = required',
+			},
+		],
+		test: "test/kernel-authority-schedules.test.ts",
+		pattern: "^V1",
+	},
+	{
+		name: "storage-failure-host-stays-up",
+		expect: /host must stop after a storage failure/,
+		behavior: "the host keeps running after a storage failure",
+		edits: [{ file: "src/host/main.ts", find: "setTimeout(() => process.exit(1), 250);", replace: "void 0;" }],
+		test: "test/command-crash-recovery.integration.ts",
+		pattern: "a save that cannot be stored",
+	},
+	{
+		name: "same-family-request-admitted",
+		expect: /same-family review must not silently start without human direction/,
+		behavior: "a same-family role request starts without recorded human direction",
+		edits: [{ file: "src/kernel/roles.ts", find: "request.packet.family === a.packet.family &&", replace: "false &&" }],
+		test: "test/context-continuation-independence.test.ts",
+		pattern: "same-family review requires",
+	},
+	{
+		name: "capability-wrong-blocker",
+		expect: /must block for its own reason/,
+		behavior: "a missing sandbox capability reports another prerequisite as its blocker",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: 'if (a.packet.execution !== "read-only") return "sandbox_capability_unavailable";',
+				replace: 'if (a.packet.execution !== "read-only") return "required_model_family_unavailable";',
+			},
+		],
+		test: "test/role-capability-refusal.test.ts",
+		pattern: "R04",
+	},
+	{
+		name: "web-forbidden-argument-ignored",
+		expect: /tool validation must refuse the forbidden/,
+		behavior: "web tools accept and ignore model-selected host configuration",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: '{ additionalProperties: false },\n\t\t\t\t),\n\t\t\t\treplay: "unsafe",',
+				replace: '{ additionalProperties: true },\n\t\t\t\t),\n\t\t\t\treplay: "unsafe",',
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "B5 model cannot",
+	},
+	{
+		name: "role-new-call-not-rechecked",
+		expect: /a new call must be rechecked against current executing authority/,
+		behavior: "a second role submission call is accepted after the role stopped executing",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: 'if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)\n\t\t\treturn refusal("assignment_not_running"',
+				replace: 'if (false)\n\t\t\treturn refusal("assignment_not_running"',
+			},
+		],
+		test: "test/workflow-task-survival.test.ts",
+		pattern: "R02",
 	},
 ];
 

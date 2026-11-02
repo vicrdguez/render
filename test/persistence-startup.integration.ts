@@ -158,15 +158,12 @@ describe("B4 startup", () => {
 		try {
 			const host = await startHost(dir.path);
 			await host.stop();
-			let ran = false;
 			const Fixture = defineTask({
 				name: "fixture.unknown-to-render",
 				version: 1,
 				initial: () => ({ phase: "start" as const }),
 				phases: {
-					start: async () => {
-						ran = true;
-					},
+					start: async () => undefined,
 				},
 				abort: async () => undefined,
 			});
@@ -178,12 +175,11 @@ describe("B4 startup", () => {
 			const conversation = await harness.createConversation({ ownership: { kind: "ownerless" } }, ctx);
 			const taskId = await conversation.commit((tx) => tx.createTask(Fixture, {}, { ownership: { kind: "conversation" } }), ctx);
 			await harness.close(ctx);
-			assert.equal(ran, false);
 
 			const blocked = await expectBlocked(dir.path, "unsupported_definitions");
 			assert.match(String(blocked.detail), /fixture\.unknown-to-render/);
 
-			// Reopen through the runtime interface, without resuming: the task must still be pending, not run or aborted.
+			// The refused host is a separate process: only the durable record can show it neither dispatched nor aborted the task.
 			const reopened = await Harness.open(
 				await SqliteStorage.open(await openNodeSqliteDatabase(join(dir.path, "render.db"))),
 				{ models: createModels(), registry },
@@ -193,7 +189,6 @@ describe("B4 startup", () => {
 			await reopened.close(ctx);
 			assert.equal(record?.state.status, "pending");
 			assert.equal(record?.abortRequested, false);
-			assert.equal(ran, false);
 		} finally {
 			await dir.remove();
 		}
