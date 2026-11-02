@@ -14,6 +14,20 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "web-ambiguous-invalid-fallback",
+		expect: /excluded upstream invalid request must not admit fallback/,
+		behavior: "ambiguous nonretryable provider failures admit fallback even for excluded invalid requests",
+		edits: [
+			{
+				file: "src/engine/web.ts",
+				find: 'return code === "PROVIDER_UNAVAILABLE" || (code === "PROVIDER_FAILURE" && retryable === true);',
+				replace: 'return code === "PROVIDER_UNAVAILABLE" || (code === "PROVIDER_FAILURE" && retryable !== undefined);',
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "ambiguous upstream invalid request",
+	},
+	{
 		name: "web-allowance-refusal",
 		expect: /documented allowance exhaustion must admit exactly one sequential fallback/,
 		behavior: "Engine refuses classified allowance fallback",

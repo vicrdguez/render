@@ -189,6 +189,39 @@ test("B1 unknown/page/invalid failures do not qualify, and missing fallback prov
 });
 
 for (const capability of ["search", "contents"] as const)
+	test(`B1 ambiguous upstream invalid request remains excluded for ${capability}`, async () => {
+		const http = await fixture((path) => {
+			if (path.startsWith("/exa")) return { status: 400, body: { error: "Request rejected", tag: "INVALID_REQUEST_BODY" } };
+			return capability === "search"
+				? { body: { images: [], results: [{ url: "https://example.org/page", content: "Unauthorized fallback." }] } }
+				: { body: { results: [{ url: "https://example.org/page", raw_content: "Unauthorized fallback." }], failed_results: [] } };
+		});
+		try {
+			const { f, reply } = await run(
+				{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${http.url}/exa`, tavilyBaseUrl: `${http.url}/tavily` },
+				capability === "search" ? "web_search" : "web_contents",
+				capability === "search" ? { queries: ["fixture"] } : { urls: ["https://example.org/page"] },
+			);
+			try {
+				assert.deepEqual(
+					http.calls.map((c) => c.path),
+					capability === "search" ? ["/exa/search"] : ["/exa/contents"],
+					"excluded upstream invalid request must not admit fallback",
+				);
+				assert.equal(reply.inputs[0]!.fallback, "ineligible");
+				assert.deepEqual(
+					reply.inputs[0]!.observations.map((o) => [o.provider, o.outcome, o.error]),
+					[["exa", "error", "PROVIDER_FAILURE"]],
+				);
+			} finally {
+				await f.close();
+			}
+		} finally {
+			await http.close();
+		}
+	});
+
+for (const capability of ["search", "contents"] as const)
 	test(`B1 documented allowance exhaustion admits one sequential fallback for ${capability}`, async () => {
 		const http = await fixture((path) => {
 			if (path.startsWith("/exa")) return { status: 402, body: { error: "Credits are exhausted", tag: "NO_MORE_CREDITS" } };
