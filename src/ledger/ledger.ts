@@ -3,10 +3,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { ConversationId, EntryId, Harness, HarnessOptions, Storage } from "@earendil-works/pi-durable";
+import type { ConversationId, EntryId, Harness, HarnessOptions, Storage, Tx } from "@earendil-works/pi-durable";
 import type { RoleTaskStaging } from "../engine/runtime.ts";
 import {
 	change,
+	commandPermission,
 	type DocumentSummary,
 	type KernelState,
 	type Persistence,
@@ -16,6 +17,7 @@ import {
 	view,
 	type WorkflowState,
 } from "../kernel/kernel.ts";
+import { bindingFor, initialPolicy, type PolicyState } from "../kernel/policy.ts";
 import { packetRefs, type RoleAssignment, type RolePacket, type RoleWorkState, sameAgent } from "../kernel/roles.ts";
 import { Backup, type BackupClock, realBackupClock } from "./backup.ts";
 import { initialBackup, validBackup } from "./backup-state.ts";
@@ -43,6 +45,8 @@ import {
 	MessageEntry,
 	Meta,
 	type MetaState,
+	Policy,
+	PolicyEntry,
 	Receipt,
 	type ReceiptBody,
 	type RevisionData,
@@ -50,6 +54,7 @@ import {
 	RevisionLocation,
 	RoleBinding,
 	RoleWork,
+	RuntimeHistoryEntry,
 	STORE_SCHEMA,
 	Workflow,
 	type WorkflowRecord,
@@ -180,6 +185,7 @@ export class Ledger {
 	readonly #devices = new Map<string, Present<DeviceRecord>>();
 	#mode: HostMode = "active";
 	#roleWork: RoleWorkState = { assignments: [] };
+	#policy: PolicyState = initialPolicy();
 	#roleTasks: RoleTaskStaging | undefined;
 
 	private constructor(
@@ -246,6 +252,7 @@ export class Ledger {
 			recovery === undefined ? undefined : (plain(recovery) as RecoveryState),
 		);
 		ledger.#roleTasks = roleTasks;
+		ledger.#policy = plain((await harness.snapshot(Policy, ctx)) ?? initialPolicy());
 		ledger.#roleWork = plain((await harness.snapshot(RoleWork, ctx)) ?? { assignments: [] });
 		for (const id of meta.workflows) {
 			const w = await harness.snapshot(Workflow, id, ctx);
@@ -446,8 +453,12 @@ export class Ledger {
 		)
 			throw new Abort(RECOVERY_REQUIRED);
 		const roles = await tx.doc(RoleWork);
-		if (current.kind === "assignment-agent" && !roles.assignments.some((a) => sameAgent(a as RoleAssignment, current)))
-			throw new Abort(UNAUTHORIZED);
+		const policy = await tx.doc(Policy);
+		if (current.kind === "assignment-agent") {
+			const own = roles.assignments.find((a) => sameAgent(a as RoleAssignment, current));
+			if (!own) throw new Abort(UNAUTHORIZED);
+			if (env.workflow !== own.workflow) throw new Abort(refusal("forbidden_scope", "Assignment workflow differs."));
+		}
 		const namespace = namespaceOf(current);
 		const receipt = await tx.doc(Receipt, `${namespace} ${env.commandId}`, null);
 		if (receipt.exists) {
@@ -455,10 +466,24 @@ export class Ledger {
 			return { duplicate: true as const, body: plain(receipt.body) as ReceiptBody };
 		}
 
+		const denied = commandPermission(env.command.type, current);
+		if (denied) throw new Abort(fromKernel(denied));
 		const meta = await tx.doc(Meta);
 		const sequence = meta.sequence + 1;
 		const workflow = env.workflow === null ? undefined : await tx.doc(Workflow, env.workflow, null);
 		const command = env.command;
+		if (
+			["createWorkflow", "adoptPolicy", "assignTask", "replaceTask", "stageTask", "rebindAttempt", "requestRole"].includes(command.type)
+		) {
+			const revision =
+				command.type === "adoptPolicy"
+					? (command as { revision: string }).revision
+					: command.type === "createWorkflow"
+						? policy.defaultRevision
+						: bindingFor(policy, env.workflow!).policy;
+			if (command.type !== "adoptPolicy" || Object.hasOwn(policy.revisions, revision))
+				await this.#verifyPolicySource(tx, meta, revision, plain(policy));
+		}
 		let document: KernelState["document"] = null;
 		if (command.type === "saveDocument" && workflow?.exists) {
 			const pointer = documentPointer(workflow.documents, (command as { document: string }).document);
@@ -475,7 +500,7 @@ export class Ledger {
 			}
 		}
 		const packets: RolePacket[] =
-			command.type === "assignTask"
+			command.type === "assignTask" || command.type === "replaceTask"
 				? [(command as { packet: RolePacket }).packet]
 				: command.type === "requestRole" && current.kind === "assignment-agent"
 					? roles.assignments
@@ -501,6 +526,19 @@ export class Ledger {
 						reason: `Restore exact role input ${ref}.`,
 						refs: { restore: ref },
 					});
+				if (input.data.roleBinding && packet.role !== "coordinator" && packet.role !== "implementer") {
+					const owner = roles.assignments.find((a) => a.id === input.data.roleBinding!.assignment);
+					if (
+						input.data.document.startsWith("role-packet/") ||
+						owner?.packet.role === "candidate" ||
+						owner?.packet.role === "experiment-candidate"
+					)
+						throw new Abort({
+							status: "refused",
+							code: "forbidden_scope",
+							reason: "Independent roles cannot inherit private role context or candidate-private handles.",
+						});
+				}
 				const unsupported = unsupportedRecordSchema(input.data.schema, ref);
 				if (unsupported) throw new Abort(unsupported);
 			}
@@ -525,6 +563,7 @@ export class Ledger {
 		};
 		const state: KernelState = {
 			roleWork: plain(roles),
+			policy: plain(policy),
 			workflow: workflow?.exists ? { id: workflow.id, messageCount: workflow.messageCount } : null,
 			document,
 			device: target?.exists ? { id: target.device, revoked: target.revokedAtSequence !== null } : null,
@@ -552,25 +591,116 @@ export class Ledger {
 		let changedDevice: string | undefined;
 		for (const write of decision.writes) {
 			switch (write.type) {
+				case "policy.replace": {
+					Object.assign(policy, plain(write.state));
+					const owner = env.workflow ?? (typeof decision.result.workflow === "string" ? decision.result.workflow : null);
+					const w = owner === null ? undefined : await tx.doc(Workflow, owner, null);
+					const binding = owner ? bindingFor(write.state, owner) : null;
+					const revision = binding?.policy ?? write.state.defaultRevision;
+					const text = JSON.stringify({ binding, revision, policy: write.state.revisions[revision] });
+					await tx.appendEntry(PolicyEntry, (w?.exists ? w.conversation : meta.ledgerConversation) as ConversationId, {
+						data: {
+							schema: 1,
+							sequence,
+							commandId: env.commandId,
+							ref: binding?.revision ?? revision,
+							workflow: owner,
+							text,
+							digest: sha256(Buffer.from(text)),
+							byteLength: Buffer.byteLength(text),
+						},
+					});
+					break;
+				}
 				case "roles.replace": {
 					if (!this.#roleTasks)
 						throw new Abort({ status: "refused", code: "capability_unavailable", reason: "Role runtime is not installed." });
-					const priorIds = new Set(roles.assignments.map((a) => a.id));
+					const priorPackets = new Map(roles.assignments.map((a) => [a.id, a.packetRef]));
 					Object.assign(roles, plain(write.state));
 					for (const a of roles.assignments) {
-						if (priorIds.has(a.id)) continue;
-						const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
-						a.conversation = conversation.id;
-						Object.assign(await tx.doc(RoleBinding, conversation.id), {
-							assignment: a.id,
-							generation: a.generation,
-							attempt: a.attempt,
-							role: a.packet.role,
-						});
+						if (priorPackets.get(a.id) === a.packetRef) continue;
+						if (!priorPackets.has(a.id)) {
+							const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
+							a.conversation = conversation.id;
+							Object.assign(await tx.doc(RoleBinding, conversation.id), {
+								assignment: a.id,
+								generation: a.generation,
+								attempt: a.attempt,
+								role: a.packet.role,
+							});
+						}
 						await this.#retainRoleText(tx, env, by, sequence, a.packetRef, `role-packet/${a.id}`, JSON.stringify(a.packet), {
 							assignment: a.id,
 							generation: a.generation,
 							attempt: a.attempt,
+						});
+					}
+					// Debt: whole snapshots repeat earlier bytes. Keep this simple until the real streaming
+					// workload justifies durable incremental capture cursors; no full V9 claim is made here.
+					if (command.type === "recordRuntimeHistory") {
+						const a = roles.assignments.find((a) => a.id === (command as { assignment: string }).assignment)!;
+						const entries: unknown[] = [];
+						let cursor: Parameters<typeof tx.scanEntries>[2];
+						for (;;) {
+							const page = await tx.scanEntries({ conversationId: a.conversation as ConversationId, order: "ascending" }, 200, cursor);
+							for (const entry of page.items)
+								entries.push({
+									id: entry.id,
+									kind: entry.kind,
+									head: entry.head ?? null,
+									model:
+										entry.model?.map((message) =>
+											message.role === "assistant"
+												? {
+														role: "assistant",
+														content: message.content.filter((c) => c.type !== "thinking"),
+														stopReason: message.stopReason,
+													}
+												: message,
+										) ?? [],
+								});
+							if (!page.next) break;
+							cursor = page.next;
+						}
+						const tasks: unknown[] = [];
+						let taskCursor: Parameters<typeof tx.scanTasks>[2];
+						for (;;) {
+							const page = await tx.scanTasks({ conversationId: a.conversation as ConversationId }, 200, taskCursor);
+							for (const task of page.items)
+								if (task.state.status === "terminal")
+									tasks.push({ id: task.id, kind: task.kind, version: task.version, owner: task.owner, outcome: task.state.outcome });
+							if (!page.next) break;
+							taskCursor = page.next;
+						}
+						const roleTask = await tx.task(a.task as import("@earendil-works/pi-durable").TaskId);
+						if (roleTask?.state.status === "terminal") {
+							tasks.push({
+								id: roleTask.id,
+								kind: roleTask.kind,
+								version: roleTask.version,
+								owner: roleTask.owner,
+								outcome: roleTask.state.outcome,
+							});
+							a.runtimeTaskCaptured = true;
+						}
+						const text = JSON.stringify({ entries, tasks });
+						const workflow = await tx.doc(Workflow, a.workflow, null);
+						if (!workflow.exists) throw new Error("Missing runtime history owner");
+						await tx.appendEntry(RuntimeHistoryEntry, workflow.conversation as ConversationId, {
+							data: {
+								schema: 1,
+								sequence,
+								commandId: env.commandId,
+								ref: a.runtimeHistory!,
+								assignment: a.id,
+								conversation: a.conversation,
+								predecessor: a.predecessor ?? null,
+								packet: a.packetRef,
+								policyBinding: a.policyBinding ?? null,
+								text,
+								digest: sha256(Buffer.from(text)),
+								byteLength: Buffer.byteLength(text),
+							},
 						});
 					}
 					if (command.type === "submitRoleResult" && current.kind === "assignment-agent") {
@@ -752,21 +882,48 @@ export class Ledger {
 			duplicate: false as const,
 			body,
 			roles: plain(roles),
+			policy: plain(policy),
 			meta: plain(meta) as MetaState,
 			workflow: workflowDoc?.exists ? (plain(workflowDoc) as Present<WorkflowRecord>) : undefined,
 			device: changedDevice === undefined ? undefined : (plain(await tx.doc(Device, changedDevice, null)) as DeviceRecord),
 		};
 	}
 
+	async #verifyPolicySource(tx: Tx, meta: MetaState, revision: string, policy: PolicyState): Promise<void> {
+		if (revision === "policy:initial" && JSON.stringify(policy.revisions[revision]) === JSON.stringify(initialPolicy().revisions[revision]))
+			return;
+		let cursor: Parameters<typeof tx.scanEntries>[2];
+		for (;;) {
+			const page = await tx.scanEntries({ conversationId: meta.ledgerConversation as ConversationId, order: "ascending" }, 200, cursor);
+			for (const entry of page.items) {
+				const d = entry.data as Record<string, unknown>;
+				if (entry.kind !== PolicyEntry.kind || d.ref !== revision) continue;
+				const unsupported = unsupportedRecordSchema(d.schema, revision);
+				if (unsupported) throw new Abort(unsupported);
+				if (typeof d.text !== "string" || !intact(d.text, String(d.digest), Number(d.byteLength)))
+					throw new Abort(refusal("content_corrupt", `Restore exact policy ${revision}; cached state is not replacement evidence.`));
+				const retained = JSON.parse(d.text) as { revision: string; policy: unknown };
+				if (retained.revision !== revision || JSON.stringify(retained.policy) !== JSON.stringify(policy.revisions[revision]))
+					throw new Abort(refusal("content_corrupt", `Policy ${revision} differs from its retained source.`));
+				return;
+			}
+			if (!page.next) break;
+			cursor = page.next;
+		}
+		throw new Abort(refusal("missing_content", `Restore exact policy ${revision}; cached state is not replacement evidence.`));
+	}
+
 	/** Installs committed values in the read model and notifies observers. Runs after the commit resolved. */
 	#adopt(outcome: {
 		meta: MetaState;
 		roles?: RoleWorkState;
+		policy?: PolicyState;
 		workflow?: Present<WorkflowRecord> | undefined;
 		device?: DeviceRecord | undefined;
 	}): void {
 		this.#meta = outcome.meta;
 		if (outcome.roles) this.#roleWork = outcome.roles;
+		if (outcome.policy) this.#policy = outcome.policy;
 		this.#roleTasks?.committed();
 		if (outcome.workflow !== undefined) this.#workflows.set(outcome.workflow.id, outcome.workflow);
 		if (outcome.device?.exists) {
@@ -1029,6 +1186,8 @@ export class Ledger {
 			const redactions: string[] = [];
 			const content: Record<string, string> = {};
 			const artifacts = new Set<string>();
+			const expectedRetained = new Set<string>();
+			const seenRetained = new Set<string>();
 			const messages = new Map<string, Artifact | LedgerRefusal>();
 			const wanted = (kind: string) => state.scope.kinds.length === 0 || state.scope.kinds.includes(kind);
 			const add = (r: HistoryRecord) => {
@@ -1073,7 +1232,62 @@ export class Ledger {
 						const d = entry.data as Record<string, unknown>;
 						const sequence = Number(d.recordedAtSequence ?? d.sequence);
 						if (sequence > state.cutoff) continue;
-						const ref = String(d.revision ?? d.message ?? d.fact ?? `entry:${entry.id}`);
+						const ref = String(entry.kind === PolicyEntry.kind ? d.ref : (d.revision ?? d.message ?? d.fact ?? `entry:${entry.id}`));
+						if (entry.kind === RuntimeHistoryEntry.kind) {
+							const ref = String(d.ref);
+							seenRetained.add(ref);
+							if (wanted("document") && typeof d.packet === "string") artifacts.add(d.packet);
+							if (d.schema !== 1 || typeof d.text !== "string" || !intact(d.text, String(d.digest), Number(d.byteLength))) {
+								missing.push({ ref, code: d.schema !== 1 ? "unsupported_schema" : "content_corrupt" });
+								continue;
+							}
+							const retained = JSON.parse(d.text) as { entries: unknown[]; tasks: unknown[] };
+							add({
+								...base(ref, "runtime_transcript", owner.workflow, sequence, String(d.commandId)),
+								assignment: d.assignment,
+								conversation: d.conversation,
+								predecessor: d.predecessor,
+								refs: { packet: String(d.packet) },
+								policyBinding: d.policyBinding,
+								entries: retained.entries,
+								claimType: "unverified_transcript",
+								content: true,
+								mediaType: "text/plain",
+								digest: d.digest,
+								byteLength: d.byteLength,
+								redacted: ["hidden_reasoning", "opaque_provider_fields"],
+							});
+							content[ref] = Buffer.from(d.text).toString("base64");
+							for (const task of retained.tasks as { id: number }[])
+								add({
+									...base(`${ref}:task:${task.id}`, "runtime_task", owner.workflow, sequence, String(d.commandId)),
+									assignment: d.assignment,
+									conversation: d.conversation,
+									receipt: task,
+									parents: [ref],
+								});
+							continue;
+						}
+						if (entry.kind === PolicyEntry.kind) {
+							seenRetained.add(ref);
+							if (d.schema !== 1 || typeof d.text !== "string" || !intact(d.text, String(d.digest), Number(d.byteLength))) {
+								missing.push({ ref, code: d.schema !== 1 ? "unsupported_schema" : "content_corrupt" });
+								continue;
+							}
+							const payload = JSON.parse(d.text) as { policy: unknown; binding: unknown; revision: string };
+							add({
+								...base(ref, "policy", owner.workflow, sequence, String(d.commandId)),
+								policy: payload.policy,
+								binding: payload.binding,
+								policyRevision: payload.revision,
+								content: true,
+								mediaType: "text/plain",
+								digest: d.digest,
+								byteLength: d.byteLength,
+							});
+							content[ref] = Buffer.from(d.text).toString("base64");
+							continue;
+						}
 						if (entry.kind === RevisionEntry.kind || entry.kind === MessageEntry.kind) {
 							if (wanted(entry.kind === MessageEntry.kind ? "message" : String(d.kind))) {
 								artifacts.add(ref);
@@ -1089,6 +1303,12 @@ export class Ledger {
 						}
 						if (kind === "fact") {
 							const refs = d.refs as Record<string, string>;
+							if ((wanted("runtime_transcript") || wanted("runtime_task")) && refs.runtimeHistory)
+								expectedRetained.add(refs.runtimeHistory);
+							if (wanted("policy")) {
+								if (refs.binding) expectedRetained.add(refs.binding);
+								else if (d.command === "changePolicy" && refs.policy) expectedRetained.add(refs.policy);
+							}
 							if (refs.revision && (wanted("ground") || wanted("document"))) artifacts.add(refs.revision);
 							if (refs.message && wanted("message")) artifacts.add(refs.message);
 							if (wanted("document")) for (const key of ["packet", "report", "quarantined"]) if (refs[key]) artifacts.add(refs[key]);
@@ -1130,6 +1350,7 @@ export class Ledger {
 					cursor = page.next;
 				}
 			}
+			for (const ref of expectedRetained) if (!seenRetained.has(ref)) missing.push({ ref, code: "missing_content" });
 			for (const ref of artifacts) {
 				const artifact = ref.startsWith("message:")
 					? (messages.get(ref) ?? refusal("missing_content", `Restore exact message ${ref}.`))
@@ -1227,6 +1448,16 @@ export class Ledger {
 				exportVersion: 1,
 				backup: false,
 			},
+			policy:
+				principal.kind === "assignment-agent"
+					? null
+					: {
+							defaultRevision: this.#policy.defaultRevision,
+							revisions: plain(this.#policy.revisions),
+							bindings: Object.fromEntries(
+								this.#meta.workflows.filter((w) => visible(principal, w)).map((w) => [w, bindingFor(this.#policy, w)]),
+							),
+						},
 			assignments: plain(
 				this.#roleWork.assignments.filter((a) =>
 					principal.kind === "assignment-agent" ? sameAgent(a, principal) : visible(principal, a.workflow, this.#roleWork),

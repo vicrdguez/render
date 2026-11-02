@@ -1,0 +1,128 @@
+✖ context-continuation-independence: replacement requires fencing and quiescence, creates fresh linked non-fork context (292.756833ms)
+✖ context-continuation-independence: challenger cannot inherit an earlier private packet canary (227.292459ms)
+✖ context-continuation-independence: candidate cannot inherit an earlier private packet canary (236.066625ms)
+✖ context-continuation-independence: audit-standards cannot inherit an earlier private packet canary (160.545666ms)
+✖ context-continuation-independence: audit-contracts cannot inherit an earlier private packet canary (155.15775ms)
+✖ context-continuation-independence: watchdog cannot inherit an earlier private packet canary (97.11475ms)
+✔ native-compaction-history: compact twice/reset preserves literal committed tail; summary input alone is lossy (365.087125ms)
+✔ native-compaction-history: stale cut refuses placement after reset (216.240083ms)
+✔ native-compaction-history: failed blocking compaction prevents generation (247.710583ms)
+✖ policy-adoption: future defaults, checked adoption away/back, old pending basis never revives (191.440834ms)
+✖ policy-adoption: refresh pending packets without deleting completed reports or review counts (202.184125ms)
+✔ task-version-recovery: missing preserves exact work and compatible rollback (353.661625ms)
+✔ task-version-recovery: older preserves exact work and compatible rollback (249.700958ms)
+✔ task-version-recovery: missing-migration preserves exact work and compatible rollback (244.180667ms)
+✔ task-version-recovery: throwing-migration preserves exact work and compatible rollback (189.446167ms)
+ℹ tests 15
+ℹ suites 0
+ℹ pass 7
+ℹ fail 8
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1367.744542
+
+✖ failing tests:
+
+test at test/context-continuation-independence.test.ts:18:1
+✖ context-continuation-independence: replacement requires fencing and quiescence, creates fresh linked non-fork context (292.756833ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'refused'
+  - 'accepted'
+  
+      at TestContext.<anonymous> (file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/context-policy-continuity/test/context-continuation-independence.test.ts:34:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'refused',
+    expected: 'accepted',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/context-continuation-independence.test.ts:53:2
+✖ context-continuation-independence: challenger cannot inherit an earlier private packet canary (227.292459ms)
+  AssertionError [ERR_ASSERTION]: {"status":"accepted","commandId":"role:2","receipt":"receipt:6","sequence":6,"authorityEpoch":"authority-9b198ba0-645b-45e1-a496-cc2e3ddf7ebf","workflow":"workflow:2","result":{"assignment":"assignment:6","attempt":"attempt:6","packet":"packet:6","task":49},"facts":["fact:6"],"acceptedBy":{"principal":"host","route":"host"},"duplicate":false}
+      at TestContext.<anonymous> (file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/context-policy-continuity/test/context-continuation-independence.test.ts:60:11)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/context-continuation-independence.test.ts:53:2
+✖ context-continuation-independence: candidate cannot inherit an earlier private packet canary (236.066625ms)
+  AssertionError [ERR_ASSERTION]: {"status":"accepted","commandId":"role:2","receipt":"receipt:6","sequence":6,"authorityEpoch":"authority-aa44234f-3057-4029-a838-7c18baadf231","workflow":"workflow:2","result":{"assignment":"assignment:6","attempt":"attempt:6","packet":"packet:6","task":49},"facts":["fact:6"],"acceptedBy":{"principal":"host","route":"host"},"duplicate":false}
+      at TestContext.<anonymous> (file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/context-policy-continuity/test/context-continuation-independence.test.ts:60:11)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/context-continuation-independence.test.ts:53:2
+✖ context-continuation-independence: audit-standards cannot inherit an earlier private packet canary (160.545666ms)
+  AssertionError [ERR_ASSERTION]: {"status":"accepted","commandId":"role:2","receipt":"receipt:6","sequence":6,"authorityEpoch":"authority-5dcdb2bd-3d90-4922-ba86-c7bfb5e6f6f8","workflow":"workflow:2","result":{"assignment":"assignment:6","attempt":"attempt:6","packet":"packet:6","task":49},"facts":["fact:6"],"acceptedBy":{"principal":"host","route":"host"},"duplicate":false}
+      at TestContext.<anonymous> (file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/context-policy-continuity/test/context-continuation-independence.test.ts:60:11)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/context-continuation-independence.test.ts:53:2
+✖ context-continuation-independence: audit-contracts cannot inherit an earlier private packet canary (155.15775ms)
+  AssertionError [ERR_ASSERTION]: {"status":"accepted","commandId":"role:2","receipt":"receipt:6","sequence":6,"authorityEpoch":"authority-8a3909f4-0291-40a9-9c4b-23ce9bad2c9d","workflow":"workflow:2","result":{"assignment":"assignment:6","attempt":"attempt:6","packet":"packet:6","task":49},"facts":["fact:6"],"acceptedBy":{"principal":"host","route":"host"},"duplicate":false}
+      at TestContext.<anonymous> (file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/context-policy-continuity/test/context-continuation-independence.test.ts:60:11)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/context-continuation-independence.test.ts:53:2
+✖ context-continuation-independence: watchdog cannot inherit an earlier private packet canary (97.11475ms)
+  AssertionError [ERR_ASSERTION]: {"status":"accepted","commandId":"role:2","receipt":"receipt:6","sequence":6,"authorityEpoch":"authority-49885d6c-b8d9-4943-a3e2-879366c0b681","workflow":"workflow:2","result":{"assignment":"assignment:6","attempt":"attempt:6","packet":"packet:6","task":49},"facts":["fact:6"],"acceptedBy":{"principal":"host","route":"host"},"duplicate":false}
+      at TestContext.<anonymous> (file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/context-policy-continuity/test/context-continuation-independence.test.ts:60:11)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at test/policy-adoption.test.ts:8:1
+✖ policy-adoption: future defaults, checked adoption away/back, old pending basis never revives (191.440834ms)
+  TypeError: Cannot read properties of undefined (reading 'bindings')
+      at TestContext.<anonymous> (file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/context-policy-continuity/test/policy-adoption.test.ts:12:33)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+
+test at test/policy-adoption.test.ts:44:1
+✖ policy-adoption: refresh pending packets without deleting completed reports or review counts (202.184125ms)
+  TypeError: Cannot read properties of undefined (reading 'bindings')
+      at TestContext.<anonymous> (file:///Users/vr-osxs/dev/render/.worktrees/slice/render-v1/context-policy-continuity/test/policy-adoption.test.ts:50:33)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)

@@ -86,12 +86,45 @@ export function parseEnvelope(raw: unknown): Envelope | EnvelopeRefusal {
 }
 
 function available(type: string, c: Fields, workflow: string | null, expected: Fields | undefined): { command: Command; content?: Buffer } {
-	const needsWorkflow = type === "saveDocument" || type === "postCoordinatorMessage" || ROLE_COMMANDS.includes(type);
+	const needsWorkflow =
+		type === "adoptPolicy" || type === "saveDocument" || type === "postCoordinatorMessage" || ROLE_COMMANDS.includes(type);
 	if (needsWorkflow && workflow === null) malformed(`${type} requires a workflow`);
 	if (!needsWorkflow && workflow !== null) malformed(`${type} takes no workflow`);
 	if (type !== "saveDocument" && expected !== undefined) malformed(`${type} takes no expected basis`);
 	if (ROLE_COMMANDS.includes(type)) return { command: roleCommand(type, c, workflow as string) };
 	switch (type) {
+		case "changePolicy": {
+			only(c, ["type", "expectedRevision", "policy"], "command");
+			const p = object(c.policy, "policy");
+			only(p, ["completedReviewLimit", "reviewerDiversity", "minimumEvidenceRank"], "policy");
+			if (!Number.isSafeInteger(p.completedReviewLimit) || Number(p.completedReviewLimit) < 0)
+				malformed("completedReviewLimit must be a nonnegative integer");
+			if (!["process", "tests", "build", "inspection"].includes(String(p.minimumEvidenceRank)))
+				malformed("minimumEvidenceRank must name the current project ladder");
+			if (p.reviewerDiversity !== "different-family" && p.reviewerDiversity !== "human-directed-same-family")
+				malformed("unknown reviewer diversity policy");
+			return {
+				command: {
+					type,
+					expectedRevision: text(c.expectedRevision, "expectedRevision", 128),
+					policy: {
+						completedReviewLimit: p.completedReviewLimit as number,
+						reviewerDiversity: p.reviewerDiversity,
+						minimumEvidenceRank: text(p.minimumEvidenceRank, "minimumEvidenceRank", 128),
+					},
+				},
+			};
+		}
+		case "adoptPolicy":
+			only(c, ["type", "revision", "expectedBinding"], "command");
+			return {
+				command: {
+					type,
+					workflow: workflow as string,
+					revision: text(c.revision, "revision", 128),
+					expectedBinding: text(c.expectedBinding, "expectedBinding", 128),
+				},
+			};
 		case "createWorkflow":
 			only(c, ["type", "title"], "command");
 			return { command: { type, title: text(c.title, "title", 200) } };
@@ -143,6 +176,17 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 			only(c, ["type", "slice", "delivery", "packet"], "command");
 			if (typeof c.delivery !== "boolean") malformed("delivery must be boolean");
 			return { type, workflow, slice: text(c.slice, "slice", 128), delivery: c.delivery, packet: parsePacket(c.packet) };
+		case "replaceTask":
+			only(c, ["type", "assignment", "generation", "attempt", "packet"], "command");
+			if (!Number.isSafeInteger(c.generation) || Number(c.generation) < 1) malformed("generation must be a positive integer");
+			return {
+				type,
+				workflow,
+				assignment: text(c.assignment, "assignment", 128),
+				generation: c.generation as number,
+				attempt: text(c.attempt, "attempt", 128),
+				packet: parsePacket(c.packet),
+			};
 		case "requestRole":
 			only(c, ["type", "key"], "command");
 			return { type, workflow, key: text(c.key, "key", 128) };
@@ -155,6 +199,7 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 	}
 	const allowed = ["type", "assignment", "generation", "attempt"];
 	if (type === "recordBlocker") allowed.push("reason");
+	if (type === "recordRuntimeHistory") allowed.push("key");
 	if (type === "recordRecoveryState") allowed.push("text");
 	if (type === "stageTask" || type === "rebindAttempt") allowed.push("executorEpoch");
 	if (type === "recordQuiescence" || type === "rebindAttempt") allowed.push("providerIdle", "environment", "effects");
@@ -166,6 +211,7 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 		generation: c.generation as number,
 		attempt: text(c.attempt, "attempt", 128),
 	};
+	if (type === "recordRuntimeHistory") return { ...common, type, key: text(c.key, "key", 128) };
 	if (type === "recordBlocker") return { ...common, type, reason: text(c.reason, "reason", 2048) };
 	if (type === "recordRecoveryState") return { ...common, type, text: text(c.text, "text", 1024 * 1024) };
 	if (type === "recordQuiescence" || type === "rebindAttempt") {

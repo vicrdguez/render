@@ -18,8 +18,10 @@ import {
 	type Storage,
 } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
+import { type ExecutionPolicy, initialPolicy, type PolicyBinding } from "../kernel/policy.ts";
 import { validBackup } from "./backup-state.ts";
 import { faultBarrier } from "./barrier.ts";
+import { parseEnvelope } from "./envelope.ts";
 import {
 	APPLICATION_ID,
 	type DeviceRecord,
@@ -122,11 +124,20 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 			continue;
 		}
 		check(
-			["render.meta", "render.workflow", "render.device", "render.receipt", "render.revision-location", "render.recovery"].includes(d.kind),
+			[
+				"render.meta",
+				"render.workflow",
+				"render.device",
+				"render.receipt",
+				"render.revision-location",
+				"render.recovery",
+				"render.policy",
+			].includes(d.kind),
 			`unsupported document ${d.kind}`,
 		);
 		const state = await storage.document(d.id, "current", ctx);
 		check(state?.version === 1, `unsupported document schema ${d.kind}`);
+		if (d.kind === "render.policy") check(d.key === undefined, "policy document identity");
 		values.set(`${d.kind} ${d.key ?? ""}`, state.value);
 	}
 	const meta = values.get("render.meta ") as MetaState | undefined;
@@ -209,10 +220,31 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 	const factConversations = new Map<number, number>();
 	const messageConversations = new Map<string, number>();
 	const messages: MessageData[] = [];
+	const policies = new Map<
+		number,
+		{ entry: EntryRecord; payload: { binding: PolicyBinding | null; revision: string; policy: ExecutionPolicy } }
+	>();
 	for (const e of entries) {
 		const d = e.data as unknown as RevisionData & FactData & MessageData;
-		check(d.schema === 1, `unsupported entry schema ${e.id}`);
-		if (e.kind === "render.revision") {
+		check(d.schema === 1, `unsupported entry schema ${e.kind} ${e.id}`);
+		if (e.kind === "render.policy") {
+			check(
+				typeof d.text === "string" && d.digest === `sha256:${digest(Buffer.from(d.text))}` && d.byteLength === Buffer.byteLength(d.text),
+				"policy content",
+			);
+			check(
+				!policies.has(d.sequence) && Number.isSafeInteger(d.sequence) && d.sequence > 0 && d.sequence <= meta.sequence,
+				"policy identity/cutoff",
+			);
+			let payload: { binding: PolicyBinding | null; revision: string; policy: ExecutionPolicy };
+			try {
+				payload = JSON.parse(d.text);
+			} catch {
+				throw new Error("invalid_recovery_package: policy payload JSON");
+			}
+			check(payload && typeof payload === "object", "policy payload");
+			policies.set(d.sequence, { entry: e, payload });
+		} else if (e.kind === "render.revision") {
 			check(d.roleBinding === undefined, "role-work reconciliation unavailable");
 			check(
 				typeof d.text === "string" && d.digest === `sha256:${digest(Buffer.from(d.text))}` && d.byteLength === Buffer.byteLength(d.text),
@@ -236,6 +268,8 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 					"revokeDevice",
 					"recordStartup",
 					"repairRecovery",
+					"changePolicy",
+					"adoptPolicy",
 				].includes(d.command),
 				`unsupported fact command ${d.command}`,
 			);
@@ -387,7 +421,26 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 			new Set([meta.ledgerConversation, ...[...workflows.values()].map((w) => w.conversation)]).size === conversations.length,
 		"conversation ownership/indexes",
 	);
-	for (const [sequence, f] of facts) {
+	// Rebuild policy meaning from retained, ordered human facts; never trust the materialized cache alone.
+	const replayedPolicy = initialPolicy();
+	const retainPolicy = (sequence: number, f: FactData, workflow: string | null, binding: PolicyBinding | null) => {
+		const record = policies.get(sequence);
+		const revision = binding?.policy ?? replayedPolicy.defaultRevision;
+		check(
+			record && isDeepStrictEqual(record.payload, { binding, revision, policy: replayedPolicy.revisions[revision] }),
+			`policy meaning ${sequence}`,
+		);
+		const d = record.entry.data as Record<string, unknown>;
+		check(
+			d.ref === (binding?.revision ?? revision) &&
+				d.commandId === f.commandId &&
+				d.workflow === workflow &&
+				Number(record.entry.conversationId) === (workflow === null ? meta.ledgerConversation : workflows.get(workflow)?.conversation),
+			`policy provenance ${sequence}`,
+		);
+		policies.delete(sequence);
+	};
+	for (const [sequence, f] of [...facts].sort(([a], [b]) => a - b)) {
 		const receipt = receipts.get(sequence);
 		check(receipt?.exists, `missing receipt ${sequence}`);
 		const body = receipt.body;
@@ -406,8 +459,54 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 			case "createWorkflow": {
 				const w = workflows.get(`workflow:${sequence}`);
 				check(w && w.createdAtSequence === sequence, `workflow creation ${sequence}`);
-				refs = { workflow: w.id };
+				// Older stores have no policy binding entry for pre-D004 workflows; they retain the initial fallback.
+				if (f.refs.binding !== undefined) {
+					const binding = { revision: `policy-binding:${sequence}`, policy: replayedPolicy.defaultRevision };
+					replayedPolicy.bindings[w.id] = binding;
+					retainPolicy(sequence, f, w.id, binding);
+				}
+				refs = { workflow: w.id, ...(f.refs.binding === undefined ? {} : { binding: `policy-binding:${sequence}` }) };
+				result = { workflow: w.id };
+				break;
+			}
+			case "changePolicy": {
+				const payload = policies.get(sequence)?.payload;
+				check(payload, `policy revision ${sequence}`);
+				const parsed = parseEnvelope({
+					version: 1,
+					authorityEpoch: meta.authorityEpoch,
+					commandId: f.commandId,
+					command: { type: "changePolicy", expectedRevision: replayedPolicy.defaultRevision, policy: payload.policy },
+				});
+				check(!("code" in parsed), `policy values ${sequence}`);
+				if (by.route === "device") {
+					const device = values.get(`render.device ${by.device}`) as Extract<DeviceRecord, { exists: true }>;
+					check(device.scope.workflows === "all", `policy project scope ${sequence}`);
+				}
+				const revision = `policy:${sequence}`;
+				replayedPolicy.defaultRevision = revision;
+				replayedPolicy.revisions[revision] = payload.policy;
+				retainPolicy(sequence, f, null, null);
+				refs = { policy: revision };
 				result = refs;
+				break;
+			}
+			case "adoptPolicy": {
+				const payload = policies.get(sequence)?.payload;
+				const workflow = f.refs.workflow;
+				check(
+					payload && workflow && workflows.has(workflow) && Object.hasOwn(replayedPolicy.revisions, payload.revision),
+					`policy adoption ${sequence}`,
+				);
+				if (by.route === "device") {
+					const device = values.get(`render.device ${by.device}`) as Extract<DeviceRecord, { exists: true }>;
+					check(device.scope.workflows === "all" || device.scope.workflows.includes(workflow), `policy workflow scope ${sequence}`);
+				}
+				const binding = { revision: `policy-binding:${sequence}`, policy: payload.revision };
+				replayedPolicy.bindings[workflow] = binding;
+				retainPolicy(sequence, f, workflow, binding);
+				refs = { workflow, binding: binding.revision, policy: binding.policy };
+				result = { binding: binding.revision, policy: binding.policy };
 				break;
 			}
 			case "saveDocument": {
@@ -474,6 +573,8 @@ export async function validateRecoveryState(storage: Storage): Promise<{ meta: M
 			);
 		}
 	}
+	check(policies.size === 0, "orphan policy records");
+	check(isDeepStrictEqual(values.get("render.policy ") ?? initialPolicy(), replayedPolicy), "policy cache differs from retained history");
 	const count = (command: string) => [...facts.values()].filter((f) => f.command === command).length;
 	check(
 		count("createWorkflow") === workflows.size &&

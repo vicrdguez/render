@@ -1,6 +1,7 @@
 // Kernel: pure domain legality. No I/O, clock reads, randomness or ID minting; Ledger supplies resolved state
 // and verified facts, and stages the returned writes atomically.
 
+import { changePolicy, initialPolicy, type PolicyCommand, type PolicyState } from "./policy.ts";
 import { changeRole, ROLE_COMMANDS, type RoleAssignment, type RoleCommand, type RoleIntent, type RoleWorkState } from "./roles.ts";
 
 export type DeviceScope = { readonly workflows: "all" | readonly string[] };
@@ -34,6 +35,7 @@ export type Persistence = {
 
 export type Command =
 	| RoleCommand
+	| PolicyCommand
 	| { readonly type: "createWorkflow"; readonly title: string }
 	| {
 			readonly type: "saveDocument";
@@ -50,6 +52,7 @@ export type Command =
 
 export type KernelState = {
 	readonly roleWork?: RoleWorkState;
+	readonly policy?: PolicyState;
 	/** The envelope's workflow, when it exists. */
 	readonly workflow: { readonly id: string; readonly messageCount: number } | null;
 	/** The named document's current revision and the integrity of its retained bytes, when it exists. */
@@ -78,6 +81,7 @@ export type VerifiedFacts = {
 };
 
 export type DomainWrite =
+	| { readonly type: "policy.replace"; readonly state: PolicyState }
 	| { readonly type: "roles.replace"; readonly state: RoleWorkState; readonly intents: readonly RoleIntent[] }
 	| { readonly type: "workflow.create"; readonly workflow: string; readonly title: string }
 	| {
@@ -159,7 +163,8 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	acceptIntake: { family: "human-decision", available: false },
 	amendContract: { family: "human-decision", available: false },
 	supersedeContract: { family: "human-decision", available: false },
-	changePolicy: { family: "human-decision", available: false },
+	changePolicy: { family: "human-decision", available: true },
+	adoptPolicy: { family: "human-decision", available: true },
 	changeCheckpointSettings: { family: "human-decision", available: false },
 	cancelWork: { family: "human-decision", available: true },
 	requestLocalVerificationPrompt: { family: "human-decision", available: false },
@@ -173,6 +178,8 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	submitRoleResult: { family: "role-work", available: true },
 	advanceDelegatedCheckpoint: { family: "role-work", available: false },
 	assignTask: { family: "scheduling", available: true },
+	replaceTask: { family: "scheduling", available: true },
+	recordRuntimeHistory: { family: "scheduling", available: true },
 	stageTask: { family: "scheduling", available: true },
 	fenceAttempt: { family: "scheduling", available: true },
 	rebindAttempt: { family: "scheduling", available: true },
@@ -211,13 +218,28 @@ function fact(facts: VerifiedFacts, command: string, refs: Record<string, string
 	return { type: "fact.record", fact: facts.ids.fact, command, refs };
 }
 
-export function change(state: KernelState, command: Command, facts: VerifiedFacts): Decision {
-	const entry = Object.hasOwn(CATALOGUE, command.type) ? CATALOGUE[command.type] : undefined;
-	if (entry === undefined) return refuse("unknown_command", `Unknown command type "${command.type}".`);
-	if (!FAMILY_ADMITS[entry.family](facts.principal))
-		return refuse("forbidden_principal", `${command.type} belongs to the ${entry.family} family, which does not admit this principal.`);
-	if (!entry.available) return refuse("capability_unavailable", `${command.type} is not available in this host version.`);
+/** Internal Ledger preflight: no input-dependent reads precede principal authorization. */
+export function commandPermission(type: string, principal: Principal): Refusal | undefined {
+	const entry = Object.hasOwn(CATALOGUE, type) ? CATALOGUE[type] : undefined;
+	if (entry === undefined) return refuse("unknown_command", `Unknown command type "${type}".`);
+	if (!FAMILY_ADMITS[entry.family](principal))
+		return refuse("forbidden_principal", `${type} belongs to the ${entry.family} family, which does not admit this principal.`);
+	if (!entry.available) return refuse("capability_unavailable", `${type} is not available in this host version.`);
+	if (
+		(type === "createWorkflow" || type === "changePolicy") &&
+		principal.kind === "human" &&
+		principal.route === "device" &&
+		principal.workflows !== "all"
+	)
+		return refuse("forbidden_scope", "Project-wide changes require a device with all-workflow scope.");
+	return undefined;
+}
 
+export function change(state: KernelState, command: Command, facts: VerifiedFacts): Decision {
+	const denied = commandPermission(command.type, facts.principal);
+	if (denied) return denied;
+
+	if (command.type === "changePolicy" || command.type === "adoptPolicy") return changePolicy(state, command as PolicyCommand, facts);
 	if (ROLE_COMMANDS.includes(command.type)) return changeRole(state, command as RoleCommand, facts);
 
 	const c = command as Extract<
@@ -226,14 +248,22 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 	>;
 	switch (c.type) {
 		case "createWorkflow": {
-			const p = facts.principal;
-			if (p.kind === "human" && p.route === "device" && p.workflows !== "all")
-				return refuse("forbidden_scope", "Only a device with access to all workflows can create one.");
 			const workflow = required(facts.ids.workflow);
 			return {
 				outcome: "accepted",
 				result: { workflow },
-				writes: [{ type: "workflow.create", workflow, title: c.title }, fact(facts, c.type, { workflow })],
+				writes: [
+					{ type: "workflow.create", workflow, title: c.title },
+					{
+						type: "policy.replace",
+						state: (() => {
+							const policy = structuredClone(state.policy ?? initialPolicy());
+							policy.bindings[workflow] = { revision: `policy-binding:${facts.sequence}`, policy: policy.defaultRevision };
+							return policy;
+						})(),
+					},
+					fact(facts, c.type, { workflow, binding: `policy-binding:${facts.sequence}` }),
+				],
 				facts: [facts.ids.fact],
 			};
 		}
@@ -374,6 +404,14 @@ export type WorkflowView = {
 	readonly blocker: { readonly code: string; readonly reason: string; readonly capabilities: readonly string[] } | null;
 	readonly nextHumanAction:
 		| { readonly type: "saveGround"; readonly workflow: string; readonly document: "ground"; readonly expected: null }
+		| {
+				readonly type: "cancelWork";
+				readonly workflow: string;
+				readonly assignment: string;
+				readonly generation: number;
+				readonly attempt: string;
+				readonly reason: string;
+		  }
 		| { readonly type: "none"; readonly reason: string };
 	readonly unavailable: readonly string[];
 };
@@ -391,6 +429,7 @@ function workflowView(w: WorkflowState): WorkflowView {
 	const owners = (w.assignments ?? []).filter((a) => a.delivery && a.status !== "submitted" && a.status !== "canceled");
 	const blocked = (w.assignments ?? []).filter((a) => a.blocker !== null);
 	const evidence = (w.assignments ?? []).flatMap((a) => (a.report ? [a.report] : []));
+	const recoverable = blocked.find((a) => a.status === "blocked" && a.blocker !== "awaiting_role_results");
 	return {
 		workflow: w.id,
 		title: w.title,
@@ -409,8 +448,17 @@ function workflowView(w: WorkflowState): WorkflowView {
 					capabilities:
 						w.assignments === undefined ? ["coordinator-replies", "checkpoints", "assignments"] : ["coordinator-replies", "checkpoints"],
 				},
-		nextHumanAction:
-			ground === null
+		nextHumanAction: recoverable
+			? {
+					type: "cancelWork",
+					workflow: w.id,
+					assignment: recoverable.id,
+					generation: recoverable.generation,
+					attempt: recoverable.attempt,
+					reason:
+						"Cancel this blocked assignment to fence its Attempt. Wait for confirmed quiescence before scheduling a fresh linked replacement.",
+				}
+			: ground === null
 				? { type: "saveGround", workflow: w.id, document: "ground", expected: null }
 				: { type: "none", reason: "No further human decision is available in this host version; saved work is retained." },
 		unavailable: w.assignments === undefined ? UNAVAILABLE : UNAVAILABLE.filter((name) => name !== "assignments"),
