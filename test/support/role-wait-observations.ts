@@ -41,9 +41,12 @@ function provider(parentAlreadyRan = false) {
 				]);
 				return isParent && mode === "load-restart" && parentCalls === 1
 					? fauxAssistantMessage("Role requests accepted; awaiting independent children.")
-					: fauxAssistantMessage(fauxToolCall("submit_role_result", { text: isParent ? "Parent complete.\n" : "Child complete.\n" }), {
-							stopReason: "toolUse",
-						});
+					: fauxAssistantMessage(
+							fauxToolCall("submit_role_result", { supports: [], text: isParent ? "Parent complete.\n" : "Child complete.\n" }),
+							{
+								stopReason: "toolUse",
+							},
+						);
 			} finally {
 				active--;
 			}

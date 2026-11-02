@@ -166,7 +166,7 @@ if (process.argv[2] === "fence-worker") {
 		assert.equal(canceled.status, "accepted");
 		assert.equal(canceled.result.generation, 2);
 		assert.equal((await f.ledger.receipt(own, "same-invocation")).code, "unauthorized");
-		const late = await f.command({ type: "submitRoleResult", text: "Late evidence, not accepted.\n" }, own, "late");
+		const late = await f.command({ type: "submitRoleResult", supports: [], text: "Late evidence, not accepted.\n" }, own, "late");
 		assert.equal(late.code, "unauthorized");
 		const quarantined = await f.command(
 			{

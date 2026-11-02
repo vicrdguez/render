@@ -176,6 +176,7 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	requestRole: { family: "role-work", available: true },
 	requestOwnStop: { family: "role-work", available: true },
 	submitRoleResult: { family: "role-work", available: true },
+	retainWebEvidence: { family: "role-work", available: true },
 	advanceDelegatedCheckpoint: { family: "role-work", available: false },
 	assignTask: { family: "scheduling", available: true },
 	replaceTask: { family: "scheduling", available: true },

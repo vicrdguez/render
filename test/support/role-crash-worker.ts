@@ -23,13 +23,16 @@ const scripted: import("@earendil-works/pi-ai/providers/faux").FauxResponseFacto
 	const a = JSON.parse(text);
 	if (a.packet.role === "challenger")
 		return fauxAssistantMessage(
-			fauxToolCall("submit_role_result", { text: "Independent durable result.\n" }, { id: "reused-provider-id" }),
+			fauxToolCall("submit_role_result", { supports: [], text: "Independent durable result.\n" }, { id: "reused-provider-id" }),
 			{ stopReason: "toolUse" },
 		);
 	if (a.results.length)
-		return fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "Parent handover.\n" }, { id: "reused-provider-id" }), {
-			stopReason: "toolUse",
-		});
+		return fauxAssistantMessage(
+			fauxToolCall("submit_role_result", { supports: [], text: "Parent handover.\n" }, { id: "reused-provider-id" }),
+			{
+				stopReason: "toolUse",
+			},
+		);
 	return fauxAssistantMessage(fauxToolCall("request_role", { key: "challenge" }, { id: "reused-provider-id" }), { stopReason: "toolUse" });
 };
 p.setResponses(Array.from({ length: 12 }, () => scripted));

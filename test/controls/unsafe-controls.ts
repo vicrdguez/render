@@ -83,6 +83,170 @@ const CONTROLS: Control[] = [
 		pattern: "completed Watchdog",
 	},
 	{
+		name: "web-page-failure-fallback",
+		expect: /identifiable page failure must not admit fallback/,
+		behavior: "Engine admits fallback for every provider failure, including identifiable page failures",
+		edits: [{ file: "src/engine/web.ts", find: "return retryable !== undefined;", replace: "return true;" }],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "identifiable page failure",
+	},
+	{
+		name: "web-allowance-refusal",
+		expect: /an indistinguishable refusal must admit exactly one sequential fallback/,
+		behavior: "Engine refuses fallback for a refusal indistinguishable from allowance exhaustion",
+		edits: [{ file: "src/engine/web.ts", find: "return retryable !== undefined;", replace: "return retryable === true;" }],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "documented allowance exhaustion",
+	},
+	{
+		name: "web-eligibility-uncertainty-erased",
+		expect: /ambiguous fallback must report uncertain eligibility/,
+		behavior: "Engine reports an indistinguishable refusal as ordinary eligible fallback",
+		edits: [
+			{
+				file: "src/engine/web.ts",
+				find: 'if (retryable === false && observation.provider === "exa") observation.uncertainty = ELIGIBILITY_UNCERTAINTY;',
+				replace: "",
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "documented allowance exhaustion",
+	},
+	{
+		name: "web-cancel-uncertainty",
+		expect: /in-flight cancellation must retain possibly-charged uncertainty/,
+		behavior: "Engine labels an unsettled cancelled SDK call as a plain error",
+		edits: [
+			{
+				file: "src/engine/web.ts",
+				find: 'observation.error === "TIMEOUT" || observation.error === "CANCELLED"',
+				replace: 'observation.error === "TIMEOUT"',
+			},
+		],
+		test: "test/web-cancellation-outcome.test.ts",
+		pattern: "in-flight",
+	},
+	{
+		name: "web-omitted-declaration",
+		expect: /omitted declaration must not authorize report reliance/,
+		behavior: "Kernel silently treats an omitted declaration as no web reliance",
+		edits: [
+			{ file: "src/kernel/roles.ts", find: "if (!Array.isArray(c.supports))", replace: "if (false)" },
+			{ file: "src/kernel/roles.ts", find: "if (c.supports.some(", replace: "c.supports ??= []; if (c.supports.some(" },
+		],
+		test: "test/web-report-declaration.test.ts",
+		pattern: "Kernel requires",
+	},
+	{
+		name: "web-damaged-support",
+		expect: /damaged required support must block reliance/,
+		behavior: "Ledger accepts required evidence without verifying retained bytes",
+		edits: [
+			{
+				file: "src/ledger/ledger.ts",
+				find: "if (!entry || entry.data.schema !== 1 || !intact(entry.data.text, entry.data.digest, entry.data.byteLength))",
+				replace: "if (false)",
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "required corrupt support",
+	},
+	{
+		name: "web-expired-deadline",
+		expect: /overall expiry must prohibit fallback admission/,
+		behavior: "Engine admits fallback after the overall deadline",
+		edits: [
+			{ file: "src/engine/web.ts", find: 'Date.now() >= deadline ? "overall_timeout" : undefined', replace: "undefined" },
+			{ file: "src/engine/web.ts", find: "Math.max(1, Math.min(attemptMs, deadline - Date.now()))", replace: "attemptMs" },
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "remaining=false",
+	},
+	{
+		name: "web-partial-top-up",
+		expect: /usable partial success must not be topped up/,
+		behavior: "Engine tops up usable partial primary content",
+		edits: [
+			{
+				file: "src/engine/web.ts",
+				find: 'if (!eligible || observation.outcome === "success") {',
+				replace: 'if ((!eligible || observation.outcome === "success") && !(observation.outcome === "success" && !observation.complete)) {',
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "mixed contents batch",
+	},
+	{
+		name: "web-quality-top-up",
+		expect: /no provider fanout or retry/,
+		behavior: "Tavily tops up successful primary inputs",
+		edits: [{ file: "src/engine/web.ts", find: 'if (!eligible || observation.outcome === "success") {', replace: "if (false) {" }],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "empty success",
+	},
+	{
+		name: "web-erased-primary-failure",
+		expect: /primary failure must survive fallback/,
+		behavior: "fallback erases primary failure provenance",
+		edits: [
+			{
+				file: "src/engine/web.ts",
+				find: "item.observations.push(observation);",
+				replace: 'if (provider === "tavily") item.observations = []; item.observations.push(observation);',
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "empty success",
+	},
+	{
+		name: "web-digest-observation",
+		expect: /observation identity must not be a digest/,
+		behavior: "identical bytes reuse an observation identity",
+		edits: [
+			{
+				file: "src/engine/web.ts",
+				find: "observation.digest = webTextDigest(observation.text);",
+				replace: "observation.digest = webTextDigest(observation.text); observation.id = observation.digest;",
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "identical bytes",
+	},
+	{
+		name: "web-cache-erases-evidence",
+		expect: /retained evidence remains available independently of working cache/,
+		behavior: "working cache cleanup makes retained evidence unavailable",
+		edits: [
+			{
+				file: "src/ledger/ledger.ts",
+				find: "const data = entry.data as unknown as RevisionData;",
+				replace:
+					'const data = entry.data as unknown as RevisionData; if (data.document.startsWith("web-evidence/") && this.#webWorking.size === 0) return NOT_FOUND;',
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "selected negative evidence",
+	},
+	{
+		name: "web-fallback-after-cancel",
+		expect: /fallback after cancellation is forbidden/,
+		behavior: "provider admission ignores cancellation and current authority",
+		edits: [
+			{
+				file: "src/engine/web.ts",
+				find: 'signal.aborted ? "canceled" : !current() ? "authority_revoked" : Date.now() >= deadline ? "overall_timeout" : undefined;',
+				replace: "undefined;",
+			},
+			{
+				file: "src/engine/web.ts",
+				find: "const options = { provider, signal, timeoutMs:",
+				replace: "const options = { provider, signal: undefined, timeoutMs:",
+			},
+		],
+		test: "test/scoped-web-research.test.ts",
+		pattern: "caller cancellation",
+	},
+	{
 		name: "owned-hidden-base",
 		behavior: "collector trusts a worker ignore to drop accepted base source",
 		test: "test/owned-source-controls.test.ts",

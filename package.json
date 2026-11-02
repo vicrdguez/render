@@ -17,6 +17,8 @@
 		"verify:two-client-reattach": "node --test test/two-client-reattach.test.ts test/history-cutoff-export.test.ts test/history-cursor-transfer.test.ts",
 		"verify:persistence-startup": "node --test test/persistence-startup.test.ts test/role-recovery-startup.test.ts",
 		"verify:local-command-load": "node --test test/local-command-load.test.ts",
+		"verify:scoped-web-research": "node --test test/scoped-web-research.test.ts test/web-report-declaration.test.ts test/web-cancellation-outcome.test.ts",
+		"verify:web-negative-journey": "node --test --test-name-pattern='selected negative evidence' test/scoped-web-research.test.ts",
 		"verify:offhost-exposure-cutoff": "node --test --test-name-pattern=offhost-exposure-cutoff test/offhost-protection.test.ts",
 		"verify:manual-recovery-rehearsal": "node --test --test-name-pattern=manual-recovery-rehearsal test/offhost-protection.test.ts",
 		"verify:package-clean-restore": "node --test --test-name-pattern=package-clean-restore test/recovery-packages.test.ts test/recovery-policy.test.ts",
@@ -45,7 +47,8 @@
 	"dependencies": {
 		"@earendil-works/chord": "1.4.0",
 		"@earendil-works/pi-ai": "1.4.0",
-		"@earendil-works/pi-durable": "1.4.0"
+		"@earendil-works/pi-durable": "1.4.0",
+		"webfox": "4.8.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.4",

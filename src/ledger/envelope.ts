@@ -190,9 +190,39 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 		case "requestRole":
 			only(c, ["type", "key"], "command");
 			return { type, workflow, key: text(c.key, "key", 128) };
-		case "submitRoleResult":
-			only(c, ["type", "text"], "command");
-			return { type, workflow, text: text(c.text, "text", 1024 * 1024) };
+		case "submitRoleResult": {
+			only(c, ["type", "text", "supports"], "command");
+			if (
+				!Array.isArray(c.supports) ||
+				c.supports.length > 32 ||
+				!c.supports.every((v) => typeof v === "string" && v.length > 0 && v.length <= 128)
+			)
+				malformed("Declare required retained supports (at most 32 refs), or [] for no web reliance.");
+			return {
+				type,
+				workflow,
+				text: text(c.text, "text", 1024 * 1024),
+				supports: c.supports as string[],
+			};
+		}
+		case "retainWebEvidence":
+			only(c, ["type", "handle", "observation", "start", "end", "claim", "stance"], "command");
+			if (
+				!Number.isSafeInteger(c.start) ||
+				!Number.isSafeInteger(c.end) ||
+				!["supporting", "negative", "conflicting"].includes(String(c.stance))
+			)
+				malformed("invalid passage selection");
+			return {
+				type,
+				workflow,
+				handle: text(c.handle, "handle", 128),
+				observation: text(c.observation, "observation", 128),
+				start: c.start as number,
+				end: c.end as number,
+				claim: text(c.claim, "claim", 2048),
+				stance: c.stance as "supporting" | "negative" | "conflicting",
+			};
 		case "requestOwnStop":
 			only(c, ["type"], "command");
 			return { type, workflow };

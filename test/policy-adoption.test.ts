@@ -26,7 +26,9 @@ for (const scenario of ["without Ground", "with Ground", "already blocked"] as c
 			},
 			(transcript) => {
 				transcripts.push(JSON.stringify(transcript));
-				return fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "NEW-POLICY-REPORT" }), { stopReason: "toolUse" });
+				return fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "NEW-POLICY-REPORT" }), {
+					stopReason: "toolUse",
+				});
 			},
 		]);
 		const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
@@ -183,7 +185,9 @@ for (const scenario of ["without Ground", "with Ground", "already blocked"] as c
 
 test("policy-adoption: completed Watchdog reports and counts survive adopt-away/back", async () => {
 	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
-	p.setResponses([fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "COMPLETED-REVIEW-6" }), { stopReason: "toolUse" })]);
+	p.setResponses([
+		fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "COMPLETED-REVIEW-6" }), { stopReason: "toolUse" }),
+	]);
 	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
 	const frame = () => f.ledger.snapshot(admin) as Record<string, any>;
 	try {

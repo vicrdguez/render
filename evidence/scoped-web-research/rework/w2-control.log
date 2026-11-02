@@ -1,0 +1,2 @@
+{"control":"web-cancel-uncertainty","behavior":"Engine labels an unsettled cancelled SDK call as a plain error","check":"test/web-cancellation-outcome.test.ts :: in-flight","baselinePassed":true,"detected":true,"failedOtherwise":false,"assertion":"AssertionError [ERR_ASSERTION]: in-flight cancellation must retain possibly-charged uncertainty\n  + actual - expected"}
+{"controls":1,"detected":1,"undetected":0}

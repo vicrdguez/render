@@ -60,6 +60,7 @@ export type RoleAssignment = {
 	executionOrdinal: number;
 	blocker: string | null;
 	report: string | null;
+	evidence?: string[];
 };
 export type RoleWorkState = { assignments: RoleAssignment[] };
 export type RoleIntent = { kind: "run-role" | "notify-role"; assignment: string };
@@ -68,7 +69,17 @@ export type RoleCommand =
 	| { type: "replaceTask"; workflow: string; assignment: string; generation: number; attempt: string; packet: RolePacket }
 	| { type: "recordRuntimeHistory"; workflow: string; assignment: string; generation: number; attempt: string; key: string }
 	| { type: "requestRole"; workflow: string; key: string }
-	| { type: "submitRoleResult"; workflow: string; text: string }
+	| { type: "submitRoleResult"; workflow: string; text: string; supports: string[] }
+	| {
+			type: "retainWebEvidence";
+			workflow: string;
+			handle: string;
+			observation: string;
+			start: number;
+			end: number;
+			claim: string;
+			stance: "supporting" | "negative" | "conflicting";
+	  }
 	| { type: "requestOwnStop"; workflow: string }
 	| {
 			type: "recordRecoveryState" | "recordRunnerObservation" | "recordRunnerDiagnostic";
@@ -105,6 +116,7 @@ export const ROLE_COMMANDS = [
 	"recordRuntimeHistory",
 	"requestRole",
 	"submitRoleResult",
+	"retainWebEvidence",
 	"requestOwnStop",
 	"cancelWork",
 	"fenceAttempt",
@@ -230,13 +242,26 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (!a || a.workflow !== c.workflow || (c.generation >= a.generation && c.attempt === a.attempt))
 			return refusal("invalid_content", "Only evidence from a fenced prior identity is quarantined.");
 		result = { assignment: a.id, quarantined: facts.ids.revision ?? null };
+	} else if (c.type === "retainWebEvidence") {
+		if (!a || !facts.ids.revision) return refusal("stale_assignment", "No current assignment.");
+		a.evidence ??= [];
+		a.evidence.push(facts.ids.revision);
+		result = { assignment: a.id, evidence: facts.ids.revision };
 	} else if (c.type === "submitRoleResult") {
 		if (!a) return refusal("stale_assignment", "No current assignment.");
 		if (!c.text || Buffer.byteLength(c.text) > 1024 * 1024)
 			return refusal("invalid_content", "Report must contain at most 1 MiB of complete UTF-8 text.");
+		if (!Array.isArray(c.supports)) return refusal("invalid_content", "Declare required retained supports, or [] for no web reliance.");
+		if (c.supports.some((ref) => !a.evidence?.includes(ref)))
+			return refusal("missing_content", "Promote exact required web support before reliance.");
 		a.status = "submitted";
 		a.report = facts.ids.revision ?? null;
-		result = { assignment: a.id, report: a.report };
+		result = {
+			assignment: a.id,
+			report: a.report,
+			webEvidence: c.supports.length ? "retained" : "none",
+			...Object.fromEntries(c.supports.map((ref, i) => [`support${i}`, ref])),
+		};
 		if (a.parent) intents.push({ kind: "notify-role", assignment: a.id });
 	} else {
 		if (!a || a.workflow !== c.workflow) return refusal("not_found", "Assignment is outside this workflow.");
@@ -319,10 +344,10 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			type: "fact.record",
 			fact: facts.ids.fact,
 			command: c.type,
-			refs: { workflow: c.workflow, ...Object.fromEntries(Object.entries(result).filter(([, v]) => typeof v === "string")) } as Record<
-				string,
-				string
-			>,
+			refs: {
+				workflow: c.workflow,
+				...Object.fromEntries(Object.entries(result).filter(([key, v]) => key !== "webEvidence" && typeof v === "string")),
+			} as Record<string, string>,
 		},
 	];
 	return { outcome: "accepted", result, writes, facts: [facts.ids.fact] };

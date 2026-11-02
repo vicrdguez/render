@@ -1,0 +1,14 @@
+{"capability":"search","fixtureStatus":400,"error":{"code":"PROVIDER_FAILURE","message":"Request rejected","retryable":false}}
+{"capability":"search","fixtureStatus":402,"error":{"code":"PROVIDER_FAILURE","message":"Request rejected","retryable":false}}
+{"capability":"contents","fixtureStatus":400,"error":{"code":"PROVIDER_FAILURE","message":"Request rejected","retryable":false}}
+{"capability":"contents","fixtureStatus":402,"error":{"code":"PROVIDER_FAILURE","message":"Request rejected","retryable":false}}
+{"category":"page","error":{"code":"PROVIDER_FAILURE","message":"No content returned for this URL."}}
+✔ B1/A1 supported root loses the invalid-request versus allowance distinction (41.962417ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 226.311375

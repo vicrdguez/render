@@ -34,7 +34,9 @@ test("R12 retained role packets, reports, task receipts and uncertainty export a
 		Array.from({ length: 12 }, () => (transcript) => {
 			if (JSON.stringify(transcript).includes("Required output: Parent report"))
 				return fauxAssistantMessage(fauxToolCall("request_role", { key: "challenge" }), { stopReason: "toolUse" });
-			return fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "Exact independent report.\r\n" }), { stopReason: "toolUse" });
+			return fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "Exact independent report.\r\n" }), {
+				stopReason: "toolUse",
+			});
 		}),
 	);
 	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }));

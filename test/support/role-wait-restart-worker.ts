@@ -19,7 +19,9 @@ p.setResponses(
 		const parent = JSON.stringify(transcript).includes("Required output: Parent report");
 		return parent
 			? fauxAssistantMessage(fauxToolCall("request_role", { key: "child" }), { stopReason: "toolUse" })
-			: fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "Queued work complete.\n" }), { stopReason: "toolUse" });
+			: fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "Queued work complete.\n" }), {
+					stopReason: "toolUse",
+				});
 	}),
 );
 const engine = new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } });

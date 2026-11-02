@@ -48,7 +48,9 @@ test("R03 explicit role configuration does not inherit tools; model IDs cannot o
 	p.setResponses([
 		(ctx) => {
 			visibleTools = ctx.messages.flatMap((m) => (m.role === "system" ? (m.toolsAdded ?? []).map((t) => t.name) : [])).sort();
-			return fauxAssistantMessage(fauxToolCall("submit_role_result", { text: "forged", commandId: "model-id" }), { stopReason: "toolUse" });
+			return fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "forged", commandId: "model-id" }), {
+				stopReason: "toolUse",
+			});
 		},
 		fauxAssistantMessage("No submission"),
 	]);
@@ -58,7 +60,16 @@ test("R03 explicit role configuration does not inherit tools; model IDs cannot o
 		const a = await blocked(f);
 		assert.deepEqual(
 			visibleTools,
-			["read_artifact", "request_own_stop", "request_role", "submit_role_result"],
+			[
+				"read_artifact",
+				"read_web_result",
+				"request_own_stop",
+				"request_role",
+				"retain_web_evidence",
+				"submit_role_result",
+				"web_contents",
+				"web_search",
+			],
 			"role must not inherit broad tools",
 		);
 		assert.equal(a.report, null);
