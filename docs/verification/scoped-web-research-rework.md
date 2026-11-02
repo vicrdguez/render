@@ -1,5 +1,7 @@
 # Scoped web research — round-one rework, before product edits
 
+> Superseded by the later human decision recorded in `scoped-web-research-decision.md`: a refusal Webfox has made indistinguishable from allowance exhaustion now admits one uncertain fallback. Retained as history.
+
 Prior reviewed head: d763f8cef9fd7be79efe6756223d84e865848208.
 Contract: B1–B5/A1–A4; W1 BLOCK and W2 NOTE retain their review identities.
 

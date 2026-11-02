@@ -1,5 +1,7 @@
 # Decision-specific fallback verification — before product changes
 
+> Superseded by the later human decision recorded in `scoped-web-research-decision.md`: a refusal Webfox has made indistinguishable from allowance exhaustion now admits one uncertain fallback. Retained as history.
+
 Source before this round: 335c74ed93de3ae2b11d1ffb69d76067147e7494.
 Decision: ledger 8eb4de475c30c4d9bf12100138725ac2b12bf532, scoped-web-research/decision.md.
 
