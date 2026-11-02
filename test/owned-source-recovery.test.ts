@@ -1,7 +1,7 @@
 // Failure oracles authored before recovery/diagnostic implementation.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
@@ -285,7 +285,7 @@ test("possibly created runtime is never recorded absent: capacity and writer own
 	}
 });
 
-async function slowCheck(argv = ["sleep", "2"]) {
+async function slowCheck(after = "") {
 	const source = await sourceFixture();
 	const config = {
 		root: join(source.root, "owned"),
@@ -294,8 +294,8 @@ async function slowCheck(argv = ["sleep", "2"]) {
 			"revision:3": {
 				repository: "owned",
 				commit: source.commit,
-				profile: source.profile,
-				argv,
+				profile: { ...source.profile, exclusions: [".git", ".command-started"] },
+				argv: ["sh", "-c", `touch .command-started; sleep 2; ${after}`],
 				timeoutMs: 20000,
 				verifierRevision: source.commit,
 			},
@@ -314,27 +314,30 @@ async function slowCheck(argv = ["sleep", "2"]) {
 			await setTimeout(20);
 		}
 	};
-	// The command's private journal precedes its dispatch. Cancellation before this point has its own tracked behavior.
-	const commandAdmitted = () =>
+	// Observed from the command itself. Cancellation before this point has its own tracked behavior.
+	const commandStarted = () =>
 		until(async () => {
 			const sandboxes = join(config.root, "sandboxes");
-			const journals = await Promise.all((await readdir(sandboxes).catch(() => [])).map((id) => readdir(join(sandboxes, id))));
-			return journals.flat().some((name) => name.startsWith("execution-"));
+			const started = await Promise.all(
+				(await readdir(sandboxes).catch(() => [])).map((id) =>
+					access(join(sandboxes, id, "workspace", ".command-started")).then(
+						() => true,
+						() => false,
+					),
+				),
+			);
+			return started.includes(true);
 		});
-	return { f, assignments, until, commandAdmitted, source };
+	return { f, assignments, until, commandStarted, source };
 }
 
 test("policy adoption during an owned command holds capacity until stop and refuses the old-basis pass", async () => {
-	const { f, assignments, until, commandAdmitted, source } = await slowCheck([
-		"sh",
-		"-c",
-		"sleep 2; printf 'late filter\n' >> .gitattributes",
-	]);
+	const { f, assignments, until, commandStarted, source } = await slowCheck("printf 'late filter\n' >> .gitattributes");
 	try {
 		const assign = () =>
 			f.command({ type: "assignTask", slice: "policy:owned", delivery: true, packet: packet({ execution: "linux-writer" }) });
 		assert.equal((await assign()).status, "accepted");
-		await commandAdmitted();
+		await commandStarted();
 		const frame = f.ledger.snapshot(admin) as unknown as { policy: PolicyState };
 		const published = await f.ledger.command(
 			{
@@ -394,14 +397,14 @@ test("policy adoption during an owned command holds capacity until stop and refu
 });
 
 test("canceled owned check replacement runs in its own workspace and retains its own receipt", async () => {
-	const { f, assignments, until, commandAdmitted, source } = await slowCheck();
+	const { f, assignments, until, commandStarted, source } = await slowCheck();
 	try {
 		assert.equal(
 			(await f.command({ type: "assignTask", slice: "replace:owned", delivery: true, packet: packet({ execution: "linux-writer" }) }))
 				.status,
 			"accepted",
 		);
-		await commandAdmitted();
+		await commandStarted();
 		const a = assignments()[0]!;
 		assert.equal(
 			(await f.command({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, admin)).status,
