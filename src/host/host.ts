@@ -5,8 +5,10 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { Engine, type OwnedChecks, runtimeOptions } from "../engine/runtime.ts";
 import type { Persistence } from "../kernel/kernel.ts";
+import type { BackupClock } from "../ledger/backup.ts";
 import { adminServer, deviceServer } from "../ledger/http.ts";
 import type { Ledger } from "../ledger/ledger.ts";
+import type { OffHostDestination } from "../ledger/offhost.ts";
 import { openLedger } from "../ledger/startup.ts";
 
 export type Host = {
@@ -21,6 +23,8 @@ export type Host = {
 
 export async function openHost(options: {
 	readonly data: string;
+	readonly backup?: OffHostDestination;
+	readonly backupClock?: BackupClock;
 	readonly port?: number;
 	readonly hostname?: string;
 	readonly ownedChecks?: OwnedChecks;
@@ -28,6 +32,8 @@ export async function openHost(options: {
 }): Promise<Host> {
 	const opened = await openLedger({
 		data: options.data,
+		backup: options.backup,
+		backupClock: options.backupClock,
 		runtime: options.ownedChecks ? (report) => new Engine({ ownedChecks: options.ownedChecks }).options(report) : runtimeOptions,
 		onFatal: (error) => options.onFatal?.(error),
 	});

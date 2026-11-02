@@ -361,14 +361,7 @@ export type WorkflowState = {
 };
 
 /** Capabilities a client may expect from later Render versions; reported as absent, never as empty successes. */
-export const UNAVAILABLE = [
-	"coordinator-replies",
-	"checkpoints",
-	"intake-acceptance",
-	"assignments",
-	"evidence-receipts",
-	"off-host-protection",
-] as const;
+export const UNAVAILABLE = ["coordinator-replies", "checkpoints", "intake-acceptance", "assignments", "evidence-receipts"] as const;
 
 export type WorkflowView = {
 	readonly workflow: string;

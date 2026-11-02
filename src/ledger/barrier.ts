@@ -10,7 +10,9 @@ export async function faultBarrier(
 		| "package-snapshot"
 		| "package-publish"
 		| "repair-before-commit"
-		| "repair-after-commit",
+		| "repair-after-commit"
+		| "offhost-before-publish"
+		| "offhost-after-publish",
 	commandId: string,
 ): Promise<void> {
 	if (process.env.RENDER_FAULT_BARRIER !== name || process.env.RENDER_FAULT_COMMAND !== commandId) return;

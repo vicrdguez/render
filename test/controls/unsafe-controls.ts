@@ -71,6 +71,48 @@ const CONTROLS: Control[] = [
 		],
 	},
 	{
+		name: "offhost-backup-state-unvalidated",
+		expect: /backup-schema semantics must be validated beyond checksums/,
+		behavior: "a checksummed package with an unsupported retained backup schema is imported",
+		edits: [
+			{
+				file: "src/ledger/recovery.ts",
+				find: 'check(meta.backup === undefined || validBackup(meta.backup, meta.sequence), "backup state");',
+				replace: "void 0;",
+			},
+		],
+		test: "test/recovery-packages.test.ts",
+		pattern: "checksummed but semantically",
+	},
+	{
+		name: "offhost-copy-only",
+		expect: /copy-only must not advance protected cutoff/,
+		behavior: "a successful copy without a durable verified receipt establishes protection",
+		edits: [
+			{
+				file: "src/ledger/offhost.ts",
+				find: "assertReceipt(receipt, manifest);",
+				replace: "// unsafe: accept a copy without verification",
+			},
+		],
+		test: "test/offhost-protection.test.ts",
+		pattern: "configured/local-copy",
+	},
+	{
+		name: "offhost-local-copy",
+		expect: /copy-only must not advance protected cutoff/,
+		behavior: "a completed local package establishes protection despite failed transfer verification",
+		edits: [
+			{
+				file: "src/ledger/backup.ts",
+				find: "await transferPackage(local.path, this.#destination);",
+				replace: "try { await transferPackage(local.path, this.#destination); } catch {}",
+			},
+		],
+		test: "test/offhost-protection.test.ts",
+		pattern: "configured/local-copy",
+	},
+	{
 		name: "repair-empty-cursor-key",
 		expect: /repaired cursors must use a fresh private secret/,
 		behavior: "repair omits key rotation and restored history signs with the public empty fallback",

@@ -1,0 +1,51 @@
+
+> render@0.0.0 verify:sqlite-command-atomicity
+> RENDER_V2_SCHEDULES=256 node --test test/sqlite-command-atomicity.test.ts
+
+▶ B1 authority precedes disclosure (literal cases)
+  ✔ B1-01/B1-02 missing or invalid credentials disclose nothing (8.979917ms)
+  ✔ B1-03 forged principal fields in the envelope are malformed (4.873042ms)
+  ✔ B1-04/B1-05/B1-06 headers cannot raise a device to local admin or host (2.254583ms)
+  ✔ B1-07/B1-08 unknown and unavailable commands never succeed (1.3505ms)
+  ✔ B1-09 a second device retrying the original ID and bytes receives the original receipt (1.945542ms)
+  ✔ B1-10 a changed payload under the same ID conflicts without disclosure (0.637541ms)
+  ✔ B1-12/B1-13 a scoped device sees only its workflows (2.802042ms)
+  ✔ B1-16 a different authority epoch is refused (0.509458ms)
+  ✔ B1-11 a revoked device cannot recover its receipt through deduplication (16.43025ms)
+  ✔ B1-14 enrollment uses the restrictive owner route and the bearer is never retained (7.891542ms)
+✔ B1 authority precedes disclosure (literal cases) (338.176583ms)
+▶ B1-15 in-process contexts cannot be hand-built
+  ✔ a context object not minted by a trusted adapter is refused (171.967834ms)
+✔ B1-15 in-process contexts cannot be hand-built (172.109416ms)
+▶ B2 acknowledgement is immutable and atomic (literal cases)
+  ✔ B2-01/B2-02/B2-03/B2-04/B2-05/B2-06/B2-11 exact bytes, stale basis and atomic visibility (255.354459ms)
+✔ B2 acknowledgement is immutable and atomic (literal cases) (509.554125ms)
+▶ B2 document names that collide with object prototype keys
+  ✔ a document named constructor is created, read and updated like any other (262.319166ms)
+✔ B2 document names that collide with object prototype keys (262.424541ms)
+▶ B2-10 corrupt referenced bytes
+  ✔ tampered stored bytes are refused with an exact restoration ref and never substituted (468.155792ms)
+✔ B2-10 corrupt referenced bytes (468.256041ms)
+▶ B2 supported document sizes and encoding boundaries
+  ✔ 4194304 exact UTF-8 bytes save and survive restart (519.95325ms)
+  ✔ 16777216 exact UTF-8 bytes save and survive restart (729.441417ms)
+  ✔ oversized and malformed complete bytes refuse without advancing state (372.494583ms)
+✔ B2 supported document sizes and encoding boundaries (1622.159666ms)
+▶ B4 retained application schema compatibility
+  ▶ unknown revision and message schemas block affected reads and saves without changing retained records
+    ✔ artifact reads refuse before disclosing unsupported content (1.466334ms)
+    ✔ save refuses without interpreting an unsupported basis (1.694667ms)
+    ✔ message reads refuse unsupported application records (0.812875ms)
+  ✔ unknown revision and message schemas block affected reads and saves without changing retained records (506.827458ms)
+✔ B4 retained application schema compatibility (506.953ms)
+▶ V2 seeded schedules on real SQLite (256)
+  ✔ every schedule matches the literal duplicate/conflict/stale/revocation/scope rules (21714.853125ms)
+✔ V2 seeded schedules on real SQLite (256) (21715.032084ms)
+ℹ tests 22
+ℹ suites 8
+ℹ pass 22
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 25671.924792
