@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { Engine } from "../src/engine/runtime.ts";
+import type { PolicyState } from "../src/kernel/policy.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { Sandboxes } from "../src/sandboxes/sandboxes.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
@@ -281,5 +282,148 @@ test("possibly created runtime is never recorded absent: capacity and writer own
 		process.env.PATH = path;
 		await f.close();
 		await source.close();
+	}
+});
+
+async function slowCheck() {
+	const source = await sourceFixture();
+	const config = {
+		root: join(source.root, "owned"),
+		repositories: { owned: source.repo },
+		checks: {
+			"revision:3": {
+				repository: "owned",
+				commit: source.commit,
+				profile: source.profile,
+				argv: ["sleep", "2"],
+				timeoutMs: 20000,
+				verifierRevision: source.commit,
+			},
+		},
+	};
+	const f = await roleFixture(new Engine({ ownedChecks: config }));
+	const assignments = () => {
+		const value = f.ledger.snapshot(admin);
+		assert.ok("assignments" in value);
+		return value.assignments as RoleAssignment[];
+	};
+	const until = async (check: () => boolean) => {
+		const deadline = Date.now() + 30000;
+		while (!check()) {
+			assert.ok(Date.now() < deadline, JSON.stringify(assignments()));
+			await setTimeout(20);
+		}
+	};
+	// A workspace journaled as running: cancellation during trusted resolve has its own tracked behavior.
+	const commandAdmitted = async () => {
+		const sandboxes = join(config.root, "sandboxes");
+		const deadline = Date.now() + 30000;
+		for (;;) {
+			const states = await Promise.all(
+				(await readdir(sandboxes).catch(() => [])).map(async (id) =>
+					JSON.parse(await readFile(join(sandboxes, id, "state.json"), "utf8").catch(() => "{}")),
+				),
+			);
+			if (states.some((state) => state.phase === "running")) return;
+			assert.ok(Date.now() < deadline, JSON.stringify(assignments()));
+			await setTimeout(20);
+		}
+	};
+	return { f, assignments, until, commandAdmitted, close: async () => (await f.close(), await source.close()) };
+}
+
+test("policy adoption during an owned command holds capacity until stop and refuses the old-basis pass", async () => {
+	const { f, assignments, until, commandAdmitted, close } = await slowCheck();
+	try {
+		const assign = () =>
+			f.command({ type: "assignTask", slice: "policy:owned", delivery: true, packet: packet({ execution: "linux-writer" }) });
+		assert.equal((await assign()).status, "accepted");
+		await commandAdmitted();
+		const frame = f.ledger.snapshot(admin) as unknown as { policy: PolicyState };
+		const published = await f.ledger.command(
+			{
+				version: 1,
+				authorityEpoch: f.ledger.status().authorityEpoch,
+				commandId: "owned-policy",
+				command: {
+					type: "changePolicy",
+					expectedRevision: "policy:initial",
+					policy: { completedReviewLimit: 3, reviewerDiversity: "different-family", minimumEvidenceRank: "process" },
+				},
+			},
+			admin,
+		);
+		assert.ok(published.status === "accepted", JSON.stringify(published));
+		const binding = frame.policy.bindings["workflow:2"]!.revision;
+		assert.equal(
+			(await f.command({ type: "adoptPolicy", revision: published.result.policy, expectedBinding: binding }, admin)).status,
+			"accepted",
+		);
+		assert.equal(assignments()[0]!.status, "blocked");
+		assert.equal(assignments()[0]!.executing, true, "adoption must not release capacity before confirmed stop");
+		assert.equal((await assign()).status, "refused");
+
+		await until(() => !assignments()[0]!.executing);
+		assert.equal(assignments()[0]!.status, "blocked");
+		assert.equal(assignments()[0]!.report, null, "a pass receipt must not land on the superseded policy basis");
+		const a = assignments()[0]!;
+		assert.equal(
+			(await f.command({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, admin)).status,
+			"accepted",
+		);
+		await until(() => assignments()[0]!.status === "canceled");
+		assert.equal((await assign()).status, "accepted");
+		await until(() => assignments()[1]!.report !== null);
+		assert.notEqual(assignments()[1]!.policyBinding, binding);
+	} finally {
+		await close();
+	}
+});
+
+test("canceled owned check replacement runs in its own workspace and retains its own receipt", async () => {
+	const { f, assignments, until, commandAdmitted, close } = await slowCheck();
+	try {
+		assert.equal(
+			(await f.command({ type: "assignTask", slice: "replace:owned", delivery: true, packet: packet({ execution: "linux-writer" }) }))
+				.status,
+			"accepted",
+		);
+		await commandAdmitted();
+		const a = assignments()[0]!;
+		assert.equal(
+			(await f.command({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, admin)).status,
+			"accepted",
+		);
+		const predecessor = assignments()[0]!;
+		const early = await f.command({
+			type: "replaceTask",
+			assignment: predecessor.id,
+			generation: predecessor.generation,
+			attempt: predecessor.attempt,
+			packet: packet({ execution: "linux-writer" }),
+		});
+		assert.ok(predecessor.executing && early.status === "refused" && early.code === "quiescence_unconfirmed", JSON.stringify(early));
+		await until(() => assignments()[0]!.status === "canceled");
+		assert.equal(assignments()[0]!.report, null);
+		const replacement = await f.command({
+			type: "replaceTask",
+			assignment: predecessor.id,
+			generation: predecessor.generation,
+			attempt: predecessor.attempt,
+			packet: packet({ execution: "linux-writer" }),
+		});
+		assert.equal(replacement.status, "accepted", JSON.stringify(replacement));
+		await until(() => assignments()[1]!.report !== null && !assignments()[1]!.executing);
+		const fresh = assignments()[1]!;
+		assert.equal(fresh.predecessor, predecessor.id);
+		const read = await f.ledger.artifact(admin, { read: fresh.report! });
+		assert.ok("content" in read);
+		const receipt = JSON.parse(read.content.toString());
+		assert.equal(receipt.kind, "owned-check");
+		assert.equal(receipt.scope.assignment, fresh.id);
+		assert.equal(receipt.verification.status, "passed");
+		await until(() => assignments()[1]!.runtimeTaskCaptured === true);
+	} finally {
+		await close();
 	}
 });
