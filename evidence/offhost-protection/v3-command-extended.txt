@@ -1,0 +1,21 @@
+
+> render@0.0.0 verify:command-crash-recovery
+> node --test test/command-crash-recovery.test.ts
+
+▶ V3 SIGKILL at before-commit (100 repetitions)
+  ✔ retrying the original envelope after a kill at before-commit yields exactly one accepted save (67109.572ms)
+✔ V3 SIGKILL at before-commit (100 repetitions) (67110.059375ms)
+▶ V3 SIGKILL at after-commit (100 repetitions)
+  ✔ retrying the original envelope after a kill at after-commit yields exactly one accepted save (67453.008084ms)
+✔ V3 SIGKILL at after-commit (100 repetitions) (67453.163083ms)
+▶ B2-09 real disk exhaustion
+  ✔ a save that cannot be stored is never acknowledged and earlier bytes survive (2169.515166ms)
+✔ B2-09 real disk exhaustion (2169.726083ms)
+ℹ tests 3
+ℹ suites 3
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 146087.307583

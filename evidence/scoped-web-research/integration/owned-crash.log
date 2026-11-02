@@ -1,0 +1,19 @@
+
+> render@0.0.0 verify:source-root-crash
+> node --test test/source-root-crash.test.ts test/owned-check-crash.test.ts
+
+✔ owned-source crash after-sandbox-stop: durable diagnostics, exact receipt or explicit blocked recovery (2527.140709ms)
+✔ owned-source crash before-source-root: durable diagnostics, exact receipt or explicit blocked recovery (2966.202125ms)
+✔ owned-source crash after-source-root: durable diagnostics, exact receipt or explicit blocked recovery (2932.2975ms)
+✔ owned-source crash before-commit: durable diagnostics, exact receipt or explicit blocked recovery (3203.496333ms)
+✔ owned-source crash after-commit: durable diagnostics, exact receipt or explicit blocked recovery (3249.741292ms)
+✔ source-root-crash: SIGKILL before-source-root never accepts different source (3694.260833ms)
+✔ source-root-crash: SIGKILL after-source-root never accepts different source (3678.236084ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 15081.723084

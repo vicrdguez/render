@@ -1,0 +1,10 @@
+## Standards
+
+Reviewed serially by the implementer because no subagent-launch tool is available; no independent/fresh-context review is claimed. Candidate A: `fa98dcea957d7616c17c561c2775ace3a74ea69d`; fixed point/observed target: `0c36b60aad07c6e67846396832739434c370dc56`. Diff: `git diff 0c36b60aad07c6e67846396832739434c370dc56...HEAD`; commits: `2e894bb`, `fa98dce`. Read changed product hunks, tool callers, parser/Kernel matrix, Ledger history/integrity/startup/replay paths, AGENTS.md, testing skill/resources, smell baseline and acceptance criteria.
+
+- **F1 HARD — docs/web-research.md:32.** The implementation candidly records that cancellation/process/control and composed evidence was added during implementation. A3/T1 explicitly require executable scenarios and targeted unsafe controls **before** product code. Initial failure prose and first tests did precede product changes, but that does not satisfy the stronger ordering commitment. Green later controls cannot retroactively establish compliance. This requires explicit treatment, not a false preimplementation claim.
+- **F2 JUDGEMENT — src/engine/web.ts:136,154. Duplicated Code.** The unavailable/`PROVIDER_FAILURE && retryable === true` predicate is repeated in document-error and thrown-error branches. A small named classifier taking the normalized code/retryable flag would remove the risk that the branches drift while preserving the current failure semantics and existing HTTP/control coverage. No provider framework or new abstraction hierarchy is warranted.
+
+Gate on A: `npm test` **85/85 pass**, 75.826 s; `npm run typecheck` exit 0; `npm run lint` exit 0 (warnings, not warning-free). `git diff --check` exit 0. Extended V1/V2/V3 and 23 intended unsafe controls pass; they do not erase F1's chronology. Existing package versions remain unchanged; Webfox is exactly 4.8.0 and the added closure is locked. No unrelated inherited-source finding is raised.
+
+**Standards: HARD 1, JUDGEMENT 1. Worst issue: required preimplementation ordering was not fully followed. Full Gate: PASS.**

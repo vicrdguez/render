@@ -1,0 +1,58 @@
+{
+	"name": "render",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"engines": {
+		"node": "24.21.0"
+	},
+	"scripts": {
+		"start": "node src/host/main.ts serve",
+		"test": "node --test --test-concurrency=1 test/*.test.ts",
+		"typecheck": "tsc --noEmit -p .",
+		"lint": "biome check .",
+		"verify:kernel-authority-schedules": "RENDER_V1_SCHEDULES=10000 node --test test/kernel-authority-schedules.test.ts",
+		"verify:sqlite-command-atomicity": "RENDER_V2_SCHEDULES=256 node --test test/sqlite-command-atomicity.test.ts",
+		"verify:command-crash-recovery": "node --test test/command-crash-recovery.test.ts",
+		"verify:two-client-reattach": "node --test test/two-client-reattach.test.ts test/history-cutoff-export.test.ts test/history-cursor-transfer.test.ts",
+		"verify:persistence-startup": "node --test test/persistence-startup.test.ts test/role-recovery-startup.test.ts",
+		"verify:local-command-load": "node --test test/local-command-load.test.ts",
+		"verify:scoped-web-research": "node --test test/scoped-web-research.test.ts test/web-report-declaration.test.ts test/web-cancellation-outcome.test.ts",
+		"verify:web-negative-journey": "node --test --test-name-pattern='selected negative evidence' test/scoped-web-research.test.ts",
+		"verify:offhost-exposure-cutoff": "node --test --test-name-pattern=offhost-exposure-cutoff test/offhost-protection.test.ts",
+		"verify:manual-recovery-rehearsal": "node --test --test-name-pattern=manual-recovery-rehearsal test/offhost-protection.test.ts",
+		"verify:package-clean-restore": "node --test --test-name-pattern=package-clean-restore test/recovery-packages.test.ts test/recovery-policy.test.ts",
+		"verify:package-origin-auth-fence": "node --test --test-name-pattern=package-origin-auth-fence test/recovery-packages.test.ts",
+		"verify:repair-crash": "node --test --test-name-pattern=repair-crash test/recovery-packages.test.ts",
+		"verify:restore-newer-world": "node --test --test-name-pattern=restore-newer-world test/recovery-packages.test.ts test/recovery-role-work.test.ts",
+		"verify:package-validation": "node --test --test-name-pattern=package-validation test/recovery-packages.test.ts test/recovery-role-work.test.ts test/recovery-policy.test.ts",
+		"verify:durable-tool-replay": "node --test test/durable-tool-replay.test.ts",
+		"verify:workflow-task-survival": "node --test test/workflow-task-survival.test.ts",
+		"verify:role-capability-refusal": "node --test test/role-capability-refusal.test.ts",
+		"verify:cancellation-capacity": "node --test test/cancellation-capacity.test.ts test/role-recovery-startup.test.ts test/role-waiting.test.ts test/role-wait-restart.test.ts",
+		"verify:history-cutoff-export": "node --test test/history-cutoff-export.test.ts test/history-missing-data.test.ts test/history-message.test.ts test/history-completeness.test.ts test/history-cursor-transfer.test.ts test/role-history.test.ts",
+
+		"verify:history-command-load": "node --test test/history-command-load.ts",
+		"verify:context-continuation-independence": "node --test test/context-continuation-independence.test.ts test/workflow-task-survival.test.ts test/role-wait-restart.test.ts test/child-replacement.test.ts",
+		"verify:native-compaction-history": "node --test test/native-compaction-history.test.ts",
+		"verify:policy-adoption": "node --test test/policy-adoption.test.ts test/child-replacement.test.ts",
+		"verify:task-version-recovery": "node --test test/task-version-recovery.test.ts test/role-recovery-startup.test.ts",
+		"verify:independent-export-reader": "node --test test/independent-export-reader.test.ts",
+		"verify:linux-profile-owned-check": "node --test test/linux-profile-owned-check.test.ts test/owned-check-history.test.ts test/owned-source-recovery.test.ts",
+		"verify:literal-source-roundtrip": "node --test test/literal-source-roundtrip.test.ts test/literal-source-names.test.ts test/owned-source-controls.test.ts",
+		"verify:whole-container-quiescence": "node --test test/whole-container-quiescence.test.ts test/owned-source-recovery.test.ts test/owned-check-cancellation.test.ts",
+		"verify:source-root-crash": "node --test test/source-root-crash.test.ts test/owned-check-crash.test.ts",
+		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts"
+	},
+	"dependencies": {
+		"@earendil-works/chord": "1.4.0",
+		"@earendil-works/pi-ai": "1.4.0",
+		"@earendil-works/pi-durable": "1.4.0",
+		"webfox": "4.8.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.6.4",
+		"@types/node": "24.19.2",
+		"typescript": "7.0.2"
+	}
+}

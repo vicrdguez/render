@@ -1,0 +1,13 @@
+
+> render@0.0.0 verify:web-negative-journey
+> node --test --test-name-pattern='selected negative evidence' test/scoped-web-research.test.ts
+
+✔ B4 selected negative evidence survives expiry/reopen/export; old working handle never refetches (1486.487584ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1685.8165

@@ -1,0 +1,14 @@
+
+> render@0.0.0 verify:manual-recovery-rehearsal
+> node --test --test-name-pattern=manual-recovery-rehearsal test/offhost-protection.test.ts
+
+✔ manual-recovery-rehearsal: destination only, exact cutoff, missing progress and safe restricted resume (1138.944875ms)
+ℹ owned manual rehearsal elapsed 423.7 ms; cutoff 4; later progress lost; real destination/tool provisioning and effect reconciliation remain prerequisites; no RTO
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1332.21

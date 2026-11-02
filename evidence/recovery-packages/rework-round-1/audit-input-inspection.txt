@@ -1,0 +1,22 @@
+# Implement source inspection
+
+Repository: vicrdguez/render on remote `origin`
+Work Item: render-v1/recovery-packages
+Branch: `slice/render-v1/recovery-packages`
+Worktree: `/Users/vr-osxs/dev/render/.worktrees/slice/render-v1/recovery-packages`
+Result Documents: `/var/folders/6l/kc_jx1z95ydf0lsdfz3cj8cm0000gn/T/skl-implement-3022610760`
+Claim: `49bf0ff1a644751498fb3747387b816cd783c331`
+Required head: `31c00fba1209a882e6931f8e9adceec81cbbcc60`
+Source head: `12a7a2174ce21b83ad374ff11051b23bcfe46466`
+Integrated target: `158631fc6805dca999d259d93b15997bab288d14`
+Recorded Integration Target: `158631fc6805dca999d259d93b15997bab288d14`
+Previous reviewed revision: `31c00fba1209a882e6931f8e9adceec81cbbcc60`
+Review scope: `incremental`
+
+These are the prepared source facts. Re-read them with `skl implement inspect --repo '/Users/vr-osxs/dev/render' --remote 'origin' --slice 'render-v1/recovery-packages' --claim '49bf0ff1a644751498fb3747387b816cd783c331' --result-directory '/var/folders/6l/kc_jx1z95ydf0lsdfz3cj8cm0000gn/T/skl-implement-3022610760' --harness 'pi' --target '158631fc6805dca999d259d93b15997bab288d14'` after edits and before you submit.
+
+- Continue this Claim with `skl implement resume --repo '/Users/vr-osxs/dev/render' --remote 'origin' --slice 'render-v1/recovery-packages' --claim '49bf0ff1a644751498fb3747387b816cd783c331' --result-directory '/var/folders/6l/kc_jx1z95ydf0lsdfz3cj8cm0000gn/T/skl-implement-3022610760' --harness 'pi'`.
+- Submit settled work with `skl implement submit --repo '/Users/vr-osxs/dev/render' --remote 'origin' --slice 'render-v1/recovery-packages' --claim '49bf0ff1a644751498fb3747387b816cd783c331' --body '/var/folders/6l/kc_jx1z95ydf0lsdfz3cj8cm0000gn/T/skl-implement-3022610760/implement-report.md' --public-body '/var/folders/6l/kc_jx1z95ydf0lsdfz3cj8cm0000gn/T/skl-implement-3022610760/public.md' --run-metadata '/var/folders/6l/kc_jx1z95ydf0lsdfz3cj8cm0000gn/T/skl-implement-3022610760/run.json' --head <final-source-sha> --target <observed-target-sha>`.
+- Pause for a human decision with `skl implement needs-human --repo '/Users/vr-osxs/dev/render' --remote 'origin' --slice 'render-v1/recovery-packages' --claim '49bf0ff1a644751498fb3747387b816cd783c331' --body '/var/folders/6l/kc_jx1z95ydf0lsdfz3cj8cm0000gn/T/skl-implement-3022610760/implement-report.md' --public-body '/var/folders/6l/kc_jx1z95ydf0lsdfz3cj8cm0000gn/T/skl-implement-3022610760/public.md' --run-metadata '/var/folders/6l/kc_jx1z95ydf0lsdfz3cj8cm0000gn/T/skl-implement-3022610760/run.json' --head <branch-head> --target <observed-target-sha>`.
+- Release the Claim with `skl implement release --repo '/Users/vr-osxs/dev/render' --remote 'origin' --slice 'render-v1/recovery-packages' --claim '49bf0ff1a644751498fb3747387b816cd783c331'`.
+
