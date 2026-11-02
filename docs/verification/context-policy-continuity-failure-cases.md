@@ -13,6 +13,13 @@ These are literal acceptance expectations, not generated snapshots.
 | policy-adoption | Future defaults do not mutate active binding. Human adoption names an immutable revision and compares an expected binding revision. Wrong principal/stale binding refuses atomically. Adopt away/back creates distinct binding revisions; an old prepared basis never becomes current again. Submitted Watchdog assignments/history remain intact. Checkpoint routing is not part of ordinary policy. |
 | task-version-recovery | Missing/newer/older task definitions and a throwing migration block without changing ownership or history. Compatible definitions can resume; incompatible semantics require distinct names and old handlers. Orphaned abort remains an uncertainty blocker. Rollback is supported only with a compatible executable/store and declared cutoff/reconciliation. |
 
+## Child replacement regressions (before product repairs)
+
+- A coordinator awaiting a challenger must not be offered cancellation merely for awaiting results. A blocked child is the checked handover target instead.
+- Policy adoption during a child provider request preserves the parent owner and fences the old result. After checked child cancellation, the canceled leaf alone must not release the wait; an executing replacement must not release it either.
+- Once the fresh linked child submits, the same parent Attempt/conversation must continue and read only the replacement's retained report, not a canceled Attempt's late result. Cover live continuation and closing/reopening the real store during the wait.
+- Repeat cancellation/replacement after an ordinary `role_did_not_submit` failure: the entire predecessor chain remains historical, while the final submitted replacement satisfies the original request. No new request or parent owner is created.
+
 ## Rework regressions (before product repairs)
 
 - Distinguish an earlier non-candidate Watchdog packet, a candidate report and an experiment-candidate report. Each is refused as `forbidden_scope` for a fresh Watchdog; disabling only its corresponding guard must accept the input and fail that oracle. Keep the five independent destination-role checks too.
