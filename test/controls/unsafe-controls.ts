@@ -14,6 +14,44 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "investigation-automatic-shape-consent",
+		expect: /unconfirmed classifier shape must not become consent/,
+		behavior: "an unconfirmed classifier suggestion authorizes investigation",
+		edits: [
+			{ file: "src/kernel/investigation.ts", find: 'ground.shape.origin === "classifier" && !ground.shape.confirmed', replace: "false" },
+		],
+		test: "test/ground-investigation.test.ts",
+		pattern: "Kernel distinguishes",
+	},
+	{
+		name: "investigation-delivery-work",
+		expect: /investigation must not create delivery work/,
+		behavior: "Ground creates a delivery owner without a Contract",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: "if (c.delivery && c.packet.investigation)",
+				replace: "if (false && c.delivery && c.packet.investigation)",
+			},
+		],
+		test: "test/ground-investigation.test.ts",
+		pattern: "Ground cannot authorize",
+	},
+	{
+		name: "investigation-uncited-result",
+		expect: /uncited or out-of-scope finding must not settle/,
+		behavior: "an uncited model assertion settles investigation",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: "if (a.packet.investigation && !outcome)",
+				replace: "if (false && a.packet.investigation && !outcome)",
+			},
+		],
+		test: "test/ground-investigation.test.ts",
+		pattern: "uncited, foreign",
+	},
+	{
 		name: "catalog-discovery-proof",
 		expect: /non-executable evidence must not qualify as behavioral proof/,
 		behavior: "silently omit generated discovery from required behavioral coverage",
@@ -51,7 +89,6 @@ const CONTROLS: Control[] = [
 		test: "test/verification-catalog.test.ts",
 		pattern: "catalog refuses old verifier",
 	},
-
 	...[
 		{
 			name: "inherited-noncandidate-packet",

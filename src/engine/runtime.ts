@@ -76,6 +76,7 @@ type EngineConfig = {
 	families?: Readonly<Record<string, string>>;
 	provider?: Provider;
 	ownedChecks?: OwnedChecks;
+	investigations?: { root: string; repositories: Readonly<Record<string, string>> };
 	web?: WebConfig;
 };
 
@@ -88,6 +89,7 @@ export class Engine {
 	#sessions = new Map<string, { assignment: string; task: number }>();
 	readonly #config: EngineConfig;
 	readonly #effects: Effects | undefined;
+	readonly #investigationEffects: Effects | undefined;
 	readonly #sandboxes: Sandboxes | undefined;
 	readonly #ownedActive = new Set<string>();
 	readonly #roles;
@@ -97,6 +99,7 @@ export class Engine {
 
 	constructor(config: EngineConfig = {}) {
 		this.#config = config;
+		if (config.investigations) this.#investigationEffects = new Effects(config.investigations);
 		if (config.ownedChecks) {
 			this.#effects = new Effects({ root: `${config.ownedChecks.root}/effects`, repositories: config.ownedChecks.repositories });
 			this.#sandboxes = new Sandboxes({
@@ -455,15 +458,17 @@ export class Engine {
 								.then(() => this.reconcile());
 						const blocker = this.#configurationBlocker(a);
 						let prompt: string;
-						let catalogGap: string | undefined;
+						let inputBlocker: string | undefined;
 						try {
+							if (!blocker && a.packet.investigation) await this.#prepareInvestigation(a);
 							prompt = blocker ? "" : await this.render(a);
 						} catch (error) {
 							prompt = "";
-							if (a.packet.verification) catalogGap = `verification_unrun: ${error}`.slice(0, 1900);
+							if (a.packet.verification) inputBlocker = `verification_unrun: ${error}`.slice(0, 1900);
+							if (a.packet.investigation) inputBlocker = `investigation_input_unavailable: ${error}`.slice(0, 1900);
 						}
 						if (blocker || !prompt || Buffer.byteLength(prompt) > a.packet.maxInputBytes) {
-							await this.#command(a, { type: "recordBlocker", reason: blocker ?? catalogGap ?? "required_inputs_do_not_fit" });
+							await this.#command(a, { type: "recordBlocker", reason: blocker ?? inputBlocker ?? "required_inputs_do_not_fit" });
 							return runtime
 								.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context)
 								.then(() => this.reconcile());
@@ -707,7 +712,9 @@ export class Engine {
 		if (!("content" in retained) || retained.content.toString("utf8") !== JSON.stringify(a.packet))
 			throw new Error(`Restore exact packet ${a.packetRef}; binding is missing, corrupt or incompatible.`);
 		const inputs: { ref: string; text: string }[] = [];
-		for (const ref of packetRefs(a.packet)) {
+		if (a.packet.investigation && !current.investigationSource)
+			throw new Error("Required investigation source observation is unavailable.");
+		for (const ref of [...packetRefs(a.packet), ...(current.investigationSource ? [current.investigationSource] : [])]) {
 			const value = await this.#ledger.artifact(context, { read: ref });
 			if (!("content" in value)) throw new Error(`Required exact input ${ref}: ${value.code}`);
 			inputs.push({ ref, text: value.content.toString("utf8") });
@@ -737,6 +744,16 @@ export class Engine {
 			generation: a.generation,
 			attempt: a.attempt,
 			packet: a.packet,
+			...(a.packet.investigation
+				? {
+						playbook: {
+							shape: "investigation",
+							instructions:
+								"Read the complete scoped source, context, ADRs, full principles and verification instructions in inputs. Preserve human Ground separately from suggestions. No source writes, implementation commitment, delivery roles or publication. A model assertion is not execution evidence. Submit JSON with schema:1, outcome:'finding'|'escalation', summary, facts:[{text,citations:[{ref,path?}]}], uncertainties:[], limits:[], next:null for finding or {playbook:'design'|'experiment'|'change'|'bug'|'performance',reason,question} for escalation. Cite exact source ref plus path; cite other input refs without path. Required experiments/new seams/product choices/source changes escalate with facts, precise missing capability and next human question. These continuation playbooks are unavailable in this staged build; suggestions confer no authorization.",
+							source: current.investigationSource,
+						},
+					}
+				: {}),
 			executionPolicy: policy.revisions[binding.policy],
 			policyBinding: binding.revision,
 			inputs,
@@ -1021,7 +1038,44 @@ export class Engine {
 		if (reply.status !== "accepted")
 			throw new Error(`Owned diagnostic retention refused: ${reply.status === "refused" ? reply.code : reply.status}`);
 	}
+	async #prepareInvestigation(a: RoleAssignment): Promise<void> {
+		if (a.investigationSource) return; // Exact retained bytes, never refetch a damaged historical citation.
+		const input = a.packet.investigation!;
+		const source = await this.#investigationEffects!.perform({ type: "resolve", repository: input.repository, commit: input.commit });
+		const entries = input.paths.map((path) => {
+			const entry = source.entries.find((e) => e.path === path);
+			if (!entry) throw new Error(`Restore exact source ${source.commit}:${path}.`);
+			const bytes = Buffer.from(entry.content, "base64");
+			const text = bytes.toString("utf8");
+			if (!Buffer.from(text).equals(bytes) || bytes.includes(0))
+				throw new Error(`Unsupported non-text investigation input ${source.commit}:${path}; supply an explicit readable artifact.`);
+			return { path: entry.path, mode: entry.mode, oid: entry.oid, text };
+		});
+		const text = JSON.stringify({
+			schema: 1,
+			kind: "investigation-source",
+			repository: source.repository,
+			commit: source.commit,
+			tree: source.tree,
+			objectFormat: source.objectFormat,
+			entries,
+		});
+		const reply = await this.#ledger!.command(
+			{
+				version: 1,
+				authorityEpoch: this.#ledger!.status().authorityEpoch,
+				commandId: `investigation-source:${a.id}:${a.generation}`,
+				workflow: a.workflow,
+				command: { type: "recordSourceObservation", assignment: a.id, generation: a.generation, attempt: a.attempt, text },
+			},
+			mintContext({ kind: "host", scope: "effects" }),
+		);
+		if (reply.status !== "accepted")
+			throw new Error(`Source retention refused: ${reply.status === "refused" ? reply.reason : reply.status}`);
+	}
 	#configurationBlocker(a: RoleAssignment): string | undefined {
+		if (a.packet.investigation && !this.#investigationEffects && !a.investigationSource)
+			return "investigation_source_capability_unavailable";
 		if (a.packet.execution === "linux-writer" && this.#config.ownedChecks)
 			return Object.hasOwn(this.#config.ownedChecks.checks, a.packet.profile) ? undefined : "owned_check_profile_unavailable";
 		if (!this.#config.apiKey) return "native_provider_configuration_missing";

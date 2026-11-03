@@ -1,6 +1,7 @@
 // Kernel: pure domain legality. No I/O, clock reads, randomness or ID minting; Ledger supplies resolved state
 // and verified facts, and stages the returned writes atomically.
 
+import type { Ground } from "./investigation.ts";
 import { changePolicy, initialPolicy, type PolicyCommand, type PolicyState } from "./policy.ts";
 import { changeRole, ROLE_COMMANDS, type RoleAssignment, type RoleCommand, type RoleIntent, type RoleWorkState } from "./roles.ts";
 
@@ -62,6 +63,7 @@ export type KernelState = {
 };
 
 export type VerifiedFacts = {
+	readonly investigationGround?: Ground;
 	readonly verificationEvidence?: readonly import("./verification.ts").CatalogEvidence[];
 	readonly executorEpoch?: string;
 	readonly principal: Principal;
@@ -104,6 +106,7 @@ export type DomainWrite =
 	| { readonly type: "fact.record"; readonly fact: string; readonly command: string; readonly refs: Readonly<Record<string, string>> };
 
 export type RefusalCode =
+	| "shape_confirmation_required"
 	| "stale_assignment"
 	| "assignment_not_running"
 	| "ownership_conflict"
@@ -191,7 +194,7 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	cleanupWorkspace: { family: "scheduling", available: false },
 	stageOperation: { family: "source-effect", available: false },
 	admitEffect: { family: "source-effect", available: false },
-	recordSourceObservation: { family: "source-effect", available: false },
+	recordSourceObservation: { family: "source-effect", available: true },
 	recordRunnerObservation: { family: "source-effect", available: true },
 	recordRunnerDiagnostic: { family: "source-effect", available: true },
 	recordForgeObservation: { family: "source-effect", available: false },
