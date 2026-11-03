@@ -129,17 +129,13 @@ If Ledger storage is unavailable, the private journal remains and recovery stays
 
 Historical reads and export retain the immutable receipt and diagnostics with trusted assignment provenance and the original cutoff.
 History export explicitly excludes `private_git_source_objects`; its `complete` flag means complete selected history,
-not a recoverable source package. Source objects remain privately rooted for the later package capability. That
-capability remains unavailable for role-bearing stores: the integrated package implementation explicitly refuses
-`role-work reconciliation unavailable`, including owned-check receipts/diagnostics. This refusal is tested rather than
-publishing a package that drops source or replays assignments. Supported role-free packages and their validation/restore
-continue unchanged. Keep private source roots/journals with the original authority store; history export is not backup.
+not a recoverable source package. Source objects remain privately rooted for ordinary execution durability. Keep private source roots/journals with the original authority store; history export is not backup. Disaster recovery is deferred after v1, without restricting runtime records to a package format.
 
 ## Verification and remaining work
 
 Preimplementation cases: `docs/verification/owned-source-check-failure-cases.md`.
 
-- `verify:linux-profile-owned-check`: owned services, scope/profile refusals, containment and actual Linux execution; receipt/history/reopen, unchanged-source `passed`/`failed` with declared caches, failure diagnostics, pre-create capacity/writer release and honest package refusal.
+- `verify:linux-profile-owned-check`: owned services, scope/profile refusals, containment and actual Linux execution; receipt/history/reopen, unchanged-source `passed`/`failed` with declared caches, failure diagnostics, pre-create capacity/writer release.
 - `verify:literal-source-roundtrip`: literal attributes/CRLF/symlink/executable/unusual-name bytes, actual deletion, hardlinks, FIFO/sparse/mode/representation/collision/entry/exclusion refusals; unsafe archive comparison and source-control oracles.
 - `verify:whole-container-quiescence`: background writer stopped, new execute refused, missing-runtime quarantine/no reuse, never-issued create absence (including stop racing prepare and reopen), transient outage reconciliation, and cancellation while a rooted source effect remains admitted.
 - `verify:source-root-crash`: SIGKILL before/after source rooting, after freeze and before/after Ledger receipt commit; actual diagnostics survive, missing receipts block, committed receipts survive, exact retry and wrong-source refusal.
@@ -147,7 +143,7 @@ Preimplementation cases: `docs/verification/owned-source-check-failure-cases.md`
 
 `RENDER_V3_REPETITIONS=100` selects extended critical-point jobs, separate from smoke. Repeat cancellation with
 `RENDER_V3_REPETITIONS=100 node --test test/owned-check-cancellation.integration.ts`. Historical results are recorded separately,
-not inferred from these commands. Complete role/source recovery packages and full later-feature V8/V9 remain unavailable.
+not inferred from these commands. Full later-feature V8/V9 remain unavailable; disaster recovery is deferred, not a v1 completion gate.
 No human usability, native Mac, physical second-device, live-model, private-route confinement or physical power-loss
 trial is claimed. Execution-time workspace quotas are outside this slice, not an unrun acceptance requirement.
 

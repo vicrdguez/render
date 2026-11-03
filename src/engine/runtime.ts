@@ -968,7 +968,7 @@ export class Engine {
 						this.#scope(a),
 						JSON.stringify({ ...receipt, kind: "owned-check-diagnostic", observed: receipt.verification, verification: "unaccepted" }),
 					);
-					throw new Error(`Owned check receipt refused: ${reply.status === "refused" ? reply.code : reply.status}`);
+					throw new Error(`Owned check receipt refused: ${reply.code}`);
 				}
 			}
 		} catch (error) {
@@ -1035,8 +1035,7 @@ export class Engine {
 			},
 			mintContext({ kind: "host", scope: "effects" }),
 		);
-		if (reply.status !== "accepted")
-			throw new Error(`Owned diagnostic retention refused: ${reply.status === "refused" ? reply.code : reply.status}`);
+		if (reply.status !== "accepted") throw new Error(`Owned diagnostic retention refused: ${reply.code}`);
 	}
 	async #prepareInvestigation(a: RoleAssignment): Promise<void> {
 		if (a.investigationSource) return; // Exact retained bytes, never refetch a damaged historical citation.
@@ -1070,8 +1069,7 @@ export class Engine {
 			},
 			mintContext({ kind: "host", scope: "effects" }),
 		);
-		if (reply.status !== "accepted")
-			throw new Error(`Source retention refused: ${reply.status === "refused" ? reply.reason : reply.status}`);
+		if (reply.status !== "accepted") throw new Error(`Source retention refused: ${reply.reason}`);
 	}
 	#configurationBlocker(a: RoleAssignment): string | undefined {
 		if (a.packet.investigation && !this.#investigationEffects && !a.investigationSource)
@@ -1097,7 +1095,6 @@ export class Engine {
 			},
 			scheduling,
 		);
-		if (reply.status === "packaged") throw new Error("Unexpected local-admin response to role command");
 		return reply;
 	}
 	async #identity(api: ToolExecutionApi, toolName: string) {

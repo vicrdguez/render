@@ -24,8 +24,6 @@ function strings(value: unknown): string[] {
 async function main(): Promise<void> {
 	const bundle = object(JSON.parse(await readFile(process.argv[2] ?? "", "utf8")));
 	const manifest = object(bundle.manifest);
-	// Operational declaration is current at export, not evidence at the selected history cutoff.
-	const backup = bundle.backup === undefined ? undefined : object(bundle.backup);
 	if (bundle.version !== 1 || manifest.version !== 1)
 		throw new Invalid("unsupported_version", "Only render-history version 1 is supported.");
 	requireExport(manifest.format === "render-history", "Unknown export format.");
@@ -103,7 +101,7 @@ async function main(): Promise<void> {
 			"Unreferenced content.",
 		);
 	process.stdout.write(
-		`${JSON.stringify({ version: 1, cutoff: manifest.cutoff, complete: manifest.complete, missing, exclusions: manifest.exclusions, scope, records, documents, ...(backup ? { backup } : {}) })}\n`,
+		`${JSON.stringify({ version: 1, cutoff: manifest.cutoff, complete: manifest.complete, missing, exclusions: manifest.exclusions, scope, records, documents })}\n`,
 	);
 }
 main().catch((error: unknown) => {

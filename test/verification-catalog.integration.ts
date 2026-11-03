@@ -65,16 +65,6 @@ test("catalog Linux results require assessment, retain independent evidence and 
 		const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
 		assert.ok("manifest" in exported);
 		assert.equal(Buffer.from(exported.content[a.report!]!, "base64").toString(), read.content.toString());
-		const packaged = await f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: f.ledger.status().authorityEpoch,
-				commandId: "catalog-package",
-				command: { type: "createRecoveryPackage" },
-			},
-			admin,
-		);
-		assert.equal(packaged.status, "refused");
 		await f.reopen(new Engine({ ownedChecks: f.config }));
 		const after = await f.ledger.artifact(admin, { read: a.report! });
 		assert.ok("content" in after);

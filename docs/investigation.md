@@ -102,11 +102,7 @@ use existing checked cancellation/replacement for a new bounded investigation, n
 Missing/corrupt inputs name the exact restoration ref and block affected reads/work; a later source observation
 or newer Ground is not a replacement for missing historical bytes.
 
-The recovery-package validator is deliberately unchanged: stores containing role work are **not packageable**
-in this staged build. A normal restart/history/export success is not a disaster-recovery success. Never delete
-runtime records to obtain a package or claim the last good package protects later investigation work. Existing
-backup warnings/cutoffs remain visible. Extended role/source disaster recovery is tracked in
-[issue 47](https://github.com/vicrdguez/render/issues/47), per the accepted human decision.
+Disaster recovery is deferred after v1. Normal restart/history/export does not imply host-loss recovery. Retain all necessary runtime records, citations and source observations without package-representability constraints.
 
 ## Verification and limits
 
