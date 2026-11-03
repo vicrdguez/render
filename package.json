@@ -19,6 +19,7 @@
 		"verify:complete": "npm run verify:gate && npm run test:extended && npm run verify:unsafe-controls",
 		"typecheck": "tsc --noEmit -p .",
 		"lint": "biome check .",
+		"verify:editable-checkpoints": "node --test --test-concurrency=1 test/checkpoint-authority.test.ts test/editable-checkpoints.test.ts",
 		"verify:ground-investigation": "node --test --test-concurrency=1 test/ground-investigation.test.ts test/investigation-crash.integration.ts",
 		"verify:investigation-crash": "node --test test/investigation-crash.integration.ts",
 		"verify:kernel-authority-schedules": "RENDER_V1_SCHEDULES=10000 node --test test/kernel-authority-schedules.test.ts",

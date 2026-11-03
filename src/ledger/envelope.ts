@@ -1,6 +1,7 @@
 // Strict parsing of the version-1 command envelope (docs/protocol.md). Unknown fields are refused so that no
 // body field can pose as a principal, route or capability.
 import { createHash } from "node:crypto";
+import { CHECKPOINT_COMMANDS, type CheckpointCommand } from "../kernel/checkpoints.ts";
 import { type Command, isAvailableCommand, type MediaType, type Persistence } from "../kernel/kernel.ts";
 
 import { ROLE_COMMANDS, ROLES, type RoleCommand, type RolePacket } from "../kernel/roles.ts";
@@ -87,10 +88,15 @@ export function parseEnvelope(raw: unknown): Envelope | EnvelopeRefusal {
 
 function available(type: string, c: Fields, workflow: string | null, expected: Fields | undefined): { command: Command; content?: Buffer } {
 	const needsWorkflow =
-		type === "adoptPolicy" || type === "saveDocument" || type === "postCoordinatorMessage" || ROLE_COMMANDS.includes(type);
+		type === "adoptPolicy" ||
+		type === "saveDocument" ||
+		type === "postCoordinatorMessage" ||
+		ROLE_COMMANDS.includes(type) ||
+		CHECKPOINT_COMMANDS.includes(type);
 	if (needsWorkflow && workflow === null) malformed(`${type} requires a workflow`);
 	if (!needsWorkflow && workflow !== null) malformed(`${type} takes no workflow`);
 	if (type !== "saveDocument" && expected !== undefined) malformed(`${type} takes no expected basis`);
+	if (CHECKPOINT_COMMANDS.includes(type)) return { command: checkpointCommand(type, c, workflow as string) };
 	if (ROLE_COMMANDS.includes(type)) return { command: roleCommand(type, c, workflow as string) };
 	switch (type) {
 		case "changePolicy": {
@@ -167,6 +173,55 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 		default:
 			return malformed(`unhandled command ${type}`);
 	}
+}
+
+function checkpointCommand(type: string, c: Fields, workflow: string): CheckpointCommand {
+	const fields: Record<string, string[]> = {
+		requestCheckpoint: ["stage", "scope", "required"],
+		stageCheckpoint: ["request", "text", "manifest"],
+		requestCheckpointReview: ["request", "key"],
+		emitCheckpoint: ["request", "review", "contested"],
+		reworkCheckpoint: ["request"],
+		saveCheckpointConcern: ["request", "base", "text", "kind"],
+		approveCheckpoint: ["request", "emission", "manifest", "annotations", "policyBinding", "decisions", "nonbinding"],
+		cancelCheckpoint: ["request", "expectedEmission", "reason"],
+	};
+	only(c, ["type", ...fields[type]!], "checkpoint command");
+	if (type === "requestCheckpoint") {
+		if (c.stage !== "seams" && c.stage !== "modules") malformed("Technical checkpoints are seams or modules");
+		text(c.scope, "scope", 128);
+		const required = object(c.required, "required");
+		only(required, ["candidates", "experiment"], "required");
+		if (typeof required.candidates !== "boolean" || typeof required.experiment !== "boolean")
+			malformed("Declare required candidate and experiment evidence");
+	} else text(c.request, "request", 128);
+	for (const key of ["text", "reason"]) {
+		if (!fields[type]!.includes(key)) continue;
+		if (key === "text" && type === "saveCheckpointConcern" && c.kind !== "reason" && c.text === "") continue;
+		text(c[key], key, 16 * 1024 * 1024);
+	}
+	for (const key of ["base", "emission", "review", "key", "policyBinding"]) if (fields[type]!.includes(key)) text(c[key], key, 128);
+	if (type === "saveCheckpointConcern" && c.kind !== undefined && c.kind !== "edit" && c.kind !== "reason")
+		malformed("Concern kind is edit or reason");
+	if (type === "cancelCheckpoint" && c.expectedEmission !== null) text(c.expectedEmission, "expectedEmission", 128);
+	if (type === "stageCheckpoint") object(c.manifest, "manifest");
+	if (type === "emitCheckpoint") {
+		if (!Array.isArray(c.contested)) malformed("contested must be an array");
+		for (const v of c.contested) {
+			const r = object(v, "response");
+			only(r, ["objection", "disposition", "reason", "resulting"], "response");
+			for (const k of ["objection", "disposition", "reason", "resulting"]) text(r[k], k, 65536);
+		}
+	}
+	if (type === "approveCheckpoint") {
+		text(c.manifest, "manifest", 128);
+		if (!Number.isSafeInteger(c.annotations) || Number(c.annotations) < 0) malformed("annotations must be a nonnegative revision");
+		const decisions = object(c.decisions, "decisions");
+		for (const v of Object.values(decisions)) text(v, "decision", 65536);
+		if (!Array.isArray(c.nonbinding) || !c.nonbinding.every((v) => typeof v === "string"))
+			malformed("nonbinding must explicitly list note IDs");
+	}
+	return { ...c, type, workflow } as CheckpointCommand;
 }
 
 function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {

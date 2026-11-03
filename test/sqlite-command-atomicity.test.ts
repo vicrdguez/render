@@ -115,7 +115,7 @@ describe("B1 authority precedes disclosure (literal cases)", () => {
 		assert.equal(unknown.body.code, "unknown_command");
 		const future = await http(host.url, "POST", "/v1/commands", {
 			bearer: a.bearer,
-			body: envelope(epoch, { type: "approveCheckpoint" }, { workflow: w1 }),
+			body: envelope(epoch, { type: "acceptIntake" }, { workflow: w1 }),
 		});
 		assert.equal(future.status, 501);
 		assert.equal(future.body.code, "capability_unavailable");
