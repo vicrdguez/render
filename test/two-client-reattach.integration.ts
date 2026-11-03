@@ -187,7 +187,8 @@ describe("V4 two stateless clients", () => {
 			assert.ok(field in view, `snapshot lacks ${field}`);
 		}
 		assert.equal((view.ground as Record<string, unknown>).revision, ra);
-		for (const absent of ["coordinator-replies", "checkpoints"]) {
+		assert.deepEqual(view.checkpoints, { requests: [], concerns: [] });
+		for (const absent of ["coordinator-replies", "intake-acceptance"]) {
 			assert.ok((view.unavailable as string[]).includes(absent), absent);
 		}
 		assert.equal((snap.json.history as Record<string, unknown>).status, "available");

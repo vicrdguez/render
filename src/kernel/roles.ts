@@ -189,10 +189,10 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
 			return refusal("assignment_not_running", "A new call requires current executing authority.");
 	}
-	const affectedInputs = c.type === "assignTask" || c.type === "replaceTask" ? (c.packet?.inputs ?? []) : (a?.packet.inputs ?? []);
+	const affectedPacket = c.type === "assignTask" || c.type === "replaceTask" ? c.packet : a?.packet;
 	if (
 		["assignTask", "replaceTask", "stageTask", "rebindAttempt", "requestRole"].includes(c.type) &&
-		blockedBySeams(state.checkpoints, affectedInputs)
+		blockedBySeams(state.checkpoints, affectedPacket, c.type === "assignTask" ? c.delivery : (a?.delivery ?? false))
 	)
 		return refusal("seams_required", "Revised Seams block affected execution; historical approvals remain retained.");
 	const proposedPacket = c.type === "assignTask" || c.type === "replaceTask" ? c.packet : undefined;
@@ -246,7 +246,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			a?.checkpointReview &&
 			(c.packet.role !== "challenger" ||
 				!c.packet.inputs.includes(a.checkpointReview.emission) ||
-				!c.packet.inputs.includes(a.checkpointReview.manifest))
+				!c.packet.inputs.includes(a.checkpointReview.manifest) ||
+				!a.packet.inputs.every((ref) => c.packet.inputs.includes(ref)))
 		)
 			return refusal("forbidden_scope", "Replacement challenge must retain its exact emission/manifest inputs and independent role.");
 		if (a?.packet.investigation && !c.packet.investigation)

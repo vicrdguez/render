@@ -1,7 +1,7 @@
 // Exact technical checkpoint legality. All bytes/provenance are supplied by Ledger; no I/O.
 import type { Decision, DomainWrite, KernelState, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
-import { type RoleAssignment, sameAgent } from "./roles.ts";
+import { type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
 
 export const CHECKPOINT_COMMANDS = [
 	"requestCheckpoint",
@@ -173,8 +173,16 @@ export function checkpointRefs(work: Checkpoints, c: CheckpointCommand): string[
 	}
 	return [...new Set(refs.filter((r): r is string => !!r))];
 }
-export function blockedBySeams(work: Checkpoints | undefined, inputs: readonly string[]): boolean {
-	if (!work) return false;
+export function blockedBySeams(work: Checkpoints | undefined, packet: RolePacket | undefined, delivery: boolean): boolean {
+	if (!work || !packet) return false;
+	// Historical evidence is input to revised design, not a dependency authorizing delivery.
+	if (
+		!delivery &&
+		packet.execution === "read-only" &&
+		["coordinator", "challenger", "candidate", "experiment-parent", "experiment-candidate"].includes(packet.role)
+	)
+		return false;
+	const inputs = packet.inputs;
 	const pending = work.requests.some((r) => r.stage === "seams" && r.status === "pending");
 	const latest = work.requests.findLast((r) => r.stage === "seams" && r.status === "approved")?.approved;
 	return work.requests.some(
@@ -256,9 +264,8 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 			for (const dependent of roles.assignments) {
 				if (
 					dependent.workflow === c.workflow &&
-					dependent.packet.role !== "coordinator" &&
 					!["submitted", "canceled", "canceling"].includes(dependent.status) &&
-					blockedBySeams(work, dependent.packet.inputs)
+					blockedBySeams(work, dependent.packet, dependent.delivery)
 				) {
 					dependent.status = "blocked";
 					dependent.blocker = "seams_decision_required";
