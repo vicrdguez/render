@@ -14,6 +14,34 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "intake-stale-acceptance",
+		expect: /edited intake cannot use stale fidelity/,
+		behavior: "accept an intake despite unreviewed saved concerns",
+		edits: [
+			{ file: "src/kernel/intake.ts", find: "c.annotations !== d.annotations ||", replace: "false ||" },
+			{ file: "src/kernel/intake.ts", find: "b.annotations !== d.annotations", replace: "false" },
+			{ file: "src/kernel/intake.ts", find: "if (!mappedConcerns(work, d.manifest))", replace: "if (false)" },
+		],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "only exact-basis human acceptance",
+	},
+	{
+		name: "intake-release-thaws",
+		expect: /release must not thaw consumed Contract/,
+		behavior: "replace obligations after consumption and release",
+		edits: [{ file: "src/kernel/intake.ts", find: 'if (c.type === "amendContract" && target!.everAssigned)', replace: "if (false)" }],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "amendment before consumption succeeds",
+	},
+	{
+		name: "intake-false-qualification",
+		expect: /file or passing review cannot qualify Record/,
+		behavior: "start a consumer without recorded qualifying Record integration",
+		edits: [{ file: "src/kernel/intake.ts", find: "if (dependency)", replace: "if (false)" }],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "required Record stays blocked",
+	},
+	{
 		name: "checkpoint-edited-approval",
 		expect: /edited draft must never be approvable/,
 		behavior: "accept edited bytes without re-emission and exact review",

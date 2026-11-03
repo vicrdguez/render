@@ -1,0 +1,378 @@
+import assert from "node:assert/strict";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { test } from "node:test";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { Engine } from "../src/engine/runtime.ts";
+import type { IntakeManifest, Intakes } from "../src/kernel/intake.ts";
+import type { RoleAssignment } from "../src/kernel/roles.ts";
+import { deviceServer } from "../src/ledger/http.ts";
+import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
+import { mintContext } from "../src/ledger/principals.ts";
+import { until } from "./support/investigation.ts";
+import { admin, allowSameFamily, packet, roleFixture } from "./support/roles.ts";
+
+function accepted(reply: CommandReply) {
+	assert.equal(reply.status, "accepted", JSON.stringify(reply));
+	if (reply.status !== "accepted") throw new Error("unreachable");
+	return reply.result;
+}
+function code(reply: CommandReply) {
+	return reply.status === "refused" ? reply.code : reply.status;
+}
+async function fixture() {
+	const gate = Promise.withResolvers<void>();
+	const provider = fauxProvider({
+		provider: "anthropic",
+		api: "anthropic-messages",
+		models: [{ id: "claude-sonnet-4-6", reasoning: true }],
+	});
+	const reviews: Record<string, unknown>[] = [];
+	provider.setResponses(
+		Array.from({ length: 30 }, () => async (transcript: { messages: { role: string; content: unknown }[] }) => {
+			const prompt = JSON.parse(transcript.messages.filter((m) => m.role === "user").at(-1)!.content as string);
+			if (prompt.packet.role === "coordinator") {
+				await gate.promise;
+				return fauxAssistantMessage("paused");
+			}
+			assert.ok(prompt.intakeReview, "fresh reviewer receives exact intake basis");
+			reviews.push(prompt);
+			return fauxAssistantMessage(
+				fauxToolCall("submit_role_result", {
+					text: JSON.stringify({
+						schema: 1,
+						...prompt.intakeReview,
+						checks: {
+							omitted: "Compared source",
+							weakened: "No weakened obligations",
+							strengthened: "No added commitments",
+							contradictory: "No contradictions",
+							invented: "No invention",
+						},
+						findings: [],
+					}),
+					supports: [],
+				}),
+				{ stopReason: "toolUse" },
+			);
+		}),
+	);
+	const f = await roleFixture(
+		new Engine({ provider: provider.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }),
+	);
+	await allowSameFamily(f.ledger);
+	let n = 0;
+	const save = async (document: string, text: string) =>
+		accepted(
+			await f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: f.ledger.status().authorityEpoch,
+					commandId: `save:${++n}`,
+					workflow: "workflow:2",
+					expected: { document: null },
+					command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
+				},
+				admin,
+			),
+		).revision as string;
+	const source = await save("existing-seam", "Approved existing read interface: return saved bytes without normalization.");
+	const catalog = await save(
+		"verification",
+		"## Ranks\n1. `tests`\n2. `inspection`\n## Launch\nowned\n## Doctor\nnode\n## Channels\ntests\n## Catalog\n| Name | Channel | Kind | Run | Expectations | Rank |\n|---|---|---|---|---|---|\n| read | Tests | executed | `node read.js` | exact bytes | tests |\n## Cleanup\nnone\n## Extend\nowned\n## Traps\nnone\n",
+	);
+	const ground = await save(
+		"ground",
+		JSON.stringify({
+			schema: 1,
+			shape: { value: "bug", origin: "human", confirmed: true },
+			goal: "Correct read",
+			constraints: [],
+			clarifications: [],
+			donePredicate: "Literal bytes",
+			approvedSources: [source],
+		}),
+	);
+	const manifest: IntakeManifest = {
+		schema: 1,
+		shape: "bug",
+		ground,
+		sources: [source],
+		decisions: [],
+		catalog,
+		breakdown: null,
+		slices: [
+			{
+				id: "read-fix",
+				title: "Fix read",
+				record: false,
+				delegated: ["Names"],
+				forbidden: ["New interface"],
+				obligations: [
+					{ id: "B1", kind: "behavior", text: "Return exact bytes", sources: [] },
+					{ id: "A1", kind: "architecture", text: "Retain read interface", sources: [{ ref: source, node: null }] },
+				],
+			},
+		],
+		checks: [{ id: "read", row: "read", kind: "executed", rank: "tests", new: false, run: "node read.js", expectations: "exact bytes" }],
+		mapping: [
+			{ slice: "read-fix", obligation: "B1", checks: ["read"] },
+			{ slice: "read-fix", obligation: "A1", checks: ["read"] },
+		],
+		dependencies: [],
+		responses: [],
+		unresolved: [],
+	};
+	const aId = accepted(
+		await f.command({
+			type: "assignTask",
+			slice: "design",
+			delivery: false,
+			packet: packet({
+				inputs: [ground, source, catalog],
+				requests: [{ key: "fidelity", packet: packet({ role: "challenger" }) }],
+				maxTurns: 20,
+			}),
+		}),
+	).assignment;
+	const assignments = () => (f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[];
+	await until(() => assignments().find((a) => a.id === aId)?.status === "running");
+	const a = assignments().find((a) => a.id === aId)!;
+	const actor = mintContext({
+		kind: "assignment-agent",
+		assignment: a.id,
+		generation: a.generation,
+		attempt: a.attempt,
+		role: "coordinator",
+	});
+	const state = () => ((f.ledger.snapshot(admin) as Frame).workflows as { intakes: Intakes }[])[0]!.intakes;
+	const command = (c: Record<string, unknown>) => f.command(c, actor);
+	const stage = async (m = manifest) =>
+		accepted(
+			await command({
+				type: "stageIntake",
+				expected: state().drafts.at(-1)?.id ?? null,
+				text: "# Contract\r\nReturn exact saved bytes.\n",
+				manifest: m,
+			}),
+		).intake as string;
+	const review = async (intake: string) => {
+		const r = accepted(await command({ type: "requestIntakeReview", intake, key: "fidelity" }));
+		await until(
+			() =>
+				assignments().find((a) => a.id === r.assignment)?.status === "submitted" &&
+				!assignments().find((a) => a.id === r.assignment)?.executing,
+		);
+		return assignments().find((a) => a.id === r.assignment)!.report!;
+	};
+	const basis = (intake: string, review: string) => {
+		const d = state().drafts.find((d) => d.id === intake)!;
+		return { intake, review, annotations: d.annotations, policyBinding: d.policyBinding, decisions: d.manifest.decisions };
+	};
+	return {
+		f,
+		source,
+		catalog,
+		ground,
+		manifest,
+		state,
+		command,
+		stage,
+		review,
+		basis,
+		reviews,
+		async reopen() {
+			gate.resolve();
+			await f.reopen();
+		},
+		async close() {
+			gate.resolve();
+			await f.close();
+		},
+	};
+}
+
+test("I07/I14 V8 real Engine fidelity and exact human intake survive ordinary reopen and complete export", async () => {
+	const t = await fixture();
+	try {
+		const draft = await t.stage();
+		const review = await t.review(draft);
+		assert.equal(code(await t.command({ type: "acceptIntake", ...t.basis(draft, review) })), "forbidden_principal");
+		const result = accepted(await t.f.command({ type: "acceptIntake", ...t.basis(draft, review) }, admin));
+		const contract = t.state().slices[0]!.contract;
+		assert.equal(t.reviews.length, 1);
+		assert.match(JSON.stringify(t.reviews[0]), /omitted.*weakened.*strengthened.*contradictory.*invented/);
+		const original = await t.f.ledger.artifact(admin, { read: draft });
+		assert.ok("content" in original);
+		assert.equal(original.content.toString(), "# Contract\r\nReturn exact saved bytes.\n");
+		const exportBefore = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in exportBefore && exportBefore.manifest.complete);
+		for (const ref of [draft, t.state().drafts[0]!.manifestRef, review, contract, result.acceptance])
+			assert.ok(exportBefore.content[ref as string], `export retains ${ref}`);
+		const start = performance.now();
+		await t.reopen();
+		assert.ok(performance.now() - start < 5000, "intake reattachment <=5s");
+		assert.equal(t.state().slices[0]!.contract, contract);
+		const restored = await t.f.ledger.artifact(admin, { read: draft });
+		assert.ok("content" in restored);
+		assert.equal(restored.content.toString(), "# Contract\r\nReturn exact saved bytes.\n");
+		const frame = t.f.ledger.snapshot(admin) as Frame;
+		assert.equal((frame.workflows as { commitment: { acceptedIntake: string } }[])[0]!.commitment.acceptedIntake, result.acceptance);
+	} finally {
+		await t.close();
+	}
+});
+
+test("I05 V4 two authenticated clients race intake acceptance and complete saved concern", async () => {
+	const t = await fixture();
+	const server = deviceServer(t.f.ledger);
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	try {
+		const addr = server.address();
+		assert.ok(addr && typeof addr !== "string");
+		const clients = await Promise.all(
+			["a", "b"].map(async (label) => {
+				const reply = await t.f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: t.f.ledger.status().authorityEpoch,
+						commandId: `enroll:${label}`,
+						command: { type: "enrollDevice", label, scope: { workflows: ["workflow:2"] } },
+					},
+					admin,
+				);
+				assert.ok(reply.status === "accepted" && reply.credential);
+				const bearer = reply.credential.bearer;
+				return async (command: Record<string, unknown>): Promise<CommandReply> =>
+					(
+						await fetch(`http://127.0.0.1:${addr.port}/v1/commands`, {
+							method: "POST",
+							headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
+							body: JSON.stringify({
+								version: 1,
+								authorityEpoch: t.f.ledger.status().authorityEpoch,
+								commandId: `client:${label}`,
+								workflow: "workflow:2",
+								command,
+							}),
+						})
+					).json() as Promise<CommandReply>;
+			}),
+		);
+		const draft = await t.stage();
+		const review = await t.review(draft);
+		const [accept, save] = await Promise.all([
+			clients[0]!({ type: "acceptIntake", ...t.basis(draft, review) }),
+			clients[1]!({ type: "saveIntakeConcern", intake: draft, text: "Complete edited Contract\r\n" }),
+		]);
+		const saved = accepted(save);
+		assert.equal(t.state().concerns.length, 1);
+		if (accept.status === "accepted") {
+			assert.equal(saved.changeRequest, "true");
+			assert.equal(t.state().slices.length, 1);
+		} else {
+			assert.equal(accept.code, "stale_basis");
+			assert.equal(saved.changeRequest, "false");
+			assert.equal(t.state().slices.length, 0);
+		}
+		const edit = await t.f.ledger.artifact(admin, { read: saved.revision as string });
+		assert.ok("content" in edit);
+		assert.equal(edit.content.toString(), "Complete edited Contract\r\n");
+	} finally {
+		server.closeAllConnections();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await t.close();
+	}
+});
+
+for (const failure of ["missing_content", "content_corrupt", "unsupported_schema"]) {
+	test(`I13 exact intake ${failure} blocks acceptance after restart without replacing bytes`, async () => {
+		const t = await fixture();
+		try {
+			const draft = await t.stage();
+			const review = await t.review(draft);
+			const basis = t.basis(draft, review);
+			const ref = t.state().drafts[0]!.manifestRef;
+			damage(t.f.data, ref, failure);
+			await t.reopen();
+			const reply = await t.f.command({ type: "acceptIntake", ...basis }, admin);
+			assert.equal(code(reply), failure);
+			assert.equal(t.state().slices.length, 0);
+			const read = await t.f.ledger.artifact(admin, { read: ref });
+			assert.ok("code" in read);
+			assert.equal(read.code, failure);
+			const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			assert.ok("manifest" in exported);
+			assert.equal(exported.manifest.complete, false);
+			assert.equal(ref in exported.content, false);
+		} finally {
+			await t.close();
+		}
+	});
+}
+function damage(data: string, ref: string, failure: string) {
+	// Deliberate fault injection into this owned temporary store only. Observations use Ledger.
+	const db = new DatabaseSync(join(data, "render.db"));
+	try {
+		const row = (db.prepare("SELECT id, record FROM entries").all() as { id: number; record: string }[]).find((row) => {
+			const record = JSON.parse(row.record);
+			return record.kind === "render.revision" && record.data.revision === ref;
+		});
+		assert.ok(row, "fault target exists");
+		if (failure === "missing_content") db.prepare("DELETE FROM entries WHERE id = ?").run(row.id);
+		else {
+			const record = JSON.parse(row.record);
+			if (failure === "content_corrupt") record.data.text = "Different bytes";
+			else record.data.schema = 99;
+			db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(record), row.id);
+		}
+	} finally {
+		db.close();
+	}
+}
+
+test("I13 dependency amendment cannot operate on missing accepted obligations", async () => {
+	const t = await fixture();
+	try {
+		const draft = await t.stage();
+		accepted(await t.f.command({ type: "acceptIntake", ...t.basis(draft, await t.review(draft)) }, admin));
+		const expected = t.state().revision;
+		damage(t.f.data, t.state().slices[0]!.contract, "missing_content");
+		await t.reopen();
+		assert.equal(
+			code(await t.f.command({ type: "amendDependencies", expected, dependencies: [], reason: "Keep independent" }, admin)),
+			"missing_content",
+			"dependency changes require exact accepted obligation bytes",
+		);
+	} finally {
+		await t.close();
+	}
+});
+
+test("I08/I09 V2 actual SQLite serializes first assignment against amendment and persists permanent freeze", async () => {
+	for (const assignmentFirst of [false, true]) {
+		const t = await fixture();
+		try {
+			const draft = await t.stage();
+			accepted(await t.f.command({ type: "acceptIntake", ...t.basis(draft, await t.review(draft)) }, admin));
+			const old = t.state().slices[0]!.contract;
+			const next = await t.stage();
+			const basis = t.basis(next, await t.review(next));
+			const amend = () => t.f.command({ type: "amendContract", slice: "read-fix", expected: old, ...basis }, admin);
+			const assign = () =>
+				t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: packet({ role: "implementer", inputs: [old] }) });
+			const first = await (assignmentFirst ? assign() : amend());
+			accepted(first);
+			assert.equal(code(await (assignmentFirst ? amend() : assign())), assignmentFirst ? "contract_frozen" : "stale_basis");
+			if (assignmentFirst) {
+				const a = ((t.f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[]).find((a) => a.id === accepted(first).assignment)!;
+				accepted(await t.f.command({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, admin));
+				await t.reopen();
+				assert.equal(t.state().slices[0]!.everAssigned, true);
+				assert.equal(code(await amend()), "contract_frozen", "reopen and release never thaw accepted obligations");
+			}
+		} finally {
+			await t.close();
+		}
+	}
+});

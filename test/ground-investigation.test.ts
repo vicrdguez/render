@@ -297,7 +297,22 @@ test("G08 uncited, foreign and out-of-scope results cannot settle investigation"
 		);
 		assert.equal(code(fabricatedRunner), "forbidden_scope", "host runner observation cannot substitute for coordinator finding");
 		assert.equal(code(await f.command({ type: "requestRole", key: "implementation" }, own(a))), "forbidden_scope");
-		assert.equal(code(await f.command({ type: "acceptIntake" }, own(a))), "forbidden_principal");
+		assert.equal(
+			code(
+				await f.command(
+					{
+						type: "acceptIntake",
+						intake: "not-an-intake",
+						review: "not-a-review",
+						annotations: 0,
+						policyBinding: "not-a-binding",
+						decisions: [],
+					},
+					own(a),
+				),
+			),
+			"forbidden_principal",
+		);
 		const stale = mintContext({
 			kind: "assignment-agent",
 			assignment: a.id,

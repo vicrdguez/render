@@ -2,6 +2,7 @@
 // pointers, receipts and credentials are session documents committed in the same transaction.
 import { defineDoc, defineDocFamily, defineEntry } from "@earendil-works/pi-durable";
 import type { Checkpoints } from "../kernel/checkpoints.ts";
+import type { Intakes } from "../kernel/intake.ts";
 import type { MediaType, Persistence } from "../kernel/kernel.ts";
 import { initialPolicy, type PolicyState } from "../kernel/policy.ts";
 import type { RoleWorkState } from "../kernel/roles.ts";
@@ -73,6 +74,7 @@ export type WorkflowRecord =
 			documents: Record<string, DocumentPointer>;
 			messageCount: number;
 			checkpoints?: Checkpoints;
+			intakes?: Intakes;
 	  };
 
 export const Workflow = defineDocFamily<WorkflowRecord, null>({

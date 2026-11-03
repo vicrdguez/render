@@ -2,6 +2,7 @@
 // body field can pose as a principal, route or capability.
 import { createHash } from "node:crypto";
 import { CHECKPOINT_COMMANDS, type CheckpointCommand } from "../kernel/checkpoints.ts";
+import { INTAKE_COMMANDS, type IntakeCommand, validDependencies } from "../kernel/intake.ts";
 import { type Command, isAvailableCommand, type MediaType, type Persistence } from "../kernel/kernel.ts";
 
 import { ROLE_COMMANDS, ROLES, type RoleCommand, type RolePacket } from "../kernel/roles.ts";
@@ -92,10 +93,12 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 		type === "saveDocument" ||
 		type === "postCoordinatorMessage" ||
 		ROLE_COMMANDS.includes(type) ||
-		CHECKPOINT_COMMANDS.includes(type);
+		CHECKPOINT_COMMANDS.includes(type) ||
+		INTAKE_COMMANDS.includes(type);
 	if (needsWorkflow && workflow === null) malformed(`${type} requires a workflow`);
 	if (!needsWorkflow && workflow !== null) malformed(`${type} takes no workflow`);
 	if (type !== "saveDocument" && expected !== undefined) malformed(`${type} takes no expected basis`);
+	if (INTAKE_COMMANDS.includes(type)) return { command: intakeCommand(type, c, workflow as string) };
 	if (CHECKPOINT_COMMANDS.includes(type)) return { command: checkpointCommand(type, c, workflow as string) };
 	if (ROLE_COMMANDS.includes(type)) return { command: roleCommand(type, c, workflow as string) };
 	switch (type) {
@@ -175,6 +178,42 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 	}
 }
 
+function intakeCommand(type: string, c: Fields, workflow: string): IntakeCommand {
+	const basis = ["intake", "review", "annotations", "policyBinding", "decisions"];
+	const fields: Record<string, string[]> = {
+		stageIntake: ["expected", "text", "manifest"],
+		requestIntakeReview: ["intake", "key"],
+		saveIntakeConcern: ["intake", "text"],
+		acceptIntake: basis,
+		amendContract: [...basis, "slice", "expected"],
+		supersedeContract: [...basis, "slice", "expected", "dispositions"],
+		amendDependencies: ["expected", "dependencies", "reason"],
+	};
+	only(c, ["type", ...fields[type]!], "intake command");
+	for (const key of fields[type]!) {
+		if (["manifest", "annotations", "decisions", "dependencies", "dispositions"].includes(key)) continue;
+		if (key === "expected" && type === "stageIntake" && c.expected === null) continue;
+		if (key === "text" && type === "saveIntakeConcern" && c.text === "") continue;
+		text(c[key], key, key === "text" ? 1024 * 1024 : 1024);
+	}
+	if (type === "stageIntake") object(c.manifest, "manifest");
+	if (basis.every((k) => fields[type]!.includes(k))) {
+		if (!Number.isSafeInteger(c.annotations) || Number(c.annotations) < 0) malformed("annotations must be nonnegative");
+		if (!Array.isArray(c.decisions) || !c.decisions.every((v) => typeof v === "string" && v.length > 0))
+			malformed("decisions must be exact refs");
+	}
+	if (type === "amendDependencies" && !validDependencies(c.dependencies)) malformed("invalid dependencies");
+	if (type === "supersedeContract") {
+		if (!Array.isArray(c.dispositions)) malformed("dispositions must be an array");
+		for (const value of c.dispositions as unknown[]) {
+			const d = object(value, "disposition");
+			only(d, ["slice", "replacement"], "disposition");
+			text(d.slice, "slice", 128);
+			text(d.replacement, "replacement", 128);
+		}
+	}
+	return { ...c, type, workflow } as IntakeCommand;
+}
 function checkpointCommand(type: string, c: Fields, workflow: string): CheckpointCommand {
 	const fields: Record<string, string[]> = {
 		requestCheckpoint: ["stage", "scope", "required"],

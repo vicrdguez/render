@@ -1,7 +1,8 @@
 // Interpret one repository-owned Markdown asset, never discover a parallel registry.
 import { createHash } from "node:crypto";
 import { type Source, validatePath } from "../effects/source.ts";
-import { type CatalogRow, requiredCatalogRows, type SelectedCatalog, type VerificationSelection } from "../kernel/verification.ts";
+import { catalogDefinition, catalogSections as sections } from "../kernel/catalog.ts";
+import { requiredCatalogRows, type SelectedCatalog, type VerificationSelection } from "../kernel/verification.ts";
 
 function asset(source: Source, path: string): { text: string; digest: string } {
 	validatePath(path);
@@ -10,19 +11,6 @@ function asset(source: Source, path: string): { text: string; digest: string } {
 	const bytes = Buffer.from(entry.content, "base64");
 	const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 	return { text, digest: createHash("sha256").update(bytes).digest("hex") };
-}
-function sections(text: string): Record<string, string> {
-	const result: Record<string, string> = {};
-	let current: string | undefined;
-	for (const line of text.split(/\r?\n/)) {
-		const header = /^## ([A-Za-z][A-Za-z ]*)\s*$/.exec(line);
-		if (header) {
-			current = header[1]!;
-			if (Object.hasOwn(result, current)) throw new Error(`Duplicate catalog section: ${current}`);
-			result[current] = "";
-		} else if (current) result[current] += `${line}\n`;
-	}
-	return result;
 }
 function command(cell: string): string {
 	const match = /^`([^`\n]+)`(?:\s.*)?$/.exec(cell.trim());
@@ -34,29 +22,7 @@ export function selectCatalog(source: Source, selection: VerificationSelection):
 		throw new Error("Verification catalog source differs.");
 	const selected = asset(source, selection.path);
 	if (selected.digest !== selection.digest) throw new Error("Verification catalog digest differs; restore exact verifier bytes.");
-	const parts = sections(selected.text);
-	for (const required of ["Ranks", "Launch", "Doctor", "Channels", "Catalog", "Cleanup", "Extend", "Traps"])
-		if (!Object.hasOwn(parts, required)) throw new Error(`Missing catalog section: ${required}`);
-	const ranks = [...parts.Ranks!.matchAll(/^\d+\.\s+`([^`]+)`/gm)].map((m) => m[1]!);
-	if (!ranks.length || new Set(ranks).size !== ranks.length) throw new Error("Catalog ranks must be a nonempty unique ordered ladder.");
-	const lines = parts.Catalog!.split(/\r?\n/).filter((line) => line.trim().startsWith("|"));
-	const cells = (line: string) =>
-		line
-			.trim()
-			.slice(1, -1)
-			.split(/(?<!\\)\|/)
-			.map((cell) => cell.trim().replaceAll("\\|", "|"));
-	if (JSON.stringify(cells(lines[0] ?? "")) !== JSON.stringify(["Name", "Channel", "Kind", "Run", "Expectations", "Rank"]))
-		throw new Error("Catalog columns must be Name, Channel, Kind, Run, Expectations, Rank.");
-	const all: CatalogRow[] = [];
-	for (const literal of lines.slice(2)) {
-		const c = cells(literal);
-		if (c.length !== 6 || c.some((v) => !v) || all.some((row) => row.name === c[0])) throw new Error("Malformed/duplicate catalog row.");
-		const [name, channel, kind, run, expectations, rank] = c as [string, string, CatalogRow["kind"], string, string, string];
-		if (!["generated", "executed", "journey", "human"].includes(kind)) throw new Error(`Unknown catalog kind: ${kind}`);
-		if (kind === "generated" || kind === "human" ? rank !== "-" : !ranks.includes(rank)) throw new Error(`Invalid catalog rank: ${name}`);
-		all.push({ name, channel, kind, run, expectations, rank: rank === "-" ? null : rank, literal });
-	}
+	const { sections: parts, ranks, rows: all } = catalogDefinition(selected.text);
 	if (
 		!selection.rows.length ||
 		new Set(selection.rows).size !== selection.rows.length ||

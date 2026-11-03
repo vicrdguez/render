@@ -10,6 +10,7 @@ import {
 	changeCheckpoint,
 	emptyCheckpoints,
 } from "./checkpoints.ts";
+import { changeIntake, emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, type Intakes, type IntakeWrite } from "./intake.ts";
 import type { Ground } from "./investigation.ts";
 import { changePolicy, initialPolicy, type PolicyCommand, type PolicyState } from "./policy.ts";
 import { changeRole, ROLE_COMMANDS, type RoleAssignment, type RoleCommand, type RoleIntent, type RoleWorkState } from "./roles.ts";
@@ -44,6 +45,7 @@ export type Persistence = {
 };
 
 export type Command =
+	| IntakeCommand
 	| CheckpointCommand
 	| RoleCommand
 	| PolicyCommand
@@ -62,6 +64,7 @@ export type Command =
 	| { readonly type: string; readonly workflow?: string };
 
 export type KernelState = {
+	readonly intakes?: Intakes;
 	readonly checkpoints?: Checkpoints;
 	readonly roleWork?: RoleWorkState;
 	readonly policy?: PolicyState;
@@ -96,6 +99,7 @@ export type VerifiedFacts = {
 };
 
 export type DomainWrite =
+	| IntakeWrite
 	| CheckpointWrite
 	| { readonly type: "policy.replace"; readonly state: PolicyState }
 	| { readonly type: "roles.replace"; readonly state: RoleWorkState; readonly intents: readonly RoleIntent[] }
@@ -182,9 +186,13 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	requestCheckpoint: { family: "role-work", available: true },
 	stageCheckpoint: { family: "role-work", available: true },
 	requestCheckpointReview: { family: "role-work", available: true },
-	acceptIntake: { family: "human-decision", available: false },
-	amendContract: { family: "human-decision", available: false },
-	supersedeContract: { family: "human-decision", available: false },
+	acceptIntake: { family: "human-decision", available: true },
+	amendContract: { family: "human-decision", available: true },
+	supersedeContract: { family: "human-decision", available: true },
+	amendDependencies: { family: "human-decision", available: true },
+	saveIntakeConcern: { family: "human-decision", available: true },
+	stageIntake: { family: "role-work", available: true },
+	requestIntakeReview: { family: "role-work", available: true },
 	changePolicy: { family: "human-decision", available: true },
 	adoptPolicy: { family: "human-decision", available: true },
 	changeCheckpointSettings: { family: "human-decision", available: false },
@@ -263,6 +271,7 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 	if (denied) return denied;
 
 	if (command.type === "changePolicy" || command.type === "adoptPolicy") return changePolicy(state, command as PolicyCommand, facts);
+	if (INTAKE_COMMANDS.includes(command.type)) return changeIntake(state, command as IntakeCommand, facts);
 	if (CHECKPOINT_COMMANDS.includes(command.type)) return changeCheckpoint(state, command as CheckpointCommand, facts);
 	if (ROLE_COMMANDS.includes(command.type)) return changeRole(state, command as RoleCommand, facts);
 
@@ -406,6 +415,7 @@ export type DocumentSummary = {
 };
 
 export type WorkflowState = {
+	readonly intakes?: Intakes;
 	readonly checkpoints?: Checkpoints;
 	readonly assignments?: readonly RoleAssignment[];
 	readonly id: string;
@@ -415,20 +425,22 @@ export type WorkflowState = {
 };
 
 /** Capabilities a client may expect from later Render versions; reported as absent, never as empty successes. */
-export const UNAVAILABLE = ["coordinator-replies", "intake-acceptance", "assignments", "evidence-receipts"] as const;
+export const UNAVAILABLE = ["coordinator-replies", "assignments", "evidence-receipts"] as const;
 
 export type WorkflowView = {
+	readonly intakes: Intakes;
 	readonly checkpoints: Checkpoints;
 	readonly workflow: string;
 	readonly title: string;
 	readonly ground: DocumentSummary | null;
 	readonly documents: readonly DocumentSummary[];
 	readonly messages: { readonly count: number; readonly coordinator: "unavailable" };
-	readonly commitment: { readonly status: "none"; readonly acceptedIntake: null };
+	readonly commitment: { readonly status: "none" | "accepted"; readonly acceptedIntake: string | null };
 	readonly owner: { readonly status: "none" | "active" | "blocked"; readonly assignments: readonly RoleAssignment[] };
 	readonly evidence: { readonly status: "none" | "available"; readonly items: readonly string[] };
 	readonly blocker: { readonly code: string; readonly reason: string; readonly capabilities: readonly string[] } | null;
 	readonly nextHumanAction:
+		| { readonly type: "reviewIntake"; readonly intake: string; readonly annotations: number }
 		| { readonly type: "reviewCheckpoint"; readonly request: string; readonly emission: string | null; readonly annotations: number }
 		| { readonly type: "saveGround"; readonly workflow: string; readonly document: "ground"; readonly expected: null }
 		| {
@@ -457,44 +469,55 @@ function workflowView(w: WorkflowState): WorkflowView {
 	const blocked = (w.assignments ?? []).filter((a) => a.blocker !== null);
 	const evidence = (w.assignments ?? []).flatMap((a) => (a.report ? [a.report] : []));
 	const recoverable = blocked.find((a) => a.status === "blocked" && a.blocker !== "awaiting_role_results");
+	const intakes = w.intakes ?? emptyIntakes();
+	const latestIntake = intakes.drafts.at(-1);
+	const acceptedIntake = intakes.drafts.findLast((d) => d.acceptance)?.acceptance ?? null;
+	const requiredIntegration = intakes.dependencies.find((e) => intakes.slices.some((s) => s.id === e.slice && s.status === "accepted"));
 	const checkpoints = w.checkpoints ?? emptyCheckpoints();
 	const pending = checkpoints.requests.find((r) => r.status === "pending");
 	return {
+		intakes,
 		checkpoints,
 		workflow: w.id,
 		title: w.title,
 		ground,
 		documents: w.documents,
 		messages: { count: w.messageCount, coordinator: "unavailable" },
-		commitment: { status: "none", acceptedIntake: null },
+		commitment: { status: acceptedIntake ? "accepted" : "none", acceptedIntake },
 		owner: { status: owners.length ? (owners.some((a) => a.blocker) ? "blocked" : "active") : "none", assignments: owners },
 		evidence: { status: evidence.length ? "available" : "none", items: evidence },
 		blocker: blocked.length
 			? { code: blocked[0]?.blocker ?? "role_blocked", reason: blocked.map((a) => `${a.id}: ${a.blocker}`).join("; "), capabilities: [] }
-			: {
-					code: "capability_unavailable",
-					reason:
-						"This host retains Ground, documents, coordinator messages and scoped role work. Full coordinator replies and Contract acceptance are not available in this version.",
-					capabilities:
-						w.assignments === undefined
-							? ["coordinator-replies", "intake-acceptance", "assignments"]
-							: ["coordinator-replies", "intake-acceptance"],
-				},
-		nextHumanAction: pending
-			? { type: "reviewCheckpoint", request: pending.id, emission: pending.emission, annotations: pending.annotations }
-			: recoverable
+			: requiredIntegration
 				? {
-						type: "cancelWork",
-						workflow: w.id,
-						assignment: recoverable.id,
-						generation: recoverable.generation,
-						attempt: recoverable.attempt,
-						reason:
-							"Cancel this blocked assignment to fence its Attempt. Wait for confirmed quiescence before scheduling a fresh linked replacement.",
+						code: "dependency_blocked",
+						reason: `Required ${requiredIntegration.kind} of ${requiredIntegration.requires} blocks ${requiredIntegration.slice} until recorded qualifying integration. Delivery capability is unavailable.`,
+						capabilities: ["qualifying-integration"],
 					}
-				: ground === null
-					? { type: "saveGround", workflow: w.id, document: "ground", expected: null }
-					: { type: "none", reason: "No further human decision is available in this host version; saved work is retained." },
+				: {
+						code: "capability_unavailable",
+						reason:
+							"This host retains Ground, documents, checkpoints, accepted Contracts and scoped role work. Full source delivery is not available in this version.",
+						capabilities: w.assignments === undefined ? ["coordinator-replies", "assignments"] : ["coordinator-replies"],
+					},
+		nextHumanAction:
+			latestIntake && !latestIntake.acceptance
+				? { type: "reviewIntake", intake: latestIntake.id, annotations: latestIntake.annotations }
+				: pending
+					? { type: "reviewCheckpoint", request: pending.id, emission: pending.emission, annotations: pending.annotations }
+					: recoverable
+						? {
+								type: "cancelWork",
+								workflow: w.id,
+								assignment: recoverable.id,
+								generation: recoverable.generation,
+								attempt: recoverable.attempt,
+								reason:
+									"Cancel this blocked assignment to fence its Attempt. Wait for confirmed quiescence before scheduling a fresh linked replacement.",
+							}
+						: ground === null
+							? { type: "saveGround", workflow: w.id, document: "ground", expected: null }
+							: { type: "none", reason: "No further human decision is available in this host version; saved work is retained." },
 		unavailable: w.assignments === undefined ? UNAVAILABLE : UNAVAILABLE.filter((name) => name !== "assignments"),
 	};
 }

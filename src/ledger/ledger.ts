@@ -12,6 +12,7 @@ import {
 	checkpointRefs,
 	emptyCheckpoints,
 } from "../kernel/checkpoints.ts";
+import { emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, intakeRefs, validIntakeShape } from "../kernel/intake.ts";
 import { type Ground, readGround } from "../kernel/investigation.ts";
 import {
 	change,
@@ -332,6 +333,7 @@ export class Ledger {
 				"rebindAttempt",
 				"requestRole",
 				...CHECKPOINT_COMMANDS,
+				...INTAKE_COMMANDS,
 			].includes(command.type)
 		) {
 			const revision =
@@ -343,8 +345,40 @@ export class Ledger {
 			if (command.type !== "adoptPolicy" || Object.hasOwn(policy.revisions, revision))
 				await this.#verifyPolicySource(tx, meta, revision, plain(policy));
 		}
+		const intakes = workflow?.exists ? plain(workflow.intakes ?? emptyIntakes()) : emptyIntakes();
 		const checkpoints = workflow?.exists ? plain(workflow.checkpoints ?? emptyCheckpoints()) : emptyCheckpoints();
 		const checkpointInputs: Record<string, CheckpointInput> = {};
+		let requiredInputs: string[] = [];
+		if (INTAKE_COMMANDS.includes(command.type)) {
+			const intake = command as IntakeCommand;
+			requiredInputs = intakeRefs(intakes, intake);
+			if (current.kind === "assignment-agent") {
+				const own = roles.assignments.find((a) => sameAgent(a as RoleAssignment, current));
+				if (!own || own.packet.role !== "coordinator" || own.packet.investigation)
+					throw new Abort(refusal("forbidden_scope", "Only scoped coordinators operate intake."));
+				const m =
+					intake.type === "stageIntake"
+						? validIntakeShape(intake.manifest)
+							? intake.manifest
+							: undefined
+						: "intake" in intake
+							? intakes.drafts.find((d) => d.id === intake.intake)?.manifest
+							: undefined;
+				if (m && !own.packet.inputs.includes(m.ground))
+					throw new Abort(refusal("forbidden_scope", "Intake Ground is outside coordinator inputs."));
+				if (intake.type === "stageIntake" && m) {
+					const allowed = new Set([
+						...packetRefs(plain(own.packet)),
+						...(own.evidence ?? []),
+						...roles.assignments.filter((a) => a.parent === own.id).flatMap((a) => (a.report ? [a.report] : [])),
+						...intakes.concerns.map((n) => n.revision),
+					]);
+					for (const ref of requiredInputs)
+						if (!allowed.has(ref))
+							throw new Abort(refusal("missing_content", `Required intake source ${ref} is outside explicit coordinator inputs.`));
+				}
+			}
+		}
 		if (CHECKPOINT_COMMANDS.includes(command.type)) {
 			const checkpoint = command as CheckpointCommand;
 			if (current.kind === "assignment-agent") {
@@ -370,28 +404,28 @@ export class Ledger {
 								);
 				}
 			}
-			const refs = checkpointRefs(checkpoints, checkpoint);
-			for (const ref of refs) {
-				const location = await tx.doc(RevisionLocation, ref, null);
-				if (!location.exists || location.workflow !== env.workflow)
-					throw new Abort({
-						status: "refused",
-						code: "missing_content",
-						reason: `Restore exact checkpoint input ${ref}.`,
-						refs: { restore: ref },
-					});
-				const entry = await tx.entry(RevisionEntry, location.entry as EntryId);
-				if (!entry || !intact(entry.data.text, entry.data.digest, entry.data.byteLength))
-					throw new Abort({
-						status: "refused",
-						code: "content_corrupt",
-						reason: `Restore exact checkpoint input ${ref}; newer bytes cannot replace it.`,
-						refs: { restore: ref },
-					});
-				const unsupported = unsupportedRecordSchema(entry.data.schema, ref);
-				if (unsupported) throw new Abort(unsupported);
-				checkpointInputs[ref] = { text: entry.data.text, human: entry.data.createdBy.principal === "human", document: entry.data.document };
-			}
+			requiredInputs = checkpointRefs(checkpoints, checkpoint);
+		}
+		for (const ref of requiredInputs) {
+			const location = await tx.doc(RevisionLocation, ref, null);
+			if (!location.exists || location.workflow !== env.workflow)
+				throw new Abort({
+					status: "refused",
+					code: "missing_content",
+					reason: `Restore exact required input ${ref}.`,
+					refs: { restore: ref },
+				});
+			const entry = await tx.entry(RevisionEntry, location.entry as EntryId);
+			if (!entry || !intact(entry.data.text, entry.data.digest, entry.data.byteLength))
+				throw new Abort({
+					status: "refused",
+					code: entry ? "content_corrupt" : "missing_content",
+					reason: `Restore exact required input ${ref}; newer bytes cannot replace it.`,
+					refs: { restore: ref },
+				});
+			const unsupported = unsupportedRecordSchema(entry.data.schema, ref);
+			if (unsupported) throw new Abort(unsupported);
+			checkpointInputs[ref] = { text: entry.data.text, human: entry.data.createdBy.principal === "human", document: entry.data.document };
 		}
 		let document: KernelState["document"] = null;
 		if (command.type === "saveDocument" && workflow?.exists) {
@@ -411,7 +445,8 @@ export class Ledger {
 		const packets: RolePacket[] =
 			command.type === "assignTask" || command.type === "replaceTask"
 				? [(command as { packet: RolePacket }).packet]
-				: (command.type === "requestRole" || command.type === "requestCheckpointReview") && current.kind === "assignment-agent"
+				: (command.type === "requestRole" || command.type === "requestCheckpointReview" || command.type === "requestIntakeReview") &&
+						current.kind === "assignment-agent"
 					? roles.assignments
 							.filter((a) => a.id === current.assignment)
 							.flatMap((a) => a.packet.requests.filter((r) => r.key === (command as { key: string }).key).map((r) => plain(r.packet)))
@@ -570,6 +605,7 @@ export class Ledger {
 				: { content: { digest: sha256(env.content), byteLength: env.content.length, validUtf8: text !== undefined } }),
 		};
 		const state: KernelState = {
+			intakes,
 			checkpoints,
 			roleWork: plain(roles),
 			policy: plain(policy),
@@ -600,6 +636,23 @@ export class Ledger {
 		let changedDevice: string | undefined;
 		for (const write of decision.writes) {
 			switch (write.type) {
+				case "intakes.replace": {
+					if (!workflow?.exists) throw new Error("intake without workflow");
+					workflow.intakes = plain(write.state);
+					for (const doc of write.documents)
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							doc.ref,
+							`intake/${doc.ref}`,
+							doc.text,
+							current.kind === "assignment-agent" ? current : undefined,
+							doc.markdown ? "text/markdown" : "text/plain",
+						);
+					break;
+				}
 				case "checkpoints.replace": {
 					if (!workflow?.exists) throw new Error("checkpoint without workflow");
 					workflow.checkpoints = plain(write.state);
@@ -1186,6 +1239,13 @@ export class Ledger {
 									}),
 								)
 						: [];
+				const intakeWork = own ? this.#workflows.get(own.workflow)?.intakes : undefined;
+				const intakeReads =
+					own?.packet.role === "coordinator" && !own.packet.investigation && intakeWork
+						? intakeWork.drafts
+								.filter((d) => own.packet.inputs.includes(d.manifest.ground))
+								.flatMap((d) => intakeRefs(intakeWork, { type: "requestIntakeReview", workflow: own.workflow, intake: d.id, key: "" }))
+						: [];
 				const results = this.#roleWork.assignments
 					.filter((child) => child.parent === own?.id && child.status === "submitted")
 					.map((child) => child.report);
@@ -1199,6 +1259,7 @@ export class Ledger {
 						...(own.evidence ?? []),
 						...results,
 						...checkpointReads,
+						...intakeReads,
 					].includes(ref)
 				)
 					return NOT_FOUND;
@@ -1453,8 +1514,10 @@ export class Ledger {
 							}
 							if (refs.revision && (wanted("ground") || wanted("document"))) artifacts.add(refs.revision);
 							if (refs.message && wanted("message")) artifacts.add(refs.message);
-							if (wanted("document"))
+							if (wanted("document")) {
 								for (const key of ["packet", "report", "quarantined", "source"]) if (refs[key]) artifacts.add(refs[key]);
+								for (const [key, ref] of Object.entries(refs)) if (/^document\d+$/.test(key)) artifacts.add(ref);
+							}
 							add({ ...base(ref, kind, owner.workflow, sequence, String(d.commandId)), command: d.command, refs, createdBy: d.by });
 							const by = d.by as AcceptedBy;
 							const namespaces =
@@ -1696,6 +1759,7 @@ function workflowState(w: Present<WorkflowRecord>, roles: RoleWorkState): Workfl
 		}));
 	return {
 		id: w.id,
+		intakes: plain(w.intakes ?? emptyIntakes()),
 		checkpoints: plain(w.checkpoints ?? emptyCheckpoints()),
 		title: w.title,
 		documents,

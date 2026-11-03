@@ -1,6 +1,7 @@
 // Pure role ownership and execution legality, reached only through Kernel.change.
 
 import { blockedBySeams } from "./checkpoints.ts";
+import { consumeIntake, type IntakeReview, intakeAssignmentGap } from "./intake.ts";
 import { type Investigation, readInvestigationOutcome, shapeConfirmed } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, Principal, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
@@ -44,6 +45,7 @@ export type RolePacket = {
 };
 export type RoleAssignment = {
 	checkpointReview?: { request: string; emission: string; manifest: string; annotations: number };
+	intakeReview?: IntakeReview;
 	id: string;
 	workflow: string;
 	slice: string;
@@ -195,6 +197,17 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		blockedBySeams(state.checkpoints, affectedPacket, c.type === "assignTask" ? c.delivery : (a?.delivery ?? false))
 	)
 		return refusal("seams_required", "Revised Seams block affected execution; historical approvals remain retained.");
+	const delivery = c.type === "assignTask" ? c.delivery : (a?.delivery ?? false);
+	const slice = c.type === "assignTask" ? c.slice : a?.slice;
+	if (
+		(delivery || state.intakes?.slices.some((s) => s.id === slice)) &&
+		slice &&
+		affectedPacket &&
+		["assignTask", "replaceTask", "stageTask", "rebindAttempt"].includes(c.type)
+	) {
+		const gap = intakeAssignmentGap(state, slice, affectedPacket);
+		if (gap) return gap;
+	}
 	const proposedPacket = c.type === "assignTask" || c.type === "replaceTask" ? c.packet : undefined;
 	if (proposedPacket?.investigation) {
 		if (proposedPacket.role !== "coordinator" || proposedPacket.execution !== "read-only" || proposedPacket.requests.length)
@@ -209,6 +222,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (!id || !attempt) throw new Error("Ledger omitted role identities");
 		const created: RoleAssignment = {
 			...(c.type === "replaceTask" && a?.checkpointReview ? { checkpointReview: { ...a.checkpointReview } } : {}),
+			...(c.type === "replaceTask" && a?.intakeReview ? { intakeReview: { ...a.intakeReview } } : {}),
 			id,
 			workflow: c.workflow,
 			slice,
@@ -242,6 +256,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer.");
 		create(c.packet, c.slice, c.delivery, null, null);
 	} else if (c.type === "replaceTask") {
+		if (a?.intakeReview && (c.packet.role !== "challenger" || !a.packet.inputs.every((ref) => c.packet.inputs.includes(ref))))
+			return refusal("forbidden_scope", "Replacement fidelity must retain exact intake, decisions and concerns.");
 		if (
 			a?.checkpointReview &&
 			(c.packet.role !== "challenger" ||
@@ -424,6 +440,15 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			} as Record<string, string>,
 		},
 	];
+	if ((c.type === "assignTask" || c.type === "replaceTask") && slice) {
+		const consumed = consumeIntake(state, slice, facts.ids.assignment!, facts.sequence);
+		if (consumed) {
+			writes.push(consumed);
+			const index = writes.findIndex((w) => w.type === "fact.record");
+			const fact = writes[index];
+			if (fact?.type === "fact.record") writes[index] = { ...fact, refs: { ...fact.refs, document0: consumed.documents[0]!.ref } };
+		}
+	}
 	return { outcome: "accepted", result, writes, facts: [facts.ids.fact] };
 }
 function hasOwner(work: RoleWorkState, packet: RolePacket, slice: string, delivery: boolean): boolean {
