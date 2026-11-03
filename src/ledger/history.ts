@@ -12,7 +12,18 @@ export const EXCLUSIONS = [
 	"active_task_memos",
 ];
 export const UNAVAILABLE_KINDS = ["proposal", "assignment", "attempt", "decision", "outcome", "execution", "effect"];
-const KINDS = ["workflow", "ground", "document", "message", "fact", "receipt", "policy", "runtime_transcript", "runtime_task"];
+const KINDS = [
+	"workflow",
+	"ground",
+	"document",
+	"message",
+	"fact",
+	"receipt",
+	"policy",
+	"checkpoint_settings",
+	"runtime_transcript",
+	"runtime_task",
+];
 export type HistoryQuery = Readonly<Record<string, string | undefined>>;
 export type HistoryScope = { workflows: string[]; global: boolean; kinds: string[] };
 export type HistoryState = {
