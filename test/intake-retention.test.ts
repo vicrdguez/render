@@ -20,7 +20,7 @@ function accepted(reply: CommandReply) {
 function code(reply: CommandReply) {
 	return reply.status === "refused" ? reply.code : reply.status;
 }
-async function fixture() {
+async function fixture(shape: "bug" | "design" = "bug") {
 	const gate = Promise.withResolvers<void>();
 	const provider = fauxProvider({
 		provider: "anthropic",
@@ -34,6 +34,27 @@ async function fixture() {
 			if (prompt.packet.role === "coordinator") {
 				await gate.promise;
 				return fauxAssistantMessage("paused");
+			}
+			if (prompt.checkpointReview) {
+				return fauxAssistantMessage(
+					fauxToolCall("submit_role_result", {
+						text: JSON.stringify({
+							schema: 1,
+							...prompt.checkpointReview,
+							checks: {
+								alternatives: "Compared",
+								interactions: "Compared",
+								scale: "Compared",
+								usage: "Compared",
+								incidentalChoices: "Compared",
+								nearbyCopying: "Compared",
+							},
+							objections: [],
+						}),
+						supports: [],
+					}),
+					{ stopReason: "toolUse" },
+				);
 			}
 			assert.ok(prompt.intakeReview, "fresh reviewer receives exact intake basis");
 			reviews.push(prompt);
@@ -85,7 +106,7 @@ async function fixture() {
 		"ground",
 		JSON.stringify({
 			schema: 1,
-			shape: { value: "bug", origin: "human", confirmed: true },
+			shape: { value: shape, origin: "human", confirmed: true },
 			goal: "Correct read",
 			constraints: [],
 			clarifications: [],
@@ -95,12 +116,12 @@ async function fixture() {
 	);
 	const manifest: IntakeManifest = {
 		schema: 1,
-		shape: "bug",
+		shape,
 		ground,
 		sources: [source],
 		decisions: [],
 		catalog,
-		breakdown: null,
+		breakdown: shape === "design" ? "One bounded read module" : null,
 		slices: [
 			{
 				id: "read-fix",
@@ -171,6 +192,7 @@ async function fixture() {
 	};
 	return {
 		f,
+		actor,
 		source,
 		catalog,
 		ground,
@@ -218,6 +240,167 @@ test("I07/I14 V8 real Engine fidelity and exact human intake survive ordinary re
 		assert.equal(restored.content.toString(), "# Contract\r\nReturn exact saved bytes.\n");
 		const frame = t.f.ledger.snapshot(admin) as Frame;
 		assert.equal((frame.workflows as { commitment: { acceptedIntake: string } }[])[0]!.commitment.acceptedIntake, result.acceptance);
+	} finally {
+		await t.close();
+	}
+});
+
+test("F4 one coordinator continues approved Seams and Modules into exact fresh intake fidelity", async () => {
+	const t = await fixture("design");
+	try {
+		const decisions: string[] = [],
+			manifests: string[] = [];
+		let emission = "";
+		for (const stage of ["seams", "modules"] as const) {
+			const request = accepted(
+				await t.command({ type: "requestCheckpoint", stage, scope: t.ground, required: { candidates: false, experiment: false } }),
+			).request;
+			const manifest = {
+				schema: 1,
+				stage,
+				nodes: [
+					{
+						id: "N1",
+						decision: "Keep the read seam",
+						rationale: "Preserve authority",
+						alternatives: ["keep", "replace"],
+						evidence: [t.source],
+						classification: "judgment",
+						default: "keep",
+					},
+				],
+				decompositions: ["keep", "replace"].map((id) => ({
+					id,
+					modules: ["Reader"],
+					dependencies: ["Storage"],
+					verificationSeams: ["read"],
+					depth: "Hide persistence",
+					locality: "Read concerns",
+					deletion: "Spreads reads",
+				})),
+				verificationStrategy: "Literal read tests",
+				incidentalChoices: [],
+				responses: [],
+			};
+			accepted(await t.command({ type: "stageCheckpoint", request, text: "# Approved read seam", manifest }));
+			const r = accepted(await t.command({ type: "requestCheckpointReview", request, key: "fidelity" }));
+			const assignments = () => (t.f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[];
+			await until(
+				() =>
+					assignments().find((a) => a.id === r.assignment)?.status === "submitted" &&
+					!assignments().find((a) => a.id === r.assignment)?.executing,
+			);
+			accepted(
+				await t.command({
+					type: "emitCheckpoint",
+					request,
+					review: assignments().find((a) => a.id === r.assignment)!.report,
+					contested: [],
+				}),
+			);
+			const q = (
+				(t.f.ledger.snapshot(admin) as Frame).workflows as {
+					checkpoints: { requests: { id: string; emission: string; manifest: string; annotations: number; policyBinding: string }[] };
+				}[]
+			)[0]!.checkpoints.requests.find((q) => q.id === request)!;
+			const approval = accepted(
+				await t.f.command(
+					{
+						type: "approveCheckpoint",
+						request,
+						emission: q.emission,
+						manifest: q.manifest,
+						annotations: q.annotations,
+						policyBinding: q.policyBinding,
+						decisions: { N1: "keep" },
+						nonbinding: [],
+					},
+					admin,
+				),
+			);
+			decisions.push(approval.decision as string);
+			manifests.push(q.manifest);
+			emission = q.emission;
+		}
+		const m = structuredClone(t.manifest);
+		m.decisions = decisions;
+		m.slices[0]!.obligations[1]!.sources = [{ ref: emission, node: "N1" }];
+		const draft = await t.stage(m);
+		const review = await t.review(draft);
+		const reviewer = ((t.f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[]).find((a) => a.report === review)!;
+		for (const ref of manifests)
+			assert.ok(reviewer.packet.inputs.includes(ref), "fidelity must receive each exact approved typed manifest");
+		accepted(await t.f.command({ type: "acceptIntake", ...t.basis(draft, review) }, admin));
+		assert.equal(t.state().slices[0]!.status, "accepted");
+	} finally {
+		await t.close();
+	}
+});
+
+test("F5 a coordinator cannot read or propagate a concern outside its Ground input scope", async () => {
+	const t = await fixture();
+	try {
+		await t.stage();
+		const otherGround = accepted(
+			await t.f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: t.f.ledger.status().authorityEpoch,
+					commandId: "other-ground",
+					workflow: "workflow:2",
+					expected: { document: t.ground },
+					command: {
+						type: "saveDocument",
+						document: "ground",
+						mediaType: "text/plain",
+						content: Buffer.from(
+							JSON.stringify({
+								schema: 1,
+								goal: "Other scope",
+								shape: { value: "bug", origin: "human", confirmed: true },
+								approvedSources: [t.source],
+							}),
+						).toString("base64"),
+					},
+				},
+				admin,
+			),
+		).revision as string;
+		const aId = accepted(
+			await t.f.command({
+				type: "assignTask",
+				slice: "other-design",
+				delivery: false,
+				packet: packet({
+					inputs: [otherGround, t.source, t.catalog],
+					requests: [{ key: "fidelity", packet: packet({ role: "challenger" }) }],
+					maxTurns: 20,
+				}),
+			}),
+		).assignment;
+		const assignments = () => (t.f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[];
+		await until(() => assignments().find((a) => a.id === aId)?.status === "running");
+		const a = assignments().find((a) => a.id === aId)!;
+		const actor = mintContext({
+			kind: "assignment-agent",
+			assignment: a.id,
+			generation: a.generation,
+			attempt: a.attempt,
+			role: "coordinator",
+		});
+		const m = structuredClone(t.manifest);
+		m.ground = otherGround;
+		const other = accepted(
+			await t.f.command({ type: "stageIntake", expected: t.state().drafts.at(-1)!.id, text: "Other private scope", manifest: m }, actor),
+		).intake as string;
+		const saved = accepted(await t.f.command({ type: "saveIntakeConcern", intake: other, text: "PRIVATE OTHER GROUND CONCERN" }, admin));
+		const read = await t.f.ledger.artifact(t.actor, { read: saved.revision as string });
+		assert.ok("status" in read && read.status === "refused", "coordinator must not read another Ground concern");
+		assert.equal(
+			code(await t.command({ type: "stageIntake", expected: other, text: "Own scope", manifest: t.manifest })),
+			"forbidden_scope",
+			"unscoped concerns cannot be propagated into fresh fidelity",
+		);
 	} finally {
 		await t.close();
 	}

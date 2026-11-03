@@ -4,7 +4,6 @@ import type { CheckpointRequest } from "../src/kernel/checkpoints.ts";
 import type { IntakeManifest } from "../src/kernel/intake.ts";
 import { type Command, change, type KernelState, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
-import { seeded } from "./support/random.ts";
 import { packet } from "./support/roles.ts";
 
 const workflow = "workflow:1";
@@ -461,7 +460,15 @@ test("I03 full design uses approved nodes and refuses Modules left behind by rev
 		emissions: [`approved:${stage}`],
 	}));
 	f.state = { ...f.state, checkpoints: { requests: checkpoints, concerns: [] } };
-	for (const ref of [...m.decisions, "approved:modules"])
+	for (const ref of [
+		...m.decisions,
+		"approved:seams",
+		"approved:modules",
+		"manifest:seams",
+		"manifest:modules",
+		"review:seams",
+		"review:modules",
+	])
 		f.inputs[ref] = { human: true, document: "checkpoint", text: "Exact approved decision" };
 	m.slices[0]!.obligations[1]!.sources = [{ ref: "approved:modules", node: "N1" }];
 	const draft = f.stage(m);
@@ -504,6 +511,67 @@ test("I08 assigning an accepted Slice without the delivery bit still consumes an
 	);
 	f.accepted({ type: "assignTask", slice: "fix", delivery: false, packet: packet({ role: "implementer", inputs: [contract] }) }, host);
 	assert.equal(f.state.intakes!.slices[0]!.everAssigned, true, "every accepted Slice assignment consumes its obligations");
+});
+
+test("F3 active non-delivery Slice assignments block dependency edits and supersession until release", () => {
+	const f = fixture();
+	const m = intakeManifest();
+	m.shape = "change";
+	m.breakdown = "Two existing-seam changes";
+	f.inputs["ground:1"]!.text = f.inputs["ground:1"]!.text.replace('"bug"', '"change"');
+	m.slices.push({ ...structuredClone(m.slices[0]!), id: "other" });
+	m.mapping.push(...structuredClone(m.mapping).map((x) => ({ ...x, slice: "other" })));
+	const draft = f.stage(m);
+	f.accepted({ type: "acceptIntake", ...f.basis(draft, f.review(draft)) }, human);
+	const contract = f.state.intakes!.slices[0]!.contract;
+	const assigned = f.accepted(
+		{ type: "assignTask", slice: "fix", delivery: false, packet: packet({ role: "implementer", inputs: [contract] }) },
+		host,
+	);
+	assert.equal(
+		code(
+			f.command(
+				{
+					type: "amendDependencies",
+					expected: f.state.intakes!.revision,
+					dependencies: [{ slice: "fix", requires: "other", kind: "integration" }],
+					reason: "Change order",
+				},
+				human,
+			),
+		),
+		"ownership_conflict",
+		"non-delivery assignment still holds accepted Slice work",
+	);
+	const nextManifest = intakeManifest();
+	nextManifest.shape = "change";
+	nextManifest.breakdown = "Replacement";
+	nextManifest.slices[0]!.id = "replacement";
+	nextManifest.mapping.forEach((x) => {
+		x.slice = "replacement";
+	});
+	const next = f.stage(nextManifest);
+	const command = { type: "supersedeContract", slice: "fix", expected: contract, ...f.basis(next, f.review(next)), dispositions: [] };
+	assert.equal(code(f.command(command, human)), "ownership_conflict", "supersession cannot race an active non-delivery assignment");
+	const a = f.state.roleWork!.assignments.find((a) => a.id === assigned.assignment)!;
+	f.accepted({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, human);
+	assert.equal(code(f.command(command, human)), "ownership_conflict", "fencing alone cannot claim quiescence");
+	const fenced = f.state.roleWork!.assignments.find((a) => a.id === assigned.assignment)!;
+	f.accepted(
+		{
+			type: "recordQuiescence",
+			assignment: fenced.id,
+			generation: fenced.generation,
+			attempt: fenced.attempt,
+			providerIdle: true,
+			environment: "absent",
+			effects: "reconciled",
+		},
+		host,
+	);
+	f.accepted(command, human);
+	assert.equal(f.state.intakes!.slices.find((s) => s.id === "fix")!.everAssigned, true);
+	assert.equal(f.state.intakes!.slices.find((s) => s.id === "fix")!.status, "superseded");
 });
 
 test("I08 intake cannot retroactively authorize a previously assigned Slice identity", () => {
@@ -584,27 +652,25 @@ test("I10 human dependency amendments require exact basis, eligible endpoints an
 	);
 });
 
-test("V1 10,000 seeded acceptance/assignment/amendment schedules preserve permanent consumption", () => {
-	const count = Number(process.env.RENDER_V1_SCHEDULES ?? 10000);
+test("V1 both acceptance/assignment/amendment orderings preserve permanent consumption", () => {
 	const base = fixture();
 	const intake = base.stage();
 	base.accepted({ type: "acceptIntake", ...base.basis(intake, base.review(intake)) }, human);
 	const contract = base.state.intakes!.slices[0]!.contract;
 	const next = base.stage();
 	const basis = base.basis(next, base.review(next));
-	for (let seed = 0; seed < count; seed++) {
+	for (const assignmentFirst of [false, true]) {
 		const f = fixture();
 		f.state = structuredClone(base.state);
 		Object.assign(f.inputs, base.inputs);
-		const random = seeded(seed + 932);
 		const commands: { principal: VerifiedFacts["principal"]; command: Record<string, unknown> }[] = [
 			{ principal: human, command: { type: "amendContract", slice: "fix", expected: contract, ...basis } },
 			{ principal: host, command: { type: "assignTask", slice: "fix", delivery: true, packet: packet({ inputs: [contract] }) } },
 		];
-		if (random() < 0.5) commands.reverse();
+		if (assignmentFirst) commands.reverse();
 		const first = f.command(commands[0]!.command, commands[0]!.principal);
 		const second = f.command(commands[1]!.command, commands[1]!.principal);
-		assert.equal(code(first), "accepted", `seed ${seed}`);
-		assert.equal(code(second), commands[0]!.principal.kind === "human" ? "stale_basis" : "contract_frozen", `seed ${seed}`);
+		assert.equal(code(first), "accepted");
+		assert.equal(code(second), assignmentFirst ? "contract_frozen" : "stale_basis");
 	}
 });

@@ -12,7 +12,7 @@ import {
 	checkpointRefs,
 	emptyCheckpoints,
 } from "../kernel/checkpoints.ts";
-import { emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, intakeRefs, validIntakeShape } from "../kernel/intake.ts";
+import { approvedIntakeRefs, emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, intakeRefs, validIntakeShape } from "../kernel/intake.ts";
 import { type Ground, readGround } from "../kernel/investigation.ts";
 import {
 	change,
@@ -351,11 +351,15 @@ export class Ledger {
 		let requiredInputs: string[] = [];
 		if (INTAKE_COMMANDS.includes(command.type)) {
 			const intake = command as IntakeCommand;
-			requiredInputs = intakeRefs(intakes, intake);
+			requiredInputs = intakeRefs(intakes, intake, checkpoints);
 			if (current.kind === "assignment-agent") {
 				const own = roles.assignments.find((a) => sameAgent(a as RoleAssignment, current));
 				if (!own || own.packet.role !== "coordinator" || own.packet.investigation)
 					throw new Abort(refusal("forbidden_scope", "Only scoped coordinators operate intake."));
+				if (intakes.concerns.some((n) => !intakes.drafts.some((d) => d.id === n.intake && own.packet.inputs.includes(d.manifest.ground))))
+					throw new Abort(
+						refusal("forbidden_scope", "Retained concerns require explicit originating Ground scope before intake continuation."),
+					);
 				const m =
 					intake.type === "stageIntake"
 						? validIntakeShape(intake.manifest)
@@ -372,6 +376,7 @@ export class Ledger {
 						...(own.evidence ?? []),
 						...roles.assignments.filter((a) => a.parent === own.id).flatMap((a) => (a.report ? [a.report] : [])),
 						...intakes.concerns.map((n) => n.revision),
+						...approvedIntakeRefs(checkpoints, m, own.packet.inputs),
 					]);
 					for (const ref of requiredInputs)
 						if (!allowed.has(ref))
@@ -1244,7 +1249,19 @@ export class Ledger {
 					own?.packet.role === "coordinator" && !own.packet.investigation && intakeWork
 						? intakeWork.drafts
 								.filter((d) => own.packet.inputs.includes(d.manifest.ground))
-								.flatMap((d) => intakeRefs(intakeWork, { type: "requestIntakeReview", workflow: own.workflow, intake: d.id, key: "" }))
+								.flatMap((d) =>
+									intakeRefs(
+										intakeWork,
+										{ type: "requestIntakeReview", workflow: own.workflow, intake: d.id, key: "" },
+										this.#workflows.get(own.workflow)?.checkpoints,
+									),
+								)
+								.filter((ref) => {
+									const concern = intakeWork.concerns.find((n) => n.revision === ref);
+									return (
+										!concern || intakeWork.drafts.some((d) => d.id === concern.intake && own.packet.inputs.includes(d.manifest.ground))
+									);
+								})
 						: [];
 				const results = this.#roleWork.assignments
 					.filter((child) => child.parent === own?.id && child.status === "submitted")

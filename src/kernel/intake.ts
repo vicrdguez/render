@@ -1,6 +1,6 @@
 // Bounded Contract intake. Ledger supplies exact scoped bytes; this module performs no I/O.
 import { catalogDefinition } from "./catalog.ts";
-import type { CheckpointInput } from "./checkpoints.ts";
+import type { CheckpointInput, Checkpoints } from "./checkpoints.ts";
 import type { Decision, DomainWrite, KernelState, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
 import { type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
@@ -196,7 +196,20 @@ function manifestRefs(m: IntakeManifest): string[] {
 		...m.slices.flatMap((s) => s.obligations.flatMap((o) => o.sources.map((r) => r.ref))),
 	];
 }
-export function intakeRefs(work: Intakes, c: IntakeCommand): string[] {
+export function approvedIntakeRefs(checkpoints: Checkpoints | undefined, manifest: IntakeManifest, scopes?: readonly string[]): string[] {
+	return (checkpoints?.requests ?? [])
+		.filter((r) => r.status === "approved" && manifest.decisions.includes(r.decision ?? "") && (!scopes || scopes.includes(r.scope)))
+		.flatMap((r) => [
+			r.scope,
+			r.decision!,
+			r.approved!,
+			r.manifest!,
+			r.review!,
+			...(r.manifestValue?.nodes.flatMap((n) => n.evidence) ?? []),
+		])
+		.filter((ref) => !!ref);
+}
+export function intakeRefs(work: Intakes, c: IntakeCommand, checkpoints?: Checkpoints): string[] {
 	const d = "intake" in c ? work.drafts.find((d) => d.id === c.intake) : undefined;
 	const refs =
 		c.type === "stageIntake" && validIntakeShape(c.manifest)
@@ -204,6 +217,8 @@ export function intakeRefs(work: Intakes, c: IntakeCommand): string[] {
 			: d
 				? [d.id, d.manifestRef, ...manifestRefs(d.manifest)]
 				: [];
+	const manifest = c.type === "stageIntake" && validIntakeShape(c.manifest) ? c.manifest : d?.manifest;
+	if (manifest) refs.push(...approvedIntakeRefs(checkpoints, manifest));
 	if ("review" in c) refs.push(c.review);
 	if (c.type === "amendDependencies") {
 		if (work.revision) refs.push(work.revision);
@@ -279,7 +294,8 @@ function lint(state: KernelState, m: IntakeManifest, inputs: Record<string, Chec
 	const approvedSources = object(g) && texts(g.approvedSources) ? g.approvedSources : [];
 	if (m.shape !== "design" && (!m.sources.length || m.sources.some((ref) => !approvedSources.includes(ref))))
 		return "Shortened intake requires applicable existing-seam sources explicitly approved in human Ground.";
-	if (manifestRefs(m).some((ref) => !inputs[ref])) return "Every required source must resolve to exact retained bytes.";
+	if ([...manifestRefs(m), ...approvedIntakeRefs(state.checkpoints, m)].some((ref) => !inputs[ref]))
+		return "Every required source must resolve to exact retained bytes.";
 	let catalog: ReturnType<typeof catalogDefinition>;
 	try {
 		catalog = catalogDefinition(inputs[m.catalog]!.text);
@@ -349,11 +365,7 @@ function refused(code: string, reason: string): Decision {
 }
 function claimed(state: KernelState, slice: string): boolean {
 	return !!state.roleWork?.assignments.some(
-		(a) =>
-			a.workflow === state.workflow?.id &&
-			a.slice === slice &&
-			a.delivery &&
-			(a.executing || !["submitted", "canceled"].includes(a.status)),
+		(a) => a.workflow === state.workflow?.id && a.slice === slice && (a.executing || !["submitted", "canceled"].includes(a.status)),
 	);
 }
 export function intakeAssignmentGap(state: KernelState, slice: string, packet: RolePacket): Decision | undefined {
@@ -405,6 +417,14 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 	)
 		return refused("stale_assignment", "Only the current scoped executing coordinator can stage/review intake.");
 	const work = structuredClone(state.intakes ?? emptyIntakes());
+	if (
+		p.kind === "assignment-agent" &&
+		work.concerns.some((n) => !work.drafts.some((d) => d.id === n.intake && a!.packet.inputs.includes(d.manifest.ground)))
+	)
+		return refused(
+			"forbidden_scope",
+			"Every retained intake concern needs its originating Ground in coordinator scope; concerns cannot be dropped or silently propagated.",
+		);
 	const policy = state.policy ?? initialPolicy(),
 		binding = bindingFor(policy, c.workflow);
 	const inputs = facts.checkpointInputs ?? {};
@@ -492,9 +512,7 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 				executorEpoch: null,
 				packet: {
 					...template,
-					inputs: [
-						...new Set([...template.inputs, d.id, d.manifestRef, ...manifestRefs(d.manifest), ...work.concerns.map((n) => n.revision)]),
-					],
+					inputs: [...new Set([...template.inputs, ...intakeRefs(work, c, state.checkpoints)])],
 					policyBinding: binding.revision,
 				},
 				packetRef: `packet:${facts.sequence}`,
@@ -597,10 +615,11 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 					dependents.some(
 						(e) =>
 							!c.dispositions.some(
-								(d) =>
-									d.slice === e.slice &&
-									d.replacement !== c.slice &&
-									(work.slices.some((s) => s.id === d.replacement && s.status === "accepted") || dManifestHas(d.replacement)),
+								(disposition) =>
+									disposition.slice === e.slice &&
+									disposition.replacement !== c.slice &&
+									(work.slices.some((s) => s.id === disposition.replacement && s.status === "accepted") ||
+										d.manifest.slices.some((s) => s.id === disposition.replacement)),
 							),
 					)
 				)
@@ -612,9 +631,6 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 				for (const e of dependents) e.requires = c.dispositions.find((d) => d.slice === e.slice)!.replacement;
 				target!.status = "superseded";
 				work.dependencies = work.dependencies.filter((e) => e.slice !== c.slice);
-			}
-			function dManifestHas(id: string) {
-				return d!.manifest.slices.some((s) => s.id === id);
 			}
 			const replaced = new Set(d.manifest.slices.map((s) => s.id));
 			work.dependencies = [...work.dependencies.filter((e) => !replaced.has(e.slice)), ...structuredClone(d.manifest.dependencies)];
