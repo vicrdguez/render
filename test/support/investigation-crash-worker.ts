@@ -32,7 +32,7 @@ const engine = new Engine({
 	apiKey: "fixture",
 	families: { "claude-sonnet-4-6": "claude" },
 	investigations: { root: join(data, "source"), repositories: { owned: repo } },
-} as ConstructorParameters<typeof Engine>[0]);
+});
 let harness!: Harness;
 const opened = await openLedger({
 	data,

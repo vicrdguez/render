@@ -16,7 +16,7 @@ export function investigationPacket(groundRef: string, commit = "1".repeat(40), 
 	return packet({
 		...overrides,
 		investigation: { ground: groundRef, repository: "owned", commit, paths: ["boundary.ts", "CONTEXT.md", "ADR.md", "verify.md"] },
-	} as Partial<RolePacket>);
+	});
 }
 export async function saveGround(ledger: Ledger, value: unknown = ground, expected: string | null = null, id = "ground") {
 	const result = await ledger.command(

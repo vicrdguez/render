@@ -38,6 +38,13 @@ Required oversized, absent, damaged or unsupported inputs block, with no truncat
 | G14 fresh client handover | commitment = investigation only; owner, evidence, blocker, next human action obtainable without chat | Ledger snapshot/artifacts |
 | G15 scope and stale authority | foreign workflow input, stale generation and agent shape-approval refuse before disclosure/commit | Existing role checks + new focused cases |
 
+Preregistration amendments: after the first implementation, G08 gained a direct host-runner-substitution
+assertion; it failed with `accepted` before the corresponding refusal was added. Audit F2 later exposed
+an invalid-packet throw: a literal delivery=true/missing-packet check failed on that exception before the
+guard ordering was corrected. These additions are not represented as part of the initial test commit.
+The existing V1 matrix was updated for the newly available host source command. Formatting and initial
+fixture type/provenance-field corrections do not establish regression sensitivity.
+
 Unsafe controls are written before implementation: automatically accepting unconfirmed classifier shape must
 fail G02's named assertion; admitting a delivery owner for investigation must fail G04's named assertion.
 A third control accepting uncited results must fail G08. Setup/import failures do not count as detection.

@@ -22,7 +22,7 @@ function code(reply: { status: string; code?: string }) {
 	return reply.code ?? reply.status;
 }
 function sourceRef(a: RoleAssignment) {
-	return (a as RoleAssignment & { investigationSource?: string }).investigationSource!;
+	return a.investigationSource!;
 }
 
 // Literal Kernel oracles extend V1 without duplicating the existing 10,000-schedule driver.
@@ -52,6 +52,19 @@ test("G01/G02 Kernel distinguishes human shape from unconfirmed classification",
 		);
 		assert.deepEqual([state, facts], before, "Ground legality must remain pure");
 	}
+});
+
+test("G04 malformed delivery packet remains an ordinary Kernel refusal", () => {
+	const result = change(
+		{ workflow: { id: "workflow:2", messageCount: 0 }, document: null, device: null },
+		{ type: "assignTask", workflow: "workflow:2", slice: "workflow:2", delivery: true },
+		{ principal: { kind: "host", scope: "scheduling" }, sequence: 4, ids: { fact: "fact:4" } },
+	);
+	assert.deepEqual(result, {
+		outcome: "refused",
+		code: "invalid_content",
+		reason: "Assignment requires an explicit packet, Slice and ownership mode.",
+	});
 });
 
 test("G02 classifier suggestion requires confirmation, human shape does not", async () => {
@@ -160,7 +173,7 @@ for (const escalation of [false, true])
 			apiKey: "owned-fixture",
 			families: { "claude-sonnet-4-6": "claude" },
 			investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
-		} as ConstructorParameters<typeof Engine>[0]);
+		});
 		const f = await roleFixture(engine);
 		try {
 			const ref = await saveGround(f.ledger);
@@ -250,7 +263,7 @@ test("G08 uncited, foreign and out-of-scope results cannot settle investigation"
 			apiKey: "fixture",
 			families: { "claude-sonnet-4-6": "claude" },
 			investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
-		} as ConstructorParameters<typeof Engine>[0]),
+		}),
 	);
 	try {
 		const ref = await saveGround(f.ledger);
@@ -312,13 +325,12 @@ test("G09 missing selected source blocks with exact path and retains ownership",
 			apiKey: "fixture",
 			families: { "claude-sonnet-4-6": "claude" },
 			investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
-		} as ConstructorParameters<typeof Engine>[0]),
+		}),
 	);
 	try {
 		const ref = await saveGround(f.ledger);
-		const input = investigationPacket(ref, source.commit) as ReturnType<typeof investigationPacket> & {
-			investigation: { paths: string[] };
-		};
+		const input = investigationPacket(ref, source.commit);
+		assert.ok(input.investigation);
 		input.investigation.paths.push("absent.ts");
 		assert.equal(code(await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: input })), "accepted");
 		await until(() => assignments(f.ledger)[0]?.status === "blocked");
@@ -344,7 +356,7 @@ for (const failure of ["missing_content", "content_corrupt"])
 				apiKey: "fixture",
 				families: { "claude-sonnet-4-6": "claude" },
 				investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
-			} as ConstructorParameters<typeof Engine>[0]),
+			}),
 		);
 		try {
 			const ref = await saveGround(f.ledger);

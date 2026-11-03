@@ -226,9 +226,9 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		result = { assignment: id, attempt, packet: created.packetRef };
 	}
 	if (c.type === "assignTask") {
-		if (c.delivery && c.packet.investigation) return refusal("forbidden_scope", "Investigation creates no delivery commitment.");
 		if (!c.packet || !c.slice || typeof c.delivery !== "boolean")
 			return refusal("invalid_content", "Assignment requires an explicit packet, Slice and ownership mode.");
+		if (c.delivery && c.packet.investigation) return refusal("forbidden_scope", "Investigation creates no delivery commitment.");
 		if (hasOwner(work, c.packet, c.slice, c.delivery))
 			return refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer.");
 		create(c.packet, c.slice, c.delivery, null, null);
