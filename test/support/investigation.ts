@@ -26,7 +26,12 @@ export async function saveGround(ledger: Ledger, value: unknown = ground, expect
 			commandId: id,
 			workflow: "workflow:2",
 			expected: { document: expected },
-			command: { type: "saveDocument", document: "ground", mediaType: "text/plain", content: Buffer.from(JSON.stringify(value)).toString("base64") },
+			command: {
+				type: "saveDocument",
+				document: "ground",
+				mediaType: "text/plain",
+				content: Buffer.from(JSON.stringify(value)).toString("base64"),
+			},
 		},
 		admin,
 	);
@@ -53,7 +58,13 @@ export function finding(source: string, groundRef: string, escalation = false) {
 		facts: [{ text: "Zero is rejected by x > 0.", citations: [{ ref: source, path: "boundary.ts" }, { ref: groundRef }] }],
 		uncertainties: ["Whether zero should be accepted is a product question."],
 		limits: ["Source inspection only; no verifier or model judgment trial executed."],
-		next: escalation ? { playbook: "experiment", reason: "Need an isolated comparison.", question: "Provide the experiment capability or choose a read-only conclusion." } : null,
+		next: escalation
+			? {
+					playbook: "experiment",
+					reason: "Need an isolated comparison.",
+					question: "Provide the experiment capability or choose a read-only conclusion.",
+				}
+			: null,
 	};
 }
 export const sourceFiles = {

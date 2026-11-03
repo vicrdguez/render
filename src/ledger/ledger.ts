@@ -6,6 +6,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId, EntryId, Harness, HarnessOptions, Storage, Tx } from "@earendil-works/pi-durable";
 import type { RoleTaskStaging } from "../engine/runtime.ts";
 import type { WebWorking } from "../engine/web.ts";
+import { type Ground, readGround } from "../kernel/investigation.ts";
 import {
 	change,
 	commandPermission,
@@ -511,9 +512,15 @@ export class Ledger {
 							.filter((a) => a.id === current.assignment)
 							.flatMap((a) => a.packet.requests.filter((r) => r.key === (command as { key: string }).key).map((r) => plain(r.packet)))
 					: [];
+		const ownInvestigation =
+			command.type === "submitRoleResult" && current.kind === "assignment-agent"
+				? roles.assignments.find((a) => sameAgent(a as RoleAssignment, current) && a.packet.investigation)
+				: undefined;
+		if (ownInvestigation) packets.push(plain(ownInvestigation.packet));
+		let investigationGround: Ground | undefined;
 		const allPackets = (p: RolePacket): RolePacket[] => [p, ...p.requests.flatMap((r) => allPackets(r.packet))];
 		for (const packet of packets.flatMap(allPackets))
-			for (const ref of packetRefs(packet)) {
+			for (const ref of [...packetRefs(packet), ...(ownInvestigation?.investigationSource ? [ownInvestigation.investigationSource] : [])]) {
 				const location = await tx.doc(RevisionLocation, ref, null);
 				if (!location.exists || location.workflow !== env.workflow)
 					throw new Abort({
@@ -545,6 +552,16 @@ export class Ledger {
 				}
 				const unsupported = unsupportedRecordSchema(input.data.schema, ref);
 				if (unsupported) throw new Abort(unsupported);
+				if (packet.investigation?.ground === ref) {
+					investigationGround =
+						input.data.kind === "ground" && input.data.createdBy.principal === "human" ? readGround(input.data.text) : undefined;
+					if (!investigationGround)
+						throw new Abort({
+							status: "refused",
+							code: "invalid_content",
+							reason: `Investigation requires structured human Ground at ${ref}; retain the goal, constraints, clarifications, shape provenance and independent done predicate.`,
+						});
+				}
 			}
 		let webEvidence: string | undefined;
 		if (command.type === "retainWebEvidence" && current.kind === "assignment-agent") {
@@ -590,6 +607,7 @@ export class Ledger {
 		const target = command.type === "revokeDevice" ? await tx.doc(Device, (command as { device: string }).device, null) : undefined;
 		const text = env.content === undefined ? undefined : decodeUtf8(env.content);
 		const facts: VerifiedFacts = {
+			...(investigationGround ? { investigationGround } : {}),
 			principal: current,
 			sequence,
 			executorEpoch: meta.executorEpoch,
@@ -679,6 +697,10 @@ export class Ledger {
 							generation: a.generation,
 							attempt: a.attempt,
 						});
+					}
+					if (command.type === "recordSourceObservation" && typeof decision.result.source === "string") {
+						const c = command as { assignment: string; generation: number; attempt: string; text: string };
+						await this.#retainRoleText(tx, env, by, sequence, decision.result.source, `investigation-source/${c.assignment}`, c.text, c);
 					}
 					if (command.type === "retainWebEvidence" && current.kind === "assignment-agent" && webEvidence) {
 						const ref = decision.result.evidence as string;
@@ -1200,7 +1222,12 @@ export class Ledger {
 				const results = this.#roleWork.assignments
 					.filter((child) => child.parent === own?.id && child.status === "submitted")
 					.map((child) => child.report);
-				if (!own || ![...packetRefs(own.packet), own.packetRef, own.report, ...(own.evidence ?? []), ...results].includes(ref))
+				if (
+					!own ||
+					![...packetRefs(own.packet), own.packetRef, own.report, own.investigationSource, ...(own.evidence ?? []), ...results].includes(
+						ref,
+					)
+				)
 					return NOT_FOUND;
 			}
 			const entry = await this.#entry(location.conversation, location.entry);
@@ -1453,7 +1480,8 @@ export class Ledger {
 							}
 							if (refs.revision && (wanted("ground") || wanted("document"))) artifacts.add(refs.revision);
 							if (refs.message && wanted("message")) artifacts.add(refs.message);
-							if (wanted("document")) for (const key of ["packet", "report", "quarantined"]) if (refs[key]) artifacts.add(refs[key]);
+							if (wanted("document"))
+								for (const key of ["packet", "report", "quarantined", "source"]) if (refs[key]) artifacts.add(refs[key]);
 							add({ ...base(ref, kind, owner.workflow, sequence, String(d.commandId)), command: d.command, refs, createdBy: d.by });
 							const by = d.by as AcceptedBy;
 							const namespaces =

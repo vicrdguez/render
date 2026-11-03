@@ -230,7 +230,13 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 	const allowed = ["type", "assignment", "generation", "attempt"];
 	if (type === "recordBlocker") allowed.push("reason");
 	if (type === "recordRuntimeHistory") allowed.push("key");
-	if (type === "recordRecoveryState" || type === "recordRunnerObservation" || type === "recordRunnerDiagnostic") allowed.push("text");
+	if (
+		type === "recordRecoveryState" ||
+		type === "recordRunnerObservation" ||
+		type === "recordRunnerDiagnostic" ||
+		type === "recordSourceObservation"
+	)
+		allowed.push("text");
 	if (type === "stageTask" || type === "rebindAttempt") allowed.push("executorEpoch");
 	if (type === "recordQuiescence" || type === "rebindAttempt") allowed.push("providerIdle", "environment", "effects");
 	only(c, allowed, "command");
@@ -243,7 +249,12 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 	};
 	if (type === "recordRuntimeHistory") return { ...common, type, key: text(c.key, "key", 128) };
 	if (type === "recordBlocker") return { ...common, type, reason: text(c.reason, "reason", 2048) };
-	if (type === "recordRecoveryState" || type === "recordRunnerObservation" || type === "recordRunnerDiagnostic")
+	if (
+		type === "recordRecoveryState" ||
+		type === "recordRunnerObservation" ||
+		type === "recordRunnerDiagnostic" ||
+		type === "recordSourceObservation"
+	)
 		return { ...common, type, text: text(c.text, "text", type === "recordRecoveryState" ? 1024 * 1024 : 16 * 1024 * 1024) };
 	if (type === "recordQuiescence" || type === "rebindAttempt") {
 		if (
@@ -275,6 +286,7 @@ function parsePacket(raw: unknown, depth = 0): RolePacket {
 		p,
 		[
 			"role",
+			"investigation",
 			"inputs",
 			"principles",
 			"instructions",
@@ -295,6 +307,22 @@ function parsePacket(raw: unknown, depth = 0): RolePacket {
 		],
 		"role packet",
 	);
+	if (p.investigation !== undefined) {
+		const i = object(p.investigation, "investigation");
+		only(i, ["ground", "repository", "commit", "paths"], "investigation");
+		text(i.ground, "Ground ref", 128);
+		text(i.repository, "repository", 128);
+		if (typeof i.commit !== "string" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(i.commit))
+			malformed("investigation requires an exact commit OID");
+		if (
+			!Array.isArray(i.paths) ||
+			!i.paths.length ||
+			i.paths.length > 256 ||
+			!i.paths.every((path) => typeof path === "string" && path.length > 0 && path.length <= 4096) ||
+			new Set(i.paths).size !== i.paths.length
+		)
+			malformed("investigation requires a bounded unique selection of complete source paths");
+	}
 	if (!ROLES.includes(p.role as never)) malformed("unknown role");
 	if (!Array.isArray(p.inputs) || p.inputs.length > 256 || !p.inputs.every((ref) => typeof ref === "string" && ref.length > 0))
 		malformed("inputs must be exact artifact refs");

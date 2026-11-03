@@ -69,7 +69,7 @@ const MATRIX: Record<string, { admits: PrincipalClass[]; available: boolean }> =
 	cleanupWorkspace: { admits: ["host-scheduling", "host-recovery"], available: false },
 	stageOperation: { admits: ["host-effects"], available: false },
 	admitEffect: { admits: ["host-effects"], available: false },
-	recordSourceObservation: { admits: ["host-effects"], available: false },
+	recordSourceObservation: { admits: ["host-effects"], available: true },
 	recordRunnerObservation: { admits: ["host-effects"], available: true },
 	recordRunnerDiagnostic: { admits: ["host-effects"], available: true },
 	recordForgeObservation: { admits: ["host-effects"], available: false },
@@ -217,6 +217,7 @@ const outcomes = new Map<string, number>();
 // Generated role commands carry no identities or packet and no assignment exists in this model, so each eligible one has
 // one ordinary refusal: no target to act on, or no content to act with.
 const BARE_ROLE_REFUSAL: Record<string, string> = {
+	recordSourceObservation: "not_found",
 	assignTask: "invalid_content",
 	recordRecoveryState: "invalid_content",
 	replaceTask: "stale_assignment",

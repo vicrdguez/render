@@ -1,5 +1,6 @@
 // Pure role ownership and execution legality, reached only through Kernel.change.
 
+import { type Investigation, readInvestigationOutcome, shapeConfirmed } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, Principal, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
 
@@ -16,6 +17,7 @@ export const ROLES = [
 ] as const;
 export type Role = (typeof ROLES)[number];
 export type RolePacket = {
+	investigation?: Investigation;
 	/** Ledger-generated binding; callers cannot submit or inherit it. */
 	policyBinding?: string;
 	role: Role;
@@ -61,6 +63,7 @@ export type RoleAssignment = {
 	blocker: string | null;
 	report: string | null;
 	evidence?: string[];
+	investigationSource?: string;
 };
 export type RoleWorkState = { assignments: RoleAssignment[] };
 export type RoleIntent = { kind: "run-role" | "notify-role"; assignment: string };
@@ -82,7 +85,7 @@ export type RoleCommand =
 	  }
 	| { type: "requestOwnStop"; workflow: string }
 	| {
-			type: "recordRecoveryState" | "recordRunnerObservation" | "recordRunnerDiagnostic";
+			type: "recordRecoveryState" | "recordRunnerObservation" | "recordRunnerDiagnostic" | "recordSourceObservation";
 			workflow: string;
 			assignment: string;
 			generation: number;
@@ -126,6 +129,7 @@ export const ROLE_COMMANDS = [
 	"recordRecoveryState",
 	"recordRunnerObservation",
 	"recordRunnerDiagnostic",
+	"recordSourceObservation",
 	"rebindAttempt",
 ];
 
@@ -152,7 +156,9 @@ export function currentChildren(assignments: readonly RoleAssignment[], parent: 
 	return children.filter((child) => !replaced.has(child.id));
 }
 export function packetRefs(p: RolePacket): string[] {
-	return [...new Set([...p.inputs, p.principles, p.instructions, p.policy, p.profile])];
+	return [
+		...new Set([...p.inputs, p.principles, p.instructions, p.policy, p.profile, ...(p.investigation ? [p.investigation.ground] : [])]),
+	];
 }
 export function changeRole(state: KernelState, command: RoleCommand, facts: VerifiedFacts): Decision {
 	if (!state.workflow || state.workflow.id !== command.workflow) return refusal("not_found", "Role work requires an existing workflow.");
@@ -170,6 +176,14 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("forbidden_scope", "Effective assignment role or workflow differs.");
 		if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
 			return refusal("assignment_not_running", "A new call requires current executing authority.");
+	}
+	const proposedPacket = c.type === "assignTask" || c.type === "replaceTask" ? c.packet : undefined;
+	if (proposedPacket?.investigation) {
+		if (proposedPacket.role !== "coordinator" || proposedPacket.execution !== "read-only" || proposedPacket.requests.length)
+			return refusal("forbidden_scope", "Investigation is coordinator-only, read-only and cannot schedule child/delivery roles.");
+		if (!facts.investigationGround) return refusal("missing_content", "Restore the exact human Ground revision.");
+		if (!shapeConfirmed(facts.investigationGround))
+			return refusal("shape_confirmation_required", "Human confirmation is required for a classifier-proposed task shape.");
 	}
 	function create(packet: RolePacket, slice: string, delivery: boolean, parent: string | null, key: string | null) {
 		const id = facts.ids.assignment;
@@ -202,12 +216,15 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		result = { assignment: id, attempt, packet: created.packetRef };
 	}
 	if (c.type === "assignTask") {
+		if (c.delivery && c.packet.investigation) return refusal("forbidden_scope", "Investigation creates no delivery commitment.");
 		if (!c.packet || !c.slice || typeof c.delivery !== "boolean")
 			return refusal("invalid_content", "Assignment requires an explicit packet, Slice and ownership mode.");
 		if (hasOwner(work, c.packet, c.slice, c.delivery))
 			return refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer.");
 		create(c.packet, c.slice, c.delivery, null, null);
 	} else if (c.type === "replaceTask") {
+		if (a?.packet.investigation && !c.packet.investigation)
+			return refusal("forbidden_scope", "Investigation replacement cannot authorize a different playbook; retain an escalation instead.");
 		if (!a || a.generation !== c.generation || a.attempt !== c.attempt || a.workflow !== c.workflow)
 			return refusal("stale_assignment", "Replacement predecessor differs.");
 		if (a.status !== "canceled" || a.executing)
@@ -221,7 +238,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 	} else if (c.type === "requestRole") {
 		if (!a) return refusal("stale_assignment", "No current assignment.");
 		const request = a.packet.requests.find((r) => r.key === c.key);
-		if (!request || !mayRequest(a.packet.role, request.packet.role))
+		if (a.packet.investigation || request?.packet.investigation || !request || !mayRequest(a.packet.role, request.packet.role))
 			return refusal("forbidden_scope", "Request is not a predefined role within this packet.");
 		const policy = state.policy ?? initialPolicy();
 		if (
@@ -254,7 +271,13 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (!Array.isArray(c.supports)) return refusal("invalid_content", "Declare required retained supports, or [] for no web reliance.");
 		if (c.supports.some((ref) => !a.evidence?.includes(ref)))
 			return refusal("missing_content", "Promote exact required web support before reliance.");
-		a.status = "submitted";
+		const outcome = a.packet.investigation
+			? readInvestigationOutcome(c.text, [...packetRefs(a.packet), ...c.supports], a.investigationSource, a.packet.investigation.paths)
+			: undefined;
+		if (a.packet.investigation && !outcome)
+			return refusal("invalid_content", "Investigation requires cited facts, uncertainty, limits and a finding or actionable escalation.");
+		a.status = outcome?.outcome === "escalation" ? "blocked" : "submitted";
+		if (outcome?.next) a.blocker = `playbook_unavailable:${outcome.next.playbook}; ${outcome.next.reason}; ${outcome.next.question}`;
 		a.report = facts.ids.revision ?? null;
 		result = {
 			assignment: a.id,
@@ -269,7 +292,20 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("stale_assignment", "Generation or Attempt is no longer current.");
 		result = { assignment: a.id };
 		switch (c.type) {
+			case "recordSourceObservation":
+				if (!a.packet.investigation || a.investigationSource || !["queued", "running"].includes(a.status))
+					return refusal(
+						"forbidden_scope",
+						"Only an open investigation without a retained source can accept its exact source observation.",
+					);
+				if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024)
+					return refusal("invalid_content", "Investigation source exceeds retained evidence bounds.");
+				a.investigationSource = facts.ids.revision!;
+				result.source = a.investigationSource;
+				break;
 			case "recordRunnerObservation":
+				if (a.packet.investigation)
+					return refusal("forbidden_scope", "Only the assigned coordinator can submit a cited investigation outcome.");
 				if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
 					return refusal("stale_assignment", "Owned check receipt requires the current executing generation.");
 				if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024)

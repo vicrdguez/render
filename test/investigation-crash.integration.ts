@@ -12,7 +12,15 @@ for (const barrier of ["before-commit", "after-commit"])
 			const source = await gitSourceFixture(sourceFiles);
 			const children: ReturnType<typeof spawn>[] = [];
 			const run = (mode: string) => {
-				const child = spawn(process.execPath, ["test/support/investigation-crash-worker.ts", join(source.root, "data"), mode, source.repo, source.commit], { cwd: new URL("../", import.meta.url), env: { ...process.env, RENDER_INVESTIGATION_BARRIER: barrier }, stdio: ["ignore", "pipe", "pipe"] });
+				const child = spawn(
+					process.execPath,
+					["test/support/investigation-crash-worker.ts", join(source.root, "data"), mode, source.repo, source.commit],
+					{
+						cwd: new URL("../", import.meta.url),
+						env: { ...process.env, RENDER_INVESTIGATION_BARRIER: barrier },
+						stdio: ["ignore", "pipe", "pipe"],
+					},
+				);
 				children.push(child);
 				return child;
 			};
@@ -20,23 +28,38 @@ for (const barrier of ["before-commit", "after-commit"])
 				const first = run("crash");
 				let output = "";
 				let errors = "";
-				first.stdout.on("data", chunk => { output += String(chunk); });
-				first.stderr.on("data", chunk => { errors += String(chunk); });
-				for (let i = 0; i < 1000 && !output.includes('"event":"barrier"'); i++) { assert.equal(first.exitCode, null, errors); await setTimeout(10); }
+				first.stdout.on("data", (chunk) => {
+					output += String(chunk);
+				});
+				first.stderr.on("data", (chunk) => {
+					errors += String(chunk);
+				});
+				for (let i = 0; i < 1000 && !output.includes('"event":"barrier"'); i++) {
+					assert.equal(first.exitCode, null, errors);
+					await setTimeout(10);
+				}
 				assert.match(output, /"event":"barrier"/);
 				first.kill("SIGKILL");
-				await new Promise(resolve => first.once("exit", resolve));
+				await new Promise((resolve) => first.once("exit", resolve));
 				const next = run("recover");
 				let recovered = "";
-				next.stdout.on("data", chunk => { recovered += String(chunk); });
-				next.stderr.on("data", chunk => { errors += String(chunk); });
-				assert.equal(await new Promise(resolve => next.once("exit", resolve)), 0, errors);
+				next.stdout.on("data", (chunk) => {
+					recovered += String(chunk);
+				});
+				next.stderr.on("data", (chunk) => {
+					errors += String(chunk);
+				});
+				assert.equal(await new Promise((resolve) => next.once("exit", resolve)), 0, errors);
 				const value = JSON.parse(recovered.trim().split("\n").at(-1)!);
 				assert.equal(value.assignments, 1);
 				assert.equal(value.exact, true);
 				assert.equal(value.duplicate, barrier === "after-commit");
 			} finally {
-				for (const child of children) if (child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await new Promise(resolve => child.once("exit", resolve)); }
+				for (const child of children)
+					if (child.exitCode === null && child.signalCode === null) {
+						child.kill("SIGKILL");
+						await new Promise((resolve) => child.once("exit", resolve));
+					}
 				await source.close();
 			}
 		});

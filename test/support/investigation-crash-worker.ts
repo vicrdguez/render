@@ -12,35 +12,128 @@ import { admin, scheduler } from "./roles.ts";
 
 const [data, mode, repo, commit] = process.argv.slice(2) as [string, string, string, string];
 const provider = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
-provider.setResponses(Array.from({ length: 4 }, () => transcript => {
-	const user = transcript.messages.filter(m => m.role === "user").at(-1)!;
-	const prompt = JSON.parse(user.content as string);
-	const source = prompt.inputs.find((i: { text: string }) => i.text.includes('"kind":"investigation-source"'));
-	return fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: JSON.stringify(finding(source.ref, prompt.packet.investigation.ground)) }, { id: "stable-result" }), { stopReason: "toolUse" });
-}));
-const engine = new Engine({ provider: provider.provider, apiKey: "fixture", families: { "claude-sonnet-4-6": "claude" }, investigations: { root: join(data, "source"), repositories: { owned: repo } } } as ConstructorParameters<typeof Engine>[0]);
+provider.setResponses(
+	Array.from({ length: 4 }, () => (transcript) => {
+		const user = transcript.messages.filter((m) => m.role === "user").at(-1)!;
+		const prompt = JSON.parse(user.content as string);
+		const source = prompt.inputs.find((i: { text: string }) => i.text.includes('"kind":"investigation-source"'));
+		return fauxAssistantMessage(
+			fauxToolCall(
+				"submit_role_result",
+				{ supports: [], text: JSON.stringify(finding(source.ref, prompt.packet.investigation.ground)) },
+				{ id: "stable-result" },
+			),
+			{ stopReason: "toolUse" },
+		);
+	}),
+);
+const engine = new Engine({
+	provider: provider.provider,
+	apiKey: "fixture",
+	families: { "claude-sonnet-4-6": "claude" },
+	investigations: { root: join(data, "source"), repositories: { owned: repo } },
+} as ConstructorParameters<typeof Engine>[0]);
 let harness!: Harness;
-const opened = await openLedger({ data, runtime: report => {
-	const options = engine.options(report);
-	if (mode === "crash") {
-		const registry = options.registry as Registry;
-		const roles = registry.snapshot().extension("render.roles")!;
-		registry.install({ ...roles, hooks: [...(roles.hooks ?? []), hook(ToolTask, { beforeTool: async (call, api) => {
-			if (call.name !== "submit_role_result") return;
-			const binding = await api.snapshot(RoleBinding, api.conversationId, ctx);
-			assert.ok(binding);
-			process.env.RENDER_FAULT_COMMAND = `role:${createHash("sha256").update(JSON.stringify(["workflow:2", api.conversationId, binding.assignment, binding.generation, binding.attempt, api.taskId, call.id])).digest("hex")}`;
-			process.env.RENDER_FAULT_BARRIER = process.env.RENDER_INVESTIGATION_BARRIER;
-		} })] });
-	}
-	return { ...options, bindLedger: (ledger, h) => { harness = h; options.bindLedger?.(ledger, h); } };
-} });
+const opened = await openLedger({
+	data,
+	onFatal: (error) => {
+		console.error(error);
+	},
+	runtime: (report) => {
+		const options = engine.options(report);
+		if (mode === "crash") {
+			const registry = options.registry as Registry;
+			const roles = registry.snapshot().extension("render.roles")!;
+			registry.install({
+				...roles,
+				hooks: [
+					...(roles.hooks ?? []),
+					hook(ToolTask, {
+						beforeTool: async (call, api) => {
+							if (call.name !== "submit_role_result") return;
+							const binding = await api.snapshot(RoleBinding, api.conversationId, ctx);
+							assert.ok(binding);
+							process.env.RENDER_FAULT_COMMAND = `role:${createHash("sha256")
+								.update(
+									JSON.stringify([
+										"workflow:2",
+										api.conversationId,
+										binding.assignment,
+										binding.generation,
+										binding.attempt,
+										api.taskId,
+										call.id,
+									]),
+								)
+								.digest("hex")}`;
+							process.env.RENDER_FAULT_BARRIER = process.env.RENDER_INVESTIGATION_BARRIER;
+						},
+					}),
+				],
+			});
+		}
+		return {
+			...options,
+			bindLedger: (ledger, h) => {
+				harness = h;
+				options.bindLedger?.(ledger, h);
+			},
+		};
+	},
+});
 try {
 	if (mode === "crash") {
-		assert.equal((await opened.ledger.command({ version: 1, authorityEpoch: opened.authorityEpoch, commandId: "create", command: { type: "createWorkflow", title: "Investigate" } }, admin)).status, "accepted");
-		assert.equal((await opened.ledger.command({ version: 1, authorityEpoch: opened.authorityEpoch, commandId: "principles", workflow: "workflow:2", expected: { document: null }, command: { type: "saveDocument", document: "principles", mediaType: "text/plain", content: Buffer.from("Read only; retain exact facts.").toString("base64") } }, admin)).status, "accepted");
+		assert.equal(
+			(
+				await opened.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: opened.authorityEpoch,
+						commandId: "create",
+						command: { type: "createWorkflow", title: "Investigate" },
+					},
+					admin,
+				)
+			).status,
+			"accepted",
+		);
+		assert.equal(
+			(
+				await opened.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: opened.authorityEpoch,
+						commandId: "principles",
+						workflow: "workflow:2",
+						expected: { document: null },
+						command: {
+							type: "saveDocument",
+							document: "principles",
+							mediaType: "text/plain",
+							content: Buffer.from("Read only; retain exact facts.").toString("base64"),
+						},
+					},
+					admin,
+				)
+			).status,
+			"accepted",
+		);
 		const ground = await saveGround(opened.ledger);
-		assert.equal((await opened.ledger.command({ version: 1, authorityEpoch: opened.authorityEpoch, commandId: "start", workflow: "workflow:2", command: { type: "assignTask", slice: "workflow:2", delivery: false, packet: investigationPacket(ground, commit) } }, scheduler)).status, "accepted");
+		assert.equal(
+			(
+				await opened.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: opened.authorityEpoch,
+						commandId: "start",
+						workflow: "workflow:2",
+						command: { type: "assignTask", slice: "workflow:2", delivery: false, packet: investigationPacket(ground, commit) },
+					},
+					scheduler,
+				)
+			).status,
+			"accepted",
+		);
 	}
 	await until(() => assignments(opened.ledger)[0]?.status === "submitted" && !assignments(opened.ledger)[0]?.executing);
 	assert.notEqual(mode, "crash", "fault barrier must interrupt submission");
@@ -51,15 +144,26 @@ try {
 	assert.equal(JSON.parse(report.content.toString()).summary, "The strict positive predicate excludes zero.");
 	const conversation = await harness.conversation(a.conversation as ConversationId, ctx);
 	const entries = await conversation!.entries({ order: "ascending" }, 200, undefined, ctx);
-	const results = entries.items.flatMap(e => e.model ?? []).filter(m => m.role === "toolResult" && m.toolName === "submit_role_result");
+	const results = entries.items.flatMap((e) => e.model ?? []).filter((m) => m.role === "toolResult" && m.toolName === "submit_role_result");
 	assert.equal(results.length, 1);
 	const result = results[0]!;
 	assert.equal(result.role, "toolResult");
-	const receipt = JSON.parse(result.content.filter(c => c.type === "text").map(c => c.text).join(""));
+	const receipt = JSON.parse(
+		result.content
+			.filter((c) => c.type === "text")
+			.map((c) => c.text)
+			.join(""),
+	);
 	assert.equal(receipt.status, "accepted");
 	const bundle = await opened.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
 	assert.ok("manifest" in bundle && bundle.manifest.complete);
-	const reports = bundle.jsonl.trim().split("\n").map(line => JSON.parse(line)).filter(r => r.document === `role-report/${a.id}`);
+	const reports = bundle.jsonl
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line))
+		.filter((r) => r.document === `role-report/${a.id}`);
 	assert.equal(reports.length, 1, "one retained report across crash/replay");
 	console.log(JSON.stringify({ report: a.report, duplicate: receipt.duplicate ?? false, assignments: 1, exact: true }));
-} finally { await opened.close(); }
+} finally {
+	await opened.close();
+}
