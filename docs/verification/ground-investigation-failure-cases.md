@@ -34,7 +34,7 @@ Required oversized, absent, damaged or unsupported inputs block, with no truncat
 | G10 normal reopen/history/export | exact Ground/source/report bytes, principal and assignment refs survive; fixed-cutoff export unchanged | Ledger |
 | G11 missing/corrupt cited bytes | exact restoration ref in refusal/export; later source or Ground cannot replace it | Ledger + Engine |
 | G12 result before/after-commit SIGKILL | recover zero partial report, exactly one accepted report/receipt, same ownership; current epoch fences old execution | Real subprocess/Durable/SQLite |
-| G13 package generation | inherited role-work refusal remains; normal history/export/restart still work | Existing recovery-role-work check |
+| G13 retained execution | normal history/export/restart remain independent of deferred disaster recovery | ground-investigation and defer-disaster-recovery checks |
 | G14 fresh client handover | commitment = investigation only; owner, evidence, blocker, next human action obtainable without chat | Ledger snapshot/artifacts |
 | G15 scope and stale authority | foreign workflow input, stale generation and agent shape-approval refuse before disclosure/commit | Existing role checks + new focused cases |
 

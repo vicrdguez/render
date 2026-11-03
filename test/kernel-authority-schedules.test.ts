@@ -73,7 +73,6 @@ const MATRIX: Record<string, { admits: PrincipalClass[]; available: boolean }> =
 	recordRunnerObservation: { admits: ["host-effects"], available: true },
 	recordRunnerDiagnostic: { admits: ["host-effects"], available: true },
 	recordForgeObservation: { admits: ["host-effects"], available: false },
-	rotateEpoch: { admits: ["host-recovery"], available: false },
 	recordRecoveryState: { admits: ["host-recovery"], available: true },
 };
 const UNKNOWN = ["dropTables", "runSql", "setPrincipal", "approve", ""];

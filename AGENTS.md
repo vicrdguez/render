@@ -21,6 +21,10 @@ Choose the least complexity that satisfies the accepted scope, repository standa
 - NEVER write unit tests after you write code
 • If you must test a system in isolation, FIRST write all the ways it cold fail, THEN write the    code
 
+## Development artifacts
+
+Keep raw verification output, diagnostics and run narratives outside the source tree (for example in the OS temp directory). Record exact source, commands, outcomes, timings and limitations in the workflow's existing implementation/review reports. Keep only maintained guidance and source fixtures in the repository; `evidence/` is ignored. Render's runtime evidence/history is product state, not development scratch.
+
 ## Fast developer feedback
 
 Separate the edit loop from acceptance verification. Use focused checks while iterating; run the required cumulative gate at the workflow’s verification boundary on the actual candidate source.

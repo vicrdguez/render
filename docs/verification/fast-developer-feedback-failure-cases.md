@@ -1,6 +1,6 @@
 # Fast developer feedback: failure cases and independent expectations
 
-Written before remediation (AGENTS.md rules, T1). The historical test audit is a starting investigation; each case was revalidated against integrated source `306c801`. Dispositions and measurements are retained in `evidence/fast-developer-feedback/README.md`.
+Written before remediation (AGENTS.md rules, T1). The historical test audit is a starting investigation; each case was revalidated against integrated source `306c801`. Source-specific dispositions and measurements belong in implementation/review reports; raw output stays outside the source tree.
 
 ## Selection and gates (B1, B2, B6)
 
@@ -19,7 +19,6 @@ Written before remediation (AGENTS.md rules, T1). The historical test audit is a
 - H3: replacing the stalled-observer sleep loses the disconnect oracle. Expected: `slow-consumer-kept` still fails with `the stalled stream must have been disconnected by the host`, after the same 1,500 commits and real paused socket.
 - H4: a role-wait regression is reduced below its trigger. Expected: R11 still performs eight unclean kills for both modes; no ordinary-restart check is substituted.
 - H5: idle observation is treated as waste. Expected: R10 keeps its settle and observation windows, zero idle WAL writes and the separate-process watchdog.
-- H6: moving semantic corruption variants to in-process interfaces drops a variant or accepts any failure. Expected: all 15 kinds still refuse at managed restore with the validator's own reason; representative CLI import, direct-copy startup and direct-copy repair witnesses stay in process form; `offhost-backup-state-unvalidated` keeps its control.
 - H7: a web status moved to `research` loses the supported root. Expected: real Webfox 4.8.0 and owned HTTP, one request per status, literal fallback and uncertainty results; a registered-tool journey remains for wiring and provenance.
 - H8: Git-only refusals keep requiring Docker, or Git semantics are mocked. Expected: refusal cases pass with Docker stopped using real `git`; materialization, execution and quiescence keep actual containers.
 - H9: fast concurrency shares state or starves a timing assertion. Expected: repeated runs pass with no leftover temp stores or owned processes; latency-bearing checks stay serial and out of the fast selection.
