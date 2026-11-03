@@ -5,6 +5,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId, EntryId, Harness, Tx } from "@earendil-works/pi-durable";
 import type { RoleTaskStaging } from "../engine/runtime.ts";
 import type { WebWorking } from "../engine/web.ts";
+import { candidateEvidence } from "../kernel/candidates.ts";
 import {
 	CHECKPOINT_COMMANDS,
 	type CheckpointCommand,
@@ -371,6 +372,13 @@ export class Ledger {
 				}
 			}
 			const refs = checkpointRefs(checkpoints, checkpoint);
+			if (
+				"request" in checkpoint &&
+				["stageCheckpoint", "requestCheckpointReview", "emitCheckpoint", "approveCheckpoint"].includes(checkpoint.type)
+			) {
+				const request = checkpoints.requests.find((r) => r.id === checkpoint.request);
+				if (request?.required.candidates) refs.push(...(candidateEvidence(request, plain(roles.assignments)) ?? []).map((a) => a.report!));
+			}
 			for (const ref of refs) {
 				const location = await tx.doc(RevisionLocation, ref, null);
 				if (!location.exists || location.workflow !== env.workflow)

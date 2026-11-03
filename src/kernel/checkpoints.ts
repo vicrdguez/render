@@ -1,4 +1,5 @@
 // Exact technical checkpoint legality. All bytes/provenance are supplied by Ledger; no I/O.
+import { candidateEvidence, candidatePlan, validCandidateAnswer } from "./candidates.ts";
 import type { Decision, DomainWrite, KernelState, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
 import { type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
@@ -41,6 +42,7 @@ export type Manifest = {
 	responses: Response[];
 };
 export type CheckpointRequest = {
+	candidateKeys?: string[];
 	id: string;
 	stage: Stage;
 	scope: string;
@@ -235,7 +237,14 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 		if (!a?.packet.inputs.includes(c.scope)) return refuse("forbidden_scope", "Ground scope must be an explicit coordinator input.");
 		if (!inputs[c.scope]?.human || inputs[c.scope]?.document !== "ground")
 			return refuse("invalid_content", "Scope must cite exact human-authored Ground, not an assistant proposal.");
+		const candidateKeys = c.required.candidates ? candidatePlan(a.packet, c.scope) : undefined;
+		if (c.required.candidates && !candidateKeys)
+			return refuse(
+				"invalid_content",
+				"Required comparison needs at least two read-only candidate packets with common Ground/inputs and distinct explicit conditions.",
+			);
 		r = {
+			...(candidateKeys ? { candidateKeys } : {}),
 			id: `checkpoint:${facts.sequence}`,
 			stage: c.stage,
 			scope: c.scope,
@@ -281,6 +290,24 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 			return refuse("forbidden_scope", "Checkpoint Ground lies outside this coordinator's input scope.");
 		if (c.type !== "saveCheckpointConcern" && r.status !== "pending")
 			return refuse("stale_basis", "Request is resolved; request a successor.", r);
+		if (c.type === "stageCheckpoint" && (!validManifest(c.manifest) || c.manifest.stage !== r.stage))
+			return refuse(
+				"invalid_content",
+				"Manifest needs stable nodes, alternatives/evidence/defaults, decomposition comparison and verification strategy.",
+			);
+		if (r.required.candidates && ["stageCheckpoint", "requestCheckpointReview", "emitCheckpoint", "approveCheckpoint"].includes(c.type)) {
+			const evidence = candidateEvidence(r, state.roleWork?.assignments ?? []);
+			const cited =
+				c.type === "stageCheckpoint"
+					? c.manifest.nodes.flatMap((n) => n.evidence)
+					: (r.manifestValue?.nodes.flatMap((n) => n.evidence) ?? []);
+			if (!evidence || evidence.some((child) => !validCandidateAnswer(inputs[child.report!]?.text ?? "") || !cited.includes(child.report!)))
+				return refuse(
+					"missing_candidate_evidence",
+					"Complete and cite every required independent candidate answer before synthesis/challenge/advancement.",
+					r,
+				);
+		}
 		if (c.type === "cancelCheckpoint") {
 			if (c.expectedEmission !== r.emission) return refuse("stale_basis", "Cancellation basis changed.", r);
 			r.status = "canceled";
@@ -328,16 +355,11 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 			r.ready = false;
 			result.request = r.id;
 		} else if (c.type === "stageCheckpoint") {
-			if (r.required.candidates || r.required.experiment)
+			if (r.required.experiment)
 				return refuse(
 					"capability_unavailable",
-					`Required ${r.required.candidates ? "design candidates" : "protocol experiment"} capability is unavailable; no synthesis/challenge waiver.`,
+					"Required protocol experiment capability is unavailable; no synthesis/challenge waiver.",
 					r,
-				);
-			if (!validManifest(c.manifest) || c.manifest.stage !== r.stage)
-				return refuse(
-					"invalid_content",
-					"Manifest needs stable nodes, alternatives/evidence/defaults, decomposition comparison and verification strategy.",
 				);
 			const concerns = work.concerns.filter((n) => n.stage === r!.stage);
 			const responses = c.manifest.responses;

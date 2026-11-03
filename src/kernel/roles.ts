@@ -1,5 +1,7 @@
 // Pure role ownership and execution legality, reached only through Kernel.change.
 
+import { isDeepStrictEqual } from "node:util";
+import { validCandidateAnswer } from "./candidates.ts";
 import { blockedBySeams } from "./checkpoints.ts";
 import { type Investigation, readInvestigationOutcome, shapeConfirmed } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, Principal, VerifiedFacts } from "./kernel.ts";
@@ -43,6 +45,7 @@ export type RolePacket = {
 	requests: { key: string; packet: RolePacket }[];
 };
 export type RoleAssignment = {
+	checkpointCandidate?: { request: string; key: string };
 	checkpointReview?: { request: string; emission: string; manifest: string; annotations: number };
 	id: string;
 	workflow: string;
@@ -75,7 +78,7 @@ export type RoleCommand =
 	| { type: "assignTask"; workflow: string; slice: string; delivery: boolean; packet: RolePacket }
 	| { type: "replaceTask"; workflow: string; assignment: string; generation: number; attempt: string; packet: RolePacket }
 	| { type: "recordRuntimeHistory"; workflow: string; assignment: string; generation: number; attempt: string; key: string }
-	| { type: "requestRole"; workflow: string; key: string }
+	| { type: "requestRole"; workflow: string; key: string; request?: string }
 	| { type: "submitRoleResult"; workflow: string; text: string; supports: string[]; verification?: VerificationAssessment }
 	| {
 			type: "retainWebEvidence";
@@ -208,6 +211,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		const attempt = facts.ids.attempt;
 		if (!id || !attempt) throw new Error("Ledger omitted role identities");
 		const created: RoleAssignment = {
+			...(c.type === "replaceTask" && a?.checkpointCandidate ? { checkpointCandidate: { ...a.checkpointCandidate } } : {}),
+			...(c.type === "requestRole" && c.request ? { checkpointCandidate: { request: c.request, key: c.key } } : {}),
 			...(c.type === "replaceTask" && a?.checkpointReview ? { checkpointReview: { ...a.checkpointReview } } : {}),
 			id,
 			workflow: c.workflow,
@@ -242,6 +247,15 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer.");
 		create(c.packet, c.slice, c.delivery, null, null);
 	} else if (c.type === "replaceTask") {
+		if (a?.checkpointCandidate) {
+			const { policyBinding: _oldBinding, ...oldPacket } = a.packet;
+			const { policyBinding: _newBinding, ...newPacket } = c.packet;
+			if (!isDeepStrictEqual(oldPacket, newPacket))
+				return refusal(
+					"forbidden_scope",
+					"Candidate replacement retains exact question, conditions and role; changed comparison needs a new checkpoint.",
+				);
+		}
 		if (
 			a?.checkpointReview &&
 			(c.packet.role !== "challenger" ||
@@ -267,13 +281,27 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		const request = a.packet.requests.find((r) => r.key === c.key);
 		if (a.packet.investigation || request?.packet.investigation || !request || !mayRequest(a.packet.role, request.packet.role))
 			return refusal("forbidden_scope", "Request is not a predefined role within this packet.");
+		if (c.request) {
+			const checkpoint = state.checkpoints?.requests.find((r) => r.id === c.request);
+			if (
+				request.packet.role !== "candidate" ||
+				checkpoint?.status !== "pending" ||
+				checkpoint.coordinator !== a.id ||
+				!checkpoint.candidateKeys?.includes(c.key)
+			)
+				return refusal("forbidden_scope", "Candidate must belong to this coordinator's pending comparison and captured request key.");
+		}
 		const policy = state.policy ?? initialPolicy();
 		if (
 			request.packet.family === a.packet.family &&
 			policy.revisions[bindingFor(policy, a.workflow).policy]?.reviewerDiversity !== "human-directed-same-family"
 		)
 			return refusal("capability_unavailable", "Same-family independent work needs recorded human policy direction; no family fallback.");
-		if (work.assignments.some((child) => child.parent === a.id && child.requestKey === c.key))
+		if (
+			work.assignments.some(
+				(child) => child.parent === a.id && child.requestKey === c.key && child.checkpointCandidate?.request === c.request,
+			)
+		)
 			return refusal("role_already_requested", "This bounded role request already has durable work.");
 		create(request.packet, a.slice, false, a.id, c.key);
 	} else if (c.type === "recordRunnerDiagnostic") {
@@ -295,6 +323,11 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (!a) return refusal("stale_assignment", "No current assignment.");
 		if (!c.text || Buffer.byteLength(c.text) > 1024 * 1024)
 			return refusal("invalid_content", "Report must contain at most 1 MiB of complete UTF-8 text.");
+		if (a.checkpointCandidate && !validCandidateAnswer(c.text))
+			return refusal(
+				"invalid_content",
+				"Candidate result needs schema:1, answer, assumptions, consequences and incidentalChoices arrays; no winner authority.",
+			);
 		if (!Array.isArray(c.supports)) return refusal("invalid_content", "Declare required retained supports, or [] for no web reliance.");
 		if (c.supports.some((ref) => !a.evidence?.includes(ref)))
 			return refusal("missing_content", "Promote exact required web support before reliance.");
@@ -342,6 +375,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				result.source = a.investigationSource;
 				break;
 			case "recordRunnerObservation":
+				if (a.checkpointCandidate) return refusal("forbidden_scope", "Only the assigned candidate can submit its competing answer.");
 				if (a.packet.investigation)
 					return refusal("forbidden_scope", "Only the assigned coordinator can submit a cited investigation outcome.");
 				if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)

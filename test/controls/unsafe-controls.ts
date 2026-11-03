@@ -14,6 +14,32 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "candidate-premature-synthesis",
+		expect: /required alternatives must precede synthesis/,
+		behavior: "stage a synthesis while required candidate assignments are missing",
+		edits: [
+			{ file: "src/kernel/checkpoints.ts", find: "if (!evidence ||", replace: "if (false && (!evidence ||" },
+			{ file: "src/kernel/checkpoints.ts", find: "!cited.includes(child.report!)))", replace: "!cited.includes(child.report!))))" },
+		],
+		test: "test/design-candidates.test.ts",
+		pattern: "required alternatives precede synthesis",
+	},
+	{
+		name: "candidate-foreign-artifact",
+		expect: /foreign artifact must remain unreadable/,
+		behavior: "disclose named foreign revisions to a candidate",
+		edits: [
+			{
+				file: "src/ledger/ledger.ts",
+				find: 'if (principal.kind === "assignment-agent") {\n\t\t\t\tconst own = this.#roleWork.assignments.find',
+				replace:
+					'if (principal.kind === "assignment-agent" && principal.role !== "candidate") {\n\t\t\t\tconst own = this.#roleWork.assignments.find',
+			},
+		],
+		test: "test/design-candidates.test.ts",
+		pattern: "candidates receive own inputs",
+	},
+	{
 		name: "checkpoint-edited-approval",
 		expect: /edited draft must never be approvable/,
 		behavior: "accept edited bytes without re-emission and exact review",

@@ -227,7 +227,11 @@ export class Engine {
 			}),
 			(args) => JSON.parse(args.command!) as JsonObject,
 		);
-		const request = tool("request_role", schema({ key: Type.String() }), (args) => ({ type: "requestRole", key: args.key! }));
+		const request = tool(
+			"request_role",
+			Type.Object({ key: Type.String(), request: Type.Optional(Type.String()) }, { additionalProperties: false }),
+			(args) => ({ type: "requestRole", key: args.key!, ...(args.request ? { request: args.request } : {}) }),
+		);
 		const submit = defineTool({
 			name: "submit_role_result",
 			description:
@@ -771,6 +775,15 @@ export class Engine {
 			generation: a.generation,
 			attempt: a.attempt,
 			packet: a.packet,
+			...(a.checkpointCandidate
+				? {
+						checkpointCandidate: {
+							...a.checkpointCandidate,
+							instructions:
+								"Independently answer the common bounded question in Ground and shared inputs under your own packet conditions. Own draft only; no winner, approval, source writes or delegated roles. Submit JSON {schema:1,answer,assumptions:[],consequences:[],incidentalChoices:[]}; disclose what you decided beyond the question. No parent or sibling context is inherited.",
+						},
+					}
+				: {}),
 			...(a.checkpointReview
 				? {
 						checkpointReview: {
@@ -783,7 +796,7 @@ export class Engine {
 			...(a.packet.role === "coordinator" && !a.packet.investigation
 				? {
 						checkpointInstructions:
-							"Use checkpoint with a JSON command. requestCheckpoint: {stage:'seams'|'modules',scope:humanGroundRef,required:{candidates:boolean,experiment:boolean}}. Preserve its request identity through rework/retry. Required unavailable evidence blocks, never waive it. stageCheckpoint: {request,text:completeMarkdown,manifest:{schema:1,stage,nodes:[{id,decision,rationale,alternatives,evidence,classification,default}],decompositions:[{id,modules,dependencies,verificationSeams,depth,locality,deletion}],verificationStrategy,incidentalChoices,responses:[{concern,disposition,reason,resulting:nodeId}]}}. Seams compares genuinely different decompositions. Request exact fresh challenge with requestCheckpointReview:{request,key:configuredChallengerKey}; retrieve the child report. emitCheckpoint:{request,review:reportRef,contested:[{objection,disposition,reason,resulting:nodeId}]} answers every objection. Changed text needs a new stage and review. Human concerns must all survive and receive reasoned mappings. reworkCheckpoint requires saved concerns/reason. Never treat Markdown identity fields or save as consent; only human approval accepts original emitted bytes.",
+							"Use checkpoint with a JSON command. requestCheckpoint: {stage:'seams'|'modules',scope:humanGroundRef,required:{candidates:boolean,experiment:boolean}}. Preserve its request identity through rework/retry. For required candidates, configure at least two read-only candidate packets with common Ground/inputs and distinct conditions. Call request_role {key,request} for each captured candidate key. Wait for all answers, read and cite every report in the synthesis manifest before staging or challenge. Required unavailable evidence blocks, never waive it. stageCheckpoint: {request,text:completeMarkdown,manifest:{schema:1,stage,nodes:[{id,decision,rationale,alternatives,evidence,classification,default}],decompositions:[{id,modules,dependencies,verificationSeams,depth,locality,deletion}],verificationStrategy,incidentalChoices,responses:[{concern,disposition,reason,resulting:nodeId}]}}. Seams compares genuinely different decompositions. Request exact fresh challenge with requestCheckpointReview:{request,key:configuredChallengerKey}; retrieve the child report. emitCheckpoint:{request,review:reportRef,contested:[{objection,disposition,reason,resulting:nodeId}]} answers every objection. Changed text needs a new stage and review. Human concerns must all survive and receive reasoned mappings. reworkCheckpoint requires saved concerns/reason. Never treat Markdown identity fields or save as consent; only human approval accepts original emitted bytes.",
 					}
 				: {}),
 			...(a.packet.investigation
