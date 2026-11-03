@@ -66,6 +66,7 @@ test("R03 explicit role configuration does not inherit tools; model IDs cannot o
 		assert.deepEqual(
 			visibleTools,
 			[
+				"checkpoint",
 				"read_artifact",
 				"read_web_result",
 				"request_own_stop",

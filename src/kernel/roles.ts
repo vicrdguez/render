@@ -1,5 +1,6 @@
 // Pure role ownership and execution legality, reached only through Kernel.change.
 
+import { blockedBySeams } from "./checkpoints.ts";
 import { type Investigation, readInvestigationOutcome, shapeConfirmed } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, Principal, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
@@ -42,6 +43,7 @@ export type RolePacket = {
 	requests: { key: string; packet: RolePacket }[];
 };
 export type RoleAssignment = {
+	checkpointReview?: { request: string; emission: string; manifest: string; annotations: number };
 	id: string;
 	workflow: string;
 	slice: string;
@@ -187,6 +189,12 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
 			return refusal("assignment_not_running", "A new call requires current executing authority.");
 	}
+	const affectedInputs = c.type === "assignTask" || c.type === "replaceTask" ? (c.packet?.inputs ?? []) : (a?.packet.inputs ?? []);
+	if (
+		["assignTask", "replaceTask", "stageTask", "rebindAttempt", "requestRole"].includes(c.type) &&
+		blockedBySeams(state.checkpoints, affectedInputs)
+	)
+		return refusal("seams_required", "Revised Seams block affected execution; historical approvals remain retained.");
 	const proposedPacket = c.type === "assignTask" || c.type === "replaceTask" ? c.packet : undefined;
 	if (proposedPacket?.investigation) {
 		if (proposedPacket.role !== "coordinator" || proposedPacket.execution !== "read-only" || proposedPacket.requests.length)
@@ -200,6 +208,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		const attempt = facts.ids.attempt;
 		if (!id || !attempt) throw new Error("Ledger omitted role identities");
 		const created: RoleAssignment = {
+			...(c.type === "replaceTask" && a?.checkpointReview ? { checkpointReview: { ...a.checkpointReview } } : {}),
 			id,
 			workflow: c.workflow,
 			slice,
@@ -233,6 +242,13 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer.");
 		create(c.packet, c.slice, c.delivery, null, null);
 	} else if (c.type === "replaceTask") {
+		if (
+			a?.checkpointReview &&
+			(c.packet.role !== "challenger" ||
+				!c.packet.inputs.includes(a.checkpointReview.emission) ||
+				!c.packet.inputs.includes(a.checkpointReview.manifest))
+		)
+			return refusal("forbidden_scope", "Replacement challenge must retain its exact emission/manifest inputs and independent role.");
 		if (a?.packet.investigation && !c.packet.investigation)
 			return refusal("forbidden_scope", "Investigation replacement cannot authorize a different playbook; retain an escalation instead.");
 		if (!a || a.generation !== c.generation || a.attempt !== c.attempt || a.workflow !== c.workflow)
