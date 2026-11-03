@@ -63,6 +63,7 @@ export type KernelState = {
 };
 
 export type VerifiedFacts = {
+	readonly experimentProtocols?: Readonly<Record<string, import("./experiments.ts").ExperimentProtocol>>;
 	readonly investigationGround?: Ground;
 	readonly verificationEvidence?: readonly import("./verification.ts").CatalogEvidence[];
 	readonly executorEpoch?: string;

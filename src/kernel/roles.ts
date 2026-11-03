@@ -1,5 +1,6 @@
 // Pure role ownership and execution legality, reached only through Kernel.change.
 
+import { type Experiment, experimentCandidates, experimentOutcome } from "./experiments.ts";
 import { type Investigation, readInvestigationOutcome, shapeConfirmed } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, Principal, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
@@ -18,6 +19,7 @@ export const ROLES = [
 ] as const;
 export type Role = (typeof ROLES)[number];
 export type RolePacket = {
+	experiment?: Experiment;
 	investigation?: Investigation;
 	verification?: VerificationSelection;
 	/** Ledger-generated binding; callers cannot submit or inherit it. */
@@ -66,6 +68,7 @@ export type RoleAssignment = {
 	report: string | null;
 	evidence?: string[];
 	investigationSource?: string;
+	experimentSource?: string;
 };
 export type RoleWorkState = { assignments: RoleAssignment[] };
 export type RoleIntent = { kind: "run-role" | "notify-role"; assignment: string };
@@ -161,6 +164,7 @@ export function packetRefs(p: RolePacket): string[] {
 	return [
 		...new Set([
 			...p.inputs,
+			...(p.experiment ? [p.experiment.protocol] : []),
 			p.principles,
 			p.instructions,
 			p.policy,
@@ -187,7 +191,53 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
 			return refusal("assignment_not_running", "A new call requires current executing authority.");
 	}
-	const proposedPacket = c.type === "assignTask" || c.type === "replaceTask" ? c.packet : undefined;
+	const proposedPacket =
+		c.type === "assignTask" || c.type === "replaceTask"
+			? c.packet
+			: c.type === "requestRole"
+				? a?.packet.requests.find((request) => request.key === c.key)?.packet
+				: undefined;
+	if (proposedPacket && ["experiment-candidate", "experiment-parent"].includes(proposedPacket.role) && !proposedPacket.experiment)
+		return refusal("invalid_content", "Every experiment role requires an immutable preregistered protocol.");
+	if (proposedPacket?.experiment) {
+		const e = proposedPacket.experiment;
+		const protocol = facts.experimentProtocols?.[e.protocol];
+		if (!protocol) return refusal("invalid_content", "Retain the complete immutable protocol before assigning experiment work.");
+		if (
+			proposedPacket.investigation ||
+			proposedPacket.verification ||
+			proposedPacket.requests.length ||
+			proposedPacket.execution !== "linux-writer" ||
+			proposedPacket.role !== (e.candidate === null ? "experiment-parent" : "experiment-candidate") ||
+			(c.type === "assignTask" && c.delivery)
+		)
+			return refusal("forbidden_scope", "Experiments confer no delivery/adoption authority or child role requests.");
+		if (e.candidate !== null && !protocol.candidates.includes(e.candidate))
+			return refusal("forbidden_scope", "Candidate is outside the preregistered protocol.");
+		if (
+			work.assignments.some(
+				(other) => other.packet.experiment?.protocol === e.protocol && other.packet.experiment.candidate === e.candidate,
+			)
+		)
+			return refusal("ownership_conflict", "This protocol/round already owns that candidate or comparison; use a new round.");
+		if (e.candidate === null) {
+			const candidates = experimentCandidates(work.assignments, e.protocol);
+			if (
+				protocol.candidates.some(
+					(id) =>
+						!candidates.some(
+							(candidate) =>
+								candidate.packet.experiment?.candidate === id &&
+								candidate.status === "submitted" &&
+								!candidate.executing &&
+								candidate.experimentSource &&
+								candidate.report,
+						),
+				)
+			)
+				return refusal("missing_content", "Retain sealed source and report for every exact protocol candidate before comparison.");
+		}
+	}
 	if (proposedPacket?.investigation) {
 		if (proposedPacket.role !== "coordinator" || proposedPacket.execution !== "read-only" || proposedPacket.requests.length)
 			return refusal("forbidden_scope", "Investigation is coordinator-only, read-only and cannot schedule child/delivery roles.");
@@ -206,7 +256,13 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			generation: 1,
 			attempt,
 			executorEpoch: null,
-			packet: { ...packet, policyBinding: bindingFor(state.policy ?? initialPolicy(), c.workflow).revision },
+			packet: {
+				...packet,
+				...(packet.experiment
+					? { inputs: [...new Set([...packet.inputs, facts.experimentProtocols![packet.experiment.protocol]!.ground])] }
+					: {}),
+				policyBinding: bindingFor(state.policy ?? initialPolicy(), c.workflow).revision,
+			},
 			policyBinding: bindingFor(state.policy ?? initialPolicy(), c.workflow).revision,
 			predecessor: c.type === "replaceTask" ? c.assignment : null,
 			packetRef: `packet:${facts.sequence}`,
@@ -233,6 +289,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer.");
 		create(c.packet, c.slice, c.delivery, null, null);
 	} else if (c.type === "replaceTask") {
+		if (a?.packet.experiment)
+			return refusal("forbidden_scope", "Experimental corrections require a new protocol/round, not replacement or adoption.");
 		if (a?.packet.investigation && !c.packet.investigation)
 			return refusal("forbidden_scope", "Investigation replacement cannot authorize a different playbook; retain an escalation instead.");
 		if (!a || a.generation !== c.generation || a.attempt !== c.attempt || a.workflow !== c.workflow)
@@ -281,6 +339,11 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (!Array.isArray(c.supports)) return refusal("invalid_content", "Declare required retained supports, or [] for no web reliance.");
 		if (c.supports.some((ref) => !a.evidence?.includes(ref)))
 			return refusal("missing_content", "Promote exact required web support before reliance.");
+		if (a.packet.experiment && (!a.experimentSource || !experimentOutcome(c.text, a.packet.experiment.protocol)))
+			return refusal(
+				"invalid_content",
+				"Seal exact source and decisive raw results before submitting a protocol-bound outcome, numbers, failures and limitations.",
+			);
 		if (a.packet.verification) {
 			if (!c.verification?.reason || !["pass", "non-pass"].includes(c.verification.outcome))
 				return refusal("invalid_content", "Declare catalog adequacy and rationale; command exit is not judgment.");
@@ -295,7 +358,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (a.packet.investigation && !outcome)
 			return refusal("invalid_content", "Investigation requires cited facts, uncertainty, limits and a finding or actionable escalation.");
 		a.status = outcome?.outcome === "escalation" ? "blocked" : "submitted";
-		if (outcome?.next) a.blocker = `playbook_unavailable:${outcome.next.playbook}; ${outcome.next.reason}; ${outcome.next.question}`;
+		if (outcome?.next)
+			a.blocker = `${outcome.next.playbook === "experiment" ? "experiment_preregistration_required" : `playbook_unavailable:${outcome.next.playbook}`}; ${outcome.next.reason}; ${outcome.next.question}`;
 		a.report = facts.ids.revision ?? null;
 		result = {
 			assignment: a.id,
@@ -314,6 +378,15 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		result = { assignment: a.id };
 		switch (c.type) {
 			case "recordSourceObservation":
+				if (a.packet.experiment) {
+					if (a.experimentSource || a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
+						return refusal("stale_assignment", "Only a current open experiment can retain its sealed source.");
+					if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024)
+						return refusal("invalid_content", "Complete experiment evidence exceeds retention bounds.");
+					a.experimentSource = facts.ids.revision!;
+					result.source = a.experimentSource;
+					break;
+				}
 				if (!a.packet.investigation || a.investigationSource || !["queued", "running"].includes(a.status))
 					return refusal(
 						"forbidden_scope",
@@ -325,7 +398,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				result.source = a.investigationSource;
 				break;
 			case "recordRunnerObservation":
-				if (a.packet.investigation)
+				if (a.packet.investigation || a.packet.experiment)
 					return refusal("forbidden_scope", "Only the assigned coordinator can submit a cited investigation outcome.");
 				if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
 					return refusal("stale_assignment", "Owned check receipt requires the current executing generation.");
@@ -373,7 +446,10 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 						"Provider, whole environment and outstanding effects must all be reconciled; timeout is not death.",
 					);
 				if (c.type === "rebindAttempt") {
-					if (a.packet.execution !== "read-only" || c.executorEpoch !== facts.executorEpoch)
+					if (
+						(a.packet.execution !== "read-only" && !(a.packet.experiment && a.experimentSource && c.environment === "stopped")) ||
+						c.executorEpoch !== facts.executorEpoch
+					)
 						return refusal("recovery_required", "Only checked read-only same-assignment continuation is available.");
 					if (
 						a.status === "blocked" &&
@@ -415,6 +491,7 @@ function hasOwner(work: RoleWorkState, packet: RolePacket, slice: string, delive
 			a.slice === slice &&
 			((delivery && a.delivery && a.status !== "submitted" && a.status !== "canceled") ||
 				(packet.execution === "linux-writer" &&
+					!packet.experiment &&
 					a.packet.execution === "linux-writer" &&
 					(a.executing || (a.status !== "submitted" && a.status !== "canceled")))),
 	);

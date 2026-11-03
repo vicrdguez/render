@@ -26,6 +26,7 @@ import {
 	type Tx,
 } from "@earendil-works/pi-durable";
 import { Effects, type Source, type SourceReceipt } from "../effects/source.ts";
+import { experimentInputs } from "../kernel/experiments.ts";
 import { currentChildren, packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
 import { type CatalogResult, requiredCatalogRows, type SelectedCatalog } from "../kernel/verification.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
@@ -33,6 +34,7 @@ import { mintContext } from "../ledger/principals.ts";
 import { Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
 import { type ExecutionResult, type ExecutionScope, type LinuxProfile, Sandboxes, SandboxInputRefusal } from "../sandboxes/sandboxes.ts";
 import { selectCatalog } from "./catalog.ts";
+import { type ExperimentConfig, Experiments } from "./experiments.ts";
 import { previewWeb, research, type WebConfig } from "./web.ts";
 
 const ctx = BACKGROUND_CONTEXT;
@@ -76,6 +78,7 @@ type EngineConfig = {
 	families?: Readonly<Record<string, string>>;
 	provider?: Provider;
 	ownedChecks?: OwnedChecks;
+	experiments?: ExperimentConfig;
 	investigations?: { root: string; repositories: Readonly<Record<string, string>> };
 	web?: WebConfig;
 };
@@ -90,6 +93,7 @@ export class Engine {
 	readonly #config: EngineConfig;
 	readonly #effects: Effects | undefined;
 	readonly #investigationEffects: Effects | undefined;
+	readonly #experiments: Experiments | undefined;
 	readonly #sandboxes: Sandboxes | undefined;
 	readonly #ownedActive = new Set<string>();
 	readonly #roles;
@@ -99,6 +103,12 @@ export class Engine {
 
 	constructor(config: EngineConfig = {}) {
 		this.#config = config;
+		if (config.experiments)
+			this.#experiments = new Experiments(
+				config.experiments,
+				() => this.#ledger!,
+				() => this.#assignments(),
+			);
 		if (config.investigations) this.#investigationEffects = new Effects(config.investigations);
 		if (config.ownedChecks) {
 			this.#effects = new Effects({ root: `${config.ownedChecks.root}/effects`, repositories: config.ownedChecks.repositories });
@@ -242,6 +252,25 @@ export class Engine {
 					isError: reply.status !== "accepted",
 					...(reply.status === "accepted" ? { control: { handoff: "Report durably accepted." } } : {}),
 				};
+			},
+		});
+		const experimentRun = defineTool({
+			name: "experiment_run",
+			description:
+				"Run one bounded command in your isolated experiment workspace. Parent originals at /candidates/<id> are read-only; /workspace is scratch. Never replay uncertain execution.",
+			parameters: Type.Object({ argv: Type.Array(Type.String(), { minItems: 1, maxItems: 64 }) }, { additionalProperties: false }),
+			replay: "unsafe",
+			execute: async (args, api) => {
+				const identity = await this.#identity(api, "experiment_run");
+				try {
+					if ("code" in identity || !identity.a.packet.experiment || !this.#experiments)
+						throw new Error("experiment_capability_unavailable");
+					await this.render(identity.a);
+					const result = await this.#experiments.run(identity.a, args.argv);
+					return { output: [{ type: "text" as const, text: JSON.stringify(result) }] };
+				} catch (error) {
+					return { output: [{ type: "text" as const, text: String(error) }], isError: true };
+				}
 			},
 		});
 		const stop = tool("request_own_stop", schema({}), () => ({ type: "requestOwnStop" }));
@@ -395,7 +424,7 @@ export class Engine {
 		});
 		this.#roles = defineExtension({
 			name: "render.roles",
-			tools: [read, request, submit, stop, ...webTools, webRead, retain],
+			tools: [read, request, submit, stop, ...webTools, webRead, retain, experimentRun],
 			sections: [
 				section("role-packet", async (input) => {
 					const binding = await input.read.snapshot(RoleBinding, input.conversationId, ctx);
@@ -481,7 +510,26 @@ export class Engine {
 								continue;
 							}
 						}
-						if (a.packet.execution === "linux-writer") {
+						if (a.packet.experiment) {
+							try {
+								await this.#experiments!.prepare(this.#assignment(a.id)!);
+							} catch (error) {
+								await this.#command(this.#assignment(a.id)!, {
+									type: "recordBlocker",
+									reason: `experiment_prepare_blocked: ${error}`.slice(0, 1900),
+								});
+								if (error instanceof SandboxInputRefusal)
+									await this.#command(this.#assignment(a.id)!, {
+										type: "recordQuiescence",
+										providerIdle: true,
+										environment: "absent",
+										effects: "reconciled",
+									});
+								else await this.#stopExperiment(this.#assignment(a.id)!);
+								return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
+							}
+						}
+						if (a.packet.execution === "linux-writer" && !a.packet.experiment) {
 							await this.#ownedCheck(this.#assignment(a.id)!);
 							return runtime
 								.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context)
@@ -517,7 +565,8 @@ export class Engine {
 					if (a) {
 						if (a.status === "running")
 							await this.#command(a, { type: "recordBlocker", reason: children.length ? "awaiting_role_results" : "role_did_not_submit" });
-						await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "absent", effects: "reconciled" });
+						if (a.packet.experiment) await this.#stopExperiment(this.#assignment(a.id)!);
+						else await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "absent", effects: "reconciled" });
 					}
 					if (a && children.length && this.#assignment(a.id)?.blocker === "awaiting_role_results")
 						return runtime.commit(
@@ -631,6 +680,30 @@ export class Engine {
 			},
 			beforeResume: async () => {
 				for (const a of this.#assignments()) {
+					if (a.executing && a.packet.experiment) {
+						if (a.status === "running" && a.experimentSource && this.#experiments) {
+							try {
+								await this.#experiments.stop(a);
+								await this.#command(a, {
+									type: "rebindAttempt",
+									providerIdle: true,
+									environment: "stopped",
+									effects: "reconciled",
+									executorEpoch: this.#ledger!.status().executorEpoch,
+								});
+							} catch (error) {
+								await this.#command(a, { type: "recordBlocker", reason: `experiment_reconciliation_required: ${error}`.slice(0, 1900) });
+							}
+						} else {
+							if (a.status === "running")
+								await this.#command(a, {
+									type: "recordBlocker",
+									reason: "experiment_interrupted_reconcile_original_evidence_or_start_new_round",
+								});
+							await this.#stopExperiment(this.#assignment(a.id)!);
+						}
+						continue;
+					}
 					if (!a.executing || a.packet.execution !== "linux-writer" || !this.#sandboxes) continue;
 					try {
 						const scope = this.#scope(a, a.status === "canceling");
@@ -672,12 +745,13 @@ export class Engine {
 							{ conversationId: workflow.conversation as ConversationId, ownership: { kind: "conversation" } },
 						);
 					}
+					const tools = (this.#roles.tools ?? []).filter((tool) => tool.name !== "experiment_run" || !!a.packet.experiment);
 					await configure(tx, a.conversation as ConversationId, {
 						model: { provider: a.packet.provider, modelId: a.packet.model },
 						thinkingLevel: a.packet.thinking,
 						extensions: [this.#roles],
-						tools: this.#roles.tools ?? [],
-						modelTools: this.#roles.tools ?? [],
+						tools,
+						modelTools: tools,
 						instructions: `Role ${a.packet.role}. Required output: ${a.packet.expectedOutput}. Submit only via ${a.packet.submission}.`,
 						cwd: null,
 					});
@@ -714,7 +788,12 @@ export class Engine {
 		const inputs: { ref: string; text: string }[] = [];
 		if (a.packet.investigation && !current.investigationSource)
 			throw new Error("Required investigation source observation is unavailable.");
-		for (const ref of [...packetRefs(a.packet), ...(current.investigationSource ? [current.investigationSource] : [])]) {
+		for (const ref of [
+			...packetRefs(a.packet),
+			...experimentInputs(this.#assignments(), a.packet),
+			...(current.experimentSource ? [current.experimentSource] : []),
+			...(current.investigationSource ? [current.investigationSource] : []),
+		]) {
 			const value = await this.#ledger.artifact(context, { read: ref });
 			if (!("content" in value)) throw new Error(`Required exact input ${ref}: ${value.code}`);
 			inputs.push({ ref, text: value.content.toString("utf8") });
@@ -744,12 +823,20 @@ export class Engine {
 			generation: a.generation,
 			attempt: a.attempt,
 			packet: a.packet,
+			...(a.packet.experiment
+				? {
+						experiment: {
+							instructions:
+								"Apply only the immutable protocol. experiment_run executes inside your own container. Candidates may implement only their assigned experiment in /workspace. Parent originals are sealed read-only /candidates/<id>; use /workspace as independent rerun scratch. No criteria changes, original repairs, adoption or publication. Material deviations require another protocol/round. submit_role_result seals the whole container and retains exact source and raw results before accepting your report. Submit JSON schema:1, protocol:<exact revision>, outcome:positive|negative|inconclusive|deviation, summary, measurements:[{name,value:number,unit}], failures:[], limits:[]. A report is a model claim, not a runner observation. Ordinary networking can reach host/LAN/tailnet; credentials and other candidate workspaces are not granted.",
+						},
+					}
+				: {}),
 			...(a.packet.investigation
 				? {
 						playbook: {
 							shape: "investigation",
 							instructions:
-								"Read the complete scoped source, context, ADRs, full principles and verification instructions in inputs. Preserve human Ground separately from suggestions. No source writes, implementation commitment, delivery roles or publication. A model assertion is not execution evidence. Submit JSON with schema:1, outcome:'finding'|'escalation', summary, facts:[{text,citations:[{ref,path?}]}], uncertainties:[], limits:[], next:null for finding or {playbook:'design'|'experiment'|'change'|'bug'|'performance',reason,question} for escalation. Cite exact source ref plus path; cite other input refs without path. Required experiments/new seams/product choices/source changes escalate with facts, precise missing capability and next human question. These continuation playbooks are unavailable in this staged build; suggestions confer no authorization.",
+								"Read the complete scoped source, context, ADRs, full principles and verification instructions in inputs. Preserve human Ground separately from suggestions. No source writes, implementation commitment, delivery roles or publication. A model assertion is not execution evidence. Submit JSON with schema:1, outcome:'finding'|'escalation', summary, facts:[{text,citations:[{ref,path?}]}], uncertainties:[], limits:[], next:null for finding or {playbook:'design'|'experiment'|'change'|'bug'|'performance',reason,question} for escalation. Cite exact source ref plus path; cite other input refs without path. Required experiments/new seams/product choices/source changes escalate with facts, precise missing capability and next human question. Experiment escalation requires a separately retained protocol and explicit isolated experiment assignments; it never authorizes adoption. Other continuation playbooks remain unavailable in this staged build; suggestions confer no authorization.",
 							source: current.investigationSource,
 						},
 					}
@@ -774,6 +861,12 @@ export class Engine {
 					if (task?.state.status === "terminal") await this.#command(a, { type: "recordRuntimeHistory", key: `settled:${a.task}` });
 				}
 				if (a.status === "canceling") {
+					if (a.packet.experiment && a.executing) {
+						const conversation = await this.#harness.conversation(a.conversation as ConversationId, ctx);
+						await conversation?.abort(ctx);
+						await this.#stopExperiment(a);
+						continue;
+					}
 					if (a.packet.execution !== "read-only" && a.executing && this.#sandboxes) {
 						try {
 							await this.#sandboxes.stop({ scope: this.#scope(a, true) });
@@ -1071,13 +1164,23 @@ export class Engine {
 		);
 		if (reply.status !== "accepted") throw new Error(`Source retention refused: ${reply.reason}`);
 	}
+	async #stopExperiment(a: RoleAssignment): Promise<void> {
+		try {
+			if (!this.#experiments) throw new Error("experiment_capability_unavailable");
+			await this.#experiments.stop(a, a.status === "canceling");
+			await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "stopped", effects: "reconciled" });
+		} catch (error) {
+			await this.#command(a, { type: "recordBlocker", reason: `experiment_quarantined_stop_unconfirmed: ${error}`.slice(0, 1900) });
+		}
+	}
 	#configurationBlocker(a: RoleAssignment): string | undefined {
+		if (a.packet.experiment && !this.#experiments) return "experiment_capability_unavailable";
 		if (a.packet.investigation && !this.#investigationEffects && !a.investigationSource)
 			return "investigation_source_capability_unavailable";
-		if (a.packet.execution === "linux-writer" && this.#config.ownedChecks)
+		if (a.packet.execution === "linux-writer" && !a.packet.experiment && this.#config.ownedChecks)
 			return Object.hasOwn(this.#config.ownedChecks.checks, a.packet.profile) ? undefined : "owned_check_profile_unavailable";
 		if (!this.#config.apiKey) return "native_provider_configuration_missing";
-		if (a.packet.execution !== "read-only") return "sandbox_capability_unavailable";
+		if (a.packet.execution !== "read-only" && !a.packet.experiment) return "sandbox_capability_unavailable";
 		if (this.#config.provider && this.#config.provider.id !== "anthropic") return "native_provider_required";
 		if (this.#config.families?.[a.packet.model] !== a.packet.family || a.packet.requiredFamily !== a.packet.family)
 			return "required_model_family_unavailable";
@@ -1141,6 +1244,14 @@ export class Engine {
 			return identity;
 		}
 		const a = identity.a;
+		if (command.type === "submitRoleResult" && a.packet.experiment) {
+			try {
+				await this.#experiments!.seal(a);
+			} catch (error) {
+				await this.#command(a, { type: "recordBlocker", reason: `experiment_seal_blocked: ${error}`.slice(0, 1900) });
+				return { status: "refused", code: "experiment_seal_blocked" };
+			}
+		}
 		const commandId = `role:${createHash("sha256")
 			.update(JSON.stringify([a.workflow, api.conversationId, a.id, a.generation, a.attempt, api.taskId, api.callId]))
 			.digest("hex")}`;
