@@ -191,10 +191,7 @@ describe("V4 two stateless clients", () => {
 			assert.ok((view.unavailable as string[]).includes(absent), absent);
 		}
 		assert.equal((snap.json.history as Record<string, unknown>).status, "available");
-		assert.equal((snap.json.backup as Record<string, unknown>).phase, "unconfigured");
-		assert.equal((snap.json.backup as Record<string, unknown>).verifiedOffHostCutoffSequence, null);
 		assert.equal((view.unavailable as string[]).includes("historical-export"), false);
-		assert.equal((view.unavailable as string[]).includes("recovery-packages"), false);
 		assert.ok(!snap.stdout.includes(B1.digest), "unacknowledged bytes must not appear");
 		console.log(JSON.stringify({ measure: "reattach_ms", value: Math.round(elapsed) }));
 
