@@ -60,7 +60,7 @@ can retain fenced late results with `recordRecoveryState`; they are quarantined 
 command fields. See [role operations](operations.md#durable-role-work).
 
 Other command families named in spec §4 remain known and refuse with `capability_unavailable`, or with
-`forbidden_principal` when the principal is wrong. This includes checkpoint/intake/local-prompt decisions and forge/source publication work. The opt-in owned-check
+`forbidden_principal` when the principal is wrong. This includes intake/local-prompt decisions and forge/source publication work. Technical checkpoint commands and persistent routing settings are available as described in `docs/checkpoints.md`; only local-admin may import settings. The opt-in owned-check
 path admits `recordRunnerObservation` only from the trusted Effects host scope, with current assignment/generation/Attempt
 and complete receipt text; it is not a worker/device/admin capability. It retains an immutable `owned-check` document,
 not a general effect/publication protocol. See [owned checks and limits](owned-checks.md). Unknown types refuse with `unknown_command`.
@@ -174,7 +174,7 @@ stream begins with a fresh snapshot.
 
 Each workflow view carries `ground`, `documents`, `messages`, `commitment`, `owner`, `evidence`, `blocker`,
 `nextHumanAction` and `unavailable`. `unavailable` names the capabilities this host version does not deliver yet, for
-example full coordinator replies and checkpoints. Undelivered capabilities are reported as absent, never as empty successes. The snapshot also reports `hostMode`, `executorEpoch` and the persistence readback. Disaster-recovery commands, startup modes and protection fields are outside v1; ordinary runtime quarantine/continuation remains supported.
+example full coordinator replies and final intake acceptance. Undelivered capabilities are reported as absent, never as empty successes. The snapshot also reports `hostMode`, `executorEpoch` and the persistence readback. Disaster-recovery commands, startup modes and protection fields are outside v1; ordinary runtime quarantine/continuation remains supported.
 
 For blocked assignments other than a parent awaiting role results, `nextHumanAction` identifies `cancelWork` with `workflow`, `assignment`, `generation`, `attempt` and an explanatory `reason`. This takes priority over initial Ground setup. To submit it, place `workflow` on the envelope and only `type`, `assignment`, `generation`, `attempt` in `command`; `reason` is display guidance, not a command field. Cancellation still requires a human principal and the current identity. Quiescence and host-scheduled fresh replacement remain separate checked steps, not authority conveyed by the snapshot.
 

@@ -3,7 +3,7 @@
 // then explicit resume.
 import { randomUUID } from "node:crypto";
 import { constants, existsSync } from "node:fs";
-import { access, chmod, mkdir } from "node:fs/promises";
+import { access, chmod, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -14,7 +14,7 @@ import type { RenderRuntimeOptions } from "../engine/runtime.ts";
 import type { Persistence } from "../kernel/kernel.ts";
 import { Ledger } from "./ledger.ts";
 import { mintContext } from "./principals.ts";
-import { APPLICATION_ID, Meta, STORE_SCHEMA } from "./records.ts";
+import { APPLICATION_ID, CheckpointSettings, Meta, STORE_SCHEMA } from "./records.ts";
 
 const ctx = BACKGROUND_CONTEXT;
 
@@ -147,6 +147,33 @@ export async function openLedger(options: {
 				"Run a compatible Render version; no tasks were dispatched.",
 			);
 		});
+		const settingsEmpty = (await harness.snapshot(CheckpointSettings, ctx)) === undefined;
+		const settingsFile = join(options.data, "checkpoint-settings.json");
+		if (settingsEmpty && existsSync(settingsFile)) {
+			let modes: unknown;
+			try {
+				modes = JSON.parse(await readFile(settingsFile, "utf8"));
+			} catch {
+				throw blocked(
+					"invalid_checkpoint_settings",
+					`Cannot parse initial ${settingsFile}.`,
+					"Correct the initial settings JSON; no tasks were dispatched.",
+				);
+			}
+			const admin = mintContext({ kind: "human", human: "human:owner", route: "local-admin" });
+			const settings = (await harness.snapshot(CheckpointSettings, ctx)) ?? { currentRevision: "settings:initial" };
+			const seeded = await ledger.command(
+				{
+					version: 1,
+					authorityEpoch: ledger.status().authorityEpoch,
+					commandId: `settings-seed:${executorEpoch}`,
+					command: { type: "importCheckpointSettings", expectedRevision: settings.currentRevision, modes },
+				},
+				admin,
+			);
+			if (seeded.status !== "accepted")
+				throw blocked("invalid_checkpoint_settings", JSON.stringify(seeded), "Correct initial settings; no tasks were dispatched.");
+		}
 		runtime.bindLedger?.(ledger, harness);
 		const fence = await ledger.command(
 			{
