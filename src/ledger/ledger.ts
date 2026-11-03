@@ -572,7 +572,46 @@ export class Ledger {
 				attempt: current.attempt,
 			});
 		}
+		const verificationEvidence: import("../kernel/verification.ts").CatalogEvidence[] = [];
 		if (command.type === "submitRoleResult" && current.kind === "assignment-agent") {
+			const own = roles.assignments.find((a) => sameAgent(a as RoleAssignment, current));
+			const contract = own?.packet.verification?.contract;
+			if (contract) {
+				const location = await tx.doc(RevisionLocation, contract, null);
+				const entry =
+					location.exists && location.workflow === env.workflow ? await tx.entry(RevisionEntry, location.entry as EntryId) : undefined;
+				if (!entry || entry.data.schema !== 1 || !intact(entry.data.text, entry.data.digest, entry.data.byteLength))
+					throw new Abort({ status: "refused", code: "missing_content", reason: `Restore exact verification Contract ${contract}.` });
+			}
+			for (const ref of own?.packet.verification?.receipts ?? []) {
+				const location = await tx.doc(RevisionLocation, ref, null);
+				const entry =
+					location.exists && location.workflow === env.workflow ? await tx.entry(RevisionEntry, location.entry as EntryId) : undefined;
+				const owner = roles.assignments.find((a) => a.id === entry?.data.roleBinding?.assignment);
+				if (
+					!entry ||
+					entry.data.schema !== 1 ||
+					!intact(entry.data.text, entry.data.digest, entry.data.byteLength) ||
+					entry.data.createdBy.principal !== "host" ||
+					!owner ||
+					owner.report !== ref ||
+					entry.data.document !== `owned-check/${owner.id}`
+				)
+					throw new Abort({ status: "refused", code: "missing_content", reason: `Restore exact trusted verification receipt ${ref}.` });
+				try {
+					const receipt = JSON.parse(entry.data.text);
+					if (
+						receipt.kind !== "catalog-check" ||
+						receipt.role !== owner.packet.role ||
+						receipt.scope.assignment !== owner.id ||
+						receipt.scope.attempt !== owner.attempt
+					)
+						throw new Error("wrong runner provenance");
+					verificationEvidence.push(receipt);
+				} catch {
+					throw new Abort({ status: "refused", code: "invalid_content", reason: `Invalid verification receipt ${ref}.` });
+				}
+			}
 			for (const ref of (command as { supports: string[] }).supports) {
 				const own = roles.assignments.find((a) => sameAgent(a as RoleAssignment, current));
 				if (!own?.evidence?.includes(ref))
@@ -590,6 +629,7 @@ export class Ledger {
 		const target = command.type === "revokeDevice" ? await tx.doc(Device, (command as { device: string }).device, null) : undefined;
 		const text = env.content === undefined ? undefined : decodeUtf8(env.content);
 		const facts: VerifiedFacts = {
+			verificationEvidence,
 			principal: current,
 			sequence,
 			executorEpoch: meta.executorEpoch,
