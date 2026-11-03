@@ -190,7 +190,7 @@ for (const escalation of [false, true])
 			assert.equal(a.delivery, false);
 			assert.equal(assignments(f.ledger).length, 1, "finding or escalation schedules no delivery roles");
 			if (escalation) {
-				assert.match(a.blocker!, /playbook_unavailable:experiment/);
+				assert.match(a.blocker!, /experiment_preregistration_required/);
 				assert.match(a.blocker!, /Provide the experiment capability/);
 				assert.equal(
 					code(

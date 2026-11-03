@@ -14,6 +14,43 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "experiment-missing-preregistered-rule",
+		expect: /missing decisionRule must not execute/,
+		behavior: "candidate execution is admitted without a preregistered decision rule",
+		edits: [
+			{
+				file: "src/kernel/experiments.ts",
+				find: "p.ground, p.question, p.hypothesis, p.falsifier, p.decisionRule",
+				replace: "p.ground, p.question, p.hypothesis, p.falsifier",
+			},
+		],
+		test: "test/protocol-experiments.test.ts",
+		pattern: "E01",
+	},
+	{
+		name: "experiment-parent-repairs-original",
+		expect: /parent must not repair a sealed favorite/,
+		behavior: "comparison receives writable original candidate mounts",
+		edits: [{ file: "src/sandboxes/sandboxes.ts", find: "dst=/candidates/${name},readonly", replace: "dst=/candidates/${name}" }],
+		test: "test/experiment-isolation.integration.ts",
+		pattern: "E08",
+	},
+	{
+		name: "experiment-negative-raw-erased",
+		expect: /retain raw decisive negative measurement/,
+		behavior: "sealed candidate evidence drops decisive raw measurements",
+		edits: [
+			{
+				file: "src/engine/experiments.ts",
+				find: "source,\n\t\t\texecutions: stopped.executions,",
+				replace: "source,\n\t\t\texecutions: [],",
+			},
+		],
+		test: "test/experiment-journey.integration.ts",
+		pattern: "E02/E09/E10",
+	},
+
+	{
 		name: "investigation-automatic-shape-consent",
 		expect: /unconfirmed classifier shape must not become consent/,
 		behavior: "an unconfirmed classifier suggestion authorizes investigation",
@@ -111,8 +148,11 @@ const CONTROLS: Control[] = [
 			expect: /"status":"accepted"/,
 			behavior: pattern.replace("cannot inherit", "inherits"),
 			edits: [{ file: "src/ledger/ledger.ts", find: clause, replace: "false" }],
-			test: "test/context-continuation-independence.test.ts",
-			pattern,
+			test:
+				name === "inherited-experiment-candidate-report"
+					? "test/experiment-journey.integration.ts"
+					: "test/context-continuation-independence.test.ts",
+			pattern: name === "inherited-experiment-candidate-report" ? "E02/E09/E10" : pattern,
 		}),
 	),
 	{
@@ -417,8 +457,8 @@ const CONTROLS: Control[] = [
 				replace: "registry.install(this.#roles); registry.install(CodingTools);",
 			},
 			{ file: "src/engine/runtime.ts", find: "extensions: [this.#roles],", replace: "extensions: [this.#roles, CodingTools]," },
-			{ file: "src/engine/runtime.ts", find: "tools: this.#roles.tools ?? [],", replace: "tools: null," },
-			{ file: "src/engine/runtime.ts", find: "modelTools: this.#roles.tools ?? [],", replace: "modelTools: null," },
+			{ file: "src/engine/runtime.ts", find: "\n\t\t\t\t\t\ttools,", replace: "\n\t\t\t\t\t\ttools: null," },
+			{ file: "src/engine/runtime.ts", find: "modelTools: tools,", replace: "modelTools: null," },
 		],
 		test: "test/role-capability-refusal.test.ts",
 		pattern: "R03 explicit",
