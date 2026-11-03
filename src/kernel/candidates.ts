@@ -31,7 +31,10 @@ export function candidatePlan(packet: RolePacket, scope: string): string[] | und
 
 export function candidateEvidence(request: CheckpointRequest, assignments: readonly RoleAssignment[]): RoleAssignment[] | undefined {
 	if (!request.candidateKeys || request.candidateKeys.length < 2) return;
-	const children = currentChildren(assignments, request.coordinator);
+	// Synthesis ownership can move to a fresh coordinator; the candidate lineage cannot.
+	const parent = assignments.find((a) => a.checkpointCandidate?.request === request.id)?.parent;
+	if (!parent) return;
+	const children = currentChildren(assignments, parent);
 	const required: RoleAssignment[] = [];
 	for (const key of request.candidateKeys) {
 		const child = children.find((a) => a.checkpointCandidate?.request === request.id && a.checkpointCandidate.key === key);

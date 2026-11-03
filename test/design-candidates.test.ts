@@ -377,6 +377,51 @@ test("D3 seeded completion schedules reject missing, blocked, canceled or foreig
 	}
 });
 
+test("D3 coordinator replacement preserves completed checkpoint-bound alternatives through challenge", async () => {
+	const x = await fixture();
+	try {
+		const request = accepted(await x.request()).request as string;
+		const reports: string[] = [];
+		for (let i = 0; i < 2; i++) {
+			const child = await x.start(request, i);
+			reports.push(accepted(await x.cmd({ type: "submitRoleResult", text: answer(`Answer ${i}`), supports: [] }, child)).report as string);
+		}
+		accepted(
+			await x.f.command({ type: "cancelWork", assignment: x.parent.id, generation: x.parent.generation, attempt: x.parent.attempt }, admin),
+		);
+		await until(() => x.assignments()[0]?.status === "canceled");
+		const old = x.assignments()[0]!;
+		const { policyBinding: _binding, ...replacementPacket } = old.packet;
+		const id = accepted(
+			await x.f.command({
+				type: "replaceTask",
+				assignment: old.id,
+				generation: old.generation,
+				attempt: old.attempt,
+				packet: { ...replacementPacket, inputs: [...replacementPacket.inputs, ...reports] },
+			}),
+		).assignment;
+		await until(() => x.assignments().find((a) => a.id === id)?.status === "running");
+		const replacement = x.assignments().find((a) => a.id === id)!;
+		assert.notEqual(replacement.conversation, old.conversation);
+		accepted(
+			await x.cmd(
+				{
+					type: "stageCheckpoint",
+					request,
+					text: "# Replacement synthesis",
+					manifest: { ...manifest, nodes: [{ ...manifest.nodes[0], evidence: [x.ground, ...reports] }] },
+				},
+				replacement,
+			),
+		);
+		const review = await x.cmd({ type: "requestCheckpointReview", request, key: "challenge" }, replacement);
+		assert.equal(code(review), "accepted", "replacement coordinator must retain completed checkpoint evidence through exact challenge");
+	} finally {
+		await x.close();
+	}
+});
+
 test("D3 replacement stays bound to required question and gets a fresh context", async () => {
 	const x = await fixture();
 	try {
