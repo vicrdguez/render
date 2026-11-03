@@ -6,10 +6,11 @@ Literal outcomes below are written before product changes. Tests use Kernel.chan
 |---|---|---|---|
 | S01 | B1/A2 | Initial empty store with settings file; client edit then restart with old/malformed file | Initial file seeds once; latest accepted revision survives; later file ignored |
 | S02 | B1 | Two clients submit same expectedRevision; stale local-admin import | Exactly one accepted change; stale_basis on loser/import; attributable history survives reopen/export |
-| S03 | B1/A1 | Agent, scoped device or host changes settings; device imports; invalid mode or delegated Proposal | forbidden_principal/forbidden_scope or invalid content; no settings change |
+| S03 | B1/A1 | Agent, scoped device or host changes settings; device imports; invalid mode (including array-to-string coercion) or delegated Proposal | forbidden_principal/forbidden_scope or invalid content; no settings change |
 | S04 | B2/B4 | Capture human, change delegated, rework/retry/duplicate ID/new coordinator; resolve then Modules | Same pending identity/capture; duplicate request refused; later request uses latest settings without policy adoption |
 | S05 | B2/B4 | Capture delegated, change human, then advance; checked cancellation/replacement | Pending delegated stays delegated; canceled request cannot advance; successor captures human |
 | S06 | B3 | Missing/stale exact review, annotation or decision basis; author labels new product choice technical | Common exact validator refuses; challenger unresolved-product/scope-change flags block advancement even when author claims technical |
+| S06-shape | B3/A1 | Existing classifier-proposed Ground shape not confirmed | shape_confirmation_required; human-origin shape and confirmed classifier shape need no extra approval |
 | S07 | B3 | Already human-decided product node with exact human evidence and clear challenge | Delegated decision allowed and retained as machine/settings/scope/review provenance, never human signature |
 | S08 | B3 | Agent acceptIntake or human approval tool impersonation | forbidden_principal; no Contract acceptance |
 | S09 | B4 | Policy defaults/adoption while pending; canceled coordinator | Routing unchanged; policy basis stales; counts/history remain; revoked assignment cannot advance |

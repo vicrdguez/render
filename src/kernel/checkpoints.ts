@@ -1,5 +1,6 @@
 // Exact technical checkpoint legality. All bytes/provenance are supplied by Ledger; no I/O.
 import { initialCheckpointSettings } from "./checkpoint-settings.ts";
+import { readGround, shapeConfirmed } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
 import { type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
@@ -243,6 +244,12 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 		if (!a?.packet.inputs.includes(c.scope)) return refuse("forbidden_scope", "Ground scope must be an explicit coordinator input.");
 		if (!inputs[c.scope]?.human || inputs[c.scope]?.document !== "ground")
 			return refuse("invalid_content", "Scope must cite exact human-authored Ground, not an assistant proposal.");
+		const ground = readGround(inputs[c.scope]!.text);
+		if (ground && !shapeConfirmed(ground))
+			return refuse(
+				"shape_confirmation_required",
+				"Confirm the existing classifier-proposed task shape in human Ground before requesting a checkpoint.",
+			);
 		r = {
 			id: `checkpoint:${facts.sequence}`,
 			stage: c.stage,

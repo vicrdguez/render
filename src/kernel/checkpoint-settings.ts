@@ -17,8 +17,8 @@ export function validCheckpointModes(value: unknown): value is CheckpointModes {
 	const v = value as Record<string, unknown>;
 	return (
 		Object.keys(v).length === 3 &&
-		["human", "delegated"].includes(String(v.seams)) &&
-		["human", "delegated"].includes(String(v.modules)) &&
+		(v.seams === "human" || v.seams === "delegated") &&
+		(v.modules === "human" || v.modules === "delegated") &&
 		v.proposal === "human"
 	);
 }
