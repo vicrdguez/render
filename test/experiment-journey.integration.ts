@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { Engine } from "../src/engine/runtime.ts";
@@ -62,8 +63,13 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 				failures: [],
 				limits: ["Scripted provider; not model judgment"],
 			});
+			let renderedProtocol = "";
 			p.setResponses([
-				() => fauxAssistantMessage(fauxToolCall("experiment_run", { argv: ["node", "-e", script] }), { stopReason: "toolUse" }),
+				(transcript) => {
+					const prompt = JSON.parse(transcript.messages.filter((message) => message.role === "user").at(-1)!.content as string);
+					renderedProtocol = prompt.inputs.find((input: { ref: string }) => input.ref === protocol).text;
+					return fauxAssistantMessage(fauxToolCall("experiment_run", { argv: ["node", "-e", script] }), { stopReason: "toolUse" });
+				},
 				() => fauxAssistantMessage(fauxToolCall("submit_role_result", { text: outcome, supports: [] }), { stopReason: "toolUse" }),
 			]);
 			const input = {
@@ -78,6 +84,29 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 				assert.notEqual(a?.status, "blocked", JSON.stringify(a));
 				return a?.status === "submitted" && !a.executing;
 			});
+			assert.equal(renderedProtocol, original, "execution criteria must remain the original protocol after measurement");
+			if (candidate === "favorite") {
+				const changed = await f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: f.ledger.status().authorityEpoch,
+						commandId: "material-deviation",
+						workflow: "workflow:2",
+						expected: { document: protocol },
+						command: {
+							type: "saveDocument",
+							document: "protocol",
+							mediaType: "text/plain",
+							content: Buffer.from(JSON.stringify({ ...JSON.parse(original), decisionRule: "At most 20 now counts as positive" })).toString(
+								"base64",
+							),
+						},
+					},
+					admin,
+				);
+				assert.ok(changed.status === "accepted");
+				assert.notEqual(changed.result.revision, protocol, "post-measurement criteria changes require a new protocol identity");
+			}
 		}
 		const all = assignments(f.ledger);
 		assert.equal(all.length, 3, "experiment must not create adoption or publication work");
@@ -114,6 +143,29 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 			assert.ok("content" in retained, "negative evidence survives cleanup");
 			assert.equal(retained.content.toString("base64"), before.content[ref]);
 		}
+		await f.ledger.close();
+		const db = new DatabaseSync(join(f.data, "render.db"));
+		try {
+			const row = db.prepare("SELECT id, record FROM entries WHERE json_extract(record, '$.data.revision') = ?").get(snapshots[0]!) as {
+				id: number;
+				record: string;
+			};
+			assert.ok(row);
+			const record = JSON.parse(row.record);
+			record.data.text = "plausible newer source is not the exact sealed candidate";
+			db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(record), row.id);
+		} finally {
+			db.close();
+		}
+		const reopened = await f.reopen();
+		await assert.rejects(
+			reopened.render(assignments(f.ledger)[2]!),
+			new RegExp(snapshots[0]!),
+			"damaged exact candidate blocks independent reliance",
+		);
+		const damaged = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in damaged && !damaged.manifest.complete);
+		assert.ok(damaged.manifest.missing.some((missing) => missing.ref === snapshots[0] && missing.code === "content_corrupt"));
 	} finally {
 		await f.close();
 		if (!sourceClosed) await source.close();

@@ -28,6 +28,21 @@ const CONTROLS: Control[] = [
 		pattern: "E01",
 	},
 	{
+		name: "experiment-post-measurement-criteria",
+		expect: /execution criteria must remain the original protocol after measurement/,
+		behavior: "parent silently receives amended criteria after candidate measurements",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: 'inputs.push({ ref, text: value.content.toString("utf8") });',
+				replace:
+					'inputs.push({ ref, text: a.packet.experiment?.candidate === null && ref === a.packet.experiment.protocol ? value.content.toString("utf8").replace("Any measurement greater than 10", "Any measurement greater than 20") : value.content.toString("utf8") });',
+			},
+		],
+		test: "test/experiment-journey.integration.ts",
+		pattern: "E02/E09/E10",
+	},
+	{
 		name: "experiment-parent-repairs-original",
 		expect: /parent must not repair a sealed favorite/,
 		behavior: "comparison receives writable original candidate mounts",

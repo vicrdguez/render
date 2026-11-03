@@ -175,6 +175,7 @@ export function checkpointRefs(work: Checkpoints, c: CheckpointCommand): string[
 }
 export function blockedBySeams(work: Checkpoints | undefined, packet: RolePacket | undefined, delivery: boolean): boolean {
 	if (!work || !packet) return false;
+	if (!delivery && packet.experiment && ["experiment-candidate", "experiment-parent"].includes(packet.role)) return false;
 	// Historical evidence is input to revised design, not a dependency authorizing delivery.
 	if (
 		!delivery &&

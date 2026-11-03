@@ -154,7 +154,11 @@ export class Experiments {
 			quarantine: stopped.quarantine ?? null,
 		});
 	}
-	async #retain(a: RoleAssignment, type: "recordRunnerDiagnostic" | "recordSourceObservation", value: unknown): Promise<void> {
+	async #retain(
+		a: RoleAssignment,
+		type: "recordRunnerDiagnostic" | "recordSourceObservation",
+		value: Record<string, unknown>,
+	): Promise<void> {
 		const text = JSON.stringify(value);
 		const result = await this.#ledger().command(
 			{
@@ -166,6 +170,10 @@ export class Experiments {
 			},
 			effectsContext,
 		);
-		if (result.status !== "accepted") throw new Error(`Experiment evidence not retained: ${result.code}: ${result.reason}`);
+		if (result.status !== "accepted") {
+			// A fence denies acceptance, not retention of the exact already-admitted source/effect result.
+			if (type === "recordSourceObservation") await this.#retain(a, "recordRunnerDiagnostic", { ...value, verification: "unaccepted" });
+			throw new Error(`Experiment evidence not retained: ${result.code}: ${result.reason}`);
+		}
 	}
 }
