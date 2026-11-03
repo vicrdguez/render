@@ -41,7 +41,12 @@ const MATRIX: Record<string, { admits: PrincipalClass[]; available: boolean }> =
 	enrollDevice: { admits: ["local-admin"], available: true },
 	revokeDevice: { admits: ["local-admin"], available: true },
 	recordStartup: { admits: ["host-recovery"], available: true },
-	approveCheckpoint: { admits: ["human"], available: false },
+	approveCheckpoint: { admits: ["human"], available: true },
+	saveCheckpointConcern: { admits: ["human"], available: true },
+	cancelCheckpoint: { admits: ["human"], available: true },
+	requestCheckpoint: { admits: ["agent"], available: true },
+	stageCheckpoint: { admits: ["agent"], available: true },
+	requestCheckpointReview: { admits: ["agent"], available: true },
 	acceptIntake: { admits: ["human"], available: false },
 	amendContract: { admits: ["human"], available: false },
 	supersedeContract: { admits: ["human"], available: false },
@@ -53,8 +58,8 @@ const MATRIX: Record<string, { admits: PrincipalClass[]; available: boolean }> =
 	cancelWork: { admits: ["human"], available: true },
 	requestLocalVerificationPrompt: { admits: ["human"], available: false },
 	saveDraft: { admits: ["agent"], available: false },
-	emitCheckpoint: { admits: ["agent"], available: false },
-	reworkCheckpoint: { admits: ["agent"], available: false },
+	emitCheckpoint: { admits: ["agent"], available: true },
+	reworkCheckpoint: { admits: ["agent"], available: true },
 	requestRole: { admits: ["agent"], available: true },
 	requestOwnStop: { admits: ["agent"], available: true },
 	submitRoleResult: { admits: ["agent"], available: true },
@@ -216,6 +221,11 @@ const outcomes = new Map<string, number>();
 // Generated role commands carry no identities or packet and no assignment exists in this model, so each eligible one has
 // one ordinary refusal: no target to act on, or no content to act with.
 const BARE_ROLE_REFUSAL: Record<string, string> = {
+	requestCheckpoint: "stale_assignment",
+	stageCheckpoint: "stale_assignment",
+	requestCheckpointReview: "stale_assignment",
+	emitCheckpoint: "stale_assignment",
+	reworkCheckpoint: "stale_assignment",
 	recordSourceObservation: "not_found",
 	assignTask: "invalid_content",
 	recordRecoveryState: "invalid_content",
@@ -249,6 +259,11 @@ function expectedDecision(m: Model, principal: Principal, step: Step, command: R
 			return wholeProject ? "accepted" : "forbidden_scope";
 		case "changePolicy":
 			return wholeProject ? "stale_basis" : "forbidden_scope"; // Generated without the expected default revision.
+		case "approveCheckpoint":
+		case "saveCheckpointConcern":
+		case "cancelCheckpoint":
+			if (!exists) return "not_found";
+			return inScope(principal, workflow) ? "not_found" : "forbidden_scope";
 		case "adoptPolicy":
 			if (!exists) return "not_found";
 			return inScope(principal, workflow) ? "stale_basis" : "forbidden_scope"; // Generated without the expected binding.
@@ -390,7 +405,7 @@ test(`V1: ${SCHEDULES} seeded schedules never violate the matrix, basis or refus
 			"revokeDevice:accepted",
 			"revokeDevice:already_revoked",
 			"createWorkflow:forbidden_scope",
-			"approveCheckpoint:capability_unavailable",
+			"approveCheckpoint:not_found",
 			"recordStartup:accepted",
 			"dropTables:unknown_command",
 		]) {
@@ -485,7 +500,8 @@ test("literal: the workflow view reports handover fields and absent capabilities
 	assert.deepEqual(w?.evidence, { status: "none", items: [] });
 	assert.deepEqual(w?.nextHumanAction, { type: "saveGround", workflow: "workflow:1", document: "ground", expected: null });
 	assert.ok(w?.unavailable.includes("coordinator-replies"));
-	assert.ok(w?.unavailable.includes("checkpoints"));
+	assert.ok(w?.unavailable.includes("intake-acceptance"));
+	assert.deepEqual(w?.checkpoints, { requests: [], concerns: [] });
 	assert.ok(w?.unavailable.includes("assignments"));
 	assert.equal(w?.unavailable.includes("historical-export"), false);
 	assert.equal(w?.unavailable.includes("recovery-packages"), false);

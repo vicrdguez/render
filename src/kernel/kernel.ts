@@ -1,6 +1,15 @@
 // Kernel: pure domain legality. No I/O, clock reads, randomness or ID minting; Ledger supplies resolved state
 // and verified facts, and stages the returned writes atomically.
 
+import {
+	CHECKPOINT_COMMANDS,
+	type CheckpointCommand,
+	type CheckpointInput,
+	type Checkpoints,
+	type CheckpointWrite,
+	changeCheckpoint,
+	emptyCheckpoints,
+} from "./checkpoints.ts";
 import type { Ground } from "./investigation.ts";
 import { changePolicy, initialPolicy, type PolicyCommand, type PolicyState } from "./policy.ts";
 import { changeRole, ROLE_COMMANDS, type RoleAssignment, type RoleCommand, type RoleIntent, type RoleWorkState } from "./roles.ts";
@@ -35,6 +44,7 @@ export type Persistence = {
 };
 
 export type Command =
+	| CheckpointCommand
 	| RoleCommand
 	| PolicyCommand
 	| { readonly type: "createWorkflow"; readonly title: string }
@@ -52,6 +62,7 @@ export type Command =
 	| { readonly type: string; readonly workflow?: string };
 
 export type KernelState = {
+	readonly checkpoints?: Checkpoints;
 	readonly roleWork?: RoleWorkState;
 	readonly policy?: PolicyState;
 	/** The envelope's workflow, when it exists. */
@@ -64,6 +75,7 @@ export type KernelState = {
 
 export type VerifiedFacts = {
 	readonly experimentProtocols?: Readonly<Record<string, import("./experiments.ts").ExperimentProtocol>>;
+	readonly checkpointInputs?: Record<string, CheckpointInput>;
 	readonly investigationGround?: Ground;
 	readonly verificationEvidence?: readonly import("./verification.ts").CatalogEvidence[];
 	readonly executorEpoch?: string;
@@ -85,6 +97,7 @@ export type VerifiedFacts = {
 };
 
 export type DomainWrite =
+	| CheckpointWrite
 	| { readonly type: "policy.replace"; readonly state: PolicyState }
 	| { readonly type: "roles.replace"; readonly state: RoleWorkState; readonly intents: readonly RoleIntent[] }
 	| { readonly type: "workflow.create"; readonly workflow: string; readonly title: string }
@@ -164,7 +177,12 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	createWorkflow: { family: "human-decision", available: true },
 	saveDocument: { family: "human-decision", available: true },
 	postCoordinatorMessage: { family: "human-decision", available: true },
-	approveCheckpoint: { family: "human-decision", available: false },
+	approveCheckpoint: { family: "human-decision", available: true },
+	saveCheckpointConcern: { family: "human-decision", available: true },
+	cancelCheckpoint: { family: "human-decision", available: true },
+	requestCheckpoint: { family: "role-work", available: true },
+	stageCheckpoint: { family: "role-work", available: true },
+	requestCheckpointReview: { family: "role-work", available: true },
 	acceptIntake: { family: "human-decision", available: false },
 	amendContract: { family: "human-decision", available: false },
 	supersedeContract: { family: "human-decision", available: false },
@@ -176,8 +194,8 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	enrollDevice: { family: "local-admin", available: true },
 	revokeDevice: { family: "local-admin", available: true },
 	saveDraft: { family: "role-work", available: false },
-	emitCheckpoint: { family: "role-work", available: false },
-	reworkCheckpoint: { family: "role-work", available: false },
+	emitCheckpoint: { family: "role-work", available: true },
+	reworkCheckpoint: { family: "role-work", available: true },
 	requestRole: { family: "role-work", available: true },
 	requestOwnStop: { family: "role-work", available: true },
 	submitRoleResult: { family: "role-work", available: true },
@@ -246,6 +264,7 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 	if (denied) return denied;
 
 	if (command.type === "changePolicy" || command.type === "adoptPolicy") return changePolicy(state, command as PolicyCommand, facts);
+	if (CHECKPOINT_COMMANDS.includes(command.type)) return changeCheckpoint(state, command as CheckpointCommand, facts);
 	if (ROLE_COMMANDS.includes(command.type)) return changeRole(state, command as RoleCommand, facts);
 
 	const c = command as Extract<
@@ -388,6 +407,7 @@ export type DocumentSummary = {
 };
 
 export type WorkflowState = {
+	readonly checkpoints?: Checkpoints;
 	readonly assignments?: readonly RoleAssignment[];
 	readonly id: string;
 	readonly title: string;
@@ -396,9 +416,10 @@ export type WorkflowState = {
 };
 
 /** Capabilities a client may expect from later Render versions; reported as absent, never as empty successes. */
-export const UNAVAILABLE = ["coordinator-replies", "checkpoints", "intake-acceptance", "assignments", "evidence-receipts"] as const;
+export const UNAVAILABLE = ["coordinator-replies", "intake-acceptance", "assignments", "evidence-receipts"] as const;
 
 export type WorkflowView = {
+	readonly checkpoints: Checkpoints;
 	readonly workflow: string;
 	readonly title: string;
 	readonly ground: DocumentSummary | null;
@@ -409,6 +430,7 @@ export type WorkflowView = {
 	readonly evidence: { readonly status: "none" | "available"; readonly items: readonly string[] };
 	readonly blocker: { readonly code: string; readonly reason: string; readonly capabilities: readonly string[] } | null;
 	readonly nextHumanAction:
+		| { readonly type: "reviewCheckpoint"; readonly request: string; readonly emission: string | null; readonly annotations: number }
 		| { readonly type: "saveGround"; readonly workflow: string; readonly document: "ground"; readonly expected: null }
 		| {
 				readonly type: "cancelWork";
@@ -436,7 +458,10 @@ function workflowView(w: WorkflowState): WorkflowView {
 	const blocked = (w.assignments ?? []).filter((a) => a.blocker !== null);
 	const evidence = (w.assignments ?? []).flatMap((a) => (a.report ? [a.report] : []));
 	const recoverable = blocked.find((a) => a.status === "blocked" && a.blocker !== "awaiting_role_results");
+	const checkpoints = w.checkpoints ?? emptyCheckpoints();
+	const pending = checkpoints.requests.find((r) => r.status === "pending");
 	return {
+		checkpoints,
 		workflow: w.id,
 		title: w.title,
 		ground,
@@ -450,23 +475,27 @@ function workflowView(w: WorkflowState): WorkflowView {
 			: {
 					code: "capability_unavailable",
 					reason:
-						"This host retains Ground, documents, coordinator messages and scoped role work. Full coordinator replies and checkpoint playbooks are not available in this version.",
+						"This host retains Ground, documents, coordinator messages and scoped role work. Full coordinator replies and Contract acceptance are not available in this version.",
 					capabilities:
-						w.assignments === undefined ? ["coordinator-replies", "checkpoints", "assignments"] : ["coordinator-replies", "checkpoints"],
+						w.assignments === undefined
+							? ["coordinator-replies", "intake-acceptance", "assignments"]
+							: ["coordinator-replies", "intake-acceptance"],
 				},
-		nextHumanAction: recoverable
-			? {
-					type: "cancelWork",
-					workflow: w.id,
-					assignment: recoverable.id,
-					generation: recoverable.generation,
-					attempt: recoverable.attempt,
-					reason:
-						"Cancel this blocked assignment to fence its Attempt. Wait for confirmed quiescence before scheduling a fresh linked replacement.",
-				}
-			: ground === null
-				? { type: "saveGround", workflow: w.id, document: "ground", expected: null }
-				: { type: "none", reason: "No further human decision is available in this host version; saved work is retained." },
+		nextHumanAction: pending
+			? { type: "reviewCheckpoint", request: pending.id, emission: pending.emission, annotations: pending.annotations }
+			: recoverable
+				? {
+						type: "cancelWork",
+						workflow: w.id,
+						assignment: recoverable.id,
+						generation: recoverable.generation,
+						attempt: recoverable.attempt,
+						reason:
+							"Cancel this blocked assignment to fence its Attempt. Wait for confirmed quiescence before scheduling a fresh linked replacement.",
+					}
+				: ground === null
+					? { type: "saveGround", workflow: w.id, document: "ground", expected: null }
+					: { type: "none", reason: "No further human decision is available in this host version; saved work is retained." },
 		unavailable: w.assignments === undefined ? UNAVAILABLE : UNAVAILABLE.filter((name) => name !== "assignments"),
 	};
 }

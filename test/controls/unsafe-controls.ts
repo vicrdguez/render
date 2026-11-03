@@ -51,6 +51,36 @@ const CONTROLS: Control[] = [
 	},
 
 	{
+		name: "checkpoint-edited-approval",
+		expect: /edited draft must never be approvable/,
+		behavior: "accept edited bytes without re-emission and exact review",
+		edits: [{ file: "src/kernel/checkpoints.ts", find: "c.emission !== r.emission ||", replace: "false ||" }],
+		test: "test/editable-checkpoints.test.ts",
+		pattern: "saves preserve complete edits",
+	},
+	{
+		name: "checkpoint-lost-concern",
+		expect: /every acknowledged concern must survive/,
+		behavior: "overwrite a concurrent acknowledged concern",
+		edits: [{ file: "src/kernel/checkpoints.ts", find: "work.concerns.push(concern);", replace: "work.concerns = [concern];" }],
+		test: "test/editable-checkpoints.test.ts",
+		pattern: "saves preserve complete edits",
+	},
+	{
+		name: "checkpoint-stale-review",
+		expect: /stale challenge must not authorize changed emission/,
+		behavior: "reuse old review after draft changes",
+		edits: [
+			{
+				file: "src/kernel/checkpoints.ts",
+				find: "basis.emission !== r!.emission || basis.manifest !== r!.manifest ||",
+				replace: "false ||",
+			},
+		],
+		test: "test/editable-checkpoints.test.ts",
+		pattern: "exact review and configured family",
+	},
+	{
 		name: "investigation-automatic-shape-consent",
 		expect: /unconfirmed classifier shape must not become consent/,
 		behavior: "an unconfirmed classifier suggestion authorizes investigation",

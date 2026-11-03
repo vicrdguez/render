@@ -1,6 +1,7 @@
 // Ledger-owned records in the Durable SQLite store. Immutable bytes and facts are Durable entries; current
 // pointers, receipts and credentials are session documents committed in the same transaction.
 import { defineDoc, defineDocFamily, defineEntry } from "@earendil-works/pi-durable";
+import type { Checkpoints } from "../kernel/checkpoints.ts";
 import type { MediaType, Persistence } from "../kernel/kernel.ts";
 import { initialPolicy, type PolicyState } from "../kernel/policy.ts";
 import type { RoleWorkState } from "../kernel/roles.ts";
@@ -71,6 +72,7 @@ export type WorkflowRecord =
 			createdAtSequence: number;
 			documents: Record<string, DocumentPointer>;
 			messageCount: number;
+			checkpoints?: Checkpoints;
 	  };
 
 export const Workflow = defineDocFamily<WorkflowRecord, null>({

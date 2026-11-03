@@ -212,16 +212,31 @@ export class Engine {
 				parameters,
 				replay: "safe",
 				execute: async (args, api, _context) => {
-					const reply = await this.#toolCommand(api, name, make(args as Record<string, string>));
+					const command = make(args as Record<string, string>);
+					const reply = await this.#toolCommand(api, name, command);
 					return {
 						output: [{ type: "text" as const, text: JSON.stringify(reply) }],
 						isError: reply.status !== "accepted",
-						...(reply.status === "accepted" && (name === "request_role" || name === "submit_role_result" || name === "request_own_stop")
+						...(reply.status === "accepted" &&
+						(name === "request_role" ||
+							name === "submit_role_result" ||
+							name === "request_own_stop" ||
+							command.type === "requestCheckpointReview")
 							? { control: { handoff: `${name} durably accepted.` } }
 							: {}),
 					};
 				},
 			});
+		const checkpoint = tool(
+			"checkpoint",
+			schema({
+				command: Type.String({
+					description:
+						"JSON checkpoint command: requestCheckpoint, stageCheckpoint, requestCheckpointReview, emitCheckpoint or reworkCheckpoint. Human decisions are forbidden.",
+				}),
+			}),
+			(args) => JSON.parse(args.command!) as JsonObject,
+		);
 		const request = tool("request_role", schema({ key: Type.String() }), (args) => ({ type: "requestRole", key: args.key! }));
 		const submit = defineTool({
 			name: "submit_role_result",
@@ -424,7 +439,7 @@ export class Engine {
 		});
 		this.#roles = defineExtension({
 			name: "render.roles",
-			tools: [read, request, submit, stop, ...webTools, webRead, retain, experimentRun],
+			tools: [read, request, submit, stop, checkpoint, ...webTools, webRead, retain, experimentRun],
 			sections: [
 				section("role-packet", async (input) => {
 					const binding = await input.read.snapshot(RoleBinding, input.conversationId, ctx);
@@ -817,7 +832,19 @@ export class Engine {
 			});
 			verification = selectCatalog(source, a.packet.verification);
 		}
+		const workflow = (frame.workflows as import("../kernel/kernel.ts").WorkflowView[]).find((w) => w.workflow === a.workflow);
+		const checkpointState = a.packet.role === "coordinator" && !a.packet.investigation && workflow ? workflow.checkpoints : undefined;
 		return JSON.stringify({
+			...(checkpointState
+				? {
+						checkpoints: {
+							requests: checkpointState.requests.filter((r) => a.packet.inputs.includes(r.scope)),
+							concerns: checkpointState.concerns.filter((c) =>
+								checkpointState.requests.some((r) => r.id === c.request && a.packet.inputs.includes(r.scope)),
+							),
+						},
+					}
+				: {}),
 			...(verification ? { verification } : {}),
 			assignment: a.id,
 			generation: a.generation,
@@ -829,6 +856,21 @@ export class Engine {
 							instructions:
 								"Apply only the immutable protocol. experiment_run executes inside your own container. Candidates may implement only their assigned experiment in /workspace. Parent originals are sealed read-only /candidates/<id>; use /workspace as independent rerun scratch. No criteria changes, original repairs, adoption or publication. Material deviations require another protocol/round. submit_role_result seals the whole container and retains exact source and raw results before accepting your report. Submit JSON schema:1, protocol:<exact revision>, outcome:positive|negative|inconclusive|deviation, summary, measurements:[{name,value:number,unit}], failures:[], limits:[]. A report is a model claim, not a runner observation. Ordinary networking can reach host/LAN/tailnet; credentials and other candidate workspaces are not granted.",
 						},
+					}
+				: {}),
+			...(a.checkpointReview
+				? {
+						checkpointReview: {
+							...a.checkpointReview,
+							instructions:
+								"Fresh non-fork exact-revision challenge. Read the full emission, manifest, Ground, principles and saved concerns. Assess alternatives, interactions, scale, usage, incidental choices, and nearby-example copying. Judge genuinely different decompositions, dependency categories, verification seams, depth/locality/deletion and what was decided beyond the question; typed lint is not merit. Submit JSON schema:1, emission, manifest, annotations, checks:{alternatives,interactions,scale,usage,incidentalChoices,nearbyCopying} with reasoned text, objections:[{id,node,reason}]. No approval authority.",
+						},
+					}
+				: {}),
+			...(a.packet.role === "coordinator" && !a.packet.investigation
+				? {
+						checkpointInstructions:
+							"Use checkpoint with a JSON command. requestCheckpoint: {stage:'seams'|'modules',scope:humanGroundRef,required:{candidates:boolean,experiment:boolean}}. Preserve its request identity through rework/retry. Required unavailable evidence blocks, never waive it. stageCheckpoint: {request,text:completeMarkdown,manifest:{schema:1,stage,nodes:[{id,decision,rationale,alternatives,evidence,classification,default}],decompositions:[{id,modules,dependencies,verificationSeams,depth,locality,deletion}],verificationStrategy,incidentalChoices,responses:[{concern,disposition,reason,resulting:nodeId}]}}. Seams compares genuinely different decompositions. Request exact fresh challenge with requestCheckpointReview:{request,key:configuredChallengerKey}; retrieve the child report. emitCheckpoint:{request,review:reportRef,contested:[{objection,disposition,reason,resulting:nodeId}]} answers every objection. Changed text needs a new stage and review. Human concerns must all survive and receive reasoned mappings. reworkCheckpoint requires saved concerns/reason. Never treat Markdown identity fields or save as consent; only human approval accepts original emitted bytes.",
 					}
 				: {}),
 			...(a.packet.investigation
