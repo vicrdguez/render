@@ -64,6 +64,7 @@ export type KernelState = {
 
 export type VerifiedFacts = {
 	readonly investigationGround?: Ground;
+	readonly verificationEvidence?: readonly import("./verification.ts").CatalogEvidence[];
 	readonly executorEpoch?: string;
 	readonly principal: Principal;
 	/** The Render sequence an accepted command receives. */

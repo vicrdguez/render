@@ -51,6 +51,44 @@ const CONTROLS: Control[] = [
 		test: "test/ground-investigation.test.ts",
 		pattern: "uncited, foreign",
 	},
+	{
+		name: "catalog-discovery-proof",
+		expect: /non-executable evidence must not qualify as behavioral proof/,
+		behavior: "silently omit generated discovery from required behavioral coverage",
+		edits: [
+			{
+				file: "src/kernel/verification.ts",
+				find: "for (const name of requiredCatalogRows(selection)) {",
+				replace:
+					'for (const name of requiredCatalogRows(selection).filter(name => receipt.catalog.rows.find(r => r.name === name)?.kind !== "generated")) {',
+			},
+		],
+		test: "test/verification-catalog.integration.ts",
+		pattern: "discover cannot discharge",
+	},
+	{
+		name: "catalog-old-source-proof",
+		expect: /old-source receipts cannot satisfy current completion/,
+		behavior: "accept a previous exact source receipt on a new commit with the same tree",
+		edits: [
+			{
+				file: "src/kernel/verification.ts",
+				find: '["repository", "commit", "path", "digest", "contract"]',
+				replace: '["repository", "path", "digest", "contract"]',
+			},
+			{ file: "src/kernel/verification.ts", find: "receipt.verification.inputCommit !== selection.commit ||", replace: "false ||" },
+		],
+		test: "test/verification-catalog.integration.ts",
+		pattern: "catalog Linux results require assessment",
+	},
+	{
+		name: "catalog-old-verifier-proof",
+		expect: /Missing expected rejection/,
+		behavior: "render a catalog under a different verifier digest",
+		edits: [{ file: "src/engine/catalog.ts", find: "if (selected.digest !== selection.digest)", replace: "if (false)" }],
+		test: "test/verification-catalog.test.ts",
+		pattern: "catalog refuses old verifier",
+	},
 	...[
 		{
 			name: "inherited-noncandidate-packet",
@@ -182,8 +220,8 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/ledger/ledger.ts",
-				find: "if (!entry || entry.data.schema !== 1 || !intact(entry.data.text, entry.data.digest, entry.data.byteLength))",
-				replace: "if (false)",
+				find: 'if (!entry || entry.data.schema !== 1 || !intact(entry.data.text, entry.data.digest, entry.data.byteLength))\n\t\t\t\t\tthrow new Abort({\n\t\t\t\t\t\tstatus: "refused",\n\t\t\t\t\t\tcode: "content_corrupt",',
+				replace: 'if (false)\n\t\t\t\t\tthrow new Abort({\n\t\t\t\t\t\tstatus: "refused",\n\t\t\t\t\t\tcode: "content_corrupt",',
 			},
 		],
 		test: "test/web-evidence-retention.test.ts",
