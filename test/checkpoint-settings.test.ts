@@ -154,6 +154,8 @@ test("S02/S03 two project clients race settings; import is local-admin only; clo
 		for (const invalid of [
 			{ ...human, proposal: "delegated" },
 			{ ...human, seams: "automatic" },
+			{ ...human, seams: ["human"] },
+			{ ...human, modules: ["delegated"] },
 			{ ...human, extra: "human" },
 		]) {
 			const r = await change(f.ledger, invalid);

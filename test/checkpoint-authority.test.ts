@@ -343,6 +343,16 @@ test("S11 V1 10000 routing captures survive defaults, replacement coordinators a
 	}
 });
 
+test("S06 Ground classifier shape confirmation remains authoritative at request capture", () => {
+	for (const [origin, confirmed, expected] of [["classifier", false, "shape_confirmation_required"], ["classifier", true, "accepted"], ["human", false, "accepted"]] as const) {
+		const d = change({ workflow: { id: "workflow:1", messageCount: 0 }, document: null, device: null,
+			roleWork: { assignments: [assignment("coordinator", "coordinator", ["ground:1"])] },
+		}, { type: "requestCheckpoint", workflow: "workflow:1", stage: "seams", scope: "ground:1", required: { candidates: false, experiment: false } },
+		{ ...facts, checkpointInputs: { "ground:1": { human: true, document: "ground", text: JSON.stringify({ schema: 1, goal: "Understand service design", constraints: [], clarifications: [], donePredicate: "Report boundaries", shape: { value: "investigation", origin, confirmed } }) } } });
+		assert.equal(d.outcome === "refused" ? d.code : d.outcome, expected, "classifier suggestion cannot supply agreed task shape");
+	}
+});
+
 test("C16 coordinator cannot launder another Ground revision outside its assigned inputs", () => {
 	const d = change(
 		{
