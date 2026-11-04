@@ -1,4 +1,6 @@
 // Exact technical checkpoint legality. All bytes/provenance are supplied by Ledger; no I/O.
+import { initialCheckpointSettings } from "./checkpoint-settings.ts";
+import { readGround, shapeConfirmed } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
 import { type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
@@ -11,6 +13,7 @@ export const CHECKPOINT_COMMANDS = [
 	"reworkCheckpoint",
 	"saveCheckpointConcern",
 	"approveCheckpoint",
+	"advanceDelegatedCheckpoint",
 	"cancelCheckpoint",
 ];
 export type Stage = "seams" | "modules";
@@ -25,6 +28,7 @@ export type Manifest = {
 		alternatives: string[];
 		evidence: string[];
 		classification: "observable" | "judgment" | "product";
+		humanDecision?: string;
 		default: string;
 	}[];
 	decompositions: {
@@ -44,7 +48,10 @@ export type CheckpointRequest = {
 	id: string;
 	stage: Stage;
 	scope: string;
-	mode: "human";
+	mode: "human" | "delegated";
+	/** Absent only on legacy human-only captures. */
+	checkpointSettingsRevision?: string;
+	agreedScopeRef?: string;
 	policyBinding: string;
 	required: { candidates: boolean; experiment: boolean };
 	status: "pending" | "approved" | "canceled";
@@ -89,7 +96,7 @@ export type CheckpointCommand =
 	| { type: "reworkCheckpoint"; workflow: string; request: string }
 	| { type: "saveCheckpointConcern"; workflow: string; request: string; base: string; text: string; kind?: "edit" | "reason" }
 	| {
-			type: "approveCheckpoint";
+			type: "approveCheckpoint" | "advanceDelegatedCheckpoint";
 			workflow: string;
 			request: string;
 			emission: string;
@@ -134,7 +141,8 @@ export function validManifest(value: unknown): value is Manifest {
 				n.alternatives.includes(n.default as string) &&
 				texts(n.evidence) &&
 				n.evidence.length > 0 &&
-				["observable", "judgment", "product"].includes(String(n.classification)),
+				["observable", "judgment", "product"].includes(String(n.classification)) &&
+				(n.humanDecision === undefined || (nonempty(n.humanDecision) && n.evidence.includes(n.humanDecision))),
 		)
 	)
 		return false;
@@ -228,6 +236,7 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 	const inputs = facts.checkpointInputs ?? {};
 	let r = "request" in c ? work.requests.find((r) => r.id === c.request) : undefined;
 	if (c.type === "requestCheckpoint") {
+		if (c.stage !== "seams" && c.stage !== "modules") return refuse("invalid_content", "Only technical Seams/Modules can be requested.");
 		if (work.requests.some((r) => r.stage === c.stage && r.status === "pending"))
 			return refuse("checkpoint_pending", "Continue the pending request or ask the human to cancel it.");
 		const seams = work.requests.findLast((r) => r.stage === "seams" && r.status === "approved")?.approved ?? null;
@@ -236,11 +245,19 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 		if (!a?.packet.inputs.includes(c.scope)) return refuse("forbidden_scope", "Ground scope must be an explicit coordinator input.");
 		if (!inputs[c.scope]?.human || inputs[c.scope]?.document !== "ground")
 			return refuse("invalid_content", "Scope must cite exact human-authored Ground, not an assistant proposal.");
+		const ground = readGround(inputs[c.scope]!.text);
+		if (ground && !shapeConfirmed(ground))
+			return refuse(
+				"shape_confirmation_required",
+				"Confirm the existing classifier-proposed task shape in human Ground before requesting a checkpoint.",
+			);
 		r = {
 			id: `checkpoint:${facts.sequence}`,
 			stage: c.stage,
 			scope: c.scope,
-			mode: "human",
+			mode: (state.checkpointSettings ?? initialCheckpointSettings()).modes[c.stage],
+			checkpointSettingsRevision: (state.checkpointSettings ?? initialCheckpointSettings()).currentRevision,
+			agreedScopeRef: c.scope,
 			required: c.required,
 			status: "pending",
 			emission: null,
@@ -476,7 +493,9 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 			r.ready = true;
 			r.reviewedAnnotations = r.annotations;
 			Object.assign(result, { request: r.id, emission: r.emission, manifest: r.manifest });
-		} else if (c.type === "approveCheckpoint") {
+		} else if (c.type === "approveCheckpoint" || c.type === "advanceDelegatedCheckpoint") {
+			const delegated = c.type === "advanceDelegatedCheckpoint";
+			if (delegated && r.mode !== "delegated") return refuse("forbidden_scope", "This request captured human routing.", r);
 			if (
 				c.emission !== r.emission ||
 				c.manifest !== r.manifest ||
@@ -494,6 +513,12 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 				return refuse("seams_required", "Revised seams block dependent Modules, not historical acceptance.", r);
 			const notes = work.concerns.filter((n) => n.stage === r!.stage).map((n) => n.id);
 			const needsNotes = r.reviewedAnnotations !== r.annotations;
+			if (delegated && (needsNotes || c.nonbinding.length))
+				return refuse(
+					"annotation_mapping_required",
+					"Delegation cannot declare human concerns nonbinding; rework and review every concern.",
+					r,
+				);
 			if (
 				!unique(c.nonbinding) ||
 				(needsNotes
@@ -511,6 +536,35 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 				r.manifestValue.nodes.some((n) => !n.alternatives.includes(c.decisions[n.id] ?? ""))
 			)
 				return refuse("invalid_content", "Explicit decisions must select a listed alternative for every node.");
+			if (delegated) {
+				let review: unknown;
+				try {
+					review = JSON.parse(inputs[r.review]?.text ?? "null")?.delegation;
+				} catch {
+					review = null;
+				}
+				if (
+					!object(review) ||
+					review.agreedScopeRef !== r.scope ||
+					!nonempty(review.reason) ||
+					!texts(review.unresolvedProduct) ||
+					!texts(review.scopeChanges) ||
+					!texts(review.humanDecisions) ||
+					review.unresolvedProduct.length !== 0 ||
+					review.scopeChanges.length !== 0 ||
+					review.humanDecisions.some((ref) => !inputs[ref]?.human) ||
+					r.manifestValue.nodes.some(
+						(n) =>
+							n.classification === "product" &&
+							(!n.humanDecision || !inputs[n.humanDecision]?.human || !(review.humanDecisions as string[]).includes(n.humanDecision)),
+					)
+				)
+					return refuse(
+						"human_decision_required",
+						"Exact challenger must expose classification/scope and resolve product choices against retained human decisions; ask the human or re-emit and re-review.",
+						r,
+					);
+			}
 			r.status = "approved";
 			r.approved = r.emission;
 			r.nonbinding = c.nonbinding;
@@ -518,7 +572,21 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 			Object.assign(result, { decision: ref, emission: r.approved, request: r.id });
 		}
 	}
-	documents.push({ ref, text: JSON.stringify({ schema: 1, command: c, result, request: r?.id, mode: "human" }) });
+	documents.push({
+		ref,
+		text: JSON.stringify({
+			schema: 1,
+			command: c,
+			result,
+			request: r?.id,
+			mode: r?.mode ?? "human",
+			actor: p,
+			checkpointSettingsRevision: r?.checkpointSettingsRevision ?? "settings:initial",
+			agreedScopeRef: r?.agreedScopeRef ?? r?.scope,
+			review: r?.review,
+			humanDecisions: r?.manifestValue?.nodes.flatMap((n) => (n.humanDecision ? [n.humanDecision] : [])),
+		}),
+	});
 	writes.push(
 		{ type: "checkpoints.replace", state: work, documents },
 		{ type: "fact.record", fact: facts.ids.fact, command: c.type, refs: { workflow: c.workflow, checkpoint: r!.id, record: ref } },

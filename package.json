@@ -21,6 +21,7 @@
 		"lint": "biome check .",
 		"verify:protocol-experiments": "node --test --test-concurrency=1 test/protocol-experiments.test.ts test/experiment-isolation.integration.ts test/experiment-journey.integration.ts test/experiment-crash.integration.ts test/experiment-cancel.integration.ts",
 		"verify:experiment-crash": "node --test test/experiment-crash.integration.ts",
+		"verify:checkpoint-settings": "node --test --test-concurrency=1 test/checkpoint-settings.test.ts test/checkpoint-authority.test.ts test/editable-checkpoints.test.ts test/policy-adoption.test.ts",
 		"verify:editable-checkpoints": "node --test --test-concurrency=1 test/checkpoint-authority.test.ts test/editable-checkpoints.test.ts",
 		"verify:ground-investigation": "node --test --test-concurrency=1 test/ground-investigation.test.ts test/investigation-crash.integration.ts",
 		"verify:investigation-crash": "node --test test/investigation-crash.integration.ts",

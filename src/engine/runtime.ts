@@ -232,7 +232,7 @@ export class Engine {
 			schema({
 				command: Type.String({
 					description:
-						"JSON checkpoint command: requestCheckpoint, stageCheckpoint, requestCheckpointReview, emitCheckpoint or reworkCheckpoint. Human decisions are forbidden.",
+						"JSON checkpoint command: requestCheckpoint, stageCheckpoint, requestCheckpointReview, emitCheckpoint, reworkCheckpoint or advanceDelegatedCheckpoint. Human decisions are forbidden.",
 				}),
 			}),
 			(args) => JSON.parse(args.command!) as JsonObject,
@@ -862,15 +862,16 @@ export class Engine {
 				? {
 						checkpointReview: {
 							...a.checkpointReview,
+							agreedScopeRef: workflow?.checkpoints.requests.find((r) => r.id === a.checkpointReview!.request)?.scope,
 							instructions:
-								"Fresh non-fork exact-revision challenge. Read the full emission, manifest, Ground, principles and saved concerns. Assess alternatives, interactions, scale, usage, incidental choices, and nearby-example copying. Judge genuinely different decompositions, dependency categories, verification seams, depth/locality/deletion and what was decided beyond the question; typed lint is not merit. Submit JSON schema:1, emission, manifest, annotations, checks:{alternatives,interactions,scale,usage,incidentalChoices,nearbyCopying} with reasoned text, objections:[{id,node,reason}]. No approval authority.",
+								"Fresh non-fork exact-revision challenge. Read the full emission, manifest, Ground, principles and saved concerns. Assess alternatives, interactions, scale, usage, incidental choices, and nearby-example copying. Judge genuinely different decompositions, dependency categories, verification seams, depth/locality/deletion and what was decided beyond the question; typed lint is not merit. Submit JSON schema:1, emission, manifest, annotations, checks:{alternatives,interactions,scale,usage,incidentalChoices,nearbyCopying} with reasoned text, objections:[{id,node,reason}]. For delegated routing also submit delegation:{agreedScopeRef,reason,unresolvedProduct:[nodeIds],scopeChanges:[nodeIds],humanDecisions:[exactHumanRefs]}. Independently assess author classification and human scope, flag unresolved product choices even if labeled technical; carried product constraints require retained human decisions. No approval authority.",
 						},
 					}
 				: {}),
 			...(a.packet.role === "coordinator" && !a.packet.investigation
 				? {
 						checkpointInstructions:
-							"Use checkpoint with a JSON command. requestCheckpoint: {stage:'seams'|'modules',scope:humanGroundRef,required:{candidates:boolean,experiment:boolean}}. Preserve its request identity through rework/retry. Required unavailable evidence blocks, never waive it. stageCheckpoint: {request,text:completeMarkdown,manifest:{schema:1,stage,nodes:[{id,decision,rationale,alternatives,evidence,classification,default}],decompositions:[{id,modules,dependencies,verificationSeams,depth,locality,deletion}],verificationStrategy,incidentalChoices,responses:[{concern,disposition,reason,resulting:nodeId}]}}. Seams compares genuinely different decompositions. Request exact fresh challenge with requestCheckpointReview:{request,key:configuredChallengerKey}; retrieve the child report. emitCheckpoint:{request,review:reportRef,contested:[{objection,disposition,reason,resulting:nodeId}]} answers every objection. Changed text needs a new stage and review. Human concerns must all survive and receive reasoned mappings. reworkCheckpoint requires saved concerns/reason. Never treat Markdown identity fields or save as consent; only human approval accepts original emitted bytes.",
+							"Use checkpoint with a JSON command. requestCheckpoint: {stage:'seams'|'modules',scope:humanGroundRef,required:{candidates:boolean,experiment:boolean}}. Preserve its request identity through rework/retry. Required unavailable evidence blocks, never waive it. stageCheckpoint: {request,text:completeMarkdown,manifest:{schema:1,stage,nodes:[{id,decision,rationale,alternatives,evidence,classification,default,humanDecision?:exactHumanRef}],decompositions:[{id,modules,dependencies,verificationSeams,depth,locality,deletion}],verificationStrategy,incidentalChoices,responses:[{concern,disposition,reason,resulting:nodeId}]}}. Seams compares genuinely different decompositions. Request exact fresh challenge with requestCheckpointReview:{request,key:configuredChallengerKey}; retrieve the child report. emitCheckpoint:{request,review:reportRef,contested:[{objection,disposition,reason,resulting:nodeId}]} answers every objection. Changed text needs a new stage and review. Human concerns must all survive and receive reasoned mappings. reworkCheckpoint requires saved concerns/reason. Never treat Markdown identity fields or save as consent; human approveCheckpoint or captured delegated advanceDelegatedCheckpoint accepts only original emitted bytes. advanceDelegatedCheckpoint:{request,emission,manifest,annotations,policyBinding,decisions:{nodeId:alternative},nonbinding:[]} uses common exact evidence. Delegation cannot dismiss human notes as nonbinding or resolve new product/scope choices. Proposal/Contract acceptance is always human; changing defaults never changes pending routing.",
 					}
 				: {}),
 			...(a.packet.investigation
