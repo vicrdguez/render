@@ -112,6 +112,42 @@ const CONTROLS: Control[] = [
 	},
 
 	{
+		name: "local-prompt-completion-gate",
+		expect: /advisory absence must not gate or complete work/,
+		behavior: "add a pending-local-verification blocker to retained workflow work",
+		edits: [
+			{
+				file: "src/ledger/ledger.ts",
+				find: 'case "local-prompt.retain": {',
+				replace: 'case "local-prompt.retain": { roles.assignments[0].blocker = "local_verification_pending";',
+			},
+		],
+		test: "test/local-verification-prompt.test.ts",
+		pattern: "two clients retain one exact advisory receipt",
+	},
+	{
+		name: "local-prompt-stale-basis",
+		expect: /stale prompt basis must refuse before generation/,
+		behavior: "accept a prompt request against a stale observed snapshot",
+		edits: [{ file: "src/kernel/kernel.ts", find: "if (c.expectedSequence !== facts.sequence - 1)", replace: "if (false)" }],
+		test: "test/local-verification-prompt.test.ts",
+		pattern: "two clients retain one exact advisory receipt",
+	},
+	{
+		name: "local-prompt-linux-equivalence",
+		expect: /Linux evidence must not imply Mac equivalence/,
+		behavior: "claim same-CPU Linux evidence establishes Mac portability",
+		edits: [
+			{
+				file: "src/engine/local-verification.ts",
+				find: "Same CPU does not make Linux binaries portable to macOS",
+				replace: "Same CPU makes Linux binaries portable to macOS",
+			},
+		],
+		test: "test/local-verification-prompt.test.ts",
+		pattern: "two clients retain one exact advisory receipt",
+	},
+	{
 		name: "candidate-delegated-advancement",
 		expect: /delegated advancement must retain required candidate completion checks/,
 		behavior: "advance a delegated checkpoint without required candidate completion",

@@ -51,6 +51,12 @@ export type Command =
 	| RoleCommand
 	| PolicyCommand
 	| SettingsCommand
+	| {
+			readonly type: "requestLocalVerificationPrompt";
+			readonly workflow: string;
+			readonly source: string;
+			readonly expectedSequence: number;
+	  }
 	| { readonly type: "createWorkflow"; readonly title: string }
 	| {
 			readonly type: "saveDocument";
@@ -103,6 +109,7 @@ export type VerifiedFacts = {
 };
 
 export type DomainWrite =
+	| { readonly type: "local-prompt.retain"; readonly revision: string }
 	| IntakeWrite
 	| CheckpointWrite
 	| { readonly type: "checkpoint-settings.replace"; readonly state: CheckpointSettings }
@@ -203,7 +210,7 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	changeCheckpointSettings: { family: "human-decision", available: true },
 	importCheckpointSettings: { family: "local-admin", available: true },
 	cancelWork: { family: "human-decision", available: true },
-	requestLocalVerificationPrompt: { family: "human-decision", available: false },
+	requestLocalVerificationPrompt: { family: "human-decision", available: true },
 	enrollDevice: { family: "local-admin", available: true },
 	revokeDevice: { family: "local-admin", available: true },
 	saveDraft: { family: "role-work", available: false },
@@ -285,9 +292,41 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 
 	const c = command as Extract<
 		Command,
-		{ type: "createWorkflow" | "saveDocument" | "postCoordinatorMessage" | "enrollDevice" | "revokeDevice" | "recordStartup" }
+		{
+			type:
+				| "requestLocalVerificationPrompt"
+				| "createWorkflow"
+				| "saveDocument"
+				| "postCoordinatorMessage"
+				| "enrollDevice"
+				| "revokeDevice"
+				| "recordStartup";
+		}
 	>;
 	switch (c.type) {
+		case "requestLocalVerificationPrompt": {
+			if (!inScope(facts.principal, c.workflow)) return refuse("forbidden_scope", `${c.workflow} is outside this device's scope.`);
+			if (state.workflow === null) return refuse("not_found", `${c.workflow} does not exist.`);
+			if (c.expectedSequence !== facts.sequence - 1)
+				return refuse("stale_basis", "The retained snapshot changed; observe again before requesting a new prompt.", undefined, [
+					{ action: "observe", workflow: c.workflow },
+				]);
+			const source = state.roleWork?.assignments.find(
+				(a) => a.workflow === c.workflow && (a.investigationSource === c.source || a.report === c.source),
+			);
+			if (!source)
+				return refuse(
+					"missing_content",
+					`Select an exact retained source observation, not a branch or an unverified document: ${c.source}.`,
+				);
+			const revision = required(facts.ids.revision);
+			return {
+				outcome: "accepted",
+				result: { textArtifact: revision, source: c.source, basisSequence: c.expectedSequence, kind: "local-verification-prompt" },
+				writes: [{ type: "local-prompt.retain", revision }, fact(facts, c.type, { workflow: c.workflow, revision, source: c.source })],
+				facts: [facts.ids.fact],
+			};
+		}
 		case "createWorkflow": {
 			const workflow = required(facts.ids.workflow);
 			return {

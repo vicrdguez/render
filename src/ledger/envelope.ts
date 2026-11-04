@@ -90,6 +90,7 @@ export function parseEnvelope(raw: unknown): Envelope | EnvelopeRefusal {
 
 function available(type: string, c: Fields, workflow: string | null, expected: Fields | undefined): { command: Command; content?: Buffer } {
 	const needsWorkflow =
+		type === "requestLocalVerificationPrompt" ||
 		type === "adoptPolicy" ||
 		type === "saveDocument" ||
 		type === "postCoordinatorMessage" ||
@@ -103,6 +104,18 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 	if (CHECKPOINT_COMMANDS.includes(type)) return { command: checkpointCommand(type, c, workflow as string) };
 	if (ROLE_COMMANDS.includes(type)) return { command: roleCommand(type, c, workflow as string) };
 	switch (type) {
+		case "requestLocalVerificationPrompt":
+			only(c, ["type", "source", "expectedSequence"], "command");
+			if (!Number.isSafeInteger(c.expectedSequence) || Number(c.expectedSequence) < 0)
+				malformed("expectedSequence must name an observed sequence");
+			return {
+				command: {
+					type,
+					workflow: workflow as string,
+					source: text(c.source, "source", 128),
+					expectedSequence: c.expectedSequence as number,
+				},
+			};
 		case "changeCheckpointSettings":
 		case "importCheckpointSettings":
 			only(c, ["type", "expectedRevision", "modes"], "command");
