@@ -112,6 +112,46 @@ const CONTROLS: Control[] = [
 		pattern: "reopening and stopping a scope",
 	},
 	{
+		name: "candidate-delegated-advancement",
+		expect: /delegated advancement must retain required candidate completion checks/,
+		behavior: "advance a delegated checkpoint without required candidate completion",
+		edits: [
+			{
+				file: "src/kernel/checkpoints.ts",
+				find: "r.required.candidates &&",
+				replace: 'r.required.candidates && c.type !== "advanceDelegatedCheckpoint" &&',
+			},
+		],
+		test: "test/design-candidates.test.ts",
+		pattern: "delegated routing retains required alternatives",
+	},
+	{
+		name: "candidate-premature-synthesis",
+		expect: /required alternatives must precede synthesis/,
+		behavior: "stage a synthesis while required candidate assignments are missing",
+		edits: [
+			{ file: "src/kernel/checkpoints.ts", find: "if (!evidence ||", replace: "if (false && (!evidence ||" },
+			{ file: "src/kernel/checkpoints.ts", find: "!cited.includes(child.report!)))", replace: "!cited.includes(child.report!))))" },
+		],
+		test: "test/design-candidates.test.ts",
+		pattern: "human routing retains required alternatives",
+	},
+	{
+		name: "candidate-foreign-artifact",
+		expect: /foreign artifact must remain unreadable/,
+		behavior: "disclose named foreign revisions to a candidate",
+		edits: [
+			{
+				file: "src/ledger/ledger.ts",
+				find: 'if (principal.kind === "assignment-agent") {\n\t\t\t\tconst own = this.#roleWork.assignments.find',
+				replace:
+					'if (principal.kind === "assignment-agent" && principal.role !== "candidate") {\n\t\t\t\tconst own = this.#roleWork.assignments.find',
+			},
+		],
+		test: "test/design-candidates.test.ts",
+		pattern: "candidates receive own inputs",
+	},
+	{
 		name: "intake-nonexecuted-behavior",
 		expect: /non-executable exact catalog rows must not discharge behavior/,
 		behavior: "map exact generated or human catalog evidence to a behavior obligation",

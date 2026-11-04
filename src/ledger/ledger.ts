@@ -6,6 +6,7 @@ import type { ConversationId, EntryId, Harness, Tx } from "@earendil-works/pi-du
 import { treeOid, validateEntries } from "../effects/source.ts";
 import type { RoleTaskStaging } from "../engine/runtime.ts";
 import type { WebWorking } from "../engine/web.ts";
+import { candidateEvidence } from "../kernel/candidates.ts";
 import { initialCheckpointSettings, type CheckpointSettings as SettingsState } from "../kernel/checkpoint-settings.ts";
 import {
 	CHECKPOINT_COMMANDS,
@@ -436,6 +437,16 @@ export class Ledger {
 				}
 			}
 			requiredInputs = checkpointRefs(checkpoints, checkpoint);
+			if (
+				"request" in checkpoint &&
+				["stageCheckpoint", "requestCheckpointReview", "emitCheckpoint", "approveCheckpoint", "advanceDelegatedCheckpoint"].includes(
+					checkpoint.type,
+				)
+			) {
+				const request = checkpoints.requests.find((r) => r.id === checkpoint.request);
+				if (request?.required.candidates)
+					requiredInputs.push(...(candidateEvidence(request, plain(roles.assignments)) ?? []).map((a) => a.report!));
+			}
 		}
 		const implementationOwner = roles.assignments.find(
 			(a) => a.id === (current.kind === "assignment-agent" ? current.assignment : (command as { assignment?: string }).assignment),
