@@ -91,6 +91,8 @@ const RETURN_FIELDS = {
 	"watchdog-rework": ["preparedCommit", "review", "report"],
 } as const;
 const LAUNCH_FAILURES = [126, 127];
+const objectId = (format: unknown) => (x: unknown) =>
+	typeof x === "string" && x.length === (format === "sha1" ? 40 : 64) && /^[0-9a-f]+$/.test(x);
 /** Closed shape only: lineage against retained B and any cited review belong to the caller's current state. */
 export function returnObservation(value: string, source: ImplementationSource): ReturnObservation | undefined {
 	try {
@@ -99,8 +101,7 @@ export function returnObservation(value: string, source: ImplementationSource): 
 		const cause = v.cause as keyof typeof RETURN_FIELDS;
 		const fields = ["schema", "cause", "repository", "source", "sourceCommit", "baseCommit", "targetCommit", ...RETURN_FIELDS[cause]];
 		if (Object.keys(v).length !== fields.length || !fields.every((key) => Object.hasOwn(v, key))) return;
-		const size = source.source.source.objectFormat === "sha1" ? 40 : 64;
-		const id = (x: unknown) => typeof x === "string" && x.length === size && /^[0-9a-f]+$/.test(x);
+		const id = objectId(source.source.source.objectFormat);
 		if (![v.repository, v.source].every(text) || ![v.sourceCommit, v.baseCommit, v.targetCommit].every(id)) return;
 		if (v.cause === "preparation-conflict")
 			return text(v.algorithm) && id(v.resultTree) && texts(v.conflicts) && v.conflicts.length && v.targetCommit !== v.baseCommit
@@ -160,8 +161,7 @@ export function implementationSource(value: unknown): ImplementationSource | und
 			!Array.isArray(s.entries)
 		)
 			return;
-		const size = s.objectFormat === "sha1" ? 40 : 64;
-		if (![s.commit, s.tree].every((x) => typeof x === "string" && x.length === size && /^[0-9a-f]+$/.test(x))) return;
+		if (![s.commit, s.tree].every(objectId(s.objectFormat))) return;
 		if (
 			!s.entries.every(
 				(e) =>

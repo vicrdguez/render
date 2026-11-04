@@ -599,7 +599,7 @@ export class Engine {
 							return runtime
 								.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context)
 								.then(() => this.reconcile());
-						const blocker = this.#configurationBlocker(a);
+						const blocker = this.#configurationBlocker(a) ?? (await this.#openingBlocker(a));
 						let prompt: string;
 						let inputBlocker: string | undefined;
 						try {
@@ -1511,6 +1511,19 @@ export class Engine {
 			mintContext({ kind: "host", scope: "effects" }),
 		);
 		if (reply.status !== "accepted") throw new Error(`Source retention refused: ${reply.reason}`);
+	}
+	/** A return commits before its base is materialized; an unresolvable base blocks visibly before any writer turn. */
+	async #openingBlocker(a: RoleAssignment): Promise<string | undefined> {
+		if (!a.passRef || a.packet.role !== "implementer") return undefined;
+		const pass = this.#implementationPass(a);
+		if (!pass.opening || pass.workspace) return undefined;
+		const repository = this.#config.ownedChecks!.checks[a.packet.profile]!.repository;
+		try {
+			await this.#effects!.perform({ type: "resolve", repository, commit: pass.opening.base });
+			return undefined;
+		} catch (error) {
+			return `implementation_opening_source_unavailable: ${pass.opening.base}: ${error}`.slice(0, 1900);
+		}
 	}
 	#configurationBlocker(a: RoleAssignment): string | undefined {
 		if (a.passRef) {

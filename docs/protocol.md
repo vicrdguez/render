@@ -66,6 +66,18 @@ path admits `recordRunnerObservation` only from the trusted Effects host scope, 
 and complete receipt text; it is not a worker/device/admin capability. It retains an immutable `owned-check` document,
 not a general effect/publication protocol. See [owned checks and limits](owned-checks.md). Unknown types refuse with `unknown_command`.
 
+`openSuccessorPass` is the one authorized return from a sealed handoff to implementation. It is admitted only from the Effects host scope, and names the handed-off owner's `assignment`, `generation`, `attempt` and `text`. `text` holds one closed JSON result: `schema: 1`, `cause`, `repository`, `source` (B's revision), `sourceCommit`, `baseCommit` and `targetCommit`, plus the fields for its cause.
+
+| `cause` | Extra fields | New pass starts from |
+|---|---|---|
+| `preparation-conflict` | `algorithm`, `resultTree`, `conflicts` (paths) | `targetCommit` |
+| `prepared-check-failure` | `preparedCommit`, `verifierRevision`, `failed` (`name`, real nonzero `exitCode`) | `preparedCommit` |
+| `watchdog-rework` | `preparedCommit`, `review`, `report` | `preparedCommit` |
+
+A cited Watchdog report is JSON with `schema: 1`, `verdict` (`pass`, `rework` or `needs-human`), `passRef`, `handoff`, `source`, `prepared` and `target`. Ledger reads it from retained bytes and Kernel checks every field against the pass and result. Unchanged-source operational retries have no shape here and retain the handed-off pass.
+
+Kernel checks the result's lineage against retained B. It cannot see Git, so the producer owns classification and the object and ancestry validation in spec §9.4. `target-preparation` and `watchdog-rework` own those producers; until they land, this boundary is exercised only by fixtures and those capabilities stay blocked. Each successor is a new linked Assignment and conversation with predecessor records as read-only references, which spec §6.2.1 permits.
+
 ## Receipts
 
 ```json

@@ -442,7 +442,7 @@ async function fixture(
 	};
 }
 
-test("accepted implementation: one fresh paired Audit of frozen A, same-pass B and atomic preparation survive export/reopen", async () => {
+test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic preparation, then a real conflict opens P2 from T1 with its own fresh Audit, surviving export/reopen", async () => {
 	const t = await fixture();
 	try {
 		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
@@ -486,30 +486,10 @@ test("accepted implementation: one fresh paired Audit of frozen A, same-pass B a
 			auditPrompts.every((p) => p.auditReview!.source !== pass.captureB),
 			"both Audit bindings point only to A",
 		);
-		const page = await t.f.ledger.observe(admin, { history: { workflow: "workflow:2", limit: "1" } });
-		assert.ok("next" in page && page.next);
-		assert.equal(page.cutoff, exported.manifest.cutoff);
-		t.gate.resolve();
-		await t.f.reopen();
-		const after = await t.f.ledger.artifact(admin, { export: { cursor: page.next } });
-		assert.ok("manifest" in after && after.manifest.complete);
-		assert.equal(after.manifest.cutoff, exported.manifest.cutoff);
-		for (const ref of [opening.passRecord, pass.handoff.record, ...reviews.map((a) => a.report), A, pass.captureB])
-			assert.equal(after.content[ref as string], exported.content[ref as string]);
-	} finally {
-		await t.close();
-	}
-});
-
-test("two-pass journey: real conflict against T1 opens P2 from T1 with its own fresh Audit on A2 and own handoff", async () => {
-	const t = await fixture();
-	try {
-		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
 		const settled = (id: unknown) => () => {
 			const a = t.assignments().find((x) => x.id === id);
 			return !!a && !a.executing && (a.status === "submitted" || (a.status === "blocked" && a.blocker !== "awaiting_role_results"));
 		};
-		await t.wait(settled(opening.assignment), "first pass handoff");
 		const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
 		await t.wait(() => !!passes()[0]?.handoff?.blocker, "preparation blockage");
 		const first = structuredClone(passes()[0]!);
@@ -549,8 +529,8 @@ test("two-pass journey: real conflict against T1 opens P2 from T1 with its own f
 		);
 		assert.equal(opened.passOrdinal, 2);
 		await t.wait(settled(opened.assignment), "second pass handoff");
-		const writer = t.assignments().find((a) => a.id === opened.assignment)!;
-		assert.equal(writer.status, "submitted", `expected second handoff, got ${writer.blocker}`);
+		const p2Writer = t.assignments().find((a) => a.id === opened.assignment)!;
+		assert.equal(p2Writer.status, "submitted", `expected second handoff, got ${p2Writer.blocker}`);
 		const [p1, p2] = passes();
 		assert.ok(p1 && p2);
 		assert.deepEqual({ ...p1 }, first, "P1 keeps its exact Audit, A, B and preparation outcome");
@@ -586,8 +566,8 @@ test("two-pass journey: real conflict against T1 opens P2 from T1 with its own f
 		);
 		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "conflict starts no Watchdog");
 		await t.wait(() => !!passes()[1]?.handoff?.blocker, "P2 preparation blockage");
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
-		assert.ok("manifest" in exported && exported.manifest.complete);
+		const twoPass = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in twoPass && twoPass.manifest.complete);
 		for (const ref of [
 			p1.record,
 			p2.record,
@@ -597,11 +577,52 @@ test("two-pass journey: real conflict against T1 opens P2 from T1 with its own f
 			p2.captureB!,
 			opened.observation as string,
 		])
-			assert.ok(exported.content[ref], `export retains ${ref}`);
+			assert.ok(twoPass.content[ref], `export retains ${ref}`);
+		// A well-formed result whose base never resolves leaves visible blockage, not a silently stalled writer.
+		const sealedP2 = (JSON.parse(await read(p2.handoff.source)) as ImplementationSource).source;
+		const unavailable = accepted(
+			await t.f.command(
+				{
+					type: "openSuccessorPass",
+					assignment: p2Writer.id,
+					generation: p2Writer.generation,
+					attempt: p2Writer.attempt,
+					text: JSON.stringify({
+						schema: 1,
+						cause: "preparation-conflict",
+						repository: sealedP2.source.repository,
+						source: p2.handoff.source,
+						sourceCommit: sealedP2.source.commit,
+						baseCommit: sealedP2.base.commit,
+						targetCommit: "f".repeat(40),
+						algorithm: "merge-tree-write-tree",
+						resultTree: tree,
+						conflicts: ["value"],
+					}),
+				},
+				mintContext({ kind: "host", scope: "effects" }),
+			),
+		);
+		await t.wait(settled(unavailable.assignment), "unavailable successor source");
+		const stalled = t.assignments().find((a) => a.id === unavailable.assignment)!;
+		assert.equal(stalled.status, "blocked");
+		assert.match(stalled.blocker ?? "", /^implementation_opening_source_unavailable/);
+		assert.equal(t.prompts.filter((p) => p.implementation?.ordinal === 3).length, 0, "no writer turn starts without its base");
+		assert.equal(passes()[2]?.workspace, undefined);
+		const settledExport = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in settledExport);
+		const page = await t.f.ledger.observe(admin, { history: { workflow: "workflow:2", limit: "1" } });
+		assert.ok("next" in page && page.next);
+		assert.equal(page.cutoff, settledExport.manifest.cutoff);
 		t.gate.resolve();
 		await t.f.reopen();
-		assert.equal(passes().length, 2);
+		assert.equal(passes().length, 3);
 		assert.equal(passes()[0]!.handoff!.record, p1.handoff!.record);
+		const after = await t.f.ledger.artifact(admin, { export: { cursor: page.next } });
+		assert.ok("manifest" in after && after.manifest.complete);
+		assert.equal(after.manifest.cutoff, settledExport.manifest.cutoff);
+		for (const ref of [opening.passRecord, pass.handoff.record, ...reviews.map((a) => a.report), A, pass.captureB])
+			assert.equal(after.content[ref as string], exported.content[ref as string]);
 	} finally {
 		await t.close();
 	}
