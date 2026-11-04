@@ -16,6 +16,42 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 // repair that ordering violation. Independent review of their behavioral sensitivity remains required.
 const CONTROLS: Control[] = [
 	{
+		name: "experiment-correction-replacement",
+		expect: /Experimental corrections require a new protocol\/round/,
+		behavior: "replace an experiment with an ordinary role instead of requiring a new round",
+		edits: [
+			{ file: "src/kernel/roles.ts", find: "if (a?.packet.experiment)\n\t\t\treturn refusal", replace: "if (false)\n\t\t\treturn refusal" },
+		],
+		test: "test/experiment-design-candidates.test.ts",
+		pattern: "E18",
+	},
+	{
+		name: "design-candidate-replacement",
+		expect: /Candidate replacement retains exact question/,
+		behavior: "replace a design candidate with changed question, conditions or role",
+		edits: [{ file: "src/kernel/roles.ts", find: "if (!isDeepStrictEqual(oldPacket, newPacket))", replace: "if (false)" }],
+		test: "test/experiment-design-candidates.test.ts",
+		pattern: "E18",
+	},
+	{
+		name: "experiment-runner-answer",
+		expect: /Only the assigned coordinator can submit a cited investigation outcome/,
+		behavior: "accept a host runner receipt as an experiment answer",
+		edits: [
+			{ file: "src/kernel/roles.ts", find: "if (a.packet.investigation || a.packet.experiment)", replace: "if (a.packet.investigation)" },
+		],
+		test: "test/experiment-design-candidates.test.ts",
+		pattern: "E19",
+	},
+	{
+		name: "design-candidate-runner-answer",
+		expect: /Only the assigned candidate can submit its competing answer/,
+		behavior: "accept a host runner receipt as an independent design answer",
+		edits: [{ file: "src/kernel/roles.ts", find: "if (a.checkpointCandidate) return refusal", replace: "if (false) return refusal" }],
+		test: "test/experiment-design-candidates.test.ts",
+		pattern: "E19",
+	},
+	{
 		name: "experiment-missing-preregistered-rule",
 		expect: /missing decisionRule must not execute/,
 		behavior: "candidate execution is admitted without a preregistered decision rule",
