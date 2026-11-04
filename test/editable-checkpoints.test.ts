@@ -563,8 +563,8 @@ test("C03/C04 structural failures and required missing capabilities block before
 			{ ...manifest(), decompositions: [] },
 		])
 			assert.equal(code(await t.cmd({ type: "stageCheckpoint", request: r, text: markdown, manifest: malformed })), "invalid_content");
-		result(await t.f.command({ type: "cancelCheckpoint", request: r, expectedEmission: null, reason: "Need candidates" }, admin));
-		const required = await t.request("seams", { required: { candidates: true, experiment: false } });
+		result(await t.f.command({ type: "cancelCheckpoint", request: r, expectedEmission: null, reason: "Need experiment" }, admin));
+		const required = await t.request("seams", { required: { candidates: false, experiment: true } });
 		assert.equal(
 			code(await t.cmd({ type: "stageCheckpoint", request: required, text: markdown, manifest: manifest() })),
 			"capability_unavailable",

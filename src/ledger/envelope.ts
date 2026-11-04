@@ -290,8 +290,13 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 				packet: parsePacket(c.packet),
 			};
 		case "requestRole":
-			only(c, ["type", "key"], "command");
-			return { type, workflow, key: text(c.key, "key", 128) };
+			only(c, ["type", "key", "request"], "command");
+			return {
+				type,
+				workflow,
+				key: text(c.key, "key", 128),
+				...(c.request === undefined ? {} : { request: text(c.request, "request", 128) }),
+			};
 		case "submitRoleResult": {
 			only(c, ["type", "text", "supports", "verification"], "command");
 			if (
