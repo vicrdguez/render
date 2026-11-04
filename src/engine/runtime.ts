@@ -651,7 +651,8 @@ export class Engine {
 					try {
 						const scope = this.#scope(a, a.status === "canceling");
 						const stopped = await this.#sandboxes.stop({ scope });
-						for (const diagnostic of stopped.executions) await this.#diagnostic(a, scope, stopped.source, diagnostic.result, diagnostic);
+						for (const diagnostic of stopped.executions)
+							await this.#diagnostic(a, scope, diagnostic.source ?? stopped.source, diagnostic.result, diagnostic);
 						if (a.status === "running")
 							await this.#command(a, { type: "recordBlocker", reason: "owned_check_interrupted_source_evidence_requires_reconciliation" });
 						await this.#command(this.#assignment(a.id)!, {
@@ -1052,7 +1053,13 @@ export class Engine {
 				try {
 					const result = await this.#sandboxes!.stop({ scope: this.#scope(a) });
 					for (const diagnostic of result.executions)
-						await this.#diagnostic(a, this.#scope(a), result.source, diagnostic.result, diagnostic.result ? undefined : diagnostic);
+						await this.#diagnostic(
+							a,
+							this.#scope(a),
+							diagnostic.source ?? result.source,
+							diagnostic.result,
+							diagnostic.result ? undefined : diagnostic,
+						);
 					environment = "stopped";
 				} catch {
 					/* Preserve executing capacity and quarantine until the original runtime is reconciled. */
@@ -1142,6 +1149,8 @@ export class Engine {
 		if (reply.status !== "accepted") throw new Error(`Source retention refused: ${reply.reason}`);
 	}
 	#configurationBlocker(a: RoleAssignment): string | undefined {
+		// Never dispatch accepted implementation as the older one-shot owned-check playbook.
+		if (a.passRef) return "implementation_lifecycle_unavailable";
 		if (a.packet.investigation && !this.#investigationEffects && !a.investigationSource)
 			return "investigation_source_capability_unavailable";
 		if (a.packet.execution === "linux-writer" && this.#config.ownedChecks)

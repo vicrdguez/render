@@ -43,7 +43,21 @@ export type RolePacket = {
 	submission: "submit_role_result";
 	requests: { key: string; packet: RolePacket }[];
 };
+export type ImplementationPass = {
+	ref: string;
+	ordinal: number;
+	workflow: string;
+	slice: string;
+	contract: string;
+	cause: "initial-implementation";
+	predecessor: string | null;
+	assignment: string;
+	packet: string;
+	policyBinding: string;
+	record: string;
+};
 export type RoleAssignment = {
+	passRef?: string;
 	checkpointReview?: { request: string; emission: string; manifest: string; annotations: number };
 	intakeReview?: IntakeReview;
 	id: string;
@@ -71,7 +85,7 @@ export type RoleAssignment = {
 	evidence?: string[];
 	investigationSource?: string;
 };
-export type RoleWorkState = { assignments: RoleAssignment[] };
+export type RoleWorkState = { assignments: RoleAssignment[]; passes?: ImplementationPass[] };
 export type RoleIntent = { kind: "run-role" | "notify-role"; assignment: string };
 export type RoleCommand =
 	| { type: "assignTask"; workflow: string; slice: string; delivery: boolean; packet: RolePacket }
@@ -197,8 +211,10 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		blockedBySeams(state.checkpoints, affectedPacket, c.type === "assignTask" ? c.delivery : (a?.delivery ?? false))
 	)
 		return refusal("seams_required", "Revised Seams block affected execution; historical approvals remain retained.");
-	const delivery = c.type === "assignTask" ? c.delivery : (a?.delivery ?? false);
 	const slice = c.type === "assignTask" ? c.slice : a?.slice;
+	const acceptedSlice = state.intakes?.slices.find((s) => s.id === slice);
+	// An accepted implementer cannot opt out of exclusive delivery ownership.
+	const delivery = c.type === "assignTask" ? c.delivery || (!!acceptedSlice && c.packet?.role === "implementer") : (a?.delivery ?? false);
 	if (
 		(delivery || state.intakes?.slices.some((s) => s.id === slice)) &&
 		slice &&
@@ -247,15 +263,47 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		work.assignments.push(created);
 		intents.push({ kind: "run-role", assignment: id });
 		result = { assignment: id, attempt, packet: created.packetRef };
+		if (c.type === "replaceTask" && a?.passRef) {
+			created.passRef = a.passRef;
+		} else if (acceptedSlice && delivery) {
+			const pass: ImplementationPass = {
+				ref: `pass:${c.workflow}:${slice}:1`,
+				ordinal: 1,
+				workflow: c.workflow,
+				slice,
+				contract: acceptedSlice.contract,
+				cause: "initial-implementation",
+				predecessor: null,
+				assignment: id,
+				packet: created.packetRef,
+				policyBinding: created.policyBinding!,
+				record: `implementation-pass:${facts.sequence}`,
+			};
+			work.passes ??= [];
+			work.passes.push(pass);
+			created.passRef = pass.ref;
+		}
+		if (created.passRef) {
+			const pass = work.passes?.find((p) => p.ref === created.passRef);
+			if (!pass) throw new Error("Implementation pass missing from retained role state");
+			Object.assign(result, { passRef: pass.ref, passOrdinal: pass.ordinal, passRecord: pass.record, contract: pass.contract });
+		}
 	}
 	if (c.type === "assignTask") {
 		if (!c.packet || !c.slice || typeof c.delivery !== "boolean")
 			return refusal("invalid_content", "Assignment requires an explicit packet, Slice and ownership mode.");
 		if (c.delivery && c.packet.investigation) return refusal("forbidden_scope", "Investigation creates no delivery commitment.");
-		if (hasOwner(work, c.packet, c.slice, c.delivery))
+		if (hasOwner(work, c.packet, c.slice, delivery))
 			return refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer.");
-		create(c.packet, c.slice, c.delivery, null, null);
+		if (delivery && work.passes?.some((p) => p.workflow === c.workflow && p.slice === c.slice))
+			return refusal(
+				"ownership_conflict",
+				"Resume the retained implementation pass with a linked replacement; assignment is not a return to implementation.",
+			);
+		create(c.packet, c.slice, delivery, null, null);
 	} else if (c.type === "replaceTask") {
+		if (a?.passRef && c.packet.role !== a.packet.role)
+			return refusal("forbidden_scope", "Implementation replacement must retain its role and pass obligations.");
 		if (a?.intakeReview && (c.packet.role !== "challenger" || !a.packet.inputs.every((ref) => c.packet.inputs.includes(ref))))
 			return refusal("forbidden_scope", "Replacement fidelity must retain exact intake, decisions and concerns.");
 		if (
@@ -279,6 +327,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		create(c.packet, a.slice, a.delivery, a.parent, a.requestKey);
 		result.predecessor = a.id;
 	} else if (c.type === "requestRole") {
+		if (a?.passRef) return refusal("forbidden_scope", "Accepted implementation requires its pass-bound paired Audit on retained source.");
 		if (!a) return refusal("stale_assignment", "No current assignment.");
 		const request = a.packet.requests.find((r) => r.key === c.key);
 		if (a.packet.investigation || request?.packet.investigation || !request || !mayRequest(a.packet.role, request.packet.role))
@@ -308,6 +357,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		a.evidence.push(facts.ids.revision);
 		result = { assignment: a.id, evidence: facts.ids.revision };
 	} else if (c.type === "submitRoleResult") {
+		if (a?.passRef)
+			return refusal("forbidden_scope", "Accepted implementation closes only through its sealed pass handoff, not a generic report.");
 		if (!a) return refusal("stale_assignment", "No current assignment.");
 		if (!c.text || Buffer.byteLength(c.text) > 1024 * 1024)
 			return refusal("invalid_content", "Report must contain at most 1 MiB of complete UTF-8 text.");
@@ -358,6 +409,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				result.source = a.investigationSource;
 				break;
 			case "recordRunnerObservation":
+				if (a.passRef) return refusal("forbidden_scope", "An owned-check receipt cannot close an implementation pass.");
 				if (a.packet.investigation)
 					return refusal("forbidden_scope", "Only the assigned coordinator can submit a cited investigation outcome.");
 				if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)

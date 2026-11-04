@@ -14,6 +14,62 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "implementation-pass-on-restart",
+		expect: /restart is not a new implementation interval/,
+		behavior: "increment the pass ordinal when replacing an Attempt after state reload",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: "created.passRef = a.passRef;",
+				replace: "created.passRef = a.passRef; work.passes!.find(p => p.ref === a.passRef)!.ordinal++;",
+			},
+		],
+		test: "test/implementation-pass.test.ts",
+		pattern: "ordinary state reload",
+	},
+	{
+		name: "implementation-generic-handoff",
+		expect: /accepted implementation cannot bypass sealed handoff/,
+		behavior: "close accepted implementation using a generic role report",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: 'if (a?.passRef)\n\t\t\treturn refusal("forbidden_scope", "Accepted implementation closes only through its sealed pass handoff, not a generic report.");',
+				replace: "",
+			},
+		],
+		test: "test/implementation-pass.test.ts",
+		pattern: "generic report submission",
+	},
+	{
+		name: "implementation-unpaired-audit",
+		expect: /accepted implementation Audit must retain A and stage both fresh axes together/,
+		behavior: "substitute a generic child role for the pass-bound paired Audit",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: 'if (a?.passRef) return refusal("forbidden_scope", "Accepted implementation requires its pass-bound paired Audit on retained source.");',
+				replace: "",
+			},
+		],
+		test: "test/implementation-pass.test.ts",
+		pattern: "generic child request",
+	},
+	{
+		name: "implementation-stop-original-only",
+		expect: /scope stop must discover the latest runtime/,
+		behavior: "stop only the original captured runtime, leaving the fresh writable runtime alive",
+		edits: [
+			{
+				file: "src/sandboxes/sandboxes.ts",
+				find: "executions.push(...stopped.executions);",
+				replace: "executions.push(...stopped.executions); return { ...stopped, executions };",
+			},
+		],
+		test: "test/implementation-capture.integration.ts",
+		pattern: "reopening and stopping a scope",
+	},
+	{
 		name: "intake-nonexecuted-behavior",
 		expect: /non-executable exact catalog rows must not discharge behavior/,
 		behavior: "map exact generated or human catalog evidence to a behavior obligation",
@@ -565,7 +621,7 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/sandboxes/sandboxes.ts",
-				find: 'if (this.#fenced.has(handle.id)) throw new Error("Sandbox sealed/closed to execute.");',
+				find: 'if (this.#fenced.has(handle.id) || this.#stoppedScopes.has(identity(handle.scope)))\n\t\t\tthrow new Error("Sandbox sealed/closed to execute.");',
 				replace:
 					'return new Promise(resolve => execFile(call.argv[0]!, call.argv.slice(1), {encoding: "utf8"}, (error, stdout, stderr) => resolve({argv: call.argv, exitCode: error ? 1 : 0, stdout, stderr, platform: {os: "linux", cpu: "unknown"}, image: "host", timedOut: false})));',
 			},

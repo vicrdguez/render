@@ -10,6 +10,7 @@ import { faultBarrier } from "../ledger/barrier.ts";
 export type ExecutionScope = { assignment: string; generation: number; attempt: string; executorEpoch: string };
 export type LinuxProfile = { image: string; exclusions: string[]; maxBytes: number; maxEntries: number };
 export type SandboxHandle = { id: string; runtime: string; scope: ExecutionScope };
+export type PreparationInputs = Source | { source: Source; after: SandboxHandle };
 export type ExecutionResult = {
 	argv: string[];
 	exitCode: number | null;
@@ -20,9 +21,20 @@ export type ExecutionResult = {
 	timedOut: boolean;
 	verifierRevision?: string;
 };
-export type ExecutionDiagnostic = { id: string; scope: ExecutionScope; argv: string[]; timeoutMs: number; result?: ExecutionResult };
+export type ExecutionDiagnostic = {
+	id: string;
+	scope: ExecutionScope;
+	argv: string[];
+	timeoutMs: number;
+	result?: ExecutionResult;
+	/** Resolved from the owning workspace journal on recovery, not inferred from the latest handle. */
+	source?: Source;
+};
 export type Capture = { entries: LiteralEntry[]; exclusions: string[]; freeze: { scope: ExecutionScope; runtime: string; running: false } };
 type State = {
+	// A continuation gets a new workspace identity, never a new authority scope.
+	predecessor?: string;
+	scopeStopped?: boolean;
 	handle: SandboxHandle;
 	phase: "preparing" | "running" | "sealing" | "stopped" | "sealed" | "quarantined";
 	profile: LinuxProfile;
@@ -42,6 +54,7 @@ export class Sandboxes {
 	readonly #root: string;
 	readonly #authorize: (scope: ExecutionScope) => boolean;
 	readonly #fenced = new Set<string>();
+	readonly #stoppedScopes = new Set<string>();
 	readonly #seals = new Map<string, Promise<Capture>>();
 	readonly #preparations = new Map<string, Promise<SandboxHandle>>();
 	readonly #allocated = new Set<string>();
@@ -49,10 +62,14 @@ export class Sandboxes {
 		this.#root = options.root;
 		this.#authorize = options.authorize;
 	}
-	prepare(scope: ExecutionScope, profile: LinuxProfile, source: Source): Promise<SandboxHandle> {
-		const id = identity(scope);
+	prepare(scope: ExecutionScope, profile: LinuxProfile, inputs: PreparationInputs): Promise<SandboxHandle> {
+		const source = "source" in inputs ? inputs.source : inputs;
+		const after = "after" in inputs ? inputs.after : undefined;
+		const id = identity(scope, after?.id);
+		if (this.#stoppedScopes.has(identity(scope)))
+			return Promise.reject(new Error("Sandbox scope is stopped/fenced; workspace reuse is forbidden."));
 		if (this.#preparations.has(id) || this.#fenced.has(id)) return Promise.reject(new Error("Sandbox workspace reuse is forbidden."));
-		const pending = this.#prepare(structuredClone(scope), structuredClone(profile), structuredClone(source));
+		const pending = this.#prepare(structuredClone(scope), structuredClone(profile), structuredClone(source), structuredClone(after));
 		this.#preparations.set(id, pending);
 		// Invalid profile/input creates no workspace and can be corrected before any environment is admitted.
 		void pending.catch(() => {
@@ -60,9 +77,24 @@ export class Sandboxes {
 		});
 		return pending;
 	}
-	async #prepare(scope: ExecutionScope, profile: LinuxProfile, source: Source): Promise<SandboxHandle> {
+	async #prepare(scope: ExecutionScope, profile: LinuxProfile, source: Source, after?: SandboxHandle): Promise<SandboxHandle> {
 		try {
-			if (!this.#authorize(scope)) throw new Error("Sandbox scope is fenced/unauthorized.");
+			if (!this.#authorize(scope) || this.#stoppedScopes.has(identity(scope))) throw new Error("Sandbox scope is fenced/unauthorized.");
+			if (after) {
+				if (JSON.stringify(scope) !== JSON.stringify(after.scope)) throw new Error("Predecessor authority scope differs.");
+				const previous = await this.#load(after);
+				const initial = await this.#load({ id: identity(scope), scope });
+				if (initial.scopeStopped) throw new Error("Sandbox scope is stopped/fenced.");
+				if (previous.phase !== "sealed" || !previous.capture) throw new Error("Fresh preparation requires a sealed predecessor.");
+				if (JSON.stringify(profile) !== JSON.stringify(previous.profile))
+					throw new Error("Continuation must retain its collection profile.");
+				if (
+					source.repository !== previous.source.repository ||
+					source.objectFormat !== previous.source.objectFormat ||
+					source.tree !== treeOid(previous.capture.entries, previous.source.objectFormat)
+				)
+					throw new Error("Continuation requires the exact captured source, not older or replacement bytes.");
+			}
 			if (
 				Object.keys(profile).some((key) => !["image", "exclusions", "maxBytes", "maxEntries"].includes(key)) ||
 				!/^sha256:[0-9a-f]{64}$/.test(profile.image) ||
@@ -90,7 +122,7 @@ export class Sandboxes {
 		} catch (error) {
 			throw new SandboxInputRefusal(error instanceof Error ? error.message : String(error), { cause: error });
 		}
-		const id = identity(scope);
+		const id = identity(scope, after?.id);
 		await mkdir(this.#root, { recursive: true, mode: 0o700 });
 		const dir = join(this.#root, id);
 		try {
@@ -104,7 +136,15 @@ export class Sandboxes {
 			scope: structuredClone(scope),
 			runtime: `render-owned-${createHash("sha256").update(this.#root).digest("hex").slice(0, 16)}-${id.slice(0, 32)}`,
 		};
-		const state: State = { handle, phase: "preparing", profile: structuredClone(profile), source, cpu: "unknown", createIssued: false };
+		const state: State = {
+			...(after ? { predecessor: after.id } : {}),
+			handle,
+			phase: "preparing",
+			profile: structuredClone(profile),
+			source,
+			cpu: "unknown",
+			createIssued: false,
+		};
 		await this.#save(state);
 		try {
 			const image = JSON.parse(await docker(["image", "inspect", profile.image]))[0];
@@ -128,7 +168,8 @@ export class Sandboxes {
 			if (process.getuid?.() === 0) await ownTree(workspace, uid, gid);
 			const verify = await collect(workspace, source.objectFormat, profile, false);
 			if (treeOid(verify.entries, source.objectFormat) !== source.tree) throw new Error("Materialized literal manifest mismatch.");
-			if (this.#fenced.has(id) || !this.#authorize(scope)) throw new Error("Sandbox scope fenced before create.");
+			if (this.#fenced.has(id) || this.#stoppedScopes.has(identity(scope)) || !this.#authorize(scope))
+				throw new Error("Sandbox scope fenced before create.");
 			const env: string[] = [];
 			for (const item of image.Config?.Env ?? []) {
 				const key = String(item).split("=")[0]!;
@@ -187,7 +228,8 @@ export class Sandboxes {
 			).trim();
 			handle.runtime = runtime;
 			await this.#save(state); // durable runtime identity before start
-			if (this.#fenced.has(id) || !this.#authorize(scope)) throw new Error("Sandbox scope fenced before start.");
+			if (this.#fenced.has(id) || this.#stoppedScopes.has(identity(scope)) || !this.#authorize(scope))
+				throw new Error("Sandbox scope fenced before start.");
 			await docker(["start", runtime]);
 			state.phase = "running";
 			await this.#save(state);
@@ -203,9 +245,11 @@ export class Sandboxes {
 		handle: SandboxHandle,
 		call: { scope: ExecutionScope; argv: string[]; timeoutMs: number; verifierRevision?: string },
 	): Promise<ExecutionResult> {
-		if (this.#fenced.has(handle.id)) throw new Error("Sandbox sealed/closed to execute.");
+		if (this.#fenced.has(handle.id) || this.#stoppedScopes.has(identity(handle.scope)))
+			throw new Error("Sandbox sealed/closed to execute.");
 		const state = await this.#load(handle);
-		if (this.#fenced.has(handle.id) || state.phase !== "running") throw new Error("Sandbox sealed/closed to execute.");
+		if (this.#fenced.has(handle.id) || this.#stoppedScopes.has(identity(handle.scope)) || state.phase !== "running")
+			throw new Error("Sandbox sealed/closed to execute.");
 		if (JSON.stringify(handle.scope) !== JSON.stringify(call.scope) || !this.#authorize(call.scope))
 			throw new Error("Sandbox scope fenced/unauthorized.");
 		if (
@@ -219,10 +263,12 @@ export class Sandboxes {
 			throw new Error("Invalid bounded sandbox command.");
 		const observed = await this.#inspect(state);
 		if (!observed.State.Running) throw new Error("Sandbox is not running.");
-		if (this.#fenced.has(handle.id) || !this.#authorize(call.scope)) throw new Error("Sandbox sealed/fenced before admission.");
+		if (this.#fenced.has(handle.id) || this.#stoppedScopes.has(identity(handle.scope)) || !this.#authorize(call.scope))
+			throw new Error("Sandbox sealed/fenced before admission.");
 		const diagnostic: ExecutionDiagnostic = { id: randomUUID(), scope: handle.scope, argv: [...call.argv], timeoutMs: call.timeoutMs };
 		await this.#saveJson(handle.id, `execution-${diagnostic.id}.json`, diagnostic);
-		if (this.#fenced.has(handle.id) || !this.#authorize(call.scope)) throw new Error("Sandbox fenced before execution admission.");
+		if (this.#fenced.has(handle.id) || this.#stoppedScopes.has(identity(handle.scope)) || !this.#authorize(call.scope))
+			throw new Error("Sandbox fenced before execution admission.");
 		const result = await new Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean }>((resolve) => {
 			execFile(
 				"docker",
@@ -301,10 +347,11 @@ export class Sandboxes {
 	async stop(
 		handle: SandboxHandle | { scope: ExecutionScope },
 	): Promise<{ running: false; runtime: string; source: Source; executions: ExecutionDiagnostic[]; quarantine?: string }> {
-		const id = "id" in handle ? handle.id : identity(handle.scope);
+		if (!("id" in handle)) return this.#stopScope(handle.scope);
+		const id = handle.id;
 		this.#fenced.add(id);
 		await this.#preparations.get(id)?.catch(() => {});
-		const state = await this.#load("id" in handle ? handle : { id, scope: handle.scope });
+		const state = await this.#load(handle);
 		// Retry only containment of the exact journaled runtime. A quarantine is never permission to restart it.
 		try {
 			// Preparation has settled under the synchronous fence. A never-issued create needs no runtime inspection.
@@ -325,13 +372,39 @@ export class Sandboxes {
 			}
 			const executions: ExecutionDiagnostic[] = [];
 			for (const name of (await readdir(join(this.#root, id))).filter((name) => /^execution-[0-9a-f-]+\.json$/.test(name)).sort())
-				executions.push(JSON.parse(await readFile(join(this.#root, id, name), "utf8")) as ExecutionDiagnostic);
+				executions.push({ ...JSON.parse(await readFile(join(this.#root, id, name), "utf8")), source: state.source } as ExecutionDiagnostic);
 			return { running: false, runtime: state.handle.runtime, source: state.source, executions, quarantine: state.reason };
 		} catch (error) {
 			state.phase = "quarantined";
 			state.reason = String(error);
 			await this.#save(state);
 			throw new Error(`Sandbox quarantine: ${String(error)}`);
+		}
+	}
+	async #stopScope(scope: ExecutionScope): ReturnType<Sandboxes["stop"]> {
+		const root = identity(scope);
+		this.#stoppedScopes.add(root); // close admission before awaiting any preparations
+		await this.#preparations.get(root)?.catch(() => {});
+		const initial = await this.#load({ id: root, scope });
+		initial.scopeStopped = true;
+		await this.#save(initial);
+		let id = root;
+		const executions: ExecutionDiagnostic[] = [];
+		for (;;) {
+			await this.#preparations.get(id)?.catch(() => {});
+			const state = await this.#load({ id, scope });
+			const stopped = await this.stop(state.handle);
+			executions.push(...stopped.executions);
+			// The next workspace name is deterministic; no separately committed index can lose it.
+			const next = identity(scope, id);
+			await this.#preparations.get(next)?.catch(() => {});
+			try {
+				await lstat(join(this.#root, next));
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+				return { ...stopped, executions };
+			}
+			id = next;
 		}
 	}
 	async #inspect(state: State) {
@@ -341,9 +414,14 @@ export class Sandboxes {
 		return observed;
 	}
 	async #load(handle: { id: string; scope: ExecutionScope; runtime?: string }): Promise<State> {
-		if (identity(handle.scope) !== handle.id) throw new Error("Sandbox handle scope mismatch.");
+		if (!/^[0-9a-f]{64}$/.test(handle.id)) throw new Error("Sandbox handle identity mismatch.");
 		const state = JSON.parse(await readFile(join(this.#root, handle.id, "state.json"), "utf8")) as State;
-		if (JSON.stringify(state.handle.scope) !== JSON.stringify(handle.scope) || (handle.runtime && state.handle.runtime !== handle.runtime))
+		if (
+			identity(handle.scope, state.predecessor) !== handle.id ||
+			state.handle.id !== handle.id ||
+			JSON.stringify(state.handle.scope) !== JSON.stringify(handle.scope) ||
+			(handle.runtime && state.handle.runtime !== handle.runtime)
+		)
 			throw new Error("Sandbox runtime identity mismatch.");
 		return state;
 	}
@@ -371,8 +449,10 @@ export class Sandboxes {
 		}
 	}
 }
-function identity(scope: ExecutionScope): string {
-	return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+function identity(scope: ExecutionScope, predecessor?: string): string {
+	return createHash("sha256")
+		.update(predecessor ? JSON.stringify([scope, predecessor]) : JSON.stringify(scope))
+		.digest("hex");
 }
 function docker(args: string[], timeout = 30000): Promise<string> {
 	return new Promise((resolve, reject) =>

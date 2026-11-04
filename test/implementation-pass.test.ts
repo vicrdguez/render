@@ -15,8 +15,8 @@ const writer = packet({
 		{ key: "contracts", packet: packet({ role: "audit-contracts", family: "review", inputs: [contract] }) },
 	],
 });
-function fixture() {
-	let state: KernelState = {
+function fixture(retained?: KernelState) {
+	let state: KernelState = retained ?? {
 		workflow: { id: workflow, messageCount: 0 },
 		document: null,
 		device: null,
@@ -77,7 +77,23 @@ function fixture() {
 		accepted({ type: "stageTask", assignment, generation: a.generation, attempt: a.attempt, executorEpoch: "executor:1" });
 		return { kind: "assignment-agent", assignment, generation: a.generation, attempt: a.attempt, role: a.packet.role } as Principal;
 	}
-	return { command, accepted, assign, start, state: () => state };
+	function cancel(first: Record<string, unknown>) {
+		const canceled = accepted(
+			{ type: "cancelWork", assignment: first.assignment, generation: 1, attempt: first.attempt },
+			{ kind: "human", human: "owner", route: "local-admin" },
+		);
+		accepted({
+			type: "recordQuiescence",
+			assignment: first.assignment,
+			generation: canceled.generation,
+			attempt: first.attempt,
+			providerIdle: true,
+			environment: "stopped",
+			effects: "reconciled",
+		});
+		return canceled.generation;
+	}
+	return { command, accepted, assign, start, cancel, state: () => state };
 }
 
 test("accepted implementation opens host pass 1, not an assignment-selected identity", () => {
@@ -135,6 +151,49 @@ test("generic child request cannot substitute for the pass-bound paired Audit", 
 	const result = f.command({ type: "requestRole", key: "standards" }, agent);
 	assert.equal(result.outcome, "refused", "accepted implementation Audit must retain A and stage both fresh axes together");
 	assert.equal(f.state().roleWork!.assignments.length, 1);
+});
+
+test("ordinary state reload retains pass identity and refuses an unrelated second owner", () => {
+	const f = fixture();
+	const first = f.assign();
+	assert.equal(first.passOrdinal, 1);
+	const resumed = fixture(structuredClone(f.state()));
+	assert.equal(resumed.command({ type: "assignTask", slice: "slice", delivery: true, packet: writer }).outcome, "refused");
+	const generation = resumed.cancel(first);
+	const next = resumed.accepted({ type: "replaceTask", assignment: first.assignment, generation, attempt: first.attempt, packet: writer });
+	assert.equal(next.passOrdinal, 1, "restart is not a new implementation interval");
+	assert.equal(next.passRef, first.passRef);
+	assert.equal(next.passRecord, first.passRecord, "immutable opening basis survives replacement");
+});
+
+test("canceling a pass requires linked replacement rather than a new initial interval", () => {
+	const f = fixture();
+	const first = f.assign();
+	f.cancel(first);
+	assert.equal(f.command({ type: "assignTask", slice: "slice", delivery: true, packet: writer }).outcome, "refused");
+});
+
+test("accepted implementer cannot evade exclusive pass ownership with delivery false", () => {
+	const f = fixture();
+	const first = f.accepted({ type: "assignTask", slice: "slice", delivery: false, packet: writer });
+	assert.equal(first.passOrdinal, 1);
+	assert.equal(f.state().roleWork!.assignments[0]!.delivery, true);
+	const result = f.command({ type: "assignTask", slice: "slice", delivery: false, packet: { ...writer, execution: "read-only" } });
+	assert.equal(result.outcome, "refused");
+});
+
+test("replacement cannot change an accepted implementation into another role to bypass handoff", () => {
+	const f = fixture();
+	const first = f.assign();
+	const generation = f.cancel(first);
+	const result = f.command({
+		type: "replaceTask",
+		assignment: first.assignment,
+		generation,
+		attempt: first.attempt,
+		packet: packet({ inputs: [contract] }),
+	});
+	assert.equal(result.outcome, "refused");
 });
 
 test("owned-check receipt cannot masquerade as a sealed implementation handoff", () => {

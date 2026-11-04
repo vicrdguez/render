@@ -432,6 +432,11 @@ export class Ledger {
 			}
 			requiredInputs = checkpointRefs(checkpoints, checkpoint);
 		}
+		if (["replaceTask", "stageTask", "rebindAttempt"].includes(command.type)) {
+			const owner = roles.assignments.find((a) => a.id === (command as { assignment: string }).assignment);
+			const pass = roles.passes?.find((p) => p.ref === owner?.passRef);
+			if (pass) requiredInputs.push(pass.record);
+		}
 		for (const ref of requiredInputs) {
 			const location = await tx.doc(RevisionLocation, ref, null);
 			if (!location.exists || location.workflow !== env.workflow)
@@ -739,7 +744,26 @@ export class Ledger {
 					if (!this.#roleTasks)
 						throw new Abort({ status: "refused", code: "capability_unavailable", reason: "Role runtime is not installed." });
 					const priorPackets = new Map(roles.assignments.map((a) => [a.id, a.packetRef]));
+					const priorPasses = new Set(roles.passes?.map((p) => p.ref));
 					Object.assign(roles, plain(write.state));
+					for (const pass of roles.passes ?? []) {
+						if (priorPasses.has(pass.ref)) continue;
+						const owner = roles.assignments.find((a) => a.id === pass.assignment)!;
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							pass.record,
+							`implementation-pass/${pass.ref}`,
+							JSON.stringify({ schema: 1, ...plain(pass) }),
+							{
+								assignment: owner.id,
+								generation: owner.generation,
+								attempt: owner.attempt,
+							},
+						);
+					}
 					for (const a of roles.assignments) {
 						if (priorPackets.get(a.id) === a.packetRef) continue;
 						if (!priorPackets.has(a.id)) {
@@ -1339,6 +1363,7 @@ export class Ledger {
 						own.packetRef,
 						own.report,
 						own.investigationSource,
+						this.#roleWork.passes?.find((p) => p.ref === own.passRef)?.record,
 						...(own.evidence ?? []),
 						...results,
 						...checkpointReads,
@@ -1621,7 +1646,7 @@ export class Ledger {
 							if (refs.revision && (wanted("ground") || wanted("document"))) artifacts.add(refs.revision);
 							if (refs.message && wanted("message")) artifacts.add(refs.message);
 							if (wanted("document")) {
-								for (const key of ["packet", "report", "quarantined", "source"]) if (refs[key]) artifacts.add(refs[key]);
+								for (const key of ["packet", "report", "quarantined", "source", "passRecord"]) if (refs[key]) artifacts.add(refs[key]);
 								for (const [key, ref] of Object.entries(refs)) if (/^document\d+$/.test(key)) artifacts.add(ref);
 							}
 							add({ ...base(ref, kind, owner.workflow, sequence, String(d.commandId)), command: d.command, refs, createdBy: d.by });
