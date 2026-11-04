@@ -16,6 +16,14 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 // repair that ordering violation. Independent review of their behavioral sensitivity remains required.
 const CONTROLS: Control[] = [
 	{
+		name: "local-prompt-experiment-evidence",
+		expect: /advisory must retain exact experiment source and raw negative evidence/,
+		behavior: "omit sealed experiment source and decisive negative bytes from advisory inputs",
+		edits: [{ file: "src/ledger/ledger.ts", find: "a.investigationSource, a.experimentSource,", replace: "a.investigationSource," }],
+		test: "test/experiment-journey.integration.ts",
+		pattern: "E02/E09/E10",
+	},
+	{
 		name: "experiment-correction-replacement",
 		expect: /Experimental corrections require a new protocol\/round/,
 		behavior: "replace an experiment with an ordinary role instead of requiring a new round",

@@ -4,18 +4,19 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { Engine } from "../src/engine/runtime.ts";
-import { assignments, saveGround, until } from "./support/investigation.ts";
+import { assignments, finding, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
 import { sourceFixture } from "./support/source.ts";
 
 test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence and independent comparison after cleanup", async () => {
-	const source = await sourceFixture({ "fixture.txt": { text: "fixed-input\r\n" } });
+	const source = await sourceFixture({ ...sourceFiles, "fixture.txt": { text: "fixed-input\r\n" } });
 	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6", reasoning: true }] });
 	const engine = new Engine({
 		provider: p.provider,
 		apiKey: "owned-fixture",
 		families: { "claude-sonnet-4-6": "claude" },
 		experiments: { root: join(source.root, "experiments"), repositories: { owned: source.repo } },
+		investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
 	});
 	const f = await roleFixture(engine);
 	let sourceClosed = false;
@@ -135,9 +136,62 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 		const negative = Buffer.from(before.content[snapshots[0]!]!, "base64").toString();
 		assert.match(negative, /"stdout":"12\\n"/, "retain raw decisive negative measurement");
 		assert.match(negative, /"path":"measurement.txt"/);
+		// An advisory handoff may cite experiments, but cannot turn their source/results into runner proof.
+		p.setResponses([
+			(transcript) => {
+				const prompt = JSON.parse(transcript.messages.filter((m) => m.role === "user").at(-1)!.content as string);
+				const observed = prompt.inputs.find((i: { text: string }) => i.text.includes('"kind":"investigation-source"'));
+				return fauxAssistantMessage(
+					fauxToolCall("submit_role_result", { text: JSON.stringify(finding(observed.ref, ground)), supports: [] }),
+					{ stopReason: "toolUse" },
+				);
+			},
+		]);
+		const investigation = await f.command({
+			type: "assignTask",
+			slice: "investigation",
+			delivery: false,
+			packet: investigationPacket(ground, source.commit),
+		});
+		assert.ok(investigation.status === "accepted", JSON.stringify(investigation));
+		await until(() =>
+			assignments(f.ledger).some((a) => a.id === investigation.result.assignment && a.status === "submitted" && !a.executing),
+		);
+		const observation = assignments(f.ledger).find((a) => a.id === investigation.result.assignment)!.investigationSource!;
+		const requestPrompt = (selected = observation) =>
+			f.command(
+				{
+					type: "requestLocalVerificationPrompt",
+					source: selected,
+					expectedSequence: f.ledger.status().sequence,
+				},
+				admin,
+			);
+		const wrongSource = await requestPrompt(snapshots[0]!);
+		assert.ok(
+			wrongSource.status === "refused" && wrongSource.code === "missing_content",
+			"experiment source is not a trusted local-prompt source observation",
+		);
+		const unchanged = assignments(f.ledger);
+		const advisory = await requestPrompt();
+		assert.ok(advisory.status === "accepted", JSON.stringify(advisory));
+		const promptArtifact = await f.ledger.artifact(admin, { read: String(advisory.result.textArtifact) });
+		assert.ok("content" in promptArtifact);
+		const prompt = promptArtifact.content.toString();
+		const sections = prompt.split("### ");
+		const experimentSection = sections.find((s) => s.startsWith(`${snapshots[0]}:`));
+		assert.ok(experimentSection, "advisory must retain exact experiment source and raw negative evidence");
+		assert.match(experimentSection, /retained assertion \(unverified assertion\)/, "experiment capture is not runner proof");
+		assert.ok(experimentSection.includes(JSON.stringify(negative)), "advisory must quote literal sealed negative bytes");
+		assert.ok(prompt.includes(JSON.stringify(original)), "advisory must include the original protocol, not only newer criteria");
+		assert.ok(prompt.includes("no completion gate"));
+		assert.deepEqual(assignments(f.ledger), unchanged, "advice must not adopt, gate or alter experiment work");
 		await source.close();
 		sourceClosed = true;
 		await f.reopen();
+		const retainedPrompt = await f.ledger.artifact(admin, { read: String(advisory.result.textArtifact) });
+		assert.ok("content" in retainedPrompt);
+		assert.equal(retainedPrompt.content.toString(), prompt, "advisory exact evidence survives cleanup and restart");
 		for (const ref of [protocol, ...snapshots, ...all.map((a) => a.report!)]) {
 			const retained = await f.ledger.artifact(admin, { read: ref });
 			assert.ok("content" in retained, "negative evidence survives cleanup");
@@ -163,6 +217,14 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 			new RegExp(snapshots[0]!),
 			"damaged exact candidate blocks independent reliance",
 		);
+		const sequence = f.ledger.status().sequence;
+		const damagedPrompt = await requestPrompt();
+		assert.ok(
+			damagedPrompt.status === "refused" && damagedPrompt.code === "content_corrupt",
+			"advisory must refuse corrupt exact experiment evidence",
+		);
+		assert.ok(damagedPrompt.reason.includes(snapshots[0]!));
+		assert.equal(f.ledger.status().sequence, sequence);
 		const damaged = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
 		assert.ok("manifest" in damaged && !damaged.manifest.complete);
 		assert.ok(damaged.manifest.missing.some((missing) => missing.ref === snapshots[0] && missing.code === "content_corrupt"));
