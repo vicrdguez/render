@@ -243,18 +243,6 @@ test("I02/I03 structural coverage rejects forged evidence, unknown references an
 			},
 		],
 		[
-			"generated proof",
-			(m) => {
-				Object.assign(m.checks[0]!, { row: "discovery", kind: "generated", rank: null, new: false });
-			},
-		],
-		[
-			"human proof",
-			(m) => {
-				Object.assign(m.checks[0]!, { row: "usability", kind: "human", rank: null, new: false });
-			},
-		],
-		[
 			"unapproved architecture",
 			(m) => {
 				m.slices[0]!.obligations[1]!.sources = [{ ref: "catalog:1", node: "invented" }];
@@ -272,12 +260,6 @@ test("I02/I03 structural coverage rejects forged evidence, unknown references an
 				m.dependencies = [{ slice: "fix", requires: "ghost", kind: "record" }];
 			},
 		],
-		[
-			"change without breakdown",
-			(m) => {
-				m.shape = "change";
-			},
-		],
 	];
 	for (const [label, mutate] of mutations) {
 		const f = fixture();
@@ -286,6 +268,96 @@ test("I02/I03 structural coverage rejects forged evidence, unknown references an
 		assert.equal(code(f.command({ type: "stageIntake", expected: null, text: "Contract", manifest: m })), "invalid_content", label);
 		assert.equal(f.state.intakes, undefined, label);
 	}
+});
+
+for (const [kind, row, run, expectations] of [
+	["generated", "discovery", "list", "discovery"],
+	["human", "usability", "inspect", "advisory"],
+] as const) {
+	test(`I02 exact ${kind} catalog row cannot discharge behavior`, () => {
+		const f = fixture();
+		const m = intakeManifest();
+		Object.assign(m.checks[0]!, { row, kind, rank: null, new: false, run, expectations });
+		assert.deepEqual(
+			f.command({ type: "stageIntake", expected: null, text: "Contract", manifest: m }),
+			{
+				outcome: "refused",
+				code: "invalid_content",
+				reason: "Behavior requires executable/journey rows at the required project rank, not generated/human evidence.",
+			},
+			"non-executable exact catalog rows must not discharge behavior",
+		);
+		assert.equal(f.state.intakes, undefined);
+		m.slices[0]!.obligations[0]!.kind = "manual";
+		assert.ok(f.stage(m), "the same exact row can support non-behavioral obligations");
+	});
+
+	test(`I02 new ${kind} evidence cannot claim a proof rank`, () => {
+		const f = fixture();
+		const m = intakeManifest();
+		m.slices[0]!.obligations[0]!.kind = "manual";
+		m.checks[0]!.kind = kind;
+		assert.deepEqual(
+			f.command({ type: "stageIntake", expected: null, text: "Contract", manifest: m }),
+			{ outcome: "refused", code: "invalid_content", reason: "Human/generated rows cannot claim proof ranks." },
+			"non-executable new evidence must not claim a proof rank",
+		);
+		assert.equal(f.state.intakes, undefined);
+		m.checks[0]!.rank = null;
+		assert.ok(f.stage(m), "removing the false rank makes non-behavioral evidence eligible");
+	});
+}
+
+test("I12 matching change Ground still requires a bounded breakdown", () => {
+	const f = fixture();
+	const m = intakeManifest();
+	m.shape = "change";
+	f.inputs["ground:1"]!.text = f.inputs["ground:1"]!.text.replace('"bug"', '"change"');
+	assert.deepEqual(
+		f.command({ type: "stageIntake", expected: null, text: "Contract", manifest: m }),
+		{ outcome: "refused", code: "invalid_content", reason: "Change/design retains a bounded breakdown." },
+		"matching change Ground must not waive the breakdown",
+	);
+	assert.equal(f.state.intakes, undefined);
+	m.breakdown = "One bounded existing read seam";
+	assert.ok(f.stage(m));
+});
+
+test("I03/I12 shortened intake sources require human Ground approval", () => {
+	const f = fixture();
+	const m = intakeManifest();
+	// Keep architecture on the approved source; only the additional intake source lacks approval.
+	m.sources.push("catalog:1");
+	assert.deepEqual(
+		f.command({ type: "stageIntake", expected: null, text: "Contract", manifest: m }),
+		{
+			outcome: "refused",
+			code: "invalid_content",
+			reason: "Shortened intake requires applicable existing-seam sources explicitly approved in human Ground.",
+		},
+		"retained source bytes must not substitute for human Ground approval",
+	);
+	assert.equal(f.state.intakes, undefined);
+	m.sources.pop();
+	assert.ok(f.stage(m));
+});
+
+test("I03 node-less architecture cites an approved selected existing-seam source", () => {
+	const f = fixture();
+	const m = intakeManifest();
+	m.slices[0]!.obligations[1]!.sources = [{ ref: "catalog:1", node: null }];
+	assert.deepEqual(
+		f.command({ type: "stageIntake", expected: null, text: "Contract", manifest: m }),
+		{
+			outcome: "refused",
+			code: "invalid_content",
+			reason: "Architecture must cite actual approved nodes or approved existing-seam sources.",
+		},
+		"node-less architecture must not cite an unapproved source",
+	);
+	assert.equal(f.state.intakes, undefined);
+	m.slices[0]!.obligations[1]!.sources = [{ ref: "source:1", node: null }];
+	assert.ok(f.stage(m));
 });
 
 test("I04/I05/I06 only exact-basis human acceptance after fresh independent fidelity can commit", () => {
@@ -401,6 +473,27 @@ test("I10/I11 required Record stays blocked and supersession requires explicit d
 	f.accepted({ ...command, dispositions: [{ slice: "fix", replacement: "record-next" }] }, human);
 	assert.equal(f.state.intakes!.slices.find((s) => s.id === "record")!.status, "superseded");
 	assert.deepEqual(f.state.intakes!.dependencies, [{ slice: "fix", requires: "record-next", kind: "record" }]);
+	for (const delivery of [true, false]) {
+		assert.equal(
+			code(
+				f.command(
+					{
+						type: "assignTask",
+						slice: "record",
+						delivery,
+						packet: packet({ inputs: [slices.find((s) => s.id === "record")!.contract] }),
+					},
+					host,
+				),
+			),
+			"contract_superseded",
+			"retired Contract must not become assignable even with its exact inputs",
+		);
+	}
+	assert.equal(
+		f.state.roleWork!.assignments.some((a) => a.slice === "record"),
+		false,
+	);
 	assert.equal(
 		code(
 			f.command(

@@ -682,6 +682,8 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 	);
 	return { outcome: "accepted", result, writes, facts: [facts.ids.fact] };
 }
+// Debt: workflow-wide concerns require dispositions even in unrelated later intakes or after supersession.
+// Any narrower lifecycle must preserve the explicit no-silent-drop obligation.
 function mappedConcerns(work: Intakes, m: IntakeManifest): boolean {
 	return (
 		m.responses.length === work.concerns.length &&

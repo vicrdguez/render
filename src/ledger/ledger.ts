@@ -1245,6 +1245,8 @@ export class Ledger {
 								)
 						: [];
 				const intakeWork = own ? this.#workflows.get(own.workflow)?.intakes : undefined;
+				// Debt: approved checkpoint refs here are not scoped to the reader's inputs like staging refs are.
+				// A draft from a wider coordinator can expose those refs; align both allowlists when scope semantics change.
 				const intakeReads =
 					own?.packet.role === "coordinator" && !own.packet.investigation && intakeWork
 						? intakeWork.drafts
