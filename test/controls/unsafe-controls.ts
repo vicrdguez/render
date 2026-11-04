@@ -19,7 +19,7 @@ const CONTROLS: Control[] = [
 		name: "local-prompt-experiment-evidence",
 		expect: /advisory must retain exact experiment source and raw negative evidence/,
 		behavior: "omit sealed experiment source and decisive negative bytes from advisory inputs",
-		edits: [{ file: "src/ledger/ledger.ts", find: "a.investigationSource, a.experimentSource,", replace: "a.investigationSource," }],
+		edits: [{ file: "src/ledger/ledger.ts", find: "\n\t\t\t\t\t\t\ta.experimentSource,", replace: "" }],
 		test: "test/experiment-journey.integration.ts",
 		pattern: "E02/E09/E10",
 	},
