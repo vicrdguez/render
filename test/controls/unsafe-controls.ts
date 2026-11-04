@@ -14,6 +14,48 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "implementation-same-pass-reaudit",
+		expect: /no same-pass reaudit with a new command/,
+		behavior: "open a second Audit invocation in the same implementation pass",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: 'if (pass.audit) return refusal("role_already_requested", "This pass already has its one Audit invocation.");',
+				replace: "",
+			},
+		],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "paired Audit uses literal",
+	},
+	{
+		name: "implementation-report-source-relabel",
+		expect: /Audit must refuse mismatched report.*source/,
+		behavior: "admit a reviewer report claiming a source other than its inspected A",
+		edits: [
+			{
+				file: "src/kernel/implementation.ts",
+				find: "!Object.entries(binding).every(([k, x]) => v[k] === x)",
+				replace: '!Object.entries(binding).every(([k, x]) => k === "source" || v[k] === x)',
+			},
+		],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "Audit report refuses wrong",
+	},
+	{
+		name: "implementation-wrong-pass-report",
+		expect: /Audit must refuse mismatched report.*passRef/,
+		behavior: "admit a report selecting an old pass instead of its host-assigned pass",
+		edits: [
+			{
+				file: "src/kernel/implementation.ts",
+				find: "!Object.entries(binding).every(([k, x]) => v[k] === x)",
+				replace: '!Object.entries(binding).every(([k, x]) => k === "passRef" || v[k] === x)',
+			},
+		],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "Audit report refuses wrong",
+	},
+	{
 		name: "implementation-pass-on-restart",
 		expect: /restart is not a new implementation interval/,
 		behavior: "increment the pass ordinal when replacing an Attempt after state reload",
@@ -62,8 +104,8 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/sandboxes/sandboxes.ts",
-				find: "executions.push(...stopped.executions);",
-				replace: "executions.push(...stopped.executions); return { ...stopped, executions };",
+				find: "executions.push(...last.executions);",
+				replace: "executions.push(...last.executions); return { ...last, executions };",
 			},
 		],
 		test: "test/implementation-capture.integration.ts",

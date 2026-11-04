@@ -248,7 +248,10 @@ export class Sandboxes {
 		if (this.#fenced.has(handle.id) || this.#stoppedScopes.has(identity(handle.scope)))
 			throw new Error("Sandbox sealed/closed to execute.");
 		const state = await this.#load(handle);
-		if (this.#fenced.has(handle.id) || this.#stoppedScopes.has(identity(handle.scope)) || state.phase !== "running")
+		const root = identity(handle.scope);
+		const initial = handle.id === root ? state : await this.#load({ id: root, scope: handle.scope });
+		if (initial.scopeStopped) throw new Error("Sandbox scope is stopped/fenced.");
+		if (this.#fenced.has(handle.id) || this.#stoppedScopes.has(root) || state.phase !== "running")
 			throw new Error("Sandbox sealed/closed to execute.");
 		if (JSON.stringify(handle.scope) !== JSON.stringify(call.scope) || !this.#authorize(call.scope))
 			throw new Error("Sandbox scope fenced/unauthorized.");
@@ -344,9 +347,14 @@ export class Sandboxes {
 			throw error;
 		}
 	}
-	async stop(
-		handle: SandboxHandle | { scope: ExecutionScope },
-	): Promise<{ running: false; runtime: string; source: Source; executions: ExecutionDiagnostic[]; quarantine?: string }> {
+	async stop(handle: SandboxHandle | { scope: ExecutionScope }): Promise<{
+		running: false;
+		runtime: string;
+		handle: SandboxHandle;
+		source: Source;
+		executions: ExecutionDiagnostic[];
+		quarantine?: string;
+	}> {
 		if (!("id" in handle)) return this.#stopScope(handle.scope);
 		const id = handle.id;
 		this.#fenced.add(id);
@@ -373,7 +381,14 @@ export class Sandboxes {
 			const executions: ExecutionDiagnostic[] = [];
 			for (const name of (await readdir(join(this.#root, id))).filter((name) => /^execution-[0-9a-f-]+\.json$/.test(name)).sort())
 				executions.push({ ...JSON.parse(await readFile(join(this.#root, id, name), "utf8")), source: state.source } as ExecutionDiagnostic);
-			return { running: false, runtime: state.handle.runtime, source: state.source, executions, quarantine: state.reason };
+			return {
+				running: false,
+				runtime: state.handle.runtime,
+				handle: structuredClone(state.handle),
+				source: state.source,
+				executions,
+				quarantine: state.reason,
+			};
 		} catch (error) {
 			state.phase = "quarantined";
 			state.reason = String(error);
@@ -390,19 +405,27 @@ export class Sandboxes {
 		await this.#save(initial);
 		let id = root;
 		const executions: ExecutionDiagnostic[] = [];
+		const failures: unknown[] = [];
+		let last: Awaited<ReturnType<Sandboxes["stop"]>> | undefined;
 		for (;;) {
 			await this.#preparations.get(id)?.catch(() => {});
-			const state = await this.#load({ id, scope });
-			const stopped = await this.stop(state.handle);
-			executions.push(...stopped.executions);
+			try {
+				const state = await this.#load({ id, scope });
+				last = await this.stop(state.handle);
+				executions.push(...last.executions);
+			} catch (error) {
+				failures.push(error);
+			}
 			// The next workspace name is deterministic; no separately committed index can lose it.
 			const next = identity(scope, id);
 			await this.#preparations.get(next)?.catch(() => {});
 			try {
 				await lstat(join(this.#root, next));
 			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-				return { ...stopped, executions };
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") failures.push(error);
+				if (failures.length) throw new AggregateError(failures, `Sandbox scope stop incomplete: ${failures.map(String).join("; ")}`);
+				if (!last) throw new Error("Sandbox scope stop found no runtime journal.");
+				return { ...last, executions };
 			}
 			id = next;
 		}

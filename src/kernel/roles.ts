@@ -1,6 +1,17 @@
 // Pure role ownership and execution legality, reached only through Kernel.change.
 
 import { blockedBySeams } from "./checkpoints.ts";
+import {
+	type AuditAxis,
+	type AuditBinding,
+	type AuditResult,
+	auditFindings,
+	type FindingDisposition,
+	implementationEvidenceGap,
+	sourceScopeMatches,
+	validAssessment,
+	validDispositions,
+} from "./implementation.ts";
 import { consumeIntake, type IntakeReview, intakeAssignmentGap } from "./intake.ts";
 import { type Investigation, readInvestigationOutcome, shapeConfirmed } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, Principal, VerifiedFacts } from "./kernel.ts";
@@ -44,6 +55,18 @@ export type RolePacket = {
 	requests: { key: string; packet: RolePacket }[];
 };
 export type ImplementationPass = {
+	captureA?: string;
+	captureB?: string;
+	workspace?: string;
+	audit?: {
+		ref: string;
+		record: string;
+		source: string;
+		contract: string;
+		roles: Record<AuditAxis, { assignment: string; packet: string }>;
+		results: Partial<Record<AuditAxis, AuditResult>>;
+	};
+	handoff?: { record: string; source: string; preparationTask?: number; blocker?: string };
 	ref: string;
 	ordinal: number;
 	workflow: string;
@@ -57,6 +80,9 @@ export type ImplementationPass = {
 	record: string;
 };
 export type RoleAssignment = {
+	/** The policy that authorized this implementation execution; adoption cannot rewrite it. */
+	implementationBinding?: string;
+	auditReview?: AuditBinding;
 	passRef?: string;
 	checkpointReview?: { request: string; emission: string; manifest: string; annotations: number };
 	intakeReview?: IntakeReview;
@@ -86,8 +112,26 @@ export type RoleAssignment = {
 	investigationSource?: string;
 };
 export type RoleWorkState = { assignments: RoleAssignment[]; passes?: ImplementationPass[] };
-export type RoleIntent = { kind: "run-role" | "notify-role"; assignment: string };
+export type RoleIntent = { kind: "run-role" | "notify-role" | "prepare-pass"; assignment: string };
 export type RoleCommand =
+	| {
+			type: "recordImplementationSource";
+			workflow: string;
+			assignment: string;
+			generation: number;
+			attempt: string;
+			kind: "audit" | "final" | "checkpoint";
+			text: string;
+	  }
+	| { type: "requestImplementationAudit"; workflow: string }
+	| {
+			type: "submitImplementationHandoff";
+			workflow: string;
+			text: string;
+			dispositions: FindingDisposition[];
+			verification: VerificationAssessment;
+	  }
+	| { type: "recordPreparationBlocker"; workflow: string; assignment: string; generation: number; attempt: string; reason: string }
 	| { type: "assignTask"; workflow: string; slice: string; delivery: boolean; packet: RolePacket }
 	| { type: "replaceTask"; workflow: string; assignment: string; generation: number; attempt: string; packet: RolePacket }
 	| { type: "recordRuntimeHistory"; workflow: string; assignment: string; generation: number; attempt: string; key: string }
@@ -134,6 +178,10 @@ export type RoleCommand =
 	  };
 
 export const ROLE_COMMANDS = [
+	"recordImplementationSource",
+	"requestImplementationAudit",
+	"submitImplementationHandoff",
+	"recordPreparationBlocker",
 	"assignTask",
 	"replaceTask",
 	"recordRuntimeHistory",
@@ -207,7 +255,15 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 	}
 	const affectedPacket = c.type === "assignTask" || c.type === "replaceTask" ? c.packet : a?.packet;
 	if (
-		["assignTask", "replaceTask", "stageTask", "rebindAttempt", "requestRole"].includes(c.type) &&
+		[
+			"assignTask",
+			"replaceTask",
+			"stageTask",
+			"rebindAttempt",
+			"requestRole",
+			"requestImplementationAudit",
+			"submitImplementationHandoff",
+		].includes(c.type) &&
 		blockedBySeams(state.checkpoints, affectedPacket, c.type === "assignTask" ? c.delivery : (a?.delivery ?? false))
 	)
 		return refusal("seams_required", "Revised Seams block affected execution; historical approvals remain retained.");
@@ -219,7 +275,15 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		(delivery || state.intakes?.slices.some((s) => s.id === slice)) &&
 		slice &&
 		affectedPacket &&
-		["assignTask", "replaceTask", "stageTask", "rebindAttempt"].includes(c.type)
+		[
+			"assignTask",
+			"replaceTask",
+			"stageTask",
+			"rebindAttempt",
+			"requestImplementationAudit",
+			"submitImplementationHandoff",
+			"recordImplementationSource",
+		].includes(c.type)
 	) {
 		const gap = intakeAssignmentGap(state, slice, affectedPacket);
 		if (gap) return gap;
@@ -232,9 +296,35 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (!shapeConfirmed(facts.investigationGround))
 			return refusal("shape_confirmation_required", "Human confirmation is required for a classifier-proposed task shape.");
 	}
-	function create(packet: RolePacket, slice: string, delivery: boolean, parent: string | null, key: string | null) {
-		const id = facts.ids.assignment;
-		const attempt = facts.ids.attempt;
+	const pass = work.passes?.find((p) => p.ref === (a?.passRef ?? a?.auditReview?.passRef));
+	if ((a?.passRef || a?.auditReview) && !pass) return refusal("missing_content", "Retained implementation pass is missing.");
+	if (
+		(a?.passRef || a?.auditReview) &&
+		![
+			"cancelWork",
+			"fenceAttempt",
+			"requestOwnStop",
+			"recordQuiescence",
+			"recordBlocker",
+			"recordPreparationBlocker",
+			"recordRunnerDiagnostic",
+			"recordRuntimeHistory",
+			"replaceTask",
+		].includes(c.type) &&
+		a?.policyBinding !== bindingFor(state.policy ?? initialPolicy(), c.workflow).revision
+	)
+		return refusal("stale_basis", "Implementation authority belongs to an older policy binding.");
+	if (
+		a?.passRef &&
+		["recordImplementationSource", "requestImplementationAudit", "submitImplementationHandoff", "rebindAttempt", "stageTask"].includes(
+			c.type,
+		) &&
+		(a.implementationBinding ?? pass?.policyBinding) !== a.policyBinding
+	)
+		return refusal("stale_basis", "Policy adoption fenced this implementation execution; quiesce and replace it explicitly.");
+	function create(packet: RolePacket, slice: string, delivery: boolean, parent: string | null, key: string | null, axis?: AuditAxis) {
+		const id = axis ? `${facts.ids.assignment}:${axis}` : facts.ids.assignment;
+		const attempt = axis ? `${facts.ids.attempt}:${axis}` : facts.ids.attempt;
 		if (!id || !attempt) throw new Error("Ledger omitted role identities");
 		const created: RoleAssignment = {
 			...(c.type === "replaceTask" && a?.checkpointReview ? { checkpointReview: { ...a.checkpointReview } } : {}),
@@ -248,7 +338,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			packet: { ...packet, policyBinding: bindingFor(state.policy ?? initialPolicy(), c.workflow).revision },
 			policyBinding: bindingFor(state.policy ?? initialPolicy(), c.workflow).revision,
 			predecessor: c.type === "replaceTask" ? c.assignment : null,
-			packetRef: `packet:${facts.sequence}`,
+			packetRef: `packet:${facts.sequence}${axis ? `:${axis}` : ""}`,
 			conversation: 0,
 			task: 0,
 			parent,
@@ -263,8 +353,15 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		work.assignments.push(created);
 		intents.push({ kind: "run-role", assignment: id });
 		result = { assignment: id, attempt, packet: created.packetRef };
+		if (c.type === "replaceTask" && a?.auditReview) {
+			created.auditReview = { ...a.auditReview };
+			const axis = a.packet.role === "audit-standards" ? "standards" : "contracts";
+			pass!.audit!.roles[axis] = { assignment: created.id, packet: created.packetRef };
+		}
 		if (c.type === "replaceTask" && a?.passRef) {
 			created.passRef = a.passRef;
+			pass!.assignment = created.id;
+			for (const child of work.assignments) if (child.parent === a.id) child.parent = created.id;
 		} else if (acceptedSlice && delivery) {
 			const pass: ImplementationPass = {
 				ref: `pass:${c.workflow}:${slice}:1`,
@@ -284,10 +381,12 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			created.passRef = pass.ref;
 		}
 		if (created.passRef) {
+			created.implementationBinding = created.policyBinding;
 			const pass = work.passes?.find((p) => p.ref === created.passRef);
 			if (!pass) throw new Error("Implementation pass missing from retained role state");
 			Object.assign(result, { passRef: pass.ref, passOrdinal: pass.ordinal, passRecord: pass.record, contract: pass.contract });
 		}
+		return created;
 	}
 	if (c.type === "assignTask") {
 		if (!c.packet || !c.slice || typeof c.delivery !== "boolean")
@@ -302,6 +401,32 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			);
 		create(c.packet, c.slice, delivery, null, null);
 	} else if (c.type === "replaceTask") {
+		if ((a?.passRef || a?.auditReview) && (!pass || pass.handoff))
+			return refusal("assignment_closed", "Handed-off implementation cannot be replaced; authorized return is unavailable.");
+		if (
+			a?.auditReview &&
+			(c.packet.role !== a.packet.role ||
+				c.packet.execution !== "read-only" ||
+				c.packet.requests.length ||
+				c.packet.family !== c.packet.requiredFamily ||
+				c.packet.requiredFamily !== a.packet.requiredFamily ||
+				JSON.stringify(c.packet.inputs) !== JSON.stringify(a.packet.inputs) ||
+				JSON.stringify(c.packet.verification) !== JSON.stringify(a.packet.verification) ||
+				c.packet.principles !== a.packet.principles ||
+				c.packet.instructions !== a.packet.instructions ||
+				c.packet.policy !== a.packet.policy ||
+				c.packet.profile !== a.packet.profile)
+		)
+			return refusal("forbidden_scope", "Audit replacement must preserve its exact axis, source, obligations and private input scope.");
+		if (
+			a?.passRef &&
+			(JSON.stringify(c.packet.inputs) !== JSON.stringify(a.packet.inputs) ||
+				JSON.stringify(c.packet.verification) !== JSON.stringify(a.packet.verification) ||
+				JSON.stringify(c.packet.requests) !== JSON.stringify(a.packet.requests) ||
+				c.packet.execution !== a.packet.execution ||
+				c.packet.profile !== a.packet.profile)
+		)
+			return refusal("forbidden_scope", "Implementation replacement cannot widen source scope or change its frozen Audit obligations.");
 		if (a?.passRef && c.packet.role !== a.packet.role)
 			return refusal("forbidden_scope", "Implementation replacement must retain its role and pass obligations.");
 		if (a?.intakeReview && (c.packet.role !== "challenger" || !a.packet.inputs.every((ref) => c.packet.inputs.includes(ref))))
@@ -326,6 +451,145 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("ownership_conflict", "Replacement would overlap a current delivery owner or writer.");
 		create(c.packet, a.slice, a.delivery, a.parent, a.requestKey);
 		result.predecessor = a.id;
+	} else if (c.type === "requestImplementationAudit") {
+		if (!a?.passRef || !pass || pass.assignment !== a.id || pass.handoff || !pass.captureA)
+			return refusal("missing_content", "Current implementation requires retained Audit source A.");
+		if (pass.audit) return refusal("role_already_requested", "This pass already has its one Audit invocation.");
+		const gap = implementationEvidenceGap(facts.implementationSource, a, pass.contract);
+		if (gap) return refusal("missing_content", gap);
+		const configured = (["standards", "contracts"] as const).map((axis) => ({
+			axis,
+			requests: a.packet.requests.filter((r) => r.packet.role === `audit-${axis}`),
+		}));
+		const policy = state.policy ?? initialPolicy();
+		for (const { requests } of configured) {
+			const p = requests[0]?.packet;
+			if (
+				requests.length !== 1 ||
+				!p ||
+				p.execution !== "read-only" ||
+				p.requests.length ||
+				p.investigation ||
+				p.family !== p.requiredFamily ||
+				(p.family === a.packet.family &&
+					policy.revisions[bindingFor(policy, a.workflow).policy]?.reviewerDiversity !== "human-directed-same-family")
+			)
+				return refusal(
+					"capability_unavailable",
+					"Audit needs exactly one configured fresh read-only packet per axis, with the required independent family and no nested requests.",
+				);
+		}
+		const audit = {
+			ref: `audit:${facts.sequence}`,
+			record: `implementation-audit:${facts.sequence}`,
+			source: pass.captureA,
+			contract: pass.contract,
+			roles: {} as NonNullable<ImplementationPass["audit"]>["roles"],
+			results: {},
+		};
+		for (const { axis, requests } of configured) {
+			const request = requests[0]!;
+			const child = create(
+				{ ...request.packet, inputs: [...new Set([...request.packet.inputs, pass.contract, pass.captureA])] },
+				a.slice,
+				false,
+				a.id,
+				request.key,
+				axis,
+			);
+			child.auditReview = { passRef: pass.ref, audit: audit.ref, source: pass.captureA, contract: pass.contract };
+			audit.roles[axis] = { assignment: child.id, packet: child.packetRef };
+		}
+		pass.audit = audit;
+		result = {
+			assignment: a.id,
+			passRef: pass.ref,
+			source: pass.captureA,
+			audit: audit.ref,
+			auditRecord: audit.record,
+			standards: audit.roles.standards.assignment,
+			contracts: audit.roles.contracts.assignment,
+		};
+	} else if (c.type === "submitImplementationHandoff") {
+		if (!a?.passRef || !pass || pass.assignment !== a.id || pass.handoff || !pass.audit || !pass.captureA || !pass.captureB)
+			return refusal("missing_content", "Handoff requires current pass A, Audit and final B, with no prior handoff.");
+		if (
+			!c.text ||
+			Buffer.byteLength(c.text) > 1024 * 1024 ||
+			!validDispositions(c.dispositions) ||
+			!validAssessment(c.verification) ||
+			c.verification.outcome !== "pass"
+		)
+			return refusal("invalid_content", "Handoff requires literal text, complete dispositions and a passing assessment.");
+		const reports: AuditResult[] = [];
+		for (const axis of ["standards", "contracts"] as const) {
+			const binding = pass.audit.roles[axis],
+				report = pass.audit.results[axis];
+			const reviewer = work.assignments.find((r) => r.id === binding.assignment);
+			if (
+				!report ||
+				!reviewer ||
+				reviewer.status !== "submitted" ||
+				reviewer.report !== report.report ||
+				report.assignment !== reviewer.id ||
+				reviewer.auditReview?.audit !== pass.audit.ref ||
+				reviewer.auditReview.source !== pass.captureA
+			)
+				return refusal("missing_content", "Both current Audit axes must complete on this pass and A.");
+			reports.push(report);
+		}
+		const evidence = facts.implementationSource;
+		if (pass.workspace !== pass.captureB || !sourceScopeMatches(evidence, a))
+			return refusal("stale_basis", "Final B must be the current owner's latest captured workspace.");
+		const policy = state.policy ?? initialPolicy();
+		const gap = implementationEvidenceGap(
+			evidence,
+			a,
+			pass.contract,
+			c.verification,
+			policy.revisions[bindingFor(policy, a.workflow).policy]!.minimumEvidenceRank,
+		);
+		if (gap) return refusal("missing_content", gap);
+		const findings = reports.flatMap((r) => r.findings.map((f) => ({ ...f, report: r.report })));
+		if (c.dispositions.length !== findings.length) return refusal("invalid_content", "Every finding needs exactly one disposition.");
+		for (const finding of findings) {
+			const dispositions = c.dispositions.filter((d) => d.report === finding.report && d.finding === finding.id);
+			if (dispositions.length !== 1) return refusal("invalid_content", "Missing or duplicate finding disposition.");
+			const d = dispositions[0]!;
+			if (finding.needsHuman || d.disposition === "needs-human")
+				return refusal("capability_unavailable", "Unresolved product/Contract questions require human resolution.");
+			if (
+				d.disposition === "fixed" &&
+				(!d.changes.length ||
+					!d.changes.every((ref) => ref === pass.captureB) ||
+					!d.rechecks.length ||
+					!d.rechecks.every((name) =>
+						evidence!.verification!.results.some(
+							(r) =>
+								r.name === name &&
+								r.status === "completed" &&
+								r.steps.length &&
+								r.steps.every(
+									(s) => s.exitCode === 0 && !s.timedOut && s.verifierRevision === evidence!.verification!.catalog.selection.digest,
+								) &&
+								evidence!.verification!.catalog.selection.rows.includes(name),
+						),
+					))
+			)
+				return refusal("missing_content", "Fixed findings need exact B and successful relevant catalog row rechecks.");
+		}
+		pass.handoff = { record: `implementation-handoff:${facts.sequence}`, source: pass.captureB };
+		a.status = "submitted";
+		intents.push({ kind: "prepare-pass", assignment: a.id });
+		result = {
+			assignment: a.id,
+			passRef: pass.ref,
+			source: pass.captureB,
+			captureA: pass.captureA,
+			audit: pass.audit.ref,
+			auditRecord: pass.audit.record,
+			handoff: pass.handoff.record,
+		};
 	} else if (c.type === "requestRole") {
 		if (a?.passRef) return refusal("forbidden_scope", "Accepted implementation requires its pass-bound paired Audit on retained source.");
 		if (!a) return refusal("stale_assignment", "No current assignment.");
@@ -360,6 +624,22 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (a?.passRef)
 			return refusal("forbidden_scope", "Accepted implementation closes only through its sealed pass handoff, not a generic report.");
 		if (!a) return refusal("stale_assignment", "No current assignment.");
+		if (a.auditReview) {
+			const axis = a.packet.role === "audit-standards" ? "standards" : a.packet.role === "audit-contracts" ? "contracts" : undefined;
+			if (
+				!axis ||
+				!pass?.audit ||
+				pass.audit.roles[axis].assignment !== a.id ||
+				pass.audit.ref !== a.auditReview.audit ||
+				pass.captureA !== a.auditReview.source ||
+				pass.contract !== a.auditReview.contract ||
+				pass.audit.results[axis]
+			)
+				return refusal("forbidden_scope", "Report is not the current host-bound Audit axis.");
+			const findings = auditFindings(c.text, a.auditReview);
+			if (!findings) return refusal("invalid_content", "Audit report must name its exact host binding and unique structured findings.");
+			pass.audit.results[axis] = { assignment: a.id, report: facts.ids.revision!, findings };
+		}
 		if (!c.text || Buffer.byteLength(c.text) > 1024 * 1024)
 			return refusal("invalid_content", "Report must contain at most 1 MiB of complete UTF-8 text.");
 		if (!Array.isArray(c.supports)) return refusal("invalid_content", "Declare required retained supports, or [] for no web reliance.");
@@ -397,6 +677,48 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("stale_assignment", "Generation or Attempt is no longer current.");
 		result = { assignment: a.id };
 		switch (c.type) {
+			case "recordImplementationSource": {
+				if (
+					!a.passRef ||
+					!pass ||
+					pass.assignment !== a.id ||
+					pass.handoff ||
+					a.packet.role !== "implementer" ||
+					a.packet.execution !== "linux-writer"
+				)
+					return refusal("forbidden_scope", "Only current accepted implementation can retain its source.");
+				if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024 || !["audit", "final", "checkpoint"].includes(c.kind))
+					return refusal("invalid_content", "Complete literal source must fit retained source bounds.");
+				if (
+					!sourceScopeMatches(facts.implementationSource, a) ||
+					!["running", ...(c.kind === "checkpoint" ? ["blocked"] : [])].includes(a.status) ||
+					(c.kind !== "checkpoint" && (!a.executing || a.executorEpoch !== facts.executorEpoch))
+				)
+					return refusal(
+						"stale_assignment",
+						"Source freeze must identify this actual executing scope; a checkpoint observes an already-admitted current Attempt.",
+					);
+				if (c.kind === "audit" && pass.captureA) return refusal("assignment_closed", "Audit A is immutable and captured once.");
+				if (c.kind === "final" && !pass.audit) return refusal("missing_content", "Request this pass's Audit before final capture.");
+				if (c.kind !== "checkpoint") {
+					const gap = implementationEvidenceGap(facts.implementationSource, a, pass.contract);
+					if (gap) return refusal("missing_content", gap);
+				}
+				const ref = facts.ids.revision!;
+				pass.workspace = ref;
+				if (c.kind === "audit") pass.captureA = ref;
+				if (c.kind === "final") pass.captureB = ref;
+				result.source = ref;
+				result.passRef = pass.ref;
+				break;
+			}
+			case "recordPreparationBlocker":
+				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !c.reason?.trim())
+					return refusal("assignment_closed", "Preparation blockage requires a handed-off pass.");
+				pass.handoff.blocker = c.reason;
+				a.blocker = c.reason;
+				result.handoff = pass.handoff.record;
+				break;
 			case "recordSourceObservation":
 				if (!a.packet.investigation || a.investigationSource || !["queued", "running"].includes(a.status))
 					return refusal(
@@ -458,6 +780,26 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 						"Provider, whole environment and outstanding effects must all be reconciled; timeout is not death.",
 					);
 				if (c.type === "rebindAttempt") {
+					if (a.passRef && a.packet.execution === "linux-writer") {
+						if (
+							!pass?.workspace ||
+							pass.handoff ||
+							pass.assignment !== a.id ||
+							!sourceScopeMatches(facts.implementationSource, a) ||
+							!["running", "blocked"].includes(a.status) ||
+							c.environment !== "stopped" ||
+							c.executorEpoch !== facts.executorEpoch
+						)
+							return refusal(
+								"recovery_required",
+								"Writer continuation requires retained workspace, confirmed whole-runtime stop and current pass authority.",
+							);
+						a.status = "queued";
+						a.blocker = null;
+						a.executing = false;
+						a.executorEpoch = c.executorEpoch ?? null;
+						break;
+					}
 					if (a.packet.execution !== "read-only" || c.executorEpoch !== facts.executorEpoch)
 						return refusal("recovery_required", "Only checked read-only same-assignment continuation is available.");
 					if (

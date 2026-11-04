@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { Source } from "../src/effects/source.ts";
@@ -114,6 +115,7 @@ test("implementation capture: reopening and stopping a scope contains its fresh 
 		const reopened = new Sandboxes({ root: join(f.root, "sandboxes"), authorize: () => true });
 		const stopped = await reopened.stop({ scope: f.scope });
 		assert.equal(stopped.runtime, next.runtime, "scope stop must discover the latest runtime");
+		assert.deepEqual(stopped.handle, next, "recovery must retain the exact latest stopped handle for capture");
 		assert.equal(stopped.running, false);
 		assert.ok(stopped.executions.some((e) => e.result?.stdout === "continued\n"));
 		for (const diagnostic of stopped.executions) {
@@ -122,6 +124,49 @@ test("implementation capture: reopening and stopping a scope contains its fresh 
 		assert.equal(execFileSync("docker", ["inspect", "--format", "{{.State.Running}}", next.runtime], { encoding: "utf8" }).trim(), "false");
 		const again = new Sandboxes({ root: join(f.root, "sandboxes"), authorize: () => true });
 		await assert.rejects(continueFrom(again, f, A.source, first), /stopped|fenced|reuse|exist/i);
+	} finally {
+		await f.close();
+	}
+});
+
+test("implementation capture: scope stop contains successor despite missing predecessor runtime", async () => {
+	const f = await sourceFixture();
+	try {
+		const base = await f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit });
+		const first = await f.sandboxes.prepare(f.scope, f.profile, base);
+		const A = await f.effects.perform({ type: "retain", base, capture: await f.sandboxes.seal(first) });
+		const next = await continueFrom(f.sandboxes, f, A.source, first);
+		execFileSync("docker", ["rm", first.runtime]);
+		const reopened = new Sandboxes({ root: join(f.root, "sandboxes"), authorize: () => true });
+		await assert.rejects(reopened.stop({ scope: f.scope }), /quarantine|inspect/i);
+		assert.equal(
+			execFileSync("docker", ["inspect", "--format", "{{.State.Running}}", next.runtime], { encoding: "utf8" }).trim(),
+			"false",
+			"successor must be contained despite predecessor uncertainty",
+		);
+	} finally {
+		await f.close();
+	}
+});
+
+test("implementation capture: durable scope fence refuses execution after reopen", async () => {
+	const f = await sourceFixture();
+	try {
+		const base = await f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit });
+		const first = await f.sandboxes.prepare(f.scope, f.profile, base);
+		const A = await f.effects.perform({ type: "retain", base, capture: await f.sandboxes.seal(first) });
+		const next = await continueFrom(f.sandboxes, f, A.source, first);
+		// Crash-state fixture: scope stop persisted its root fence, but had not yet stopped the successor.
+		const journal = join(f.root, "sandboxes", first.id, "state.json");
+		const state = JSON.parse(await readFile(journal, "utf8"));
+		state.scopeStopped = true;
+		await writeFile(journal, JSON.stringify(state));
+		const reopened = new Sandboxes({ root: join(f.root, "sandboxes"), authorize: () => true });
+		await assert.rejects(
+			reopened.execute(next, { scope: f.scope, argv: ["sh", "-c", "echo started > fence-canary"], timeoutMs: 10000 }),
+			/closed|fenced|stopped/i,
+		);
+		await assert.rejects(readFile(join(f.root, "sandboxes", next.id, "workspace", "fence-canary")), { code: "ENOENT" });
 	} finally {
 		await f.close();
 	}

@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId, EntryId, Harness, Tx } from "@earendil-works/pi-durable";
+import { treeOid, validateEntries } from "../effects/source.ts";
 import type { RoleTaskStaging } from "../engine/runtime.ts";
 import type { WebWorking } from "../engine/web.ts";
 import { initialCheckpointSettings, type CheckpointSettings as SettingsState } from "../kernel/checkpoint-settings.ts";
@@ -13,6 +14,7 @@ import {
 	checkpointRefs,
 	emptyCheckpoints,
 } from "../kernel/checkpoints.ts";
+import { type ImplementationSource, implementationSource as parseImplementationSource } from "../kernel/implementation.ts";
 import { approvedIntakeRefs, emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, intakeRefs, validIntakeShape } from "../kernel/intake.ts";
 import { type Ground, readGround } from "../kernel/investigation.ts";
 import {
@@ -338,6 +340,9 @@ export class Ledger {
 				"stageTask",
 				"rebindAttempt",
 				"requestRole",
+				"requestImplementationAudit",
+				"submitImplementationHandoff",
+				"recordImplementationSource",
 				...CHECKPOINT_COMMANDS,
 				...INTAKE_COMMANDS,
 			].includes(command.type)
@@ -432,10 +437,37 @@ export class Ledger {
 			}
 			requiredInputs = checkpointRefs(checkpoints, checkpoint);
 		}
-		if (["replaceTask", "stageTask", "rebindAttempt"].includes(command.type)) {
-			const owner = roles.assignments.find((a) => a.id === (command as { assignment: string }).assignment);
-			const pass = roles.passes?.find((p) => p.ref === owner?.passRef);
-			if (pass) requiredInputs.push(pass.record);
+		const implementationOwner = roles.assignments.find(
+			(a) => a.id === (current.kind === "assignment-agent" ? current.assignment : (command as { assignment?: string }).assignment),
+		);
+		const implementationPass = roles.passes?.find(
+			(p) => p.ref === (implementationOwner?.passRef ?? implementationOwner?.auditReview?.passRef),
+		);
+		const implementationPreflight = [
+			"replaceTask",
+			"stageTask",
+			"rebindAttempt",
+			"requestImplementationAudit",
+			"submitImplementationHandoff",
+			"recordImplementationSource",
+			"submitRoleResult",
+		].includes(command.type);
+		if (implementationPass && implementationPreflight) {
+			requiredInputs.push(
+				implementationPass.record,
+				implementationPass.contract,
+				implementationOwner!.packetRef,
+				...packetRefs(plain(implementationOwner!.packet)),
+			);
+			for (const ref of [
+				implementationPass.captureA,
+				implementationPass.captureB,
+				implementationPass.workspace,
+				implementationPass.audit?.record,
+				...Object.values(implementationPass.audit?.roles ?? {}).map((r) => r.packet),
+				...Object.values(implementationPass.audit?.results ?? {}).map((r) => r?.report),
+			])
+				if (ref) requiredInputs.push(ref);
 		}
 		for (const ref of requiredInputs) {
 			const location = await tx.doc(RevisionLocation, ref, null);
@@ -447,7 +479,7 @@ export class Ledger {
 					refs: { restore: ref },
 				});
 			const entry = await tx.entry(RevisionEntry, location.entry as EntryId);
-			if (!entry || !intact(entry.data.text, entry.data.digest, entry.data.byteLength))
+			if (!entry || entry.data.revision !== ref || !intact(entry.data.text, entry.data.digest, entry.data.byteLength))
 				throw new Abort({
 					status: "refused",
 					code: entry ? "content_corrupt" : "missing_content",
@@ -482,6 +514,54 @@ export class Ledger {
 							.filter((a) => a.id === current.assignment)
 							.flatMap((a) => a.packet.requests.filter((r) => r.key === (command as { key: string }).key).map((r) => plain(r.packet)))
 					: [];
+		if (command.type === "requestImplementationAudit" && implementationOwner) packets.push(plain(implementationOwner.packet));
+		let implementationSource: ImplementationSource | undefined;
+		const sourceRef =
+			command.type === "requestImplementationAudit"
+				? implementationPass?.captureA
+				: command.type === "submitImplementationHandoff"
+					? implementationPass?.captureB
+					: command.type === "rebindAttempt"
+						? implementationPass?.workspace
+						: undefined;
+		if (command.type === "recordImplementationSource" || sourceRef) {
+			let sourceText: string | undefined;
+			if (command.type === "recordImplementationSource") sourceText = (command as { text: string }).text;
+			else if (sourceRef) {
+				const location = await tx.doc(RevisionLocation, sourceRef, null);
+				const entry =
+					location.exists && location.workflow === env.workflow ? await tx.entry(RevisionEntry, location.entry as EntryId) : undefined;
+				if (
+					!entry ||
+					entry.data.createdBy.principal !== "host" ||
+					!entry.data.document.startsWith("implementation-source/") ||
+					!intact(entry.data.text, entry.data.digest, entry.data.byteLength)
+				)
+					throw new Abort(refusal("missing_content", `Restore exact trusted implementation source ${sourceRef}.`));
+				sourceText = entry.data.text;
+			}
+			try {
+				implementationSource = parseImplementationSource(JSON.parse(sourceText ?? "null"));
+				if (!implementationSource) throw new Error("Invalid implementation source schema");
+				for (const source of [implementationSource.source.base, implementationSource.source.source]) {
+					validateEntries(source.entries, source.objectFormat);
+					if (treeOid(source.entries, source.objectFormat) !== source.tree) throw new Error("Literal source tree identity differs");
+				}
+				if (
+					implementationSource.source.entries !== implementationSource.source.source.entries.length ||
+					implementationSource.source.bytes !==
+						implementationSource.source.source.entries.reduce((n, e) => n + Buffer.from(e.content, "base64").length, 0)
+				)
+					throw new Error("Literal source measurements differ");
+			} catch (error) {
+				throw new Abort(
+					refusal(
+						"invalid_content",
+						`Complete trusted implementation source is invalid: ${error instanceof Error ? error.message : "invalid source"}`,
+					),
+				);
+			}
+		}
 		const ownInvestigation =
 			command.type === "submitRoleResult" && current.kind === "assignment-agent"
 				? roles.assignments.find((a) => sameAgent(a as RoleAssignment, current) && a.packet.investigation)
@@ -619,6 +699,7 @@ export class Ledger {
 			checkpointInputs,
 			...(investigationGround ? { investigationGround } : {}),
 			verificationEvidence,
+			...(implementationSource ? { implementationSource } : {}),
 			principal: current,
 			sequence,
 			executorEpoch: meta.executorEpoch,
@@ -782,6 +863,58 @@ export class Ledger {
 							attempt: a.attempt,
 						});
 					}
+					if (command.type === "recordImplementationSource" && typeof decision.result.source === "string") {
+						const c = command as { assignment: string; generation: number; attempt: string; text: string };
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							decision.result.source,
+							`implementation-source/${c.assignment}/${sequence}`,
+							c.text,
+							c,
+						);
+					}
+					if (command.type === "requestImplementationAudit" && current.kind === "assignment-agent") {
+						const pass = roles.passes!.find((p) => p.assignment === current.assignment)!;
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							pass.audit!.record,
+							`implementation-audit/${pass.ref}`,
+							JSON.stringify({ schema: 1, passRef: pass.ref, ...plain(pass.audit!) }),
+							current,
+						);
+					}
+					if (command.type === "submitImplementationHandoff" && current.kind === "assignment-agent") {
+						const pass = roles.passes!.find((p) => p.assignment === current.assignment)!;
+						const c = command as Extract<import("../kernel/roles.ts").RoleCommand, { type: "submitImplementationHandoff" }>;
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							pass.handoff!.record,
+							`implementation-handoff/${pass.ref}`,
+							JSON.stringify({
+								schema: 1,
+								passRef: pass.ref,
+								passRecord: pass.record,
+								contract: pass.contract,
+								captureA: pass.captureA,
+								audit: plain(pass.audit!),
+								captureB: pass.captureB,
+								text: c.text,
+								dispositions: c.dispositions,
+								completion: { assessment: c.verification, evidence: implementationSource!.verification },
+								preparation: { kind: "prepare-pass", assignment: current.assignment },
+							}),
+							current,
+						);
+					}
 					if (command.type === "recordSourceObservation" && typeof decision.result.source === "string") {
 						const c = command as { assignment: string; generation: number; attempt: string; text: string };
 						await this.#retainRoleText(tx, env, by, sequence, decision.result.source, `investigation-source/${c.assignment}`, c.text, c);
@@ -901,6 +1034,11 @@ export class Ledger {
 						const a = roles.assignments.find((a) => a.id === intent.assignment);
 						if (!a) throw new Error("role intent without assignment");
 						const task = await this.#roleTasks.stage(tx, intent, plain(a));
+						if (intent.kind === "prepare-pass") {
+							const pass = roles.passes!.find((p) => p.ref === a.passRef)!;
+							pass.handoff!.preparationTask = task;
+							Object.assign(decision.result, { preparationTask: task });
+						}
 						if (intent.kind === "run-role") {
 							a.task = task;
 							Object.assign(decision.result, { task });
@@ -1185,6 +1323,21 @@ export class Ledger {
 		});
 	}
 
+	#implementationReads(a: RoleAssignment): string[] {
+		const pass = this.#roleWork.passes?.find((p) => p.ref === a.passRef);
+		if (!pass) return a.auditReview ? [a.auditReview.source, a.auditReview.contract] : [];
+		return [
+			pass.record,
+			pass.contract,
+			pass.captureA,
+			pass.captureB,
+			pass.workspace,
+			pass.audit?.record,
+			pass.handoff?.record,
+			...Object.values(pass.audit?.results ?? {}).map((r) => r?.report),
+		].filter((ref): ref is string => !!ref);
+	}
+
 	async #retainRoleText(
 		tx: Parameters<Parameters<Harness["commit"]>[0]>[0],
 		env: Envelope,
@@ -1363,7 +1516,7 @@ export class Ledger {
 						own.packetRef,
 						own.report,
 						own.investigationSource,
-						this.#roleWork.passes?.find((p) => p.ref === own.passRef)?.record,
+						...this.#implementationReads(own),
 						...(own.evidence ?? []),
 						...results,
 						...checkpointReads,
@@ -1646,7 +1799,8 @@ export class Ledger {
 							if (refs.revision && (wanted("ground") || wanted("document"))) artifacts.add(refs.revision);
 							if (refs.message && wanted("message")) artifacts.add(refs.message);
 							if (wanted("document")) {
-								for (const key of ["packet", "report", "quarantined", "source", "passRecord"]) if (refs[key]) artifacts.add(refs[key]);
+								for (const key of ["packet", "report", "quarantined", "source", "passRecord", "auditRecord", "handoff", "captureA"])
+									if (refs[key]) artifacts.add(refs[key]);
 								for (const [key, ref] of Object.entries(refs)) if (/^document\d+$/.test(key)) artifacts.add(ref);
 							}
 							add({ ...base(ref, kind, owner.workflow, sequence, String(d.commandId)), command: d.command, refs, createdBy: d.by });
@@ -1777,6 +1931,13 @@ export class Ledger {
 								this.#meta.workflows.filter((w) => visible(principal, w)).map((w) => [w, bindingFor(this.#policy, w)]),
 							),
 						},
+			implementationPasses: plain(
+				(this.#roleWork.passes ?? []).filter((pass) =>
+					principal.kind === "assignment-agent"
+						? this.#roleWork.assignments.some((a) => sameAgent(a, principal) && a.passRef === pass.ref)
+						: visible(principal, pass.workflow, this.#roleWork),
+				),
+			),
 			assignments: plain(
 				this.#roleWork.assignments.filter((a) =>
 					principal.kind === "assignment-agent" ? sameAgent(a, principal) : visible(principal, a.workflow, this.#roleWork),

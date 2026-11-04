@@ -26,12 +26,19 @@ import {
 	type Tx,
 } from "@earendil-works/pi-durable";
 import { Effects, type Source, type SourceReceipt } from "../effects/source.ts";
-import { currentChildren, packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
-import { type CatalogResult, requiredCatalogRows, type SelectedCatalog } from "../kernel/verification.ts";
+import { currentChildren, type ImplementationPass, packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
+import { type CatalogEvidence, type CatalogResult, requiredCatalogRows, type SelectedCatalog } from "../kernel/verification.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
 import { Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
-import { type ExecutionResult, type ExecutionScope, type LinuxProfile, Sandboxes, SandboxInputRefusal } from "../sandboxes/sandboxes.ts";
+import {
+	type ExecutionResult,
+	type ExecutionScope,
+	type LinuxProfile,
+	Sandboxes,
+	type SandboxHandle,
+	SandboxInputRefusal,
+} from "../sandboxes/sandboxes.ts";
 import { selectCatalog } from "./catalog.ts";
 import { previewWeb, research, type WebConfig } from "./web.ts";
 
@@ -92,6 +99,10 @@ export class Engine {
 	readonly #investigationEffects: Effects | undefined;
 	readonly #sandboxes: Sandboxes | undefined;
 	readonly #ownedActive = new Set<string>();
+	readonly #workspaces = new Map<string, { handle: SandboxHandle; source: Source; sealed: boolean }>();
+	readonly #implementationActive = new Set<string>();
+	readonly #implementationAdmitted = new Set<string>();
+	readonly #preparation;
 	readonly #roles;
 	readonly #run;
 	readonly #notify;
@@ -409,9 +420,121 @@ export class Engine {
 				return { output: [{ type: "text", text: JSON.stringify(reply) }], isError: reply.status !== "accepted" };
 			},
 		});
+		const implementation = (name: string, parameters: ReturnType<typeof Type.Object>) =>
+			defineTool({
+				name,
+				description:
+					name === "implementation_execute"
+						? "Run bounded argv in this accepted implementation's owned Linux workspace. Never on the host."
+						: "Capture exact source, execute its selected checks and request the one Audit or final sealed handoff. Capture stops the environment; caches, services and Git metadata may be lost.",
+				parameters,
+				// Arbitrary coding commands cannot be replayed after an uncertain tool outcome.
+				replay: name === "implementation_execute" ? "unsafe" : "safe",
+				execute: async (args, api) => {
+					const identity = await this.#identity(api, name);
+					if ("code" in identity) return { output: [{ type: "text", text: JSON.stringify(identity) }], isError: true };
+					const a = identity.a;
+					if (!a.passRef || a.packet.role !== "implementer" || a.packet.execution !== "linux-writer")
+						return { output: [{ type: "text", text: "Only the current accepted implementing writer may use this tool." }], isError: true };
+					if (this.#implementationActive.has(a.id))
+						return {
+							output: [{ type: "text", text: "Implementation operation already in flight; serialize coding, capture and handoff." }],
+							isError: true,
+						};
+					this.#implementationActive.add(a.id);
+					try {
+						if (name === "implementation_execute") {
+							const workspace = await this.#implementationWorkspace(a);
+							const result = await this.#sandboxes!.execute(workspace.handle, {
+								scope: this.#scope(a),
+								argv: (args as { argv: string[] }).argv,
+								timeoutMs: this.#config.ownedChecks!.checks[a.packet.profile]!.timeoutMs,
+							});
+							await this.#diagnostic(a, this.#scope(a), workspace.source, result);
+							return { output: [{ type: "text", text: JSON.stringify(result) }], isError: result.exitCode !== 0 };
+						}
+						const kind = name === "implementation_audit" ? "audit" : "final";
+						const existing = this.#implementationPass(a);
+						const captured =
+							kind === "audit" ? !!existing.captureA : existing.captureB === existing.workspace && !!this.#workspaces.get(a.id)?.sealed;
+						if (!captured && !existing.handoff) await this.#captureImplementation(a, kind);
+						if (name === "implementation_check")
+							return { output: [{ type: "text", text: JSON.stringify({ source: this.#implementationPass(a).captureB }) }], isError: false };
+						const reply = await this.#toolCommand(
+							api,
+							name,
+							kind === "audit" ? { type: "requestImplementationAudit" } : { type: "submitImplementationHandoff", ...(args as JsonObject) },
+						);
+						return {
+							output: [{ type: "text", text: JSON.stringify(reply) }],
+							isError: reply.status !== "accepted",
+							...(reply.status === "accepted" ? { control: { handoff: `${name} durably accepted.` } } : {}),
+						};
+					} catch (error) {
+						return { output: [{ type: "text", text: `Implementation remains unaccepted: ${error}` }], isError: true };
+					} finally {
+						this.#implementationActive.delete(a.id);
+						void this.reconcile().catch(() => {});
+					}
+				},
+			});
+		const executeImplementation = implementation(
+			"implementation_execute",
+			Type.Object({ argv: Type.Array(Type.String(), { minItems: 1 }) }, { additionalProperties: false }),
+		);
+		const auditImplementation = implementation("implementation_audit", schema({}));
+		const checkImplementation = implementation("implementation_check", schema({}));
+		const handoffImplementation = implementation(
+			"implementation_handoff",
+			Type.Object(
+				{
+					text: Type.String(),
+					dispositions: Type.Array(
+						Type.Object(
+							{
+								report: Type.String(),
+								finding: Type.String(),
+								disposition: Type.Union([
+									Type.Literal("fixed"),
+									Type.Literal("considered"),
+									Type.Literal("dismissed"),
+									Type.Literal("needs-human"),
+								]),
+								reason: Type.String(),
+								changes: Type.Array(Type.String()),
+								rechecks: Type.Array(Type.String()),
+							},
+							{ additionalProperties: false },
+						),
+					),
+					verification: Type.Object(
+						{
+							outcome: Type.Union([Type.Literal("pass"), Type.Literal("non-pass")]),
+							rank: Type.Union([Type.String(), Type.Null()]),
+							reason: Type.String(),
+						},
+						{ additionalProperties: false },
+					),
+				},
+				{ additionalProperties: false },
+			),
+		);
 		this.#roles = defineExtension({
 			name: "render.roles",
-			tools: [read, request, submit, stop, checkpoint, ...webTools, webRead, retain],
+			tools: [
+				read,
+				request,
+				submit,
+				stop,
+				checkpoint,
+				...webTools,
+				webRead,
+				retain,
+				executeImplementation,
+				auditImplementation,
+				checkImplementation,
+				handoffImplementation,
+			],
 			sections: [
 				section("role-packet", async (input) => {
 					const binding = await input.read.snapshot(RoleBinding, input.conversationId, ctx);
@@ -497,7 +620,7 @@ export class Engine {
 								continue;
 							}
 						}
-						if (a.packet.execution === "linux-writer") {
+						if (a.packet.execution === "linux-writer" && !a.passRef) {
 							await this.#ownedCheck(this.#assignment(a.id)!);
 							return runtime
 								.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context)
@@ -533,7 +656,8 @@ export class Engine {
 					if (a) {
 						if (a.status === "running")
 							await this.#command(a, { type: "recordBlocker", reason: children.length ? "awaiting_role_results" : "role_did_not_submit" });
-						await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "absent", effects: "reconciled" });
+						if (a.passRef) await this.#quiesceImplementation(a);
+						else await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "absent", effects: "reconciled" });
 					}
 					if (a && children.length && this.#assignment(a.id)?.blocker === "awaiting_role_results")
 						return runtime.commit(
@@ -575,7 +699,7 @@ export class Engine {
 						const rebound = await this.#command(a, {
 							type: "rebindAttempt",
 							providerIdle: true,
-							environment: "absent",
+							environment: a.passRef ? "stopped" : "absent",
 							effects: "reconciled",
 							executorEpoch: this.#ledger!.status().executorEpoch,
 						});
@@ -603,6 +727,24 @@ export class Engine {
 					context,
 				),
 		});
+		this.#preparation = defineTask<{ assignment: string }, { phase: "blocked" }, null>({
+			name: "render.implementation-preparation",
+			version: 1,
+			initial: () => ({ phase: "blocked" }),
+			phases: {
+				blocked: async (task, runtime, context) => {
+					const owner = this.#assignment(task.input.assignment);
+					if (!owner) throw new Error("Missing sealed handoff owner");
+					const reply = await this.#command(owner, {
+						type: "recordPreparationBlocker",
+						reason: "preparation_capability_unavailable; Watchdog has not run",
+					});
+					if (reply.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${reply.code}`);
+					return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
+				},
+			},
+			abort: (_task, runtime, context) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
+		});
 		this.#notify = defineTask<{ assignment: string; parent: number; report: string }, { phase: "notify" }, null>({
 			name: "render.role-notification",
 			version: 1,
@@ -624,7 +766,7 @@ export class Engine {
 	options(onReport: (error: unknown, info: ReportInfo) => void): RenderRuntimeOptions {
 		const registry = createRegistry();
 		registry.install(this.#roles);
-		registry.install(defineExtension({ name: "render.tasks", tasks: [this.#run, this.#notify] }));
+		registry.install(defineExtension({ name: "render.tasks", tasks: [this.#run, this.#notify, this.#preparation] }));
 		return {
 			models: this.#models,
 			registry,
@@ -653,6 +795,25 @@ export class Engine {
 						const stopped = await this.#sandboxes.stop({ scope });
 						for (const diagnostic of stopped.executions)
 							await this.#diagnostic(a, scope, diagnostic.source ?? stopped.source, diagnostic.result, diagnostic);
+						if (a.passRef && a.status === "running") {
+							const source = await this.#effects!.perform({
+								type: "retain",
+								base: stopped.source,
+								capture: await this.#sandboxes.seal(stopped.handle),
+							});
+							await this.#effects!.reconcile(source);
+							await this.#recordImplementationSource(a, "checkpoint", source);
+							await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "stopped", effects: "reconciled" });
+							const reply = await this.#command(this.#assignment(a.id)!, {
+								type: "rebindAttempt",
+								providerIdle: true,
+								environment: "stopped",
+								effects: "reconciled",
+								executorEpoch: this.#ledger!.status().executorEpoch,
+							});
+							if (reply.status !== "accepted") throw new Error(`Implementation recovery refused: ${reply.code}`);
+							continue;
+						}
 						if (a.status === "running")
 							await this.#command(a, { type: "recordBlocker", reason: "owned_check_interrupted_source_evidence_requires_reconciliation" });
 						await this.#command(this.#assignment(a.id)!, {
@@ -679,6 +840,12 @@ export class Engine {
 				stage: async (tx, intent, a) => {
 					const workflow = await tx.doc(Workflow, a.workflow, null);
 					if (!workflow.exists) throw new Error("Missing workflow owner");
+					if (intent.kind === "prepare-pass")
+						return tx.createTask(
+							this.#preparation,
+							{ assignment: a.id },
+							{ conversationId: workflow.conversation as ConversationId, ownership: { kind: "conversation" } },
+						);
 					if (intent.kind === "notify-role") {
 						const state = await tx.doc(RoleWork);
 						const parent = state.assignments.find((p) => p.id === a.parent);
@@ -746,7 +913,7 @@ export class Engine {
 		if (!binding || (a.policyBinding !== undefined && a.policyBinding !== binding.revision))
 			throw new Error("Stale workflow policy binding.");
 		let verification: SelectedCatalog | undefined;
-		if (a.packet.verification) {
+		if (a.packet.verification && !a.passRef) {
 			if (!this.#effects) throw new Error("Verification catalog trusted source capability unavailable.");
 			const source = await this.#effects.perform({
 				type: "resolve",
@@ -799,6 +966,23 @@ export class Engine {
 			generation: a.generation,
 			attempt: a.attempt,
 			packet: a.packet,
+			...(a.auditReview
+				? {
+						auditReview: a.auditReview,
+						auditInstructions:
+							"Inspect only this immutable A and accepted obligations, not later B/X. Submit schema:1 plus exact auditReview fields and findings:[{id,text,needsHuman}]. Report all violations; unresolved product/Contract choices need human direction. Own scope only; no inherited implementer conversation or other-axis context.",
+					}
+				: {}),
+			...(a.passRef
+				? {
+						implementation: {
+							...this.#implementationPass(a),
+							audit: this.#implementationPass(a).audit ? { ...this.#implementationPass(a).audit, reports: results } : undefined,
+						},
+						implementationInstructions:
+							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately.",
+					}
+				: {}),
 			...(a.checkpointReview
 				? {
 						checkpointReview: {
@@ -847,8 +1031,13 @@ export class Engine {
 				if (a.status === "canceling") {
 					if (a.packet.execution !== "read-only" && a.executing && this.#sandboxes) {
 						try {
+							if (a.passRef) {
+								const conversation = await this.#harness.conversation(a.conversation as ConversationId, ctx);
+								if (!conversation) throw new Error("Missing implementing conversation");
+								await conversation.abort(ctx);
+							}
 							await this.#sandboxes.stop({ scope: this.#scope(a, true) });
-							if (this.#ownedActive.has(a.id)) continue;
+							if (this.#ownedActive.has(a.id) || this.#implementationActive.has(a.id)) continue;
 							await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "stopped", effects: "reconciled" });
 						} catch {
 							await this.#command(a, { type: "recordBlocker", reason: "owned_check_quarantined_stop_unconfirmed" });
@@ -916,6 +1105,168 @@ export class Engine {
 			executorEpoch: a.executorEpoch ?? "unbound",
 		};
 	}
+	#implementationPass(a: RoleAssignment): ImplementationPass {
+		const frame = this.#ledger!.snapshot(scheduling);
+		const pass =
+			"implementationPasses" in frame ? (frame.implementationPasses as ImplementationPass[]).find((p) => p.ref === a.passRef) : undefined;
+		if (!pass) throw new Error("Missing retained implementation pass");
+		return pass;
+	}
+	async #implementationWorkspace(a: RoleAssignment) {
+		const current = this.#assignment(a.id);
+		if (
+			!current ||
+			current.status !== "running" ||
+			!current.executing ||
+			current.generation !== a.generation ||
+			current.attempt !== a.attempt ||
+			current.executorEpoch !== this.#ledger!.status().executorEpoch
+		)
+			throw new Error("Implementation execution authority is no longer current");
+		const check = this.#config.ownedChecks!.checks[a.packet.profile]!;
+		const previous = this.#workspaces.get(a.id);
+		if (previous && !previous.sealed) return previous;
+		let source = previous?.source;
+		if (!source) {
+			const pass = this.#implementationPass(a);
+			if (pass.workspace) {
+				const read = await this.#ledger!.artifact(scheduling, { read: pass.workspace });
+				if (!("content" in read)) throw new Error(`Restore exact workspace source ${pass.workspace}`);
+				const receipt = (JSON.parse(read.content.toString()) as { source: SourceReceipt }).source;
+				await this.#effects!.reconcile(receipt);
+				source = receipt.source;
+			} else source = await this.#effects!.perform({ type: "resolve", repository: check.repository, commit: check.commit });
+		}
+		this.#implementationAdmitted.add(a.id);
+		let handle: SandboxHandle;
+		try {
+			handle = await this.#sandboxes!.prepare(this.#scope(a), check.profile, previous ? { source, after: previous.handle } : source);
+		} catch (error) {
+			if (error instanceof SandboxInputRefusal && !previous) this.#implementationAdmitted.delete(a.id);
+			throw error;
+		}
+		const workspace = { handle, source, sealed: false };
+		this.#workspaces.set(a.id, workspace);
+		return workspace;
+	}
+	async #sealImplementation(a: RoleAssignment): Promise<SourceReceipt> {
+		const workspace = this.#workspaces.get(a.id);
+		if (!workspace) throw new Error("No current implementation workspace to capture");
+		const capture = await this.#sandboxes!.seal(workspace.handle);
+		const receipt = await this.#effects!.perform({ type: "retain", base: workspace.source, capture });
+		await this.#effects!.reconcile(receipt);
+		workspace.source = receipt.source;
+		workspace.sealed = true;
+		return receipt;
+	}
+	async #recordImplementationSource(
+		a: RoleAssignment,
+		kind: "audit" | "final" | "checkpoint",
+		source: SourceReceipt,
+		verification?: CatalogEvidence,
+	) {
+		const text = JSON.stringify({ schema: 1, source, ...(verification ? { verification } : {}) });
+		const reply = await this.#ledger!.command(
+			{
+				version: 1,
+				authorityEpoch: this.#ledger!.status().authorityEpoch,
+				commandId: `implementation-source:${a.id}:${kind}:${createHash("sha256").update(text).digest("hex")}`,
+				workflow: a.workflow,
+				command: { type: "recordImplementationSource", assignment: a.id, generation: a.generation, attempt: a.attempt, kind, text },
+			},
+			mintContext({ kind: "host", scope: "effects" }),
+		);
+		if (reply.status !== "accepted") throw new Error(`Source retention refused: ${reply.reason}`);
+		return reply;
+	}
+	async #captureImplementation(a: RoleAssignment, kind: "audit" | "final") {
+		await this.#implementationWorkspace(a);
+		const captured = await this.#sealImplementation(a);
+		// Preserve progress even when the selected verifier is missing or its execution fails.
+		await this.#recordImplementationSource(a, "checkpoint", captured);
+		const selected = a.packet.verification!;
+		const entry = captured.source.entries.find((e) => e.path === selected.path && e.mode !== "120000");
+		if (!entry) throw new Error(`Bootstrap the selected verification asset ${selected.path} as accepted source work before capture`);
+		const digest = createHash("sha256").update(Buffer.from(entry.content, "base64")).digest("hex");
+		const catalog = selectCatalog(captured.source, { ...selected, commit: captured.source.commit, digest, receipts: [] });
+		const workspace = await this.#implementationWorkspace(a);
+		const run = async (argv: string[]) => {
+			const result = await this.#sandboxes!.execute(workspace.handle, {
+				scope: this.#scope(a),
+				argv,
+				timeoutMs: this.#config.ownedChecks!.checks[a.packet.profile]!.timeoutMs,
+				verifierRevision: digest,
+			});
+			await this.#diagnostic(a, this.#scope(a), workspace.source, result);
+			return result;
+		};
+		const { results, cleanup } = await this.#catalogResults(a, catalog, run);
+		const checked = await this.#sealImplementation(a);
+		const verification: CatalogEvidence = {
+			kind: "catalog-check",
+			role: "implementer",
+			catalog,
+			results,
+			cleanup,
+			verification: {
+				inputCommit: captured.source.commit,
+				inputTree: captured.source.tree,
+				resultTree: checked.source.tree,
+				status:
+					captured.source.tree !== checked.source.tree
+						? "source_changed"
+						: cleanup.status === "complete" &&
+								requiredCatalogRows(catalog.selection).every((name) => results.some((r) => r.name === name && r.status === "completed"))
+							? "needs_assessment"
+							: "non-pass",
+			},
+		};
+		return this.#recordImplementationSource(a, kind, checked, verification);
+	}
+	async #catalogResults(a: RoleAssignment, catalog: SelectedCatalog, run: (argv: string[]) => Promise<ExecutionResult>) {
+		const results: CatalogResult[] = [];
+		for (const row of catalog.rows) {
+			const result: CatalogResult = { name: row.name, status: row.kind === "human" ? "advisory" : "completed", steps: [] };
+			if (row.kind !== "human") {
+				for (const command of row.journey?.steps ?? [row.run]) result.steps.push(await run(["sh", "-c", command]));
+				if (row.journey) result.sanity = await run(["sh", "-c", row.journey.sanity]);
+				const actual = [...result.steps, ...(result.sanity ? [result.sanity] : [])];
+				if (actual.some((r) => r.exitCode === 126 || r.exitCode === 127)) result.status = "unrun";
+				else if (actual.some((r) => r.exitCode !== 0 || r.timedOut)) result.status = "failed";
+			}
+			results.push(result);
+		}
+		await this.#retainDiagnostic(
+			a.workflow,
+			this.#scope(a),
+			JSON.stringify({ schema: 1, kind: "catalog-results", catalog, results, cleanup: "pending", verification: "unaccepted" }),
+		);
+		const cleanup: CatalogEvidence["cleanup"] = { status: "complete", results: [] };
+		for (const command of catalog.cleanup) cleanup.results.push(await run(["sh", "-c", command]));
+		if (cleanup.results.some((r) => r.exitCode !== 0 || r.timedOut)) cleanup.status = "pending";
+		return { results, cleanup };
+	}
+	async #quiesceImplementation(a: RoleAssignment) {
+		try {
+			const workspace = this.#workspaces.get(a.id);
+			if (workspace && !workspace.sealed) {
+				const source = await this.#sealImplementation(a);
+				await this.#recordImplementationSource(a, "checkpoint", source);
+			}
+			if (!workspace && this.#implementationAdmitted.has(a.id)) await this.#sandboxes!.stop({ scope: this.#scope(a) });
+			await this.#command(this.#assignment(a.id)!, {
+				type: "recordQuiescence",
+				providerIdle: true,
+				environment: workspace || this.#implementationAdmitted.has(a.id) ? "stopped" : "absent",
+				effects: "reconciled",
+			});
+		} catch (error) {
+			await this.#command(this.#assignment(a.id)!, {
+				type: "recordBlocker",
+				reason: `implementation_quiescence_unconfirmed: ${error}`.slice(0, 1900),
+			});
+		}
+	}
 	async #ownedCheck(a: RoleAssignment): Promise<void> {
 		const check = this.#config.ownedChecks!.checks[a.packet.profile]!;
 		this.#ownedActive.add(a.id);
@@ -941,37 +1292,10 @@ export class Engine {
 				return execution;
 			};
 			let execution: ExecutionResult | undefined;
-			const results: CatalogResult[] = [];
-			const cleanup: { status: "complete" | "pending"; results: ExecutionResult[] } = { status: "complete", results: [] };
-			if (catalog) {
-				// Decisive results are committed before cleanup can remove any owned fixture bytes.
-				for (const row of catalog.rows) {
-					const result: CatalogResult = { name: row.name, status: row.kind === "human" ? "advisory" : "completed", steps: [] };
-					if (row.kind !== "human") {
-						for (const command of row.journey?.steps ?? [row.run]) result.steps.push(await run(["sh", "-c", command]));
-						if (row.journey) result.sanity = await run(["sh", "-c", row.journey.sanity]);
-						const actual = [...result.steps, ...(result.sanity ? [result.sanity] : [])];
-						if (actual.some((r) => r.exitCode === 126 || r.exitCode === 127)) result.status = "unrun";
-						else if (actual.some((r) => r.exitCode !== 0 || r.timedOut)) result.status = "failed";
-					}
-					results.push(result);
-				}
-				await this.#retainDiagnostic(
-					a.workflow,
-					this.#scope(a),
-					JSON.stringify({
-						schema: 1,
-						kind: "catalog-results",
-						scope: this.#scope(a),
-						catalog,
-						results,
-						cleanup: "pending",
-						verification: "unaccepted",
-					}),
-				);
-				for (const command of catalog.cleanup) cleanup.results.push(await run(["sh", "-c", command]));
-				if (cleanup.results.some((r) => r.exitCode !== 0 || r.timedOut)) cleanup.status = "pending";
-			} else if ("argv" in check) execution = await run(check.argv);
+			const { results, cleanup } = catalog
+				? await this.#catalogResults(a, catalog, run)
+				: { results: [], cleanup: { status: "complete", results: [] } };
+			if (!catalog && "argv" in check) execution = await run(check.argv);
 			const capture = await this.#sandboxes!.seal(handle);
 			environment = "stopped";
 			const source = await this.#effects!.perform({ type: "retain", base, capture });
@@ -1149,18 +1473,33 @@ export class Engine {
 		if (reply.status !== "accepted") throw new Error(`Source retention refused: ${reply.reason}`);
 	}
 	#configurationBlocker(a: RoleAssignment): string | undefined {
-		// Never dispatch accepted implementation as the older one-shot owned-check playbook.
-		if (a.passRef) return "implementation_lifecycle_unavailable";
+		if (a.passRef) {
+			const check = this.#config.ownedChecks?.checks[a.packet.profile];
+			if (!check || !this.#sandboxes || !this.#effects || !a.packet.verification)
+				return "implementation_source_or_verifier_capability_unavailable";
+			if (check.repository !== a.packet.verification.repository || check.commit !== a.packet.verification.commit)
+				return "implementation_source_configuration_differs";
+			// Until intended-output exclusions are explicit, capture every non-Git file. Caches may exceed bounds; never silently drop deliverables.
+			if (JSON.stringify(check.profile.exclusions) !== '[".git"]') return "implementation_exclusion_profile_conflict";
+		}
 		if (a.packet.investigation && !this.#investigationEffects && !a.investigationSource)
 			return "investigation_source_capability_unavailable";
-		if (a.packet.execution === "linux-writer" && this.#config.ownedChecks)
+		if (a.packet.execution === "linux-writer" && !a.passRef && this.#config.ownedChecks)
 			return Object.hasOwn(this.#config.ownedChecks.checks, a.packet.profile) ? undefined : "owned_check_profile_unavailable";
 		if (!this.#config.apiKey) return "native_provider_configuration_missing";
-		if (a.packet.execution !== "read-only") return "sandbox_capability_unavailable";
+		if (a.packet.execution !== "read-only" && !a.passRef) return "sandbox_capability_unavailable";
 		if (this.#config.provider && this.#config.provider.id !== "anthropic") return "native_provider_required";
-		if (this.#config.families?.[a.packet.model] !== a.packet.family || a.packet.requiredFamily !== a.packet.family)
-			return "required_model_family_unavailable";
-		if (!this.#models.getModel(a.packet.provider, a.packet.model)) return "required_model_unavailable";
+		const packets = [
+			a.packet,
+			...(a.passRef
+				? a.packet.requests.filter((r) => ["audit-standards", "audit-contracts"].includes(r.packet.role)).map((r) => r.packet)
+				: []),
+		];
+		for (const packet of packets) {
+			if (this.#config.families?.[packet.model] !== packet.family || packet.requiredFamily !== packet.family)
+				return "required_model_family_unavailable";
+			if (!this.#models.getModel(packet.provider, packet.model)) return "required_model_unavailable";
+		}
 		return undefined;
 	}
 	async #command(a: RoleAssignment, command: Record<string, unknown>) {

@@ -286,7 +286,10 @@ test("implementation pass opening is atomic with ownership, scoped, exported and
 			"unrelated coordinator has no pass-private read grant",
 		);
 		await until(() => assignments().find((a) => a.id === opening.assignment)?.status === "blocked");
-		assert.equal(assignments().find((a) => a.id === opening.assignment)?.blocker, "implementation_lifecycle_unavailable");
+		assert.equal(
+			assignments().find((a) => a.id === opening.assignment)?.blocker,
+			"implementation_source_or_verifier_capability_unavailable",
+		);
 		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		assert.equal(Buffer.from(exported.content[opening.passRecord as string]!, "base64").toString(), record.content.toString());
