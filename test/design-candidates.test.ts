@@ -168,74 +168,157 @@ async function fixture(direction = true, change?: (packets: RolePacket[]) => voi
 	};
 }
 
-test("D1/D3 required alternatives precede synthesis and exact challenge; history survives restart", async () => {
-	const x = await fixture();
-	try {
-		const request = accepted(await x.request()).request as string;
-		assert.equal(code(await x.stage(request)), "missing_candidate_evidence", "required alternatives must precede synthesis");
-		const a = await x.start(request, 0);
-		assert.equal(code(await x.cmd({ type: "submitRoleResult", text: "I choose the winner", supports: [] }, a)), "invalid_content");
-		const ar = accepted(await x.cmd({ type: "submitRoleResult", text: answer("Compact interface"), supports: [] }, a)).report as string;
-		assert.equal(code(await x.stage(request, [ar])), "missing_candidate_evidence", "one answer cannot discharge competing alternatives");
-		const b = await x.start(request, 1);
-		const br = accepted(await x.cmd({ type: "submitRoleResult", text: answer("Independent boundaries"), supports: [] }, b))
-			.report as string;
-		assert.equal(code(await x.stage(request, [ar])), "missing_candidate_evidence", "synthesis must cite every required competing answer");
-		const staged = accepted(await x.stage(request, [ar, br]));
-		assert.equal(
-			code(await x.cmd({ type: "emitCheckpoint", request, review: ar, contested: [] })),
-			"review_required",
-			"candidates do not replace exact challenge",
-		);
-		const reviewerId = accepted(await x.cmd({ type: "requestCheckpointReview", request, key: "challenge" })).assignment;
-		await until(() => x.assignments().find((a) => a.id === reviewerId)?.status === "running");
-		const reviewer = x.assignments().find((a) => a.id === reviewerId)!;
-		const rendered = JSON.parse(await x.engine.render(reviewer));
-		assert.ok(rendered.inputs.some((v: { text: string }) => v.text === answer("Compact interface")));
-		const review = accepted(
-			await x.cmd(
-				{
-					type: "submitRoleResult",
-					supports: [],
-					text: JSON.stringify({
-						schema: 1,
-						emission: staged.emission,
-						manifest: staged.manifest,
-						annotations: 0,
-						checks: {
-							alternatives: "checked",
-							interactions: "checked",
-							scale: "checked",
-							usage: "checked",
-							incidentalChoices: "checked",
-							nearbyCopying: "checked",
+for (const mode of ["human", "delegated"] as const) {
+	test(`D1/D3 ${mode} routing retains required alternatives before synthesis, challenge and advancement`, async () => {
+		const x = await fixture();
+		try {
+			if (mode === "delegated") {
+				accepted(
+					await x.f.ledger.command(
+						{
+							version: 1,
+							authorityEpoch: x.f.ledger.status().authorityEpoch,
+							commandId: "delegate",
+							command: {
+								type: "changeCheckpointSettings",
+								expectedRevision: "settings:initial",
+								modes: { seams: "delegated", modules: "human", proposal: "human" },
+							},
 						},
-						objections: [],
-					}),
-				},
-				reviewer,
-			),
-		).report;
-		accepted(await x.cmd({ type: "emitCheckpoint", request, review, contested: [] }));
-		accepted(await x.cmd({ type: "submitRoleResult", text: "Comparison complete; human approval pending", supports: [] }));
-		x.release();
-		await until(() => x.assignments().every((a) => !a.executing));
-		await x.f.reopen();
-		for (const [ref, expected] of [
-			[ar, answer("Compact interface")],
-			[br, answer("Independent boundaries")],
-		]) {
-			const value = await x.f.ledger.artifact(admin, { read: ref! });
-			assert.ok("content" in value);
-			assert.equal(value.content.toString(), expected);
+						admin,
+					),
+				);
+			}
+			const request = accepted(await x.request()).request as string;
+			assert.equal(code(await x.stage(request)), "missing_candidate_evidence", "required alternatives must precede synthesis");
+			const a = await x.start(request, 0);
+			assert.equal(code(await x.cmd({ type: "submitRoleResult", text: "I choose the winner", supports: [] }, a)), "invalid_content");
+			const ar = accepted(await x.cmd({ type: "submitRoleResult", text: answer("Compact interface"), supports: [] }, a)).report as string;
+			assert.equal(code(await x.stage(request, [ar])), "missing_candidate_evidence", "one answer cannot discharge competing alternatives");
+			const b = await x.start(request, 1);
+			const br = accepted(await x.cmd({ type: "submitRoleResult", text: answer("Independent boundaries"), supports: [] }, b))
+				.report as string;
+			assert.equal(code(await x.stage(request, [ar])), "missing_candidate_evidence", "synthesis must cite every required competing answer");
+			const staged = accepted(await x.stage(request, [ar, br]));
+			assert.equal(
+				code(await x.cmd({ type: "emitCheckpoint", request, review: ar, contested: [] })),
+				"review_required",
+				"candidates do not replace exact challenge",
+			);
+			const reviewerId = accepted(await x.cmd({ type: "requestCheckpointReview", request, key: "challenge" })).assignment;
+			await until(() => x.assignments().find((a) => a.id === reviewerId)?.status === "running");
+			const reviewer = x.assignments().find((a) => a.id === reviewerId)!;
+			const rendered = JSON.parse(await x.engine.render(reviewer));
+			assert.ok(rendered.inputs.some((v: { text: string }) => v.text === answer("Compact interface")));
+			const review = accepted(
+				await x.cmd(
+					{
+						type: "submitRoleResult",
+						supports: [],
+						text: JSON.stringify({
+							schema: 1,
+							emission: staged.emission,
+							manifest: staged.manifest,
+							annotations: 0,
+							checks: {
+								alternatives: "checked",
+								interactions: "checked",
+								scale: "checked",
+								usage: "checked",
+								incidentalChoices: "checked",
+								nearbyCopying: "checked",
+							},
+							objections: [],
+							delegation: {
+								agreedScopeRef: x.ground,
+								reason: "Technical boundaries within Ground",
+								unresolvedProduct: [],
+								scopeChanges: [],
+								humanDecisions: [],
+							},
+						}),
+					},
+					reviewer,
+				),
+			).report;
+			accepted(await x.cmd({ type: "emitCheckpoint", request, review, contested: [] }));
+			if (mode === "delegated") {
+				const frame = x.f.ledger.snapshot(admin) as Frame;
+				const checkpoints = (frame.workflows as { checkpoints: Checkpoints }[])[0]!.checkpoints;
+				const captured = checkpoints.requests.find((r) => r.id === request)!;
+				const command = {
+					type: "advanceDelegatedCheckpoint" as const,
+					workflow: "workflow:2",
+					request,
+					emission: captured.emission!,
+					manifest: captured.manifest!,
+					annotations: captured.annotations,
+					policyBinding: captured.policyBinding,
+					decisions: { N1: "separate" },
+					nonbinding: [],
+				};
+				const reviewBytes = await x.f.ledger.artifact(admin, { read: review as string });
+				assert.ok("content" in reviewBytes);
+				for (const status of ["submitted", "blocked", "canceled"] as const) {
+					const assignments = structuredClone(x.assignments());
+					assignments.find((v) => v.id === a.id)!.status = status;
+					const decision = change(
+						{
+							workflow: { id: "workflow:2", messageCount: 0 },
+							document: null,
+							device: null,
+							checkpoints,
+							roleWork: { assignments },
+							policy: frame.policy as KernelState["policy"],
+						},
+						command,
+						{
+							principal: {
+								kind: "assignment-agent",
+								assignment: x.parent.id,
+								generation: 1,
+								attempt: x.parent.attempt,
+								role: "coordinator",
+							},
+							executorEpoch: x.parent.executorEpoch!,
+							sequence: 1000,
+							ids: { fact: "fact:1000" },
+							checkpointInputs: {
+								[ar]: { text: answer("Compact interface"), human: false, document: "role-report/A" },
+								[br]: { text: answer("Independent boundaries"), human: false, document: "role-report/B" },
+								[review as string]: { text: reviewBytes.content.toString(), human: false, document: "role-report/review" },
+							},
+						},
+					);
+					assert.equal(
+						decision.outcome === "refused" ? decision.code : decision.outcome,
+						status === "submitted" ? "accepted" : "missing_candidate_evidence",
+						"delegated advancement must retain required candidate completion checks",
+					);
+				}
+				assert.equal(code(await x.cmd(command, a)), "forbidden_scope", "candidates cannot accept a winner via delegation");
+				accepted(await x.cmd(command));
+			}
+			accepted(await x.cmd({ type: "submitRoleResult", text: "Comparison complete", supports: [] }));
+			x.release();
+			await until(() => x.assignments().every((a) => !a.executing));
+			await x.f.reopen();
+			for (const [ref, expected] of [
+				[ar, answer("Compact interface")],
+				[br, answer("Independent boundaries")],
+			]) {
+				const value = await x.f.ledger.artifact(admin, { read: ref! });
+				assert.ok("content" in value);
+				assert.equal(value.content.toString(), expected);
+			}
+			const exported = await x.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			assert.ok("manifest" in exported && exported.manifest.complete);
+			assert.ok(exported.jsonl.includes(ar) && exported.jsonl.includes(br) && exported.jsonl.includes(request));
+		} finally {
+			await x.close();
 		}
-		const exported = await x.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
-		assert.ok("manifest" in exported && exported.manifest.complete);
-		assert.ok(exported.jsonl.includes(ar) && exported.jsonl.includes(br) && exported.jsonl.includes(request));
-	} finally {
-		await x.close();
-	}
-});
+	});
+}
 
 test("D1/D2 candidates receive own inputs and cannot name foreign artifacts or gain checkpoint authority", async () => {
 	const x = await fixture();

@@ -22,6 +22,11 @@ names that checkpoint; unbound work and another checkpoint's answers cannot coun
 | Required report bytes missing/corrupt | exact-ref restore request; no newer-byte substitution | Ledger |
 | Restart | Same assignment context resumes; complete outputs and request bindings remain exportable | Engine / Ledger |
 | All required answers complete | Synthesis may stage; exact-emission independent challenge still required | Ledger journey |
+| Captured delegated routing with required candidates | Same synthesis/challenge barriers; only current coordinator may advance after exact review | Ledger journey |
+| Delegated advancement with blocked/canceled required candidate | `missing_candidate_evidence`; no acceptance, even with ready exact review | Kernel with retained journey state |
+| Candidate attempts delegated advancement | `forbidden_scope`; no winner authority | Ledger |
+
+Integration regression cases above were added before resolving the checkpoint-routing merge. The delegated journey retains/export/reopens both answers as the human-routed journey does. Omitting delegated advancement from the required-evidence guard must fail the literal Kernel assertion.
 
 Unsafe controls: allow foreign artifact reads; bypass required completion. The
 assertion must detect the intended wrong behavior, not a setup/import failure.
