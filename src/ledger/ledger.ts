@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId, EntryId, Harness, Tx } from "@earendil-works/pi-durable";
 import { treeOid, validateEntries } from "../effects/source.ts";
+import { type PromptInput, renderLocalVerification } from "../engine/local-verification.ts";
 import type { RoleTaskStaging } from "../engine/runtime.ts";
 import type { WebWorking } from "../engine/web.ts";
 import { candidateEvidence } from "../kernel/candidates.ts";
@@ -335,6 +336,7 @@ export class Ledger {
 		if (
 			[
 				"createWorkflow",
+				"requestLocalVerificationPrompt",
 				"adoptPolicy",
 				"assignTask",
 				"replaceTask",
@@ -367,7 +369,35 @@ export class Ledger {
 				throw new Abort(refusal("content_corrupt", `Settings ${checkpointSettings.currentRevision} differ from retained source.`));
 		}
 		const checkpointInputs: Record<string, CheckpointInput> = {};
+		const promptInputs: PromptInput[] = [];
 		let requiredInputs: string[] = [];
+		if (command.type === "requestLocalVerificationPrompt") {
+			const scoped = roles.assignments.filter((a) => a.workflow === env.workflow);
+			// Resolve existing retained state, not caller-supplied prose or live Git/Forge data.
+			requiredInputs = [
+				...new Set(
+					[
+						(command as { source: string }).source,
+						...Object.values(workflow?.exists ? workflow.documents : {}).map((d) => d.revision),
+						...scoped.flatMap((a) => [...packetRefs(plain(a.packet)), a.report, a.investigationSource, ...(a.evidence ?? [])]),
+						...intakes.slices.map((s) => s.contract),
+						...intakes.drafts.flatMap((d) => [
+							d.id,
+							d.manifestRef,
+							d.acceptance,
+							d.manifest.ground,
+							d.manifest.catalog,
+							...d.manifest.sources,
+							...d.manifest.decisions,
+							...d.manifest.slices.flatMap((s) => s.obligations.flatMap((o) => o.sources.map((r) => r.ref))),
+						]),
+						...intakes.concerns.map((c) => c.revision),
+						...checkpoints.requests.flatMap((r) => [r.scope, r.emission, r.manifest, r.review, r.approved, r.decision]),
+						...checkpoints.concerns.map((c) => c.revision),
+					].filter((ref): ref is string => typeof ref === "string"),
+				),
+			];
+		}
 		if (INTAKE_COMMANDS.includes(command.type)) {
 			const intake = command as IntakeCommand;
 			requiredInputs = intakeRefs(intakes, intake, checkpoints);
@@ -517,6 +547,47 @@ export class Ledger {
 			const unsupported = unsupportedRecordSchema(entry.data.schema, ref);
 			if (unsupported) throw new Abort(unsupported);
 			checkpointInputs[ref] = { text: entry.data.text, human: entry.data.createdBy.principal === "human", document: entry.data.document };
+			if (command.type === "requestLocalVerificationPrompt") {
+				const owner = roles.assignments.find((a) => a.workflow === env.workflow && a.id === entry.data.roleBinding?.assignment);
+				const trusted = entry.data.createdBy.principal === "host";
+				promptInputs.push({
+					ref,
+					document: entry.data.document,
+					digest: entry.data.digest,
+					text: entry.data.text,
+					provenance:
+						trusted && owner?.investigationSource === ref && entry.data.document === `investigation-source/${owner.id}`
+							? "source observation"
+							: trusted && owner?.report === ref && entry.data.document === `owned-check/${owner.id}`
+								? "runner observation"
+								: "retained assertion",
+				});
+			}
+		}
+		if (command.type === "requestLocalVerificationPrompt" && workflow?.exists) {
+			let cursor: Parameters<typeof tx.scanEntries>[2];
+			let count = 0;
+			for (;;) {
+				const page = await tx.scanEntries({ conversationId: workflow.conversation as ConversationId, order: "ascending" }, 200, cursor);
+				for (const entry of page.items) {
+					if (entry.kind !== MessageEntry.kind) continue;
+					const data = entry.data as Record<string, unknown>;
+					const message = messageArtifact(String(data.message), workflow.id, data);
+					if ("status" in message) throw new Abort(message);
+					promptInputs.push({
+						ref: message.artifact,
+						document: "coordinator-message",
+						digest: message.digest,
+						text: message.content.toString("utf8"),
+						provenance: "retained assertion",
+					});
+					count++;
+				}
+				if (!page.next) break;
+				cursor = page.next;
+			}
+			if (count !== workflow.messageCount)
+				throw new Abort(refusal("missing_content", `Restore exact coordinator messages for ${workflow.id}.`));
 		}
 		let document: KernelState["document"] = null;
 		if (command.type === "saveDocument" && workflow?.exists) {
@@ -1121,6 +1192,39 @@ export class Ledger {
 						messageCount: 0,
 					});
 					meta.workflows.push(write.workflow);
+					break;
+				}
+				case "local-prompt.retain": {
+					let prompt: string;
+					try {
+						prompt = renderLocalVerification({
+							workflow: env.workflow!,
+							sequence: sequence - 1,
+							source: (command as { source: string }).source,
+							policyBinding: bindingFor(policy, env.workflow!).revision,
+							intakes,
+							checkpoints,
+							inputs: promptInputs,
+						});
+					} catch (error) {
+						throw new Abort(
+							refusal(
+								"missing_content",
+								`Restore exact source observation ${(command as { source: string }).source}: ${error instanceof Error ? error.message : String(error)}`,
+							),
+						);
+					}
+					await this.#retainRoleText(
+						tx,
+						env,
+						by,
+						sequence,
+						write.revision,
+						`local-verification-prompt/${sequence}`,
+						prompt,
+						undefined,
+						"text/markdown",
+					);
 					break;
 				}
 				case "revision.append": {

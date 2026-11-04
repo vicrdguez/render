@@ -1,0 +1,15 @@
+# Local verification prompt — preimplementation oracles
+
+The command uses the observed Ledger sequence as its exact read basis, plus an explicit retained source-observation ref. A changed snapshot requires a fresh request; retrying an already accepted command retains the original receipt. Older source can be deliberately selected against a fresh snapshot. This conservative snapshot basis does not grant execution authority.
+
+| Case | Observable expectation / wrong behavior detected |
+|---|---|
+| LP1 | Two enrolled HTTP clients request the same exact source/basis. The first request retains one copyable artifact; cross-device retry of its command ID returns the original receipt. A new request on the old sequence refuses `stale_basis`, without an artifact or sequence change. |
+| LP2 | Agent, scheduling/effects host, revoked device and foreign-workflow device requests refuse before source reads/generation. Invented/human-forged source documents cannot become trusted source observations. |
+| LP3 | Actual Git-backed retained source names repository, commit and tree; cited setup/task bytes survive unchanged. Unpublished/unavailable publication is explicit. A human release offer remains an unverified assertion, with unknown mapping and no exact-source pass; branches alone cannot establish source identity. |
+| LP4 | Accepted Proposal/Contract refs, decisions, annotations and findings are retained inputs, not regenerated prose. Trusted Linux receipts are distinguished from human/agent claims. OS/CPU, verifier, actual results and limits are quoted, never promoted to macOS evidence. Missing commands, credentials, fixtures, permissions and signing prerequisites stop local work. |
+| LP5 | Prompt text requires identity first, a human-chosen non-live clone/installation, available tasks/tools, expected/observed reporting and optional redacted evidence; it forbids automatic main merge and automatic import. No task, source mutation, result completion or authority change follows generation or non-completion. |
+| LP6 | New request yields a different artifact. After input/source changes and same-store reopen, old text and receipt remain exact in scoped history/export. Missing, corrupt or unknown-schema required bytes refuse with exact restoration refs; newer content cannot stand in. |
+| LP7 | Available V8 chain is real source observation → retained findings → authenticated prompt → message feedback → regeneration/export/reopen. Five-answer handover is unchanged by advice. Ready/integration/verified-release producers and full delivery journeys are absent; do not simulate them into a pass. Advisory no-gate control checks unchanged existing authority/assignments; ready/merge composition remains an explicit later-capability gap. |
+
+Write interface checks before product changes. Unsafe controls must fail the named assertion for stale-basis acceptance and false Linux/Mac equivalence, not fail from setup. Keep lightweight Git/SQLite/HTTP cases in the default selection; add a real Linux receipt extension at the existing container seam. Raw output/timings stay outside source.

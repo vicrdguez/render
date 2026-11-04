@@ -109,7 +109,7 @@ describe("B1 authority precedes disclosure (literal cases)", () => {
 		assert.equal(list.find((d) => d.device === b.device)?.revoked, false);
 	});
 
-	test("B1-07/B1-08 unknown and unavailable commands never succeed", async () => {
+	test("B1-07/B1-08 unknown and incomplete commands never succeed", async () => {
 		const unknown = await http(host.url, "POST", "/v1/commands", { bearer: a.bearer, body: envelope(epoch, { type: "dropTables" }) });
 		assert.equal(unknown.status, 400);
 		assert.equal(unknown.body.code, "unknown_command");
@@ -117,8 +117,8 @@ describe("B1 authority precedes disclosure (literal cases)", () => {
 			bearer: a.bearer,
 			body: envelope(epoch, { type: "requestLocalVerificationPrompt" }, { workflow: w1 }),
 		});
-		assert.equal(future.status, 501);
-		assert.equal(future.body.code, "capability_unavailable");
+		assert.equal(future.status, 400);
+		assert.equal(future.body.code, "malformed_envelope");
 	});
 
 	test("B1-09 a second device retrying the original ID and bytes receives the original receipt", async () => {

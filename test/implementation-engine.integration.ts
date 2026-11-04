@@ -567,6 +567,7 @@ test("two-pass journey: real conflict against T1 opens P2 from T1 with its own f
 		const retained = join(
 			t.f.source.root,
 			"catalog-owned",
+			"effects",
 			createHash("sha256").update(receipt.source.repository).digest("hex"),
 			"source.git",
 		);

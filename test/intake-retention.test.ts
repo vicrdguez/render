@@ -9,8 +9,9 @@ import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { deviceServer } from "../src/ledger/http.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
-import { until } from "./support/investigation.ts";
+import { finding, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
 import { admin, allowSameFamily, packet, roleFixture } from "./support/roles.ts";
+import { git, gitSourceFixture } from "./support/source.ts";
 
 function accepted(reply: CommandReply) {
 	assert.equal(reply.status, "accepted", JSON.stringify(reply));
@@ -20,7 +21,7 @@ function accepted(reply: CommandReply) {
 function code(reply: CommandReply) {
 	return reply.status === "refused" ? reply.code : reply.status;
 }
-async function fixture(shape: "bug" | "design" = "bug") {
+async function fixture(shape: "bug" | "design" = "bug", investigations?: { root: string; repositories: Record<string, string> }) {
 	const gate = Promise.withResolvers<void>();
 	const provider = fauxProvider({
 		provider: "anthropic",
@@ -31,6 +32,16 @@ async function fixture(shape: "bug" | "design" = "bug") {
 	provider.setResponses(
 		Array.from({ length: 30 }, () => async (transcript: { messages: { role: string; content: unknown }[] }) => {
 			const prompt = JSON.parse(transcript.messages.filter((m) => m.role === "user").at(-1)!.content as string);
+			if (prompt.packet.investigation) {
+				const source = prompt.inputs.find((i: { text: string }) => i.text.includes('"kind":"investigation-source"'));
+				return fauxAssistantMessage(
+					fauxToolCall("submit_role_result", {
+						text: JSON.stringify(finding(source.ref, prompt.packet.investigation.ground)),
+						supports: [],
+					}),
+					{ stopReason: "toolUse" },
+				);
+			}
 			if (prompt.packet.role === "coordinator") {
 				await gate.promise;
 				return fauxAssistantMessage("paused");
@@ -79,7 +90,12 @@ async function fixture(shape: "bug" | "design" = "bug") {
 		}),
 	);
 	const f = await roleFixture(
-		new Engine({ provider: provider.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }),
+		new Engine({
+			provider: provider.provider,
+			apiKey: "owned-fixture",
+			families: { "claude-sonnet-4-6": "claude" },
+			...(investigations ? { investigations } : {}),
+		}),
 	);
 	await allowSameFamily(f.ledger);
 	let n = 0;
@@ -310,8 +326,9 @@ test("implementation pass opening is atomic with ownership, scoped, exported and
 	}
 });
 
-test("F4 one coordinator continues approved Seams and Modules into exact fresh intake fidelity", async () => {
-	const t = await fixture("design");
+test("F4 one coordinator continues approved Seams and Modules into exact fresh intake fidelity and advisory history", async () => {
+	const source = await gitSourceFixture(sourceFiles);
+	const t = await fixture("design", { root: join(source.root, "investigation"), repositories: { owned: source.repo } });
 	try {
 		const decisions: string[] = [],
 			manifests: string[] = [];
@@ -397,8 +414,61 @@ test("F4 one coordinator continues approved Seams and Modules into exact fresh i
 			assert.ok(reviewer.packet.inputs.includes(ref), "fidelity must receive each exact approved typed manifest");
 		accepted(await t.f.command({ type: "acceptIntake", ...t.basis(draft, review) }, admin));
 		assert.equal(t.state().slices[0]!.status, "accepted");
+		const ground = await saveGround(t.f.ledger, undefined, t.ground, "local-investigation-ground");
+		const tree = git(source.repo, ["rev-parse", `${source.commit}^{tree}`])
+			.toString()
+			.trim();
+		const nextCommit = git(source.repo, ["commit-tree", tree, "-p", source.commit], "Second retained exact source\n").toString().trim();
+		const prompts: { artifact: string; text: string; source: string }[] = [];
+		for (const commit of [source.commit, nextCommit]) {
+			const assigned = accepted(
+				await t.f.command({ type: "assignTask", slice: `local-${commit}`, delivery: false, packet: investigationPacket(ground, commit) }),
+			);
+			const assignments = () => (t.f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[];
+			await until(
+				() =>
+					assignments().find((a) => a.id === assigned.assignment)?.status === "submitted" &&
+					!assignments().find((a) => a.id === assigned.assignment)?.executing,
+			);
+			const observation = assignments().find((a) => a.id === assigned.assignment)!.investigationSource!;
+			const response = await t.f.command(
+				{ type: "requestLocalVerificationPrompt", source: observation, expectedSequence: t.f.ledger.status().sequence },
+				admin,
+			);
+			assert.equal(response.status, "accepted", "accepted design prose must not be treated as an artifact reference");
+			const artifact = String(accepted(response).textArtifact);
+			const read = await t.f.ledger.artifact(admin, { read: artifact });
+			assert.ok("content" in read);
+			const text = read.content.toString();
+			for (const literal of [
+				commit,
+				t.state().slices[0]!.contract,
+				draft,
+				...decisions,
+				"One bounded read module",
+				"Return exact saved bytes.",
+				"Keep the read seam",
+			])
+				assert.ok(text.includes(literal), `prompt must retain exact accepted input ${literal}`);
+			prompts.push({ artifact, text, source: observation });
+		}
+		assert.notEqual(prompts[0]!.artifact, prompts[1]!.artifact);
+		assert.notEqual(prompts[0]!.source, prompts[1]!.source);
+		assert.ok(!prompts[0]!.text.includes(nextCommit), "old prompt must never be rewritten to the new source");
+		await t.reopen();
+		const older = accepted(
+			await t.f.command(
+				{ type: "requestLocalVerificationPrompt", source: prompts[0]!.source, expectedSequence: t.f.ledger.status().sequence },
+				admin,
+			),
+		);
+		assert.notEqual(older.textArtifact, prompts[0]!.artifact, "fresh request may explicitly select older retained source");
+		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in exported && exported.manifest.complete);
+		for (const p of prompts) assert.equal(Buffer.from(exported.content[p.artifact]!, "base64").toString(), p.text);
 	} finally {
 		await t.close();
+		await source.close();
 	}
 });
 
