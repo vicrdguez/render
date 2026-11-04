@@ -296,8 +296,9 @@ for (const mode of ["human", "delegated"] as const) {
 						"delegated advancement must retain required candidate completion checks",
 					);
 				}
-				assert.equal(code(await x.cmd(command, a)), "forbidden_scope", "candidates cannot accept a winner via delegation");
-				accepted(await x.cmd(command));
+				const { workflow: _workflow, ...ledgerCommand } = command;
+				assert.equal(code(await x.cmd(ledgerCommand, a)), "forbidden_scope", "candidates cannot accept a winner via delegation");
+				accepted(await x.cmd(ledgerCommand));
 			}
 			accepted(await x.cmd({ type: "submitRoleResult", text: "Comparison complete", supports: [] }));
 			x.release();

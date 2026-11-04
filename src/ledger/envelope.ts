@@ -1,6 +1,7 @@
 // Strict parsing of the version-1 command envelope (docs/protocol.md). Unknown fields are refused so that no
 // body field can pose as a principal, route or capability.
 import { createHash } from "node:crypto";
+import { validCheckpointModes } from "../kernel/checkpoint-settings.ts";
 import { CHECKPOINT_COMMANDS, type CheckpointCommand } from "../kernel/checkpoints.ts";
 import { type Command, isAvailableCommand, type MediaType, type Persistence } from "../kernel/kernel.ts";
 
@@ -99,6 +100,12 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 	if (CHECKPOINT_COMMANDS.includes(type)) return { command: checkpointCommand(type, c, workflow as string) };
 	if (ROLE_COMMANDS.includes(type)) return { command: roleCommand(type, c, workflow as string) };
 	switch (type) {
+		case "changeCheckpointSettings":
+		case "importCheckpointSettings":
+			only(c, ["type", "expectedRevision", "modes"], "command");
+			if (!validCheckpointModes(c.modes))
+				malformed("Settings require seams/modules human|delegated and proposal human, with no extra fields");
+			return { command: { type, expectedRevision: text(c.expectedRevision, "expectedRevision", 128), modes: c.modes } };
 		case "changePolicy": {
 			only(c, ["type", "expectedRevision", "policy"], "command");
 			const p = object(c.policy, "policy");
@@ -184,6 +191,7 @@ function checkpointCommand(type: string, c: Fields, workflow: string): Checkpoin
 		reworkCheckpoint: ["request"],
 		saveCheckpointConcern: ["request", "base", "text", "kind"],
 		approveCheckpoint: ["request", "emission", "manifest", "annotations", "policyBinding", "decisions", "nonbinding"],
+		advanceDelegatedCheckpoint: ["request", "emission", "manifest", "annotations", "policyBinding", "decisions", "nonbinding"],
 		cancelCheckpoint: ["request", "expectedEmission", "reason"],
 	};
 	only(c, ["type", ...fields[type]!], "checkpoint command");
@@ -213,7 +221,7 @@ function checkpointCommand(type: string, c: Fields, workflow: string): Checkpoin
 			for (const k of ["objection", "disposition", "reason", "resulting"]) text(r[k], k, 65536);
 		}
 	}
-	if (type === "approveCheckpoint") {
+	if (type === "approveCheckpoint" || type === "advanceDelegatedCheckpoint") {
 		text(c.manifest, "manifest", 128);
 		if (!Number.isSafeInteger(c.annotations) || Number(c.annotations) < 0) malformed("annotations must be a nonnegative revision");
 		const decisions = object(c.decisions, "decisions");

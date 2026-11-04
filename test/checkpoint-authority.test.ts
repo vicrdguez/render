@@ -292,6 +292,99 @@ test("V1 checkpoint exact-basis seeded save/approval schedules preserve every co
 	}
 });
 
+test("S11 V1 10000 routing captures survive defaults, replacement coordinators and all principals", () => {
+	for (let seed = 0; seed < 10000; seed++) {
+		const mode = seeded(seed + 71)() < 0.5 ? "human" : "delegated";
+		const other = mode === "human" ? "delegated" : "human";
+		const state: KernelState = {
+			workflow: { id: "workflow:1", messageCount: 0 },
+			document: null,
+			device: null,
+			checkpointSettings: { currentRevision: "settings:7", modes: { seams: mode, modules: mode, proposal: "human" } },
+			roleWork: {
+				assignments: [assignment("coordinator", "coordinator", ["ground:1"]), assignment("replacement", "coordinator", ["ground:1"])],
+			},
+		};
+		const command = {
+			type: "requestCheckpoint",
+			workflow: "workflow:1",
+			stage: "seams",
+			scope: "ground:1",
+			required: { candidates: false, experiment: false },
+		};
+		const first = change(state, command, facts);
+		assert.equal(first.outcome, "accepted");
+		if (first.outcome !== "accepted") continue;
+		const captured = first.writes.find((w) => w.type === "checkpoints.replace");
+		assert.ok(captured?.type === "checkpoints.replace");
+		assert.equal(captured.state.requests[0]!.mode, mode);
+		assert.equal(captured.state.requests[0]!.checkpointSettingsRevision, "settings:7");
+		assert.equal(captured.state.requests[0]!.agreedScopeRef, "ground:1");
+		const next: KernelState = {
+			...state,
+			checkpoints: captured.state,
+			checkpointSettings: { currentRevision: "settings:8", modes: { seams: other, modules: other, proposal: "human" } },
+		};
+		for (const principal of [
+			facts.principal,
+			{ kind: "assignment-agent", assignment: "replacement", generation: 1, attempt: "attempt:replacement", role: "coordinator" },
+			{ kind: "human", human: "human:owner", route: "local-admin" },
+			{ kind: "host", scope: "scheduling" },
+		] as VerifiedFacts["principal"][]) {
+			const d = change(next, command, { ...facts, sequence: 21, principal });
+			assert.equal(
+				d.outcome === "refused" ? d.code : d.outcome,
+				principal.kind === "assignment-agent" ? "checkpoint_pending" : "forbidden_principal",
+				"second pending request must refuse",
+			);
+		}
+		assert.equal(next.checkpoints!.requests[0]!.mode, mode);
+		assert.equal(next.checkpoints!.requests.length, 1);
+	}
+});
+
+test("S06 Ground classifier shape confirmation remains authoritative at request capture", () => {
+	for (const [origin, confirmed, expected] of [
+		["classifier", false, "shape_confirmation_required"],
+		["classifier", true, "accepted"],
+		["human", false, "accepted"],
+	] as const) {
+		const d = change(
+			{
+				workflow: { id: "workflow:1", messageCount: 0 },
+				document: null,
+				device: null,
+				roleWork: { assignments: [assignment("coordinator", "coordinator", ["ground:1"])] },
+			},
+			{
+				type: "requestCheckpoint",
+				workflow: "workflow:1",
+				stage: "seams",
+				scope: "ground:1",
+				required: { candidates: false, experiment: false },
+			},
+			{
+				...facts,
+				checkpointInputs: {
+					"ground:1": {
+						human: true,
+						document: "ground",
+						text: JSON.stringify({
+							schema: 1,
+							goal: "Understand service design",
+							constraints: [],
+							clarifications: [],
+							donePredicate: "Report boundaries",
+							shape: { value: "investigation", origin, confirmed },
+						}),
+					},
+				},
+			},
+		);
+		assert.equal(d.outcome === "refused" ? d.code : d.outcome, expected, "classifier suggestion cannot supply agreed task shape");
+	}
+});
+
 test("C16 coordinator cannot launder another Ground revision outside its assigned inputs", () => {
 	const d = change(
 		{

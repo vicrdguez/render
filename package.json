@@ -20,6 +20,7 @@
 		"typecheck": "tsc --noEmit -p .",
 		"lint": "biome check .",
 		"verify:design-candidates": "node --test --test-concurrency=1 test/design-candidates.test.ts test/editable-checkpoints.test.ts test/context-continuation-independence.test.ts test/web-evidence-retention.test.ts",
+		"verify:checkpoint-settings": "node --test --test-concurrency=1 test/checkpoint-settings.test.ts test/checkpoint-authority.test.ts test/editable-checkpoints.test.ts test/policy-adoption.test.ts",
 		"verify:editable-checkpoints": "node --test --test-concurrency=1 test/checkpoint-authority.test.ts test/editable-checkpoints.test.ts",
 		"verify:ground-investigation": "node --test --test-concurrency=1 test/ground-investigation.test.ts test/investigation-crash.integration.ts",
 		"verify:investigation-crash": "node --test test/investigation-crash.integration.ts",

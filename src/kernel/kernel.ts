@@ -1,6 +1,7 @@
 // Kernel: pure domain legality. No I/O, clock reads, randomness or ID minting; Ledger supplies resolved state
 // and verified facts, and stages the returned writes atomically.
 
+import { type CheckpointSettings, changeCheckpointSettings, type SettingsCommand } from "./checkpoint-settings.ts";
 import {
 	CHECKPOINT_COMMANDS,
 	type CheckpointCommand,
@@ -47,6 +48,7 @@ export type Command =
 	| CheckpointCommand
 	| RoleCommand
 	| PolicyCommand
+	| SettingsCommand
 	| { readonly type: "createWorkflow"; readonly title: string }
 	| {
 			readonly type: "saveDocument";
@@ -62,6 +64,7 @@ export type Command =
 	| { readonly type: string; readonly workflow?: string };
 
 export type KernelState = {
+	readonly checkpointSettings?: CheckpointSettings;
 	readonly checkpoints?: Checkpoints;
 	readonly roleWork?: RoleWorkState;
 	readonly policy?: PolicyState;
@@ -97,6 +100,7 @@ export type VerifiedFacts = {
 
 export type DomainWrite =
 	| CheckpointWrite
+	| { readonly type: "checkpoint-settings.replace"; readonly state: CheckpointSettings }
 	| { readonly type: "policy.replace"; readonly state: PolicyState }
 	| { readonly type: "roles.replace"; readonly state: RoleWorkState; readonly intents: readonly RoleIntent[] }
 	| { readonly type: "workflow.create"; readonly workflow: string; readonly title: string }
@@ -187,7 +191,8 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	supersedeContract: { family: "human-decision", available: false },
 	changePolicy: { family: "human-decision", available: true },
 	adoptPolicy: { family: "human-decision", available: true },
-	changeCheckpointSettings: { family: "human-decision", available: false },
+	changeCheckpointSettings: { family: "human-decision", available: true },
+	importCheckpointSettings: { family: "local-admin", available: true },
 	cancelWork: { family: "human-decision", available: true },
 	requestLocalVerificationPrompt: { family: "human-decision", available: false },
 	enrollDevice: { family: "local-admin", available: true },
@@ -199,7 +204,7 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	requestOwnStop: { family: "role-work", available: true },
 	submitRoleResult: { family: "role-work", available: true },
 	retainWebEvidence: { family: "role-work", available: true },
-	advanceDelegatedCheckpoint: { family: "role-work", available: false },
+	advanceDelegatedCheckpoint: { family: "role-work", available: true },
 	assignTask: { family: "scheduling", available: true },
 	replaceTask: { family: "scheduling", available: true },
 	recordRuntimeHistory: { family: "scheduling", available: true },
@@ -249,7 +254,7 @@ export function commandPermission(type: string, principal: Principal): Refusal |
 		return refuse("forbidden_principal", `${type} belongs to the ${entry.family} family, which does not admit this principal.`);
 	if (!entry.available) return refuse("capability_unavailable", `${type} is not available in this host version.`);
 	if (
-		(type === "createWorkflow" || type === "changePolicy") &&
+		(type === "createWorkflow" || type === "changePolicy" || type === "changeCheckpointSettings") &&
 		principal.kind === "human" &&
 		principal.route === "device" &&
 		principal.workflows !== "all"
@@ -262,6 +267,8 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 	const denied = commandPermission(command.type, facts.principal);
 	if (denied) return denied;
 
+	if (command.type === "changeCheckpointSettings" || command.type === "importCheckpointSettings")
+		return changeCheckpointSettings(state, command as SettingsCommand, facts);
 	if (command.type === "changePolicy" || command.type === "adoptPolicy") return changePolicy(state, command as PolicyCommand, facts);
 	if (CHECKPOINT_COMMANDS.includes(command.type)) return changeCheckpoint(state, command as CheckpointCommand, facts);
 	if (ROLE_COMMANDS.includes(command.type)) return changeRole(state, command as RoleCommand, facts);

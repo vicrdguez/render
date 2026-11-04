@@ -18,6 +18,7 @@ const USAGE = `usage:
   cli.ts ... receipt --command-id ID
   cli.ts ... observe [--frames N]
   cli.ts admin --data DIR enroll --label L [--workflows all|W1,W2]
+  cli.ts admin --data DIR import-checkpoint-settings --file PATH --expected REVISION
   cli.ts admin --data DIR revoke --device D
   cli.ts admin --data DIR devices|status`;
 
@@ -79,6 +80,19 @@ async function admin(data: string, verb: string | undefined, values: Record<stri
 			process.exit(0);
 			break;
 		}
+		case "import-checkpoint-settings":
+			finish(
+				await client.request(
+					"POST",
+					"/v1/admin/commands",
+					envelope({
+						type: "importCheckpointSettings",
+						expectedRevision: need(values, "expected"),
+						modes: JSON.parse(await readFile(need(values, "file"), "utf8")),
+					}),
+				),
+			);
+			break;
 		case "revoke":
 			finish(await client.request("POST", "/v1/admin/commands", envelope({ type: "revokeDevice", device: need(values, "device") })));
 			break;

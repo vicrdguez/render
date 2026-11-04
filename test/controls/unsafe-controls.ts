@@ -14,6 +14,20 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "candidate-delegated-advancement",
+		expect: /delegated advancement must retain required candidate completion checks/,
+		behavior: "advance a delegated checkpoint without required candidate completion",
+		edits: [
+			{
+				file: "src/kernel/checkpoints.ts",
+				find: "r.required.candidates &&",
+				replace: 'r.required.candidates && c.type !== "advanceDelegatedCheckpoint" &&',
+			},
+		],
+		test: "test/design-candidates.test.ts",
+		pattern: "delegated routing retains required alternatives",
+	},
+	{
 		name: "candidate-premature-synthesis",
 		expect: /required alternatives must precede synthesis/,
 		behavior: "stage a synthesis while required candidate assignments are missing",
@@ -22,7 +36,7 @@ const CONTROLS: Control[] = [
 			{ file: "src/kernel/checkpoints.ts", find: "!cited.includes(child.report!)))", replace: "!cited.includes(child.report!))))" },
 		],
 		test: "test/design-candidates.test.ts",
-		pattern: "required alternatives precede synthesis",
+		pattern: "human routing retains required alternatives",
 	},
 	{
 		name: "candidate-foreign-artifact",
@@ -38,6 +52,52 @@ const CONTROLS: Control[] = [
 		],
 		test: "test/design-candidates.test.ts",
 		pattern: "candidates receive own inputs",
+	},
+	{
+		name: "settings-second-pending",
+		expect: /second pending request must refuse/,
+		behavior: "recapture pending routing through a new request",
+		edits: [
+			{
+				file: "src/kernel/checkpoints.ts",
+				find: 'if (work.requests.some((r) => r.stage === c.stage && r.status === "pending"))',
+				replace: 'if (false && work.requests.some((r) => r.stage === c.stage && r.status === "pending"))',
+			},
+		],
+		test: "test/checkpoint-authority.test.ts",
+		pattern: "S11 V1",
+	},
+	{
+		name: "settings-restart-overwrite",
+		expect: /restart must not overwrite accepted settings/,
+		behavior: "replay file over accepted client settings",
+		edits: [
+			{ file: "src/ledger/startup.ts", find: "if (settingsEmpty && existsSync(settingsFile))", replace: "if (existsSync(settingsFile))" },
+		],
+		test: "test/checkpoint-settings.test.ts",
+		pattern: "S01 initial file",
+	},
+	{
+		name: "settings-product-bypass",
+		expect: /unresolved product or changed scope must block delegated advancement/,
+		behavior: "ignore challenger unresolved product flags",
+		edits: [{ file: "src/kernel/checkpoints.ts", find: "review.unresolvedProduct.length !== 0 ||", replace: "false ||" }],
+		test: "test/editable-checkpoints.test.ts",
+		pattern: "challenger unresolvedProduct",
+	},
+	{
+		name: "settings-agent-human-approval",
+		expect: /forbidden_principal/,
+		behavior: "allow machine to use the human approval route",
+		edits: [
+			{
+				file: "src/kernel/kernel.ts",
+				find: 'approveCheckpoint: { family: "human-decision", available: true }',
+				replace: 'approveCheckpoint: { family: "role-work", available: true }',
+			},
+		],
+		test: "test/editable-checkpoints.test.ts",
+		pattern: "C16 machine principal",
 	},
 	{
 		name: "checkpoint-edited-approval",
