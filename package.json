@@ -49,6 +49,7 @@
 		"verify:literal-source-roundtrip": "node --test test/literal-source-roundtrip.integration.ts test/literal-source-names.test.ts test/literal-source-names.integration.ts test/owned-source-controls.integration.ts",
 		"verify:whole-container-quiescence": "node --test test/whole-container-quiescence.integration.ts test/owned-source-recovery.integration.ts test/owned-check-cancellation.integration.ts",
 		"verify:source-root-crash": "node --test test/source-root-crash.integration.ts test/owned-check-crash.integration.ts",
+		"verify:local-verification-prompt": "node --test --test-concurrency=1 test/local-verification-prompt.test.ts test/verification-catalog.integration.ts",
 		"verify:verification-catalog": "node --test --test-concurrency=1 test/verification-catalog.test.ts test/verification-catalog.integration.ts",
 		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts"
 	},

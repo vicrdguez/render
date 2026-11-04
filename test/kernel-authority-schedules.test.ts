@@ -61,7 +61,7 @@ const MATRIX: Record<string, { admits: PrincipalClass[]; available: boolean }> =
 	changeCheckpointSettings: { admits: ["human"], available: true },
 	importCheckpointSettings: { admits: ["local-admin"], available: true },
 	cancelWork: { admits: ["human"], available: true },
-	requestLocalVerificationPrompt: { admits: ["human"], available: false },
+	requestLocalVerificationPrompt: { admits: ["human"], available: true },
 	saveDraft: { admits: ["agent"], available: false },
 	emitCheckpoint: { admits: ["agent"], available: true },
 	reworkCheckpoint: { admits: ["agent"], available: true },
@@ -182,6 +182,8 @@ function toCommand(m: Model, step: Step): Record<string, unknown> {
 				mediaType: "text/markdown",
 				expected: expectedRef(m, String(c.workflow), String(c.document), String(c.expected)),
 			};
+		case "requestLocalVerificationPrompt":
+			return { type, workflow: c.workflow, source: "revision:missing", expectedSequence: c.expected === "current" ? m.sequence : -1 };
 		case "postCoordinatorMessage":
 			return { type, workflow: c.workflow, text: "hello" };
 		case "enrollDevice":
@@ -282,6 +284,10 @@ function expectedDecision(m: Model, principal: Principal, step: Step, command: R
 		case "adoptPolicy":
 			if (!exists) return "not_found";
 			return inScope(principal, workflow) ? "stale_basis" : "forbidden_scope"; // Generated without the expected binding.
+		case "requestLocalVerificationPrompt":
+			if (!inScope(principal, workflow)) return "forbidden_scope";
+			if (!exists) return "not_found";
+			return step.command.expected === "current" ? "missing_content" : "stale_basis";
 		case "saveDocument": {
 			if (!inScope(principal, workflow)) return "forbidden_scope";
 			if (!exists) return "not_found";

@@ -62,6 +62,31 @@ test("catalog Linux results require assessment, retain independent evidence and 
 		);
 		assert.equal(adopted.status, "accepted");
 		assert.equal((await assess(f, [a.report!])).status, "refused", "below-minimum evidence cannot be demoted into success");
+		// LP4: real Linux runner results remain evidence, never a local Mac pass.
+		const beforePrompt = f.ledger.snapshot(admin);
+		const promptReply = await f.command(
+			{ type: "requestLocalVerificationPrompt", source: a.report!, expectedSequence: f.ledger.status().sequence },
+			admin,
+		);
+		assert.ok(promptReply.status === "accepted", JSON.stringify(promptReply));
+		const prompt = await f.ledger.artifact(admin, { read: String(promptReply.result.textArtifact) });
+		assert.ok("content" in prompt);
+		const promptText = prompt.content.toString();
+		for (const expected of [
+			f.selection.commit,
+			f.selection.digest,
+			"linux",
+			receipt.results[0].sanity.platform.cpu,
+			"STEP OK",
+			"needs_assessment",
+			"macOS",
+			"unrun",
+			"Same CPU does not make Linux binaries portable to macOS",
+		])
+			assert.ok(promptText.includes(expected), `local prompt must retain ${expected}`);
+		const afterPrompt = f.ledger.snapshot(admin);
+		assert.ok("assignments" in beforePrompt && "assignments" in afterPrompt);
+		assert.deepEqual(afterPrompt.assignments, beforePrompt.assignments, "advisory absence must not gate or complete work");
 		const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
 		assert.ok("manifest" in exported);
 		assert.equal(Buffer.from(exported.content[a.report!]!, "base64").toString(), read.content.toString());

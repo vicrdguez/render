@@ -46,6 +46,7 @@ Ordinary restart preserves them, and revocation takes effect at once.
 | `createWorkflow` | `title` (1–200 chars) | absent | absent | device with `all` scope, or local admin |
 | `saveDocument` | `document` (`[a-z0-9][a-z0-9._/-]{0,127}`; `ground` is the workflow's Ground), `mediaType` (`text/markdown` or `text/plain`), `content` (base64 of the complete UTF-8 bytes) | required | `document`: the current revision ref, or `null` for a new document | device or local admin |
 | `postCoordinatorMessage` | `text` (1–65,536 chars) | required | absent | device or local admin |
+| `requestLocalVerificationPrompt` | `source` (exact retained source-observation ref), `expectedSequence` (observed snapshot sequence) | required | absent; basis is in the command | human device in current workflow scope or local admin; see [advisory handoff](local-verification.md) |
 | `enrollDevice` | `label` (1–100 chars), `scope`: `{ "workflows": "all" }` or `{ "workflows": ["workflow:1", …] }` | absent | absent | local admin only |
 | `revokeDevice` | `device` | absent | absent | local admin only |
 | `changePolicy` | `expectedRevision`, `policy`: `{ completedReviewLimit: nonnegative integer, reviewerDiversity: different-family or human-directed-same-family, minimumEvidenceRank: process or tests or build or inspection }` | absent | absent | project-wide human device or local admin |
@@ -60,7 +61,7 @@ can retain fenced late results with `recordRecoveryState`; they are quarantined 
 command fields. See [role operations](operations.md#durable-role-work).
 
 Other command families named in spec §4 remain known and refuse with `capability_unavailable`, or with
-`forbidden_principal` when the principal is wrong. This includes local-prompt decisions and forge/source publication work. Editable technical checkpoints, persistent routing settings and human-only Contract intake are delivered; only local-admin may import settings; see `checkpoints.md` and `intake.md` for exact command schemas and basis rules. The opt-in owned-check
+`forbidden_principal` when the principal is wrong. This includes forge/source publication work. The human advisory local-verification prompt is delivered through the existing artifact interface, with no execution or completion gate. Editable technical checkpoints, persistent routing settings and human-only Contract intake are delivered; only local-admin may import settings; see `checkpoints.md` and `intake.md` for exact command schemas and basis rules. The opt-in owned-check
 path admits `recordRunnerObservation` only from the trusted Effects host scope, with current assignment/generation/Attempt
 and complete receipt text; it is not a worker/device/admin capability. It retains an immutable `owned-check` document,
 not a general effect/publication protocol. See [owned checks and limits](owned-checks.md). Unknown types refuse with `unknown_command`.
