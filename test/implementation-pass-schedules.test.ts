@@ -26,7 +26,8 @@ function generate(seed: number): Probe[] {
 	const random = seeded(seed);
 	return Array.from({ length: 8 }, () => probes[Math.floor(random() * probes.length)] as Probe);
 }
-function run(steps: Probe[]): string | undefined {
+type Coverage = { resumed: number; partialAudit: number; handoff: number; bindings: Set<string> };
+function run(steps: Probe[], coverage?: Coverage): string | undefined {
 	try {
 		let state: KernelState = {
 			workflow: { id: workflow, messageCount: 0 },
@@ -154,6 +155,13 @@ function run(steps: Probe[]): string | undefined {
 				{ kind: "host", scope: "effects" },
 			).source as string;
 		}
+		// Vary the interruption point rather than repeat the full suffix in every schedule.
+		if (steps[0] === "owner" || steps[0] === "unknown") {
+			assert.equal(state.roleWork?.passes?.length, 1);
+			assert.equal(state.roleWork?.passes?.[0]?.handoff, undefined);
+			if (coverage) coverage.resumed++;
+			return undefined;
+		}
 		const A = retain("audit");
 		const invocation = command({ type: "requestImplementationAudit" }, current);
 		assert.equal(invocation.source, A);
@@ -253,14 +261,22 @@ function run(steps: Probe[]): string | undefined {
 				{ audit: "audit:wrong" },
 				{ contract: "contract:wrong" },
 			];
-			const choice = Math.max(0, probes.indexOf(steps[0] ?? "owner"));
-			command(report(invalidBindings[(choice + (child.packet.role === "audit-contracts" ? 1 : 0)) % 4]), reviewer, "refused");
+			const choice = Math.max(0, probes.indexOf(steps[1] ?? "owner"));
+			const invalid = invalidBindings[(choice + (child.packet.role === "audit-contracts" ? 1 : 0)) % 4]!;
+			command(report(invalid), reviewer, "refused");
+			coverage?.bindings.add(Object.keys(invalid)[0]!);
 			command(report(), { ...reviewer, role: child.packet.role === "audit-standards" ? "audit-contracts" : "audit-standards" }, "refused");
 			if (child.id !== initial.id) command(report(), old, "refused");
 			command(report(), reviewer);
 			command({ type: "requestImplementationAudit" }, current, "refused");
 			prematureHandoff();
 			state = structuredClone(state);
+			if (steps[0] === "reload" || steps[0] === "stale") {
+				assert.equal(Object.keys(state.roleWork!.passes![0]!.audit!.results).length, 1);
+				assert.equal(state.roleWork!.passes![0]!.captureA, A);
+				if (coverage) coverage.partialAudit++;
+				return undefined;
+			}
 		}
 		prematureHandoff();
 		const B = retain("final");
@@ -288,6 +304,7 @@ function run(steps: Probe[]): string | undefined {
 		assert.ok(state.roleWork?.passes?.[0]?.handoff);
 		command({ ...handoff, dispositions: [disposition] }, current, "refused");
 		assert.equal(state.roleWork?.passes?.length, 1);
+		if (coverage) coverage.handoff++;
 		return undefined;
 	} catch (error) {
 		return String(error);
@@ -306,13 +323,12 @@ test("V1 seeded pass ownership, refusal, cancellation and reload schedules", () 
 	const base = Number(process.env.RENDER_V1_SEED ?? 0x5eed);
 	const count = Number(process.env.RENDER_V1_SCHEDULES ?? 10_000);
 	const coverage = new Set<Probe>();
-	const bindingCoverage = new Set<number>();
+	const paths: Coverage = { resumed: 0, partialAudit: 0, handoff: 0, bindings: new Set() };
 	for (let n = 0; n < count; n++) {
 		const seed = base + n;
 		const steps = process.env.RENDER_PASS_STEPS ? (JSON.parse(process.env.RENDER_PASS_STEPS) as Probe[]) : generate(seed);
 		for (const step of steps) coverage.add(step);
-		if (steps[0]) bindingCoverage.add(probes.indexOf(steps[0]) % 4);
-		const failure = run(steps);
+		const failure = run(steps, paths);
 		if (failure) {
 			const minimal = JSON.stringify(shrink(steps));
 			assert.fail(
@@ -322,6 +338,17 @@ test("V1 seeded pass ownership, refusal, cancellation and reload schedules", () 
 	}
 	if (count >= 1000 && !process.env.RENDER_PASS_STEPS) {
 		assert.deepEqual(coverage, new Set(probes));
-		assert.deepEqual(bindingCoverage, new Set([0, 1, 2, 3]), "all invalid binding variants are exercised");
+		assert.deepEqual(paths.bindings, new Set(["passRef", "source", "audit", "contract"]), "all invalid binding variants are exercised");
+		assert.ok(paths.resumed > 0 && paths.partialAudit > 0 && paths.handoff > 0);
 	}
+	assert.equal(paths.resumed + paths.partialAudit + paths.handoff, count);
+	console.log(
+		JSON.stringify({
+			measure: "implementation_schedule_paths",
+			schedules: count,
+			resumed: paths.resumed,
+			partialAudit: paths.partialAudit,
+			handoff: paths.handoff,
+		}),
+	);
 });
