@@ -48,12 +48,12 @@ A file's suffix chooses its selection, and `test:full` runs all three suffixes o
 
 | Command | Runs | Establishes | Does not establish |
 |---|---|---|---|
-| `npm test` | `test/*.test.ts`, four file workers | Fast functional feedback: pure Kernel, in-process role/policy/continuation/web journeys on real SQLite, literal HTTP command cases, Git-only source refusals. Needs no Docker. | Any cumulative, process-fault, container, load or extended result. Never report it as the full suite. |
+| `npm test` | `test/*.test.ts`, eight file workers | Fast functional feedback: pure Kernel, in-process role/policy/continuation/web journeys on real SQLite, literal HTTP command cases, Git-only source refusals. Needs no Docker. | Any cumulative, process-fault, container, load or extended result. Never report it as the full suite. |
 | `npm run test:integration` | `test/*.integration.ts`, serial | Host processes, crash barriers, repeated interruption, real disk-full, V2 sampled schedules, containers. | Load bounds or extended counts. |
 | `npm run test:performance` | `test/*.performance.ts`, serial | Latency and saturation workloads. Run nothing else alongside them. | Full V9. |
-| `npm run test:full` | `npm test`, then `test:integration`, then `test:performance`: each suffix once, stopping at the first failing selection. Fast tests use their four file workers; containers, processes and latency stay serial, with nothing alongside them. | The `full-suite` row. | Typecheck, lint, extended counts, unsafe controls. |
+| `npm run test:full` | `npm test`, then `test:integration`, then `test:performance`: each suffix once, stopping at the first failing selection. Fast tests use their eight file workers; containers, processes and latency stay serial, with nothing alongside them. | The `full-suite` row. | Typecheck, lint, extended counts, unsafe controls. |
 | `npm run verify:gate` | typecheck, lint, `test:full` | The Full Gate on the checked-out source. Stops at the first failing command; later commands then have no result. | Extended counts, unsafe controls. |
-| `npm run test:extended` | `test:extended:host` (V2 256, history load, V3 100 for commands, tools, web and investigation), then `test:extended:containers` (V3 100 for source root, owned check, cancellation and sealed experiment results) | Separately measured extended jobs. Not interchangeable with smoke. | |
+| `npm run test:extended` | `test:extended:host` (V2 256, history load, V3 100 for commands, tools, web, investigation and implementation handoff/successor), then `test:extended:containers` (V3 100 for source root, owned check, cancellation and sealed experiment results) | Separately measured extended jobs. Not interchangeable with smoke. | |
 | `npm run verify:unsafe-controls` | Every named mutation | Each targeted check rejects its wrong behavior. | |
 | `npm run verify:complete` | `verify:gate`, `test:extended`, `verify:unsafe-controls` | Everything above on the checked-out source. | |
 

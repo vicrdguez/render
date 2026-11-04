@@ -394,6 +394,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		(a.implementationBinding ?? pass?.policyBinding) !== a.policyBinding
 	)
 		return refusal("stale_basis", "Policy adoption fenced this implementation execution; quiesce and replace it explicitly.");
+	// Debt: repeated current-policy lookups below could share one command-local binding without changing adoption semantics.
 	let returned: ReturnObservation | undefined;
 	function create(packet: RolePacket, slice: string, delivery: boolean, parent: string | null, key: string | null, axis?: AuditAxis) {
 		const id = axis ? `${facts.ids.assignment}:${axis}` : facts.ids.assignment;
@@ -663,6 +664,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			const d = dispositions[0]!;
 			if (finding.needsHuman || d.disposition === "needs-human")
 				return refusal("capability_unavailable", "Unresolved product/Contract questions require human resolution.");
+			// Debt: extract the successful-row predicate if reused; keep exact B, row selection and verifier identity checks together.
 			if (
 				d.disposition === "fixed" &&
 				(!d.changes.length ||

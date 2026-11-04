@@ -43,7 +43,7 @@ export type WatchdogVerdict = {
 	prepared: string;
 	target: string;
 };
-export const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
 const texts = (v: unknown): v is string[] => Array.isArray(v) && v.every(text);
 export function validAssessment(v: unknown): v is VerificationAssessment {
