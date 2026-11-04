@@ -860,12 +860,15 @@ export class Engine {
 							{ conversationId: workflow.conversation as ConversationId, ownership: { kind: "conversation" } },
 						);
 					}
+					const tools = (this.#roles.tools ?? []).filter(
+						(tool) => (a.passRef && a.packet.role === "implementer") || !tool.name.startsWith("implementation_"),
+					);
 					await configure(tx, a.conversation as ConversationId, {
 						model: { provider: a.packet.provider, modelId: a.packet.model },
 						thinkingLevel: a.packet.thinking,
 						extensions: [this.#roles],
-						tools: this.#roles.tools ?? [],
-						modelTools: this.#roles.tools ?? [],
+						tools,
+						modelTools: tools,
 						instructions: `Role ${a.packet.role}. Required output: ${a.packet.expectedOutput}. Submit only via ${a.packet.submission}.`,
 						cwd: null,
 					});
@@ -928,6 +931,10 @@ export class Engine {
 		}
 		const workflow = (frame.workflows as import("../kernel/kernel.ts").WorkflowView[]).find((w) => w.workflow === a.workflow);
 		const checkpointState = a.packet.role === "coordinator" && !a.packet.investigation && workflow ? workflow.checkpoints : undefined;
+		const implementation = a.passRef
+			? (frame.implementationPasses as ImplementationPass[]).find((pass) => pass.ref === a.passRef)
+			: undefined;
+		if (a.passRef && !implementation) throw new Error("Missing retained implementation pass");
 		return JSON.stringify({
 			...(checkpointState
 				? {
@@ -977,11 +984,11 @@ export class Engine {
 							"Inspect only this immutable A and accepted obligations, not later B/X. Submit schema:1 plus exact auditReview fields and findings:[{id,text,needsHuman}]. Report all violations; unresolved product/Contract choices need human direction. Own scope only; no inherited implementer conversation or other-axis context.",
 					}
 				: {}),
-			...(a.passRef
+			...(implementation
 				? {
 						implementation: {
-							...this.#implementationPass(a),
-							audit: this.#implementationPass(a).audit ? { ...this.#implementationPass(a).audit, reports: results } : undefined,
+							...implementation,
+							audit: implementation.audit ? { ...implementation.audit, reports: results } : undefined,
 						},
 						implementationInstructions:
 							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately.",
@@ -1136,6 +1143,21 @@ export class Engine {
 			current.executorEpoch !== this.#ledger!.status().executorEpoch
 		)
 			throw new Error("Implementation execution authority is no longer current");
+		const final = this.#implementationPass(a).captureB;
+		if (final) {
+			// A direct role command must not hand off obsolete B after this workspace becomes writable.
+			const admitted = await this.#ledger!.command(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId: `implementation-execution:${a.id}:${a.generation}:${a.attempt}:${final}`,
+					workflow: a.workflow,
+					command: { type: "recordImplementationExecution", assignment: a.id, generation: a.generation, attempt: a.attempt },
+				},
+				mintContext({ kind: "host", scope: "effects" }),
+			);
+			if (admitted.status !== "accepted") throw new Error(`Execution admission refused: ${admitted.reason}`);
+		}
 		const check = this.#config.ownedChecks!.checks[a.packet.profile]!;
 		const previous = this.#workspaces.get(a.id);
 		if (previous && !previous.sealed) return previous;

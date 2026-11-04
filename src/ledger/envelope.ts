@@ -388,6 +388,7 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 		generation: c.generation as number,
 		attempt: text(c.attempt, "attempt", 128),
 	};
+	if (type === "recordImplementationExecution") return { ...common, type };
 	if (type === "recordRuntimeHistory") return { ...common, type, key: text(c.key, "key", 128) };
 	if (type === "recordBlocker" || type === "recordPreparationBlocker") return { ...common, type, reason: text(c.reason, "reason", 2048) };
 	if (type === "recordImplementationSource") {

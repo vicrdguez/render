@@ -28,24 +28,40 @@ type Prompt = {
 	implementation?: { captureB?: string; audit?: { reports?: unknown; results?: { standards?: { report: string } } } };
 };
 type RetainedCapture = { source: { source: { entries: { path: string; content: string }[] } } };
-function captureValue(text: string): string {
+function captureFile(text: string, path: string): string {
 	const capture = JSON.parse(text) as RetainedCapture;
-	const entry = capture.source.source.entries.find((item) => item.path === "value");
-	assert.ok(entry, "retained source includes value");
+	const entry = capture.source.source.entries.find((item) => item.path === path);
+	assert.ok(entry, `retained source includes ${path}`);
 	return Buffer.from(entry.content, "base64").toString();
+}
+function captureValue(text: string): string {
+	return captureFile(text, "value");
 }
 
 // These scripted checks exercise lifecycle and literal bytes, not semantic adequacy.
 // Real acceptance, not a fabricated accepted Slice or a test-file import.
 async function fixture(
-	options: { exclusions?: string[]; missingFamily?: boolean; failFinal?: boolean; hold?: "writer" | "contracts"; finding?: boolean } = {},
+	options: {
+		exclusions?: string[];
+		missingFamily?: boolean;
+		failFinal?: boolean;
+		hold?: "writer" | "contracts";
+		finding?: boolean;
+		bootstrap?: boolean;
+		staleFinal?: boolean;
+	} = {},
 ) {
 	const f = await catalogFixture(true, { text: catalog().replaceAll("endpoint", "tests").replace("printf 'SUITE OK'", "sh verify-suite") });
 	const originalTree = git(f.source.repo, ["rev-parse", `${f.selection.commit}^{tree}`])
 		.toString()
 		.trim();
 	const value = git(f.source.repo, ["hash-object", "-w", "--stdin"], "A\n").toString().trim();
-	const entries = git(f.source.repo, ["ls-tree", originalTree]).toString();
+	let entries = git(f.source.repo, ["ls-tree", originalTree]).toString();
+	if (options.bootstrap) {
+		const journey = git(f.source.repo, ["ls-tree", `${f.selection.commit}:.skl`, "journey.md"]).toString();
+		const skl = git(f.source.repo, ["mktree"], journey).toString().trim();
+		entries = entries.replace(/^040000 tree [^\n]+\t\.skl$/m, `040000 tree ${skl}\t.skl`);
+	}
 	const suite = git(f.source.repo, ["hash-object", "-w", "--stdin"], "printf 'SUITE OK'\n").toString().trim();
 	const tree = git(f.source.repo, ["mktree"], `${entries}100644 blob ${value}\tvalue\n100644 blob ${suite}\tverify-suite\n`)
 		.toString()
@@ -53,11 +69,19 @@ async function fixture(
 	const commit = git(f.source.repo, ["commit-tree", tree], "Initial implementation source\n").toString().trim();
 	f.selection.commit = commit;
 	f.config.checks["revision:3"].commit = commit;
+	if (options.bootstrap) {
+		assert.equal(git(f.source.repo, ["ls-tree", commit, ".skl/verify.md"]).toString(), "");
+		assert.notEqual(git(f.source.repo, ["ls-tree", commit, ".skl/journey.md"]).toString(), "");
+		assert.equal(git(f.source.repo, ["show", `${commit}:value`]).toString(), "A\n");
+		assert.equal(git(f.source.repo, ["show", `${commit}:verify-suite`]).toString(), "printf 'SUITE OK'\n");
+	}
 	if (options.exclusions) f.config.checks["revision:3"].profile.exclusions = options.exclusions;
 	await allowSameFamily(f.ledger);
 	const gate = Promise.withResolvers<void>();
 	const prompts: Prompt[] = [];
 	let writerTurn = 0;
+	let rawHandoffAttempted = false;
+	let checkedBeforeEdit: { B: string; report: string } | undefined;
 	let held = false;
 	let aborted = false;
 	const release = Promise.withResolvers<void>();
@@ -154,6 +178,49 @@ async function fixture(
 						writerTurn++;
 						return fauxAssistantMessage(fauxToolCall("implementation_check", {}), { stopReason: "toolUse" });
 					}
+					if (options.staleFinal && writerTurn === 4) {
+						const B = prompt.implementation?.captureB;
+						const report = prompt.implementation?.audit?.results?.standards?.report;
+						assert.ok(B && report, "checked B and Audit report were presented before the later edit");
+						checkedBeforeEdit = { B, report };
+						writerTurn++;
+						return fauxAssistantMessage(
+							fauxToolCall("implementation_execute", {
+								argv: ["sh", "-c", "printf 'C\\n' > value && test \"$(cat value)\" = C && printf C_WRITTEN"],
+							}),
+							{
+								stopReason: "toolUse",
+							},
+						);
+					}
+					if (options.staleFinal && writerTurn === 5) {
+						assert.match(
+							JSON.stringify(transcript.messages.filter((m) => m.role === "tool" || m.role === "toolResult")),
+							/C_WRITTEN/,
+							"Linux command actually wrote C",
+						);
+						writerTurn++;
+						assert.ok(checkedBeforeEdit);
+						const { B, report } = checkedBeforeEdit;
+						rawHandoffAttempted = true;
+						return fauxAssistantMessage(
+							fauxToolCall("checkpoint", {
+								command: JSON.stringify({
+									type: "submitImplementationHandoff",
+									text: "Fixed A to B",
+									dispositions: [
+										{ report, finding: "F1", disposition: "fixed", reason: "Changed value to B", changes: [B], rechecks: ["full-suite"] },
+									],
+									verification: { outcome: "pass", rank: "tests", reason: "Selected checks pass on B" },
+								}),
+							}),
+							{ stopReason: "toolUse" },
+						);
+					}
+					if (options.staleFinal && writerTurn === 6) {
+						writerTurn++;
+						return fauxAssistantMessage("Stopped after raw handoff attempt.");
+					}
 					if (options.finding && writerTurn === 4) {
 						writerTurn++;
 						const B = prompt.implementation?.captureB;
@@ -171,7 +238,18 @@ async function fixture(
 						);
 					}
 					const calls = [
-						["implementation_execute", { argv: ["sh", "-c", "test \"$(cat value)\" = A && printf 'writer saw A\\n'"] }],
+						[
+							"implementation_execute",
+							{
+								argv: [
+									"sh",
+									"-c",
+									options.bootstrap
+										? `test ! -e .skl/verify.md && test "$(cat value)" = A && printf '%s' '${Buffer.from(f.text).toString("base64")}' | base64 -d > .skl/verify.md`
+										: "test \"$(cat value)\" = A && printf 'writer saw A\\n'",
+								],
+							},
+						],
 						["implementation_audit", {}],
 						[
 							"implementation_execute",
@@ -331,6 +409,7 @@ async function fixture(
 		wait,
 		writer,
 		contract,
+		rawHandoffAttempted: () => rawHandoffAttempted,
 		held: () => held,
 		aborted: () => aborted,
 		release: () => release.resolve(),
@@ -396,6 +475,77 @@ test("accepted implementation: one fresh paired Audit of frozen A, same-pass B a
 		assert.equal(after.manifest.cutoff, exported.manifest.cutoff);
 		for (const ref of [opening.passRecord, pass.handoff.record, ...reviews.map((a) => a.report), A, pass.captureB])
 			assert.equal(after.content[ref as string], exported.content[ref as string]);
+	} finally {
+		await t.close();
+	}
+});
+
+test("absent selected verifier is bootstrapped in Linux and retained in both checked captures", async () => {
+	const t = await fixture({ bootstrap: true });
+	try {
+		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
+		await t.wait(() => {
+			const a = t.assignments().find((x) => x.id === opening.assignment);
+			return !!a && !a.executing && (a.status === "submitted" || (a.status === "blocked" && a.blocker !== "awaiting_role_results"));
+		}, "bootstrap handoff");
+		const owner = t.assignments().find((a) => a.id === opening.assignment)!;
+		assert.equal(owner.status, "submitted", owner.blocker ?? "bootstrap handoff");
+		const pass = ((t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[]).find(
+			(p) => p.ref === opening.passRef,
+		);
+		assert.ok(pass?.captureA && pass.captureB && pass.audit && pass.handoff);
+		const reviews = t.assignments().filter((a) => a.parent === owner.id && ["audit-standards", "audit-contracts"].includes(a.packet.role));
+		assert.equal(reviews.length, 2);
+		assert.ok(reviews.every((a) => a.status === "submitted"));
+		for (const [ref, value] of [
+			[pass.captureA, "A\n"],
+			[pass.captureB, "B\n"],
+		] as const) {
+			const retained = await t.f.ledger.artifact(admin, { read: ref });
+			assert.ok("content" in retained);
+			const text = retained.content.toString();
+			assert.equal(captureValue(text), value);
+			assert.equal(captureFile(text, ".skl/verify.md"), t.f.text);
+			const source = JSON.parse(text) as ImplementationSource;
+			const results = source.verification?.results;
+			for (const name of rows) {
+				const result = results?.find((r) => r.name === name);
+				assert.equal(result?.status, "completed", `selected ${name} ran`);
+				assert.ok(result.steps.length > 0, `${name} has executed steps`);
+			}
+			assert.ok(results?.find((r) => r.name === "full-suite")?.steps.some((s) => s.stdout.includes("SUITE OK")));
+		}
+	} finally {
+		await t.close();
+	}
+});
+
+test("raw checkpoint cannot hand off checked B after writer changes workspace to C", async () => {
+	const t = await fixture({ finding: true, staleFinal: true });
+	try {
+		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
+		await t.wait(() => {
+			const owner = t.assignments().find((a) => a.id === opening.assignment);
+			return !!owner && !owner.executing && !!owner.runtimeTaskCaptured;
+		}, "raw stale handoff outcome retained");
+		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in exported && exported.manifest.complete, "terminal tool results are retained");
+		const history =
+			exported.jsonl +
+			Object.values(exported.content)
+				.map((bytes) => Buffer.from(bytes, "base64").toString())
+				.join("\n");
+		assert.equal(t.rawHandoffAttempted(), true, "provider invoked raw handoff after Linux wrote C");
+		const pass = ((t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[]).find(
+			(p) => p.ref === opening.passRef,
+		);
+		assert.ok(pass?.captureA && pass.audit, "original A and Audit remain retained");
+		assert.equal(pass.handoff, undefined, "stale checked B must not create a handoff or preparation");
+		assert.match(
+			history,
+			/missing_content|final_verification_required|current.*capture/i,
+			"raw handoff explains missing current checked source",
+		);
 	} finally {
 		await t.close();
 	}

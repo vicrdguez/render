@@ -68,7 +68,7 @@ export type ImplementationPass = {
 		roles: Record<AuditAxis, { assignment: string; packet: string }>;
 		results: Partial<Record<AuditAxis, AuditResult>>;
 	};
-	handoff?: { record: string; source: string; preparationTask?: number; blocker?: string };
+	handoff?: { record: string; source: string; preparationTask?: number; preparationResult?: string; blocker?: string };
 	ref: string;
 	ordinal: number;
 	workflow: string;
@@ -117,6 +117,7 @@ export type RoleAssignment = {
 export type RoleWorkState = { assignments: RoleAssignment[]; passes?: ImplementationPass[] };
 export type RoleIntent = { kind: "run-role" | "notify-role" | "prepare-pass"; assignment: string };
 export type RoleCommand =
+	| { type: "recordImplementationExecution"; workflow: string; assignment: string; generation: number; attempt: string }
 	| {
 			type: "recordImplementationSource";
 			workflow: string;
@@ -181,6 +182,7 @@ export type RoleCommand =
 	  };
 
 export const ROLE_COMMANDS = [
+	"recordImplementationExecution",
 	"recordImplementationSource",
 	"requestImplementationAudit",
 	"submitImplementationHandoff",
@@ -286,6 +288,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			"requestImplementationAudit",
 			"submitImplementationHandoff",
 			"recordImplementationSource",
+			"recordImplementationExecution",
 		].includes(c.type)
 	) {
 		const gap = intakeAssignmentGap(state, slice, affectedPacket);
@@ -319,9 +322,14 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		return refusal("stale_basis", "Implementation authority belongs to an older policy binding.");
 	if (
 		a?.passRef &&
-		["recordImplementationSource", "requestImplementationAudit", "submitImplementationHandoff", "rebindAttempt", "stageTask"].includes(
-			c.type,
-		) &&
+		[
+			"recordImplementationSource",
+			"recordImplementationExecution",
+			"requestImplementationAudit",
+			"submitImplementationHandoff",
+			"rebindAttempt",
+			"stageTask",
+		].includes(c.type) &&
 		(a.implementationBinding ?? pass?.policyBinding) !== a.policyBinding
 	)
 		return refusal("stale_basis", "Policy adoption fenced this implementation execution; quiesce and replace it explicitly.");
@@ -523,6 +531,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			auditRecord: audit.record,
 			standards: audit.roles.standards.assignment,
 			contracts: audit.roles.contracts.assignment,
+			document0: audit.roles.standards.packet,
+			document1: audit.roles.contracts.packet,
 		};
 	} else if (c.type === "submitImplementationHandoff") {
 		if (!a?.passRef || !pass || pass.assignment !== a.id || pass.handoff || !pass.audit || !pass.captureA || !pass.captureB)
@@ -710,6 +720,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("stale_assignment", "Generation or Attempt is no longer current.");
 		result = { assignment: a.id };
 		switch (c.type) {
+			case "recordImplementationExecution":
 			case "recordImplementationSource": {
 				if (
 					!a.passRef ||
@@ -719,7 +730,15 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 					a.packet.role !== "implementer" ||
 					a.packet.execution !== "linux-writer"
 				)
-					return refusal("forbidden_scope", "Only current accepted implementation can retain its source.");
+					return refusal("forbidden_scope", "Only current accepted implementation can record execution or source.");
+				if (c.type === "recordImplementationExecution") {
+					if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
+						return refusal("stale_assignment", "Mutable execution admission requires the current executing owner and executor.");
+					result.source = pass.captureB ?? null;
+					result.passRef = pass.ref;
+					delete pass.captureB;
+					break;
+				}
 				if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024 || !["audit", "final", "checkpoint"].includes(c.kind))
 					return refusal("invalid_content", "Complete literal source must fit retained source bounds.");
 				if (
@@ -749,8 +768,11 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !c.reason?.trim())
 					return refusal("assignment_closed", "Preparation blockage requires a handed-off pass.");
 				pass.handoff.blocker = c.reason;
+				pass.handoff.preparationResult = `implementation-preparation:${facts.sequence}`;
 				a.blocker = c.reason;
 				result.handoff = pass.handoff.record;
+				result.preparationResult = pass.handoff.preparationResult;
+				result.document0 = pass.handoff.preparationResult;
 				break;
 			case "recordSourceObservation":
 				if (!a.packet.investigation || a.investigationSource || !["queued", "running"].includes(a.status))

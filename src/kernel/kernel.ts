@@ -212,6 +212,7 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	requestImplementationAudit: { family: "role-work", available: true },
 	submitImplementationHandoff: { family: "role-work", available: true },
 	recordImplementationSource: { family: "source-effect", available: true },
+	recordImplementationExecution: { family: "source-effect", available: true },
 	recordPreparationBlocker: { family: "scheduling", available: true },
 	requestRole: { family: "role-work", available: true },
 	requestOwnStop: { family: "role-work", available: true },

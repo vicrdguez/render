@@ -344,6 +344,7 @@ export class Ledger {
 				"requestImplementationAudit",
 				"submitImplementationHandoff",
 				"recordImplementationSource",
+				"recordImplementationExecution",
 				...CHECKPOINT_COMMANDS,
 				...INTAKE_COMMANDS,
 			].includes(command.type)
@@ -461,6 +462,7 @@ export class Ledger {
 			"requestImplementationAudit",
 			"submitImplementationHandoff",
 			"recordImplementationSource",
+			"recordImplementationExecution",
 			"submitRoleResult",
 		].includes(command.type);
 		if (implementationPass && implementationPreflight) {
@@ -926,6 +928,26 @@ export class Ledger {
 							current,
 						);
 					}
+					if (command.type === "recordPreparationBlocker") {
+						const c = command as Extract<import("../kernel/roles.ts").RoleCommand, { type: "recordPreparationBlocker" }>;
+						const pass = roles.passes!.find((p) => p.assignment === c.assignment)!;
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							pass.handoff!.preparationResult!,
+							`implementation-preparation/${pass.ref}/${sequence}`,
+							JSON.stringify({
+								schema: 1,
+								passRef: pass.ref,
+								handoff: pass.handoff!.record,
+								task: pass.handoff!.preparationTask,
+								reason: c.reason,
+							}),
+							c,
+						);
+					}
 					if (command.type === "recordSourceObservation" && typeof decision.result.source === "string") {
 						const c = command as { assignment: string; generation: number; attempt: string; text: string };
 						await this.#retainRoleText(tx, env, by, sequence, decision.result.source, `investigation-source/${c.assignment}`, c.text, c);
@@ -1345,6 +1367,7 @@ export class Ledger {
 			pass.workspace,
 			pass.audit?.record,
 			pass.handoff?.record,
+			pass.handoff?.preparationResult,
 			...Object.values(pass.audit?.results ?? {}).map((r) => r?.report),
 		].filter((ref): ref is string => !!ref);
 	}

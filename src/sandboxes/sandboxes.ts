@@ -223,7 +223,8 @@ export class Sandboxes {
 					"LANG=C.UTF-8",
 					"node",
 					"-e",
-					"setInterval(()=>{}, 1000)",
+					// PID 1 must handle TERM; otherwise every clean capture waits for Docker's forced-kill timeout.
+					"process.on('SIGTERM',()=>process.exit(0)); setInterval(()=>{}, 1000)",
 				])
 			).trim();
 			handle.runtime = runtime;

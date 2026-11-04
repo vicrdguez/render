@@ -156,6 +156,7 @@ function fixture() {
 		state = {
 			...state,
 			roleWork: {
+				...state.roleWork!,
 				assignments: state.roleWork!.assignments.map((a) =>
 					a.id === reviewer.id ? { ...a, status: "submitted", executing: false, report } : a,
 				),

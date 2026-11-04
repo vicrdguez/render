@@ -1,92 +1,28 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { SourceReceipt } from "../src/effects/source.ts";
+import { setTimeout } from "node:timers/promises";
+import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
+import type { TaskId } from "@earendil-works/pi-durable";
 import { type Command, change, type KernelState, type Principal, type VerifiedFacts } from "../src/kernel/kernel.ts";
-import type { RoleAssignment, RolePacket } from "../src/kernel/roles.ts";
-import type { CatalogEvidence, VerificationSelection } from "../src/kernel/verification.ts";
+import type { ImplementationPass, RoleAssignment, RolePacket } from "../src/kernel/roles.ts";
 import { parseEnvelope } from "../src/ledger/envelope.ts";
+import type { Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
-import { accepted, acceptedImplementation, LedgerOnlyEngine } from "./support/implementation.ts";
+import {
+	accepted,
+	acceptedImplementation,
+	assessment,
+	capture,
+	damageImplementation,
+	implementationLifecycle,
+	implementationTasks,
+	LedgerOnlyEngine,
+	selection,
+} from "./support/implementation.ts";
 import { admin, packet } from "./support/roles.ts";
 
 const scheduling: Principal = { kind: "host", scope: "scheduling" };
 const effects: Principal = { kind: "host", scope: "effects" };
-const selection = (contract: string): VerificationSelection => ({
-	repository: "owned",
-	commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-	path: ".render/verify.md",
-	digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-	contract,
-	rows: ["full-suite", "typecheck", "lint", "read"],
-	behavioralRows: ["read"],
-	receipts: [],
-});
-function capture(a: RoleAssignment, epoch: string, contract: string) {
-	const source = {
-		repository: "owned",
-		objectFormat: "sha1" as const,
-		commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		tree: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
-		root: "refs/render/source/literal",
-		entries: [],
-	};
-	const receipt: SourceReceipt = {
-		base: source,
-		source,
-		freeze: {
-			scope: { assignment: a.id, generation: a.generation, attempt: a.attempt, executorEpoch: epoch },
-			runtime: "owned-runtime",
-			running: false,
-		},
-		exclusions: [".git"],
-		bytes: 0,
-		entries: 0,
-		deleted: [],
-		configurationChanges: [],
-		durability: { git: "rooted", fsync: "all", method: "fsync" },
-	};
-	const selected = selection(contract);
-	const evidence: CatalogEvidence = {
-		kind: "catalog-check",
-		role: "implementer",
-		catalog: {
-			selection: selected,
-			text: "literal selected catalog",
-			ranks: ["tests", "inspection"],
-			sections: {},
-			rows: selected.rows.map((name) => ({
-				name,
-				channel: "Tests",
-				kind: "executed",
-				run: "true",
-				expectations: "Exact behavior",
-				rank: "tests",
-				literal: name,
-			})),
-			cleanup: [],
-		},
-		results: selected.rows.map((name) => ({
-			name,
-			status: "completed",
-			steps: [
-				{
-					argv: ["true"],
-					exitCode: 0,
-					stdout: "",
-					stderr: "",
-					platform: { os: "linux", cpu: "owned" },
-					image: "owned",
-					timedOut: false,
-					verifierRevision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-				},
-			],
-		})),
-		verification: { status: "needs_assessment", inputCommit: source.commit, inputTree: source.tree, resultTree: source.tree },
-		cleanup: { status: "complete", results: [] },
-	};
-	return { schema: 1, source: receipt, verification: evidence };
-}
-const assessment = { outcome: "pass", rank: "tests", reason: "Required literal rows independently passed." };
 function pure() {
 	let sequence = 0;
 	let retainedSource: ReturnType<typeof capture> | undefined;
@@ -206,6 +142,117 @@ function pure() {
 	const pass = () => state.roleWork!.passes![0]!;
 	return { command, ok, own, owner, id, first, writer, assignments, start, retain, audit, reports, pass, state: () => state };
 }
+
+test("trusted mutable execution admission invalidates final B, not the retained workspace or Audit", () => {
+	const f = pure();
+	f.audit();
+	f.reports([]);
+	const B = f.retain("final");
+	const before = structuredClone(f.pass());
+	const execution = { type: "recordImplementationExecution", assignment: f.id, generation: 1, attempt: f.own(f.id).attempt };
+	const admitted = f.command(execution, effects);
+	const handoff = { type: "submitImplementationHandoff", text: "Raw caller handoff", dispositions: [], verification: assessment };
+	assert.equal(f.command(handoff, f.owner).outcome, "refused", "new mutable execution cannot submit the obsolete captured B");
+	assert.equal(admitted.outcome, "accepted");
+	assert.equal(f.pass().captureB, undefined);
+	assert.deepEqual({ ...f.pass(), captureB: B }, before);
+	assert.equal(f.pass().workspace, B, "retained recovery snapshot remains available, but is not current final evidence");
+	if (admitted.outcome !== "accepted") throw Error("unreachable");
+	const fact = admitted.writes.find((w) => w.type === "fact.record");
+	assert.ok(fact?.type === "fact.record");
+	assert.equal(fact.refs.source, B, "the admission retains its invalidated source identity in history");
+	const next = f.retain("final");
+	assert.notEqual(next, B);
+	f.ok(handoff, f.owner);
+	const sealed = structuredClone(f.pass());
+	assert.equal(f.command(execution, effects).outcome, "refused", "handoff cannot be reopened by execution admission");
+	assert.deepEqual(f.pass(), sealed);
+});
+
+test("untrusted, stale-epoch and revoked execution admission cannot invalidate final evidence", () => {
+	const f = pure();
+	f.audit();
+	f.reports([]);
+	f.retain("final");
+	const before = structuredClone(f.pass());
+	const execution = { type: "recordImplementationExecution", assignment: f.id, generation: 1, attempt: f.own(f.id).attempt };
+	for (const principal of [f.owner, scheduling, { kind: "human", human: "owner", route: "local-admin" } as Principal]) {
+		assert.equal(f.command(execution, principal).outcome, "refused");
+		assert.deepEqual(f.pass(), before);
+	}
+	for (const command of [
+		{ ...execution, generation: 0 },
+		{ ...execution, attempt: "old-attempt" },
+	]) {
+		assert.equal(f.command(command, effects).outcome, "refused");
+		assert.deepEqual(f.pass(), before);
+	}
+	assert.equal(f.command(execution, effects, { executorEpoch: "new-executor" }).outcome, "refused");
+	assert.deepEqual(f.pass(), before);
+	f.ok(
+		{ type: "cancelWork", assignment: f.id, generation: 1, attempt: f.own(f.id).attempt },
+		{ kind: "human", human: "owner", route: "local-admin" },
+	);
+	assert.equal(f.command({ ...execution, generation: f.own(f.id).generation }, effects).outcome, "refused");
+	assert.equal(f.command(execution, effects).outcome, "refused");
+	assert.deepEqual(f.pass(), before);
+});
+
+test("execution admission envelope has a closed host-effects shape", () => {
+	const command = { type: "recordImplementationExecution", assignment: "a", generation: 1, attempt: "attempt" };
+	const envelope = { version: 1, authorityEpoch: "authority", commandId: "execution", workflow: "w", command };
+	assert.equal("status" in parseEnvelope(envelope), false);
+	for (const invalid of [
+		{ ...command, generation: 0 },
+		{ ...command, attempt: "" },
+		{ ...command, executorEpoch: "caller-selected" },
+		{ ...command, source: "caller-selected" },
+	]) {
+		const parsed = parseEnvelope({ ...envelope, command: invalid });
+		assert.ok("status" in parsed && parsed.status === "refused");
+	}
+});
+
+test("real Ledger execution admission refuses raw obsolete-B handoff and preserves exact prior evidence through reopen", async () => {
+	const t = await implementationLifecycle();
+	try {
+		await t.audit();
+		await t.reports();
+		const B = await t.retain("final");
+		const pass = () => ((t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[])[0]!;
+		const before = structuredClone(pass());
+		const execution = { type: "recordImplementationExecution", assignment: t.id, generation: 1, attempt: t.owner().attempt };
+		const admission = await t.f.command(execution, mintContext(effects), "execute-after-final");
+		const refused = await t.f.command(t.handoff, t.actor, "obsolete-b-handoff");
+		assert.equal(refused.status, "refused", "raw handoff must not bypass Engine recapture");
+		accepted(admission);
+		assert.equal(pass().captureB, undefined);
+		assert.equal(pass().workspace, B);
+		assert.equal(pass().captureA, before.captureA);
+		assert.deepEqual(pass().audit, before.audit);
+		const source = await t.f.ledger.artifact(t.actor, { read: B });
+		assert.ok("content" in source);
+		const next = await t.retain("final");
+		assert.notEqual(next, B);
+		accepted(await t.f.command(t.handoff, t.actor, "current-b-handoff"));
+		assert.equal((await t.f.command(execution, mintContext(effects))).status, "refused");
+		await t.f.reopen(new LedgerOnlyEngine());
+		assert.equal(pass().captureB, next);
+		assert.equal(pass().captureA, before.captureA);
+		assert.deepEqual(pass().audit, before.audit);
+		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in exported && exported.manifest.complete);
+		assert.equal(Buffer.from(exported.content[B]!, "base64").toString(), source.content.toString());
+		assert.ok(exported.content[next]);
+		const facts = exported.jsonl
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		assert.ok(facts.some((record) => record.command === "recordImplementationExecution" && record.refs?.source === B));
+	} finally {
+		await t.close();
+	}
+});
 
 test("paired Audit uses literal current pass/A bindings and atomically requests exactly two fresh non-delivery tasks", () => {
 	const f = pure();
@@ -444,6 +491,7 @@ test("checkpoint and quiescent writer rebind preserve pass/Audit and refuse unkn
 test("adopted policy cannot convert the old writer execution into a checkpoint/rebind grant", () => {
 	const f = pure();
 	f.audit();
+	const B = f.retain("final");
 	const a = f.own(f.id);
 	const source = capture(a, "executor:1", "contract:accepted");
 	const human: Principal = { kind: "human", human: "owner", route: "local-admin" };
@@ -464,6 +512,11 @@ test("adopted policy cannot convert the old writer execution into a checkpoint/r
 		},
 		human,
 	);
+	assert.equal(
+		f.command({ type: "recordImplementationExecution", assignment: a.id, generation: 1, attempt: a.attempt }, effects).outcome,
+		"refused",
+	);
+	assert.equal(f.pass().captureB, B, "policy adoption cannot authorize evidence invalidation by the old execution");
 	assert.equal(
 		f.command(
 			{
@@ -515,6 +568,197 @@ test("lifecycle envelope parsing rejects malformed nested assessment/disposition
 		assert.ok("status" in parsed && parsed.status === "refused", JSON.stringify(parsed));
 	}
 });
+
+test("queued Audit exports both exact child packets before any runtime archive", async () => {
+	const t = await implementationLifecycle();
+	try {
+		await t.audit();
+		const children = t.assignments().filter((a) => a.parent === t.id);
+		assert.equal(children.length, 2);
+		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in exported && exported.manifest.complete);
+		for (const child of children) {
+			assert.equal(child.status, "queued");
+			assert.equal(child.runtimeHistory, undefined);
+			assert.equal(Buffer.from(exported.content[child.packetRef] ?? "", "base64").toString(), JSON.stringify(child.packet));
+		}
+	} finally {
+		await t.close();
+	}
+});
+
+for (const axis of ["audit-standards", "audit-contracts"])
+	for (const failure of ["missing_content", "content_corrupt"] as const) {
+		test(`queued Audit ${axis} packet ${failure} makes export incomplete without runtime history`, async () => {
+			const t = await implementationLifecycle();
+			try {
+				await t.audit();
+				const child = t.assignments().find((a) => a.parent === t.id && a.packet.role === axis)!;
+				assert.equal(child.status, "queued");
+				assert.equal(child.runtimeHistory, undefined);
+				damageImplementation(t.f.data, child.packetRef, failure);
+				await t.f.reopen(new LedgerOnlyEngine());
+				const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+				assert.ok("manifest" in exported);
+				assert.equal(exported.manifest.complete, false);
+				assert.ok(exported.manifest.missing.some((gap) => gap.ref === child.packetRef && gap.code === failure));
+				assert.equal(child.packetRef in exported.content, false);
+			} finally {
+				await t.close();
+			}
+		});
+	}
+
+test("preparation blockage retains exact immutable task/reason history independently of null runtime result", async () => {
+	const t = await implementationLifecycle();
+	try {
+		await t.audit();
+		await t.reports();
+		await t.retain("final");
+		const handoff = accepted(await t.f.command(t.handoff, t.actor, "handoff-once"));
+		const command = {
+			type: "recordPreparationBlocker",
+			assignment: t.id,
+			generation: 1,
+			attempt: t.owner().attempt,
+			reason: "Preparation unavailable: exact blocker\\r\\nNo Watchdog capability.",
+		};
+		const blocked = accepted(await t.f.command(command));
+		assert.equal(typeof blocked.preparationResult, "string", "blocker needs an immutable result document");
+		const ref = blocked.preparationResult as string;
+		const expected = {
+			schema: 1,
+			passRef: t.owner().passRef,
+			handoff: handoff.handoff,
+			task: handoff.preparationTask,
+			reason: command.reason,
+		};
+		const read = await t.f.ledger.artifact(t.actor, { read: ref });
+		assert.ok("content" in read, "implementer can read its own preparation outcome");
+		assert.deepEqual(JSON.parse(read.content.toString()), expected);
+		const reviewer = t.assignments().find((a) => a.parent === t.id)!;
+		assert.ok("code" in (await t.f.ledger.artifact(t.agent(reviewer), { read: ref })));
+		const cutoff = await t.f.ledger.observe(admin, { history: { workflow: "workflow:2", limit: "1" } });
+		assert.ok("next" in cutoff && cutoff.next);
+		const later = accepted(await t.f.command({ ...command, reason: "A later operational retry is still blocked." }));
+		assert.notEqual(later.preparationResult, ref, "each outcome has an independent immutable identity");
+		assert.equal(t.owner().status, "submitted");
+		assert.equal(t.owner().executing, true, "blockage cannot release ownership");
+		const original = await t.f.ledger.artifact(admin, { read: ref });
+		assert.ok("content" in original);
+		assert.deepEqual(JSON.parse(original.content.toString()), expected);
+		const frozen = await t.f.ledger.artifact(admin, { export: { cursor: cutoff.next } });
+		assert.ok("manifest" in frozen && frozen.manifest.complete);
+		assert.deepEqual(JSON.parse(Buffer.from(frozen.content[ref]!, "base64").toString()), expected);
+		assert.equal((later.preparationResult as string) in frozen.content, false);
+		const reopened = new LedgerOnlyEngine();
+		await t.f.reopen(reopened);
+		let task = await reopened.harness.getTask(handoff.preparationTask as TaskId, ctx);
+		for (let tries = 0; tries < 100 && task?.state.status !== "terminal"; tries++) {
+			await setTimeout(10);
+			task = await reopened.harness.getTask(handoff.preparationTask as TaskId, ctx);
+		}
+		assert.ok(task?.state.status === "terminal" && task.state.outcome.status === "completed");
+		assert.equal(task.state.outcome.result, null, "runtime result cannot supply the retained blocker");
+		const restored = await t.f.ledger.artifact(admin, { read: ref });
+		assert.ok("content" in restored);
+		assert.equal(restored.content.toString(), read.content.toString());
+		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in exported && exported.manifest.complete);
+		assert.deepEqual(JSON.parse(Buffer.from(exported.content[ref]!, "base64").toString()), expected);
+		assert.ok(exported.content[later.preparationResult as string]);
+		const history = await t.f.ledger.artifact(admin, { export: { cursor: cutoff.next } });
+		assert.ok("manifest" in history);
+		assert.equal(history.jsonl, frozen.jsonl);
+	} finally {
+		await t.close();
+	}
+});
+
+test("second-axis Durable staging failure rolls back packets, assignments, tasks and accepted receipt; retry creates one Audit", async () => {
+	const engine = new LedgerOnlyEngine();
+	const t = await implementationLifecycle(engine);
+	try {
+		const before = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in before && before.manifest.complete);
+		const tasks = await implementationTasks(engine.harness);
+		const ids = t.assignments().map((a) => a.id);
+		engine.failSecondAuditStage = true;
+		const failed = await t.f.command({ type: "requestImplementationAudit" }, t.actor, "paired-audit");
+		assert.equal(failed.status === "refused" && failed.code, "outcome_unknown");
+		const recovered = new LedgerOnlyEngine();
+		await t.f.reopen(recovered);
+		assert.deepEqual(
+			t.assignments().map((a) => a.id),
+			ids,
+		);
+		assert.deepEqual(await implementationTasks(recovered.harness), tasks);
+		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in exported && exported.manifest.complete);
+		assert.deepEqual(Object.keys(exported.content).sort(), Object.keys(before.content).sort(), "neither staged packet nor Audit survived");
+		const receipt = await t.f.ledger.receipt(t.actor, "paired-audit");
+		assert.ok("code" in receipt && receipt.code === "not_found", "no accepted receipt survived rollback");
+		accepted(
+			await t.f.command({
+				type: "rebindAttempt",
+				assignment: t.id,
+				generation: 1,
+				attempt: t.owner().attempt,
+				providerIdle: true,
+				environment: "stopped",
+				effects: "reconciled",
+				executorEpoch: t.f.ledger.status().executorEpoch,
+			}),
+		);
+		await t.start(t.id);
+		const audit = await t.audit();
+		assert.deepEqual(await t.audit(), audit);
+		assert.equal(t.assignments().filter((a) => a.parent === t.id).length, 2);
+		assert.equal((await implementationTasks(recovered.harness)).length, tasks.length + 2);
+		assert.equal((await t.f.command({ type: "requestImplementationAudit" }, t.actor)).status, "refused");
+	} finally {
+		await t.close();
+	}
+});
+
+for (const evidence of ["A", "B", "Audit", "standards-report", "contracts-report"] as const)
+	for (const failure of ["missing_content", "content_corrupt"] as const)
+		test(`handoff refuses exact ${evidence} ${failure} from real SQLite instead of reconstructing it`, async () => {
+			const t = await implementationLifecycle();
+			try {
+				const audit = await t.audit();
+				await t.reports();
+				const B = await t.retain("final");
+				const ref =
+					evidence === "A"
+						? t.A
+						: evidence === "B"
+							? B
+							: evidence === "Audit"
+								? (audit.auditRecord as string)
+								: t
+										.assignments()
+										.find(
+											(a) =>
+												a.parent === t.id && a.packet.role === (evidence === "standards-report" ? "audit-standards" : "audit-contracts"),
+										)!.report!;
+				const tasks = (await implementationTasks(t.f.harness)).length;
+				damageImplementation(t.f.data, ref, failure);
+				const reopened = new LedgerOnlyEngine();
+				await t.f.reopen(reopened);
+				const reply = await t.f.command(t.handoff, t.actor, "damaged-handoff");
+				assert.equal(reply.status === "refused" && reply.code, failure);
+				assert.equal(t.owner().status, "running");
+				assert.equal((await implementationTasks(reopened.harness)).length, tasks, "no preparation task staged");
+				const receipt = await t.f.ledger.receipt(t.actor, "damaged-handoff");
+				assert.ok("code" in receipt && receipt.code === "not_found");
+				const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+				assert.ok("manifest" in exported && !exported.manifest.complete);
+				assert.ok(exported.manifest.missing.some((gap) => gap.ref === ref && gap.code === failure));
+			} finally {
+				await t.close();
+			}
+		});
 
 test("real Ledger paired staging, scoped immutable sources/reports, handoff dedup, export and ordinary reopen", async () => {
 	const t = await acceptedImplementation();
