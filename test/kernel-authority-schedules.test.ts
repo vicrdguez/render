@@ -47,9 +47,13 @@ const MATRIX: Record<string, { admits: PrincipalClass[]; available: boolean }> =
 	requestCheckpoint: { admits: ["agent"], available: true },
 	stageCheckpoint: { admits: ["agent"], available: true },
 	requestCheckpointReview: { admits: ["agent"], available: true },
-	acceptIntake: { admits: ["human"], available: false },
-	amendContract: { admits: ["human"], available: false },
-	supersedeContract: { admits: ["human"], available: false },
+	acceptIntake: { admits: ["human"], available: true },
+	amendContract: { admits: ["human"], available: true },
+	supersedeContract: { admits: ["human"], available: true },
+	amendDependencies: { admits: ["human"], available: true },
+	saveIntakeConcern: { admits: ["human"], available: true },
+	stageIntake: { admits: ["agent"], available: true },
+	requestIntakeReview: { admits: ["agent"], available: true },
 	changePolicy: { admits: ["human"], available: true },
 	adoptPolicy: { admits: ["human"], available: true },
 	replaceTask: { admits: ["host-scheduling", "host-recovery"], available: true },
@@ -232,6 +236,8 @@ const BARE_ROLE_REFUSAL: Record<string, string> = {
 	assignTask: "invalid_content",
 	recordRecoveryState: "invalid_content",
 	replaceTask: "stale_assignment",
+	stageIntake: "stale_assignment",
+	requestIntakeReview: "stale_assignment",
 	requestRole: "stale_assignment",
 	requestOwnStop: "stale_assignment",
 	submitRoleResult: "stale_assignment",
@@ -263,11 +269,16 @@ function expectedDecision(m: Model, principal: Principal, step: Step, command: R
 		case "importCheckpointSettings":
 		case "changePolicy":
 			return wholeProject ? "stale_basis" : "forbidden_scope"; // Generated without the expected default revision.
+		case "acceptIntake":
+		case "amendContract":
+		case "supersedeContract":
+		case "saveIntakeConcern":
 		case "approveCheckpoint":
 		case "saveCheckpointConcern":
 		case "cancelCheckpoint":
 			if (!exists) return "not_found";
 			return inScope(principal, workflow) ? "not_found" : "forbidden_scope";
+		case "amendDependencies":
 		case "adoptPolicy":
 			if (!exists) return "not_found";
 			return inScope(principal, workflow) ? "stale_basis" : "forbidden_scope"; // Generated without the expected binding.
@@ -504,7 +515,7 @@ test("literal: the workflow view reports handover fields and absent capabilities
 	assert.deepEqual(w?.evidence, { status: "none", items: [] });
 	assert.deepEqual(w?.nextHumanAction, { type: "saveGround", workflow: "workflow:1", document: "ground", expected: null });
 	assert.ok(w?.unavailable.includes("coordinator-replies"));
-	assert.ok(w?.unavailable.includes("intake-acceptance"));
+	assert.equal(w?.unavailable.includes("intake-acceptance"), false);
 	assert.deepEqual(w?.checkpoints, { requests: [], concerns: [] });
 	assert.ok(w?.unavailable.includes("assignments"));
 	assert.equal(w?.unavailable.includes("historical-export"), false);

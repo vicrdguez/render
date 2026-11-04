@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ExperimentProtocol } from "../src/kernel/experiments.ts";
-import { change, type Command, type KernelState, type VerifiedFacts } from "../src/kernel/kernel.ts";
+import { type Command, change, type KernelState, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { packet } from "./support/roles.ts";
 
@@ -109,18 +109,20 @@ test("E15 protocol legality precedes intake gaps; standalone experiments do not 
 	const standalone = decide(s, { ...command, slice: "standalone" });
 	assert.equal(standalone.outcome, "accepted");
 	if (standalone.outcome !== "accepted") throw new Error("unreachable");
-	assert.equal(standalone.writes.some((w) => w.type === "intakes.replace"), false);
+	assert.equal(
+		standalone.writes.some((w) => w.type === "intakes.replace"),
+		false,
+	);
 	const bound = decide(s, { ...command, packet: { ...candidate, inputs: ["contract:1"] } });
 	assert.equal(bound.outcome, "accepted");
 	if (bound.outcome !== "accepted") throw new Error("unreachable");
 	const consumed = bound.writes.find((w) => w.type === "intakes.replace");
-	assert.equal(consumed?.type === "intakes.replace" && consumed.state.slices[0]!.everAssigned, true);
+	assert.equal(consumed?.type === "intakes.replace" && consumed.state.slices[0]?.everAssigned, true);
 });
 
 test("E16 experiment correction and intake fidelity each retain their distinct replacement refusal", () => {
-	const s = state();
 	const a = assignment();
-	s.roleWork = { assignments: [a] };
+	const s = { ...state(), roleWork: { assignments: [a] } };
 	const command = {
 		type: "replaceTask",
 		workflow: "workflow:1",
@@ -146,10 +148,9 @@ test("E16 experiment correction and intake fidelity each retain their distinct r
 });
 
 test("E17 accepted-Contract gaps still fence experiment staging, replacement and rebind", () => {
-	const s = state();
 	const a = assignment();
 	a.slice = "accepted-slice";
-	s.roleWork = { assignments: [a] };
+	const s = { ...state(), roleWork: { assignments: [a] } };
 	const identity = { workflow: "workflow:1", assignment: a.id, generation: a.generation, attempt: a.attempt };
 	for (const command of [
 		{ ...identity, type: "stageTask", executorEpoch: "executor" },

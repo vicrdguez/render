@@ -320,7 +320,20 @@ test("S04/S07 captured human survives rework; later Modules captures delegated w
 		assert.equal(decision.checkpointSettingsRevision, latest);
 		assert.equal(decision.agreedScopeRef, t.scope);
 		assert.ok(decision.review);
-		assert.equal(code(await t.cmd({ type: "acceptIntake" })), "forbidden_principal", "agent must never accept intake");
+		assert.equal(
+			code(
+				await t.cmd({
+					type: "acceptIntake",
+					intake: "intake:unaccepted",
+					review: "review:unaccepted",
+					annotations: 0,
+					policyBinding: "binding:unaccepted",
+					decisions: [],
+				}),
+			),
+			"forbidden_principal",
+			"agent must never accept intake",
+		);
 		await t.reopen();
 		assert.equal(t.pending().requests[1]!.decision, approved.decision);
 		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
