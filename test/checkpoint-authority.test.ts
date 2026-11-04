@@ -69,6 +69,15 @@ test("C13 revised Seams block an already executing dependent without erasing acc
 				assignment("coordinator", "coordinator", ["ground:1"]),
 				assignment("affected", "implementer", ["emission:old"]),
 				assignment("unrelated", "implementer", ["other:1"]),
+				{
+					...assignment("experiment", "coordinator", ["emission:old"]),
+					packet: packet({
+						role: "experiment-candidate",
+						execution: "linux-writer",
+						inputs: ["emission:old"],
+						experiment: { protocol: "protocol:retained", candidate: "favorite" },
+					}),
+				},
 			],
 		},
 	};
@@ -91,6 +100,7 @@ test("C13 revised Seams block an already executing dependent without erasing acc
 	assert.equal(work.state.assignments[1]!.status, "blocked");
 	assert.equal(work.state.assignments[1]!.executing, true, "blocking cannot claim quiescence");
 	assert.equal(work.state.assignments[2]!.status, "running");
+	assert.equal(work.state.assignments[3]!.status, "running", "isolated experiment evidence must not depend on checkpoint approval");
 	const checkpoints = d.writes.find((w) => w.type === "checkpoints.replace");
 	assert.ok(checkpoints && checkpoints.type === "checkpoints.replace");
 	assert.deepEqual(checkpoints.state.requests[0], accepted);

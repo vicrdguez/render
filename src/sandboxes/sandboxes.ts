@@ -8,9 +8,10 @@ import { blobOid, type LiteralEntry, type Source, treeOid, validateEntries, vali
 import { faultBarrier } from "../ledger/barrier.ts";
 
 export type ExecutionScope = { assignment: string; generation: number; attempt: string; executorEpoch: string };
-export type LinuxProfile = { image: string; exclusions: string[]; maxBytes: number; maxEntries: number };
+export type LinuxProfile = { image: string; exclusions: string[]; maxBytes: number; maxEntries: number; maxCommands?: number };
+type Inputs = Source & { readOnly?: Record<string, Source> };
 export type SandboxHandle = { id: string; runtime: string; scope: ExecutionScope };
-export type PreparationInputs = Source | { source: Source; after: SandboxHandle };
+export type PreparationInputs = Inputs | { source: Source; after: SandboxHandle };
 export type ExecutionResult = {
 	argv: string[];
 	exitCode: number | null;
@@ -77,7 +78,7 @@ export class Sandboxes {
 		});
 		return pending;
 	}
-	async #prepare(scope: ExecutionScope, profile: LinuxProfile, source: Source, after?: SandboxHandle): Promise<SandboxHandle> {
+	async #prepare(scope: ExecutionScope, profile: LinuxProfile, source: Inputs, after?: SandboxHandle): Promise<SandboxHandle> {
 		try {
 			if (!this.#authorize(scope) || this.#stoppedScopes.has(identity(scope))) throw new Error("Sandbox scope is fenced/unauthorized.");
 			if (after) {
@@ -96,7 +97,9 @@ export class Sandboxes {
 					throw new Error("Continuation requires the exact captured source, not older or replacement bytes.");
 			}
 			if (
-				Object.keys(profile).some((key) => !["image", "exclusions", "maxBytes", "maxEntries"].includes(key)) ||
+				Object.keys(profile).some((key) => !["image", "exclusions", "maxBytes", "maxEntries", "maxCommands"].includes(key)) ||
+				(profile.maxCommands !== undefined &&
+					(!Number.isSafeInteger(profile.maxCommands) || profile.maxCommands < 1 || profile.maxCommands > 32)) ||
 				!/^sha256:[0-9a-f]{64}$/.test(profile.image) ||
 				!Number.isSafeInteger(profile.maxBytes) ||
 				profile.maxBytes < 1 ||
@@ -113,6 +116,13 @@ export class Sandboxes {
 			)
 				throw new Error("Collection profile must explicitly exclude .git exactly once.");
 			for (const path of profile.exclusions.slice(1)) validatePath(path);
+			if (Object.keys(source.readOnly ?? {}).length > 4) throw new Error("Too many read-only candidates.");
+			for (const [name, input] of Object.entries(source.readOnly ?? {})) {
+				if (!/^[a-z][a-z0-9-]{0,31}$/.test(name)) throw new Error("Invalid candidate mount name.");
+				validateEntries(input.entries, input.objectFormat, profile.maxBytes, profile.maxEntries);
+				if (treeOid(input.entries, input.objectFormat) !== input.tree)
+					throw new Error("Read-only candidate source differs from retained tree.");
+			}
 			validateEntries(source.entries, source.objectFormat, profile.maxBytes, profile.maxEntries);
 			if (treeOid(source.entries, source.objectFormat) !== source.tree)
 				throw new Error("Ingress source manifest differs from resolved tree.");
@@ -154,15 +164,15 @@ export class Sandboxes {
 			const gid = process.getgid?.() || 1000;
 			const workspace = join(dir, "workspace");
 			await mkdir(workspace, { mode: 0o755 });
-			for (const entry of source.entries) {
-				const path = join(workspace, entry.path);
-				await mkdir(dirname(path), { recursive: true, mode: 0o755 });
-				const content = Buffer.from(entry.content, "base64");
-				if (entry.mode === "120000") await symlink(content.toString("utf8"), path);
-				else {
-					await writeFile(path, content, { flag: "wx", mode: entry.mode === "100755" ? 0o755 : 0o644 });
-					await chmod(path, entry.mode === "100755" ? 0o755 : 0o644);
-				}
+			await materialize(workspace, source);
+			const mounts: string[] = [];
+			for (const [name, input] of Object.entries(source.readOnly ?? {})) {
+				const path = join(dir, "candidates", name);
+				await mkdir(path, { recursive: true, mode: 0o755 });
+				await materialize(path, input);
+				const verified = await collect(path, input.objectFormat, profile, false);
+				if (treeOid(verified.entries, input.objectFormat) !== input.tree) throw new Error("Read-only candidate materialization mismatch.");
+				mounts.push("--mount", `type=bind,src=${path},dst=/candidates/${name},readonly`);
 			}
 			// Match the trusted host uid, not root. Root-host installations explicitly transfer the private workspace.
 			if (process.getuid?.() === 0) await ownTree(workspace, uid, gid);
@@ -205,6 +215,7 @@ export class Sandboxes {
 					"/tmp:rw,noexec,nosuid,size=67108864",
 					"--mount",
 					`type=bind,src=${workspace},dst=/workspace`,
+					...mounts,
 					"--workdir",
 					"/workspace",
 					...env,
@@ -265,6 +276,12 @@ export class Sandboxes {
 			call.timeoutMs > 300000
 		)
 			throw new Error("Invalid bounded sandbox command.");
+		if (
+			state.profile.maxCommands !== undefined &&
+			(await readdir(join(this.#root, handle.id))).filter((name) => /^execution-[0-9a-f-]+\.json$/.test(name)).length >=
+				state.profile.maxCommands
+		)
+			throw new Error("Preregistered experiment command budget exhausted; new round required.");
 		const observed = await this.#inspect(state);
 		if (!observed.State.Running) throw new Error("Sandbox is not running.");
 		if (this.#fenced.has(handle.id) || this.#stoppedScopes.has(identity(handle.scope)) || !this.#authorize(call.scope))
@@ -484,6 +501,18 @@ function docker(args: string[], timeout = 30000): Promise<string> {
 			error ? reject(new Error(`Docker ${args[0]} failed: ${stderr}`)) : resolve(stdout),
 		),
 	);
+}
+async function materialize(root: string, source: Source): Promise<void> {
+	for (const entry of source.entries) {
+		const path = join(root, entry.path);
+		await mkdir(dirname(path), { recursive: true, mode: 0o755 });
+		const content = Buffer.from(entry.content, "base64");
+		if (entry.mode === "120000") await symlink(content.toString("utf8"), path);
+		else {
+			await writeFile(path, content, { flag: "wx", mode: entry.mode === "100755" ? 0o755 : 0o644 });
+			await chmod(path, entry.mode === "100755" ? 0o755 : 0o644);
+		}
+	}
 }
 async function ownTree(path: string, uid: number, gid: number): Promise<void> {
 	const info = await lstat(path);

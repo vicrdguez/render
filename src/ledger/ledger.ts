@@ -16,6 +16,7 @@ import {
 	checkpointRefs,
 	emptyCheckpoints,
 } from "../kernel/checkpoints.ts";
+import { type ExperimentProtocol, experimentInputs, readExperimentProtocol } from "../kernel/experiments.ts";
 import { type ImplementationSource, implementationSource as parseImplementationSource } from "../kernel/implementation.ts";
 import { approvedIntakeRefs, emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, intakeRefs, validIntakeShape } from "../kernel/intake.ts";
 import { type Ground, readGround } from "../kernel/investigation.ts";
@@ -379,7 +380,13 @@ export class Ledger {
 					[
 						(command as { source: string }).source,
 						...Object.values(workflow?.exists ? workflow.documents : {}).map((d) => d.revision),
-						...scoped.flatMap((a) => [...packetRefs(plain(a.packet)), a.report, a.investigationSource, ...(a.evidence ?? [])]),
+						...scoped.flatMap((a) => [
+							...packetRefs(plain(a.packet)),
+							a.report,
+							a.investigationSource,
+							a.experimentSource,
+							...(a.evidence ?? []),
+						]),
 						...intakes.slices.map((s) => s.contract),
 						...intakes.drafts.flatMap((d) => [
 							d.id,
@@ -665,13 +672,19 @@ export class Ledger {
 		}
 		const ownInvestigation =
 			command.type === "submitRoleResult" && current.kind === "assignment-agent"
-				? roles.assignments.find((a) => sameAgent(a as RoleAssignment, current) && a.packet.investigation)
+				? roles.assignments.find((a) => sameAgent(a as RoleAssignment, current) && (a.packet.investigation || a.packet.experiment))
 				: undefined;
 		if (ownInvestigation) packets.push(plain(ownInvestigation.packet));
 		let investigationGround: Ground | undefined;
+		const experimentProtocols: Record<string, ExperimentProtocol> = {};
 		const allPackets = (p: RolePacket): RolePacket[] => [p, ...p.requests.flatMap((r) => allPackets(r.packet))];
 		for (const packet of packets.flatMap(allPackets))
-			for (const ref of [...packetRefs(packet), ...(ownInvestigation?.investigationSource ? [ownInvestigation.investigationSource] : [])]) {
+			for (const ref of [
+				...packetRefs(packet),
+				...experimentInputs(plain(roles.assignments), packet),
+				...(ownInvestigation?.experimentSource ? [ownInvestigation.experimentSource] : []),
+				...(ownInvestigation?.investigationSource ? [ownInvestigation.investigationSource] : []),
+			]) {
 				const location = await tx.doc(RevisionLocation, ref, null);
 				if (!location.exists || location.workflow !== env.workflow)
 					throw new Abort({
@@ -693,7 +706,9 @@ export class Ledger {
 					if (
 						input.data.document.startsWith("role-packet/") ||
 						owner?.packet.role === "candidate" ||
-						owner?.packet.role === "experiment-candidate"
+						(owner?.packet.role === "experiment-candidate" &&
+							ref !== ownInvestigation?.experimentSource &&
+							!experimentInputs(plain(roles.assignments), packet).includes(ref))
 					)
 						throw new Abort({
 							status: "refused",
@@ -703,6 +718,27 @@ export class Ledger {
 				}
 				const unsupported = unsupportedRecordSchema(input.data.schema, ref);
 				if (unsupported) throw new Abort(unsupported);
+				if (packet.experiment?.protocol === ref) {
+					const protocol = readExperimentProtocol(input.data.text);
+					if (!protocol)
+						throw new Abort({
+							status: "refused",
+							code: "invalid_content",
+							reason: "Retain complete preregistered question, criteria, controls, fixtures, failures, budget and outputs.",
+						});
+					const location = await tx.doc(RevisionLocation, protocol.ground, null);
+					const ground =
+						location.exists && location.workflow === env.workflow ? await tx.entry(RevisionEntry, location.entry as EntryId) : undefined;
+					if (
+						!ground ||
+						!intact(ground.data.text, ground.data.digest, ground.data.byteLength) ||
+						ground.data.kind !== "ground" ||
+						ground.data.createdBy.principal !== "human" ||
+						!readGround(ground.data.text)
+					)
+						throw new Abort({ status: "refused", code: "missing_content", reason: `Restore exact human Ground ${protocol.ground}.` });
+					experimentProtocols[ref] = protocol;
+				}
 				if (packet.investigation?.ground === ref) {
 					investigationGround =
 						input.data.kind === "ground" && input.data.createdBy.principal === "human" ? readGround(input.data.text) : undefined;
@@ -797,6 +833,7 @@ export class Ledger {
 		const target = command.type === "revokeDevice" ? await tx.doc(Device, (command as { device: string }).device, null) : undefined;
 		const text = env.content === undefined ? undefined : decodeUtf8(env.content);
 		const facts: VerifiedFacts = {
+			experimentProtocols,
 			checkpointInputs,
 			...(investigationGround ? { investigationGround } : {}),
 			verificationEvidence,
@@ -1051,7 +1088,16 @@ export class Ledger {
 					}
 					if (command.type === "recordSourceObservation" && typeof decision.result.source === "string") {
 						const c = command as { assignment: string; generation: number; attempt: string; text: string };
-						await this.#retainRoleText(tx, env, by, sequence, decision.result.source, `investigation-source/${c.assignment}`, c.text, c);
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							decision.result.source,
+							`${roles.assignments.find((a) => a.id === c.assignment)?.packet.experiment ? "experiment-source" : "investigation-source"}/${c.assignment}`,
+							c.text,
+							c,
+						);
 					}
 					if (command.type === "retainWebEvidence" && current.kind === "assignment-agent" && webEvidence) {
 						const ref = decision.result.evidence as string;
@@ -1687,10 +1733,12 @@ export class Ledger {
 					!own ||
 					![
 						...packetRefs(own.packet),
+						...experimentInputs(this.#roleWork.assignments, own.packet),
 						own.packetRef,
 						own.report,
 						own.investigationSource,
 						...this.#implementationReads(own),
+						own.experimentSource,
 						...(own.evidence ?? []),
 						...results,
 						...checkpointReads,

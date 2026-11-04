@@ -448,6 +448,7 @@ function parsePacket(raw: unknown, depth = 0): RolePacket {
 		[
 			"role",
 			"investigation",
+			"experiment",
 			"inputs",
 			"principles",
 			"instructions",
@@ -469,6 +470,12 @@ function parsePacket(raw: unknown, depth = 0): RolePacket {
 		],
 		"role packet",
 	);
+	if (p.experiment !== undefined) {
+		const e = object(p.experiment, "experiment");
+		only(e, ["protocol", "candidate"], "experiment");
+		text(e.protocol, "protocol revision", 128);
+		if (e.candidate !== null) text(e.candidate, "candidate identity", 32);
+	}
 	if (p.investigation !== undefined) {
 		const i = object(p.investigation, "investigation");
 		only(i, ["ground", "repository", "commit", "paths"], "investigation");

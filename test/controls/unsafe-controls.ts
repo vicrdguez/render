@@ -12,6 +12,8 @@ type Edit = { file: string; find: string; replace: string };
 // `expect` is the assertion message the intended wrong behavior must produce; any other failure is not detection.
 type Control = { name: string; edits: Edit[]; test: string; pattern: string; behavior: string; expect: RegExp };
 
+// Debt: the initial experiment controls were authored after product implementation began; passing them does not
+// repair that ordering violation. Independent review of their behavioral sensitivity remains required.
 const CONTROLS: Control[] = [
 	{
 		name: "implementation-same-pass-reaudit",
@@ -156,6 +158,102 @@ const CONTROLS: Control[] = [
 		test: "test/implementation-capture.integration.ts",
 		pattern: "reopening and stopping a scope",
 	},
+	{
+		name: "local-prompt-experiment-evidence",
+		expect: /advisory must retain exact experiment source and raw negative evidence/,
+		behavior: "omit sealed experiment source and decisive negative bytes from advisory inputs",
+		edits: [{ file: "src/ledger/ledger.ts", find: "\n\t\t\t\t\t\t\ta.experimentSource,", replace: "" }],
+		test: "test/experiment-journey.integration.ts",
+		pattern: "E02/E09/E10",
+	},
+	{
+		name: "experiment-correction-replacement",
+		expect: /Experimental corrections require a new protocol\/round/,
+		behavior: "replace an experiment with an ordinary role instead of requiring a new round",
+		edits: [
+			{ file: "src/kernel/roles.ts", find: "if (a?.packet.experiment)\n\t\t\treturn refusal", replace: "if (false)\n\t\t\treturn refusal" },
+		],
+		test: "test/experiment-design-candidates.test.ts",
+		pattern: "E18",
+	},
+	{
+		name: "design-candidate-replacement",
+		expect: /Candidate replacement retains exact question/,
+		behavior: "replace a design candidate with changed question, conditions or role",
+		edits: [{ file: "src/kernel/roles.ts", find: "if (!isDeepStrictEqual(oldPacket, newPacket))", replace: "if (false)" }],
+		test: "test/experiment-design-candidates.test.ts",
+		pattern: "E18",
+	},
+	{
+		name: "experiment-runner-answer",
+		expect: /Only the assigned coordinator can submit a cited investigation outcome/,
+		behavior: "accept a host runner receipt as an experiment answer",
+		edits: [
+			{ file: "src/kernel/roles.ts", find: "if (a.packet.investigation || a.packet.experiment)", replace: "if (a.packet.investigation)" },
+		],
+		test: "test/experiment-design-candidates.test.ts",
+		pattern: "E19",
+	},
+	{
+		name: "design-candidate-runner-answer",
+		expect: /Only the assigned candidate can submit its competing answer/,
+		behavior: "accept a host runner receipt as an independent design answer",
+		edits: [{ file: "src/kernel/roles.ts", find: "if (a.checkpointCandidate) return refusal", replace: "if (false) return refusal" }],
+		test: "test/experiment-design-candidates.test.ts",
+		pattern: "E19",
+	},
+	{
+		name: "experiment-missing-preregistered-rule",
+		expect: /missing decisionRule must not execute/,
+		behavior: "candidate execution is admitted without a preregistered decision rule",
+		edits: [
+			{
+				file: "src/kernel/experiments.ts",
+				find: "p.ground, p.question, p.hypothesis, p.falsifier, p.decisionRule",
+				replace: "p.ground, p.question, p.hypothesis, p.falsifier",
+			},
+		],
+		test: "test/protocol-experiments.test.ts",
+		pattern: "E01",
+	},
+	{
+		name: "experiment-post-measurement-criteria",
+		expect: /execution criteria must remain the original protocol after measurement/,
+		behavior: "parent silently receives amended criteria after candidate measurements",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: 'inputs.push({ ref, text: value.content.toString("utf8") });',
+				replace:
+					'inputs.push({ ref, text: a.packet.experiment?.candidate === null && ref === a.packet.experiment.protocol ? value.content.toString("utf8").replace("Any measurement greater than 10", "Any measurement greater than 20") : value.content.toString("utf8") });',
+			},
+		],
+		test: "test/experiment-journey.integration.ts",
+		pattern: "E02/E09/E10",
+	},
+	{
+		name: "experiment-parent-repairs-original",
+		expect: /parent must not repair a sealed favorite/,
+		behavior: "comparison receives writable original candidate mounts",
+		edits: [{ file: "src/sandboxes/sandboxes.ts", find: "dst=/candidates/${name},readonly", replace: "dst=/candidates/${name}" }],
+		test: "test/experiment-isolation.integration.ts",
+		pattern: "E08",
+	},
+	{
+		name: "experiment-negative-raw-erased",
+		expect: /retain raw decisive negative measurement/,
+		behavior: "sealed candidate evidence drops decisive raw measurements",
+		edits: [
+			{
+				file: "src/engine/experiments.ts",
+				find: "source,\n\t\t\texecutions: stopped.executions,",
+				replace: "source,\n\t\t\texecutions: [],",
+			},
+		],
+		test: "test/experiment-journey.integration.ts",
+		pattern: "E02/E09/E10",
+	},
+
 	{
 		name: "local-prompt-completion-gate",
 		expect: /advisory absence must not gate or complete work/,
@@ -508,8 +606,11 @@ const CONTROLS: Control[] = [
 			expect: /"status":"accepted"/,
 			behavior: pattern.replace("cannot inherit", "inherits"),
 			edits: [{ file: "src/ledger/ledger.ts", find: clause, replace: "false" }],
-			test: "test/context-continuation-independence.test.ts",
-			pattern,
+			test:
+				name === "inherited-experiment-candidate-report"
+					? "test/experiment-journey.integration.ts"
+					: "test/context-continuation-independence.test.ts",
+			pattern: name === "inherited-experiment-candidate-report" ? "E02/E09/E10" : pattern,
 		}),
 	),
 	{
@@ -814,8 +915,8 @@ const CONTROLS: Control[] = [
 				replace: "registry.install(this.#roles); registry.install(CodingTools);",
 			},
 			{ file: "src/engine/runtime.ts", find: "extensions: [this.#roles],", replace: "extensions: [this.#roles, CodingTools]," },
-			{ file: "src/engine/runtime.ts", find: "tools: this.#roles.tools ?? [],", replace: "tools: null," },
-			{ file: "src/engine/runtime.ts", find: "modelTools: this.#roles.tools ?? [],", replace: "modelTools: null," },
+			{ file: "src/engine/runtime.ts", find: "\n\t\t\t\t\t\ttools,", replace: "\n\t\t\t\t\t\ttools: null," },
+			{ file: "src/engine/runtime.ts", find: "modelTools: tools,", replace: "modelTools: null," },
 		],
 		test: "test/role-capability-refusal.test.ts",
 		pattern: "R03 explicit",
@@ -1100,8 +1201,8 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/engine/runtime.ts",
-				find: 'if (a.packet.execution !== "read-only") return "sandbox_capability_unavailable";',
-				replace: 'if (a.packet.execution !== "read-only") return "required_model_family_unavailable";',
+				find: 'if (a.packet.execution !== "read-only" && !a.packet.experiment) return "sandbox_capability_unavailable";',
+				replace: 'if (a.packet.execution !== "read-only" && !a.packet.experiment) return "required_model_family_unavailable";',
 			},
 		],
 		test: "test/role-capability-refusal.test.ts",
