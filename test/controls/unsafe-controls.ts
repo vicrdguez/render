@@ -14,6 +14,108 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 
 const CONTROLS: Control[] = [
 	{
+		name: "intake-nonexecuted-behavior",
+		expect: /non-executable exact catalog rows must not discharge behavior/,
+		behavior: "map exact generated or human catalog evidence to a behavior obligation",
+		edits: [{ file: "src/kernel/intake.ts", find: 'o.kind === "behavior" &&', replace: "false &&" }],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "catalog row cannot discharge behavior",
+	},
+	{
+		name: "intake-nonexecuted-rank",
+		expect: /non-executable new evidence must not claim a proof rank/,
+		behavior: "allow new generated or human evidence to claim proof ranks",
+		edits: [
+			{
+				file: "src/kernel/intake.ts",
+				find: 'if (check.rank !== null) return "Human/generated rows cannot claim proof ranks.";',
+				replace: "",
+			},
+		],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "evidence cannot claim a proof rank",
+	},
+	{
+		name: "intake-unbounded-change",
+		expect: /matching change Ground must not waive the breakdown/,
+		behavior: "stage a confirmed existing-seam change without its bounded breakdown",
+		edits: [
+			{ file: "src/kernel/intake.ts", find: 'if ((m.shape === "change" || m.shape === "design") && !m.breakdown)', replace: "if (false)" },
+		],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "matching change Ground still requires",
+	},
+	{
+		name: "intake-unapproved-source",
+		expect: /retained source bytes must not substitute for human Ground approval/,
+		behavior: "stage shortened intake using a source absent from human Ground approval",
+		edits: [
+			{
+				file: "src/kernel/intake.ts",
+				find: 'if (m.shape !== "design" && (!m.sources.length || m.sources.some((ref) => !approvedSources.includes(ref))))',
+				replace: "if (false)",
+			},
+		],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "shortened intake sources require",
+	},
+	{
+		name: "intake-unapproved-architecture",
+		expect: /node-less architecture must not cite an unapproved source/,
+		behavior: "allow a node-less architecture citation outside approved selected sources",
+		edits: [
+			{
+				file: "src/kernel/intake.ts",
+				find: 'return m.shape === "design" || !m.sources.includes(source.ref) || !approvedSources.includes(source.ref);',
+				replace: "return false;",
+			},
+		],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "node-less architecture cites",
+	},
+	{
+		name: "intake-retired-assignment",
+		expect: /retired Contract must not become assignable even with its exact inputs/,
+		behavior: "assign work against a superseded Slice with its retired Contract in inputs",
+		edits: [
+			{
+				file: "src/kernel/intake.ts",
+				find: 'if (s.status !== "accepted") return refused("contract_superseded", "Superseded work is not completed or assignable.");',
+				replace: "",
+			},
+		],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "required Record stays blocked",
+	},
+	{
+		name: "intake-stale-acceptance",
+		expect: /edited intake cannot use stale fidelity/,
+		behavior: "accept an intake despite unreviewed saved concerns",
+		edits: [
+			{ file: "src/kernel/intake.ts", find: "c.annotations !== d.annotations ||", replace: "false ||" },
+			{ file: "src/kernel/intake.ts", find: "b.annotations !== d.annotations", replace: "false" },
+			{ file: "src/kernel/intake.ts", find: "if (!mappedConcerns(work, d.manifest))", replace: "if (false)" },
+		],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "only exact-basis human acceptance",
+	},
+	{
+		name: "intake-release-thaws",
+		expect: /release must not thaw consumed Contract/,
+		behavior: "replace obligations after consumption and release",
+		edits: [{ file: "src/kernel/intake.ts", find: 'if (c.type === "amendContract" && target!.everAssigned)', replace: "if (false)" }],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "amendment before consumption succeeds",
+	},
+	{
+		name: "intake-false-qualification",
+		expect: /file or passing review cannot qualify Record/,
+		behavior: "start a consumer without recorded qualifying Record integration",
+		edits: [{ file: "src/kernel/intake.ts", find: "if (dependency)", replace: "if (false)" }],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "required Record stays blocked",
+	},
+	{
 		name: "settings-second-pending",
 		expect: /second pending request must refuse/,
 		behavior: "recapture pending routing through a new request",

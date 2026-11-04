@@ -211,7 +211,8 @@ export class Engine {
 						(name === "request_role" ||
 							name === "submit_role_result" ||
 							name === "request_own_stop" ||
-							command.type === "requestCheckpointReview")
+							command.type === "requestCheckpointReview" ||
+							command.type === "requestIntakeReview")
 							? { control: { handoff: `${name} durably accepted.` } }
 							: {}),
 					};
@@ -222,7 +223,7 @@ export class Engine {
 			schema({
 				command: Type.String({
 					description:
-						"JSON checkpoint command: requestCheckpoint, stageCheckpoint, requestCheckpointReview, emitCheckpoint, reworkCheckpoint or advanceDelegatedCheckpoint. Human decisions are forbidden.",
+						"JSON checkpoint/intake command: requestCheckpoint, stageCheckpoint, requestCheckpointReview, emitCheckpoint, reworkCheckpoint, advanceDelegatedCheckpoint, stageIntake or requestIntakeReview. Human decisions are forbidden.",
 				}),
 			}),
 			(args) => JSON.parse(args.command!) as JsonObject,
@@ -764,6 +765,32 @@ export class Engine {
 								checkpointState.requests.some((r) => r.id === c.request && a.packet.inputs.includes(r.scope)),
 							),
 						},
+					}
+				: {}),
+			...(workflow && a.packet.role === "coordinator" && !a.packet.investigation
+				? {
+						intakes: {
+							...workflow.intakes,
+							drafts: workflow.intakes.drafts.filter((d) => a.packet.inputs.includes(d.manifest.ground)),
+							concerns: workflow.intakes.concerns.filter((n) =>
+								workflow.intakes.drafts.some((d) => d.id === n.intake && a.packet.inputs.includes(d.manifest.ground)),
+							),
+						},
+					}
+				: {}),
+			...(a.intakeReview
+				? {
+						intakeReview: {
+							...a.intakeReview,
+							instructions:
+								"Fresh independent exact-basis fidelity. Compare full intake, approved decisions, human Ground, applicable existing-seam sources, evidence and every saved concern for omitted, weakened, strengthened, contradictory or invented obligations. Typed lint cannot prove semantic fidelity. Distinguish transcription repairs (restage/review) from technical decisions (revised approved checkpoint) and product/Contract changes (human direction); do not waive unresolved decisions. Submit JSON schema:1,intake,manifest,annotations,checks:{omitted,weakened,strengthened,contradictory,invented} with reasoned text,findings:[{kind,reason}]. Nonempty findings block acceptance. Never accept a Contract.",
+						},
+					}
+				: {}),
+			...(a.packet.role === "coordinator" && !a.packet.investigation
+				? {
+						intakeInstructions:
+							"Use checkpoint for stageIntake:{expected:latestIntakeOrNull,text:completeContract,manifest:{schema:1,shape,ground,sources,decisions,catalog,breakdown,slices,checks,mapping,dependencies,responses,unresolved}} then requestIntakeReview:{intake,key:configuredChallenger}. Read all approved sources and complete obligations; new runnable checks are deliverables, not executed evidence. Bug/performance use one compact Slice, change keeps a bounded breakdown; existing-seam paths need no new Seams/Modules solely for build dependencies. Human Ground names approvedSources. Design cites actual approved nodes and decision refs. Preserve all saved concerns with reasoned resulting obligation mappings. Fresh fidelity reviews the exact immutable draft; changed decisions or annotations need current review. Only authenticated human acceptIntake/amendContract/supersedeContract accepts obligations. Record/integration dependencies remain blocked until real qualifying integration; there is no delivery bypass.",
 					}
 				: {}),
 			...(verification ? { verification } : {}),
