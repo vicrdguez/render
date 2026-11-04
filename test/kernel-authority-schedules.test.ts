@@ -58,7 +58,8 @@ const MATRIX: Record<string, { admits: PrincipalClass[]; available: boolean }> =
 	adoptPolicy: { admits: ["human"], available: true },
 	replaceTask: { admits: ["host-scheduling", "host-recovery"], available: true },
 	recordRuntimeHistory: { admits: ["host-scheduling", "host-recovery"], available: true },
-	changeCheckpointSettings: { admits: ["human"], available: false },
+	changeCheckpointSettings: { admits: ["human"], available: true },
+	importCheckpointSettings: { admits: ["local-admin"], available: true },
 	cancelWork: { admits: ["human"], available: true },
 	requestLocalVerificationPrompt: { admits: ["human"], available: false },
 	saveDraft: { admits: ["agent"], available: false },
@@ -67,7 +68,7 @@ const MATRIX: Record<string, { admits: PrincipalClass[]; available: boolean }> =
 	requestRole: { admits: ["agent"], available: true },
 	requestOwnStop: { admits: ["agent"], available: true },
 	submitRoleResult: { admits: ["agent"], available: true },
-	advanceDelegatedCheckpoint: { admits: ["agent"], available: false },
+	advanceDelegatedCheckpoint: { admits: ["agent"], available: true },
 	assignTask: { admits: ["host-scheduling", "host-recovery"], available: true },
 	stageTask: { admits: ["host-scheduling", "host-recovery"], available: true },
 	fenceAttempt: { admits: ["host-scheduling", "host-recovery"], available: true },
@@ -231,6 +232,7 @@ const BARE_ROLE_REFUSAL: Record<string, string> = {
 	emitCheckpoint: "stale_assignment",
 	reworkCheckpoint: "stale_assignment",
 	recordSourceObservation: "not_found",
+	advanceDelegatedCheckpoint: "stale_assignment",
 	assignTask: "invalid_content",
 	recordRecoveryState: "invalid_content",
 	replaceTask: "stale_assignment",
@@ -263,6 +265,8 @@ function expectedDecision(m: Model, principal: Principal, step: Step, command: R
 	switch (type) {
 		case "createWorkflow":
 			return wholeProject ? "accepted" : "forbidden_scope";
+		case "changeCheckpointSettings":
+		case "importCheckpointSettings":
 		case "changePolicy":
 			return wholeProject ? "stale_basis" : "forbidden_scope"; // Generated without the expected default revision.
 		case "acceptIntake":

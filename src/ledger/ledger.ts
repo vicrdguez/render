@@ -5,6 +5,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId, EntryId, Harness, Tx } from "@earendil-works/pi-durable";
 import type { RoleTaskStaging } from "../engine/runtime.ts";
 import type { WebWorking } from "../engine/web.ts";
+import { initialCheckpointSettings, type CheckpointSettings as SettingsState } from "../kernel/checkpoint-settings.ts";
 import {
 	CHECKPOINT_COMMANDS,
 	type CheckpointCommand,
@@ -44,6 +45,8 @@ import {
 import { type AuthenticatedContext, bearerOf, mintContext, newSecret, parseBearer, principalOf, verifies } from "./principals.ts";
 import {
 	type AcceptedBy,
+	CheckpointSettings,
+	CheckpointSettingsEntry,
 	Device,
 	type DeviceRecord,
 	type DocumentPointer,
@@ -181,6 +184,7 @@ export class Ledger {
 	#mode: HostMode = "active";
 	#roleWork: RoleWorkState = { assignments: [] };
 	#policy: PolicyState = initialPolicy();
+	#checkpointSettings: SettingsState = initialCheckpointSettings();
 	#roleTasks: RoleTaskStaging | undefined;
 	readonly #webWorking = new Map<string, WebWorking>();
 
@@ -206,6 +210,7 @@ export class Ledger {
 		const ledger = new Ledger(harness, plain(meta) as MetaState, persistence, onFatal);
 		ledger.#roleTasks = roleTasks;
 		ledger.#policy = plain((await harness.snapshot(Policy, ctx)) ?? initialPolicy());
+		ledger.#checkpointSettings = plain((await harness.snapshot(CheckpointSettings, ctx)) ?? initialCheckpointSettings());
 		ledger.#roleWork = plain((await harness.snapshot(RoleWork, ctx)) ?? { assignments: [] });
 		for (const id of meta.workflows) {
 			const w = await harness.snapshot(Workflow, id, ctx);
@@ -305,6 +310,7 @@ export class Ledger {
 		}
 		const roles = await tx.doc(RoleWork);
 		const policy = await tx.doc(Policy);
+		const checkpointSettings = await tx.doc(CheckpointSettings);
 		if (current.kind === "assignment-agent") {
 			const own = roles.assignments.find((a) => sameAgent(a as RoleAssignment, current));
 			if (!own) throw new Abort(UNAUTHORIZED);
@@ -347,6 +353,11 @@ export class Ledger {
 		}
 		const intakes = workflow?.exists ? plain(workflow.intakes ?? emptyIntakes()) : emptyIntakes();
 		const checkpoints = workflow?.exists ? plain(workflow.checkpoints ?? emptyCheckpoints()) : emptyCheckpoints();
+		if (["requestCheckpoint", "changeCheckpointSettings", "importCheckpointSettings"].includes(command.type)) {
+			const retained = await this.#settingsSource(tx, meta, checkpointSettings.currentRevision);
+			if (JSON.stringify(retained) !== JSON.stringify(plain(checkpointSettings)))
+				throw new Abort(refusal("content_corrupt", `Settings ${checkpointSettings.currentRevision} differ from retained source.`));
+		}
 		const checkpointInputs: Record<string, CheckpointInput> = {};
 		let requiredInputs: string[] = [];
 		if (INTAKE_COMMANDS.includes(command.type)) {
@@ -407,6 +418,16 @@ export class Ledger {
 								throw new Abort(
 									refusal("missing_content", `Required checkpoint evidence ${ref} is outside the explicit retained input scope.`),
 								);
+				}
+			}
+			if ("request" in checkpoint) {
+				const captured = checkpoints.requests.find((r) => r.id === checkpoint.request);
+				if (captured) {
+					const retained = await this.#settingsSource(tx, meta, captured.checkpointSettingsRevision ?? "settings:initial");
+					if (retained.modes[captured.stage] !== captured.mode)
+						throw new Abort(
+							refusal("content_corrupt", `Captured settings ${retained.currentRevision} do not match request ${captured.id}.`),
+						);
 				}
 			}
 			requiredInputs = checkpointRefs(checkpoints, checkpoint);
@@ -612,6 +633,7 @@ export class Ledger {
 		const state: KernelState = {
 			intakes,
 			checkpoints,
+			checkpointSettings: plain(checkpointSettings),
 			roleWork: plain(roles),
 			policy: plain(policy),
 			workflow: workflow?.exists ? { id: workflow.id, messageCount: workflow.messageCount } : null,
@@ -673,6 +695,23 @@ export class Ledger {
 							current.kind === "assignment-agent" ? current : undefined,
 							doc.markdown ? "text/markdown" : "text/plain",
 						);
+					break;
+				}
+				case "checkpoint-settings.replace": {
+					Object.assign(checkpointSettings, plain(write.state));
+					const text = JSON.stringify(write.state);
+					await tx.appendEntry(CheckpointSettingsEntry, meta.ledgerConversation as ConversationId, {
+						data: {
+							schema: 1,
+							sequence,
+							commandId: env.commandId,
+							ref: write.state.currentRevision,
+							text,
+							digest: sha256(Buffer.from(text)),
+							byteLength: Buffer.byteLength(text),
+							by,
+						},
+					});
 					break;
 				}
 				case "policy.replace": {
@@ -991,11 +1030,34 @@ export class Ledger {
 			duplicate: false as const,
 			body,
 			roles: plain(roles),
+			checkpointSettings: plain(checkpointSettings),
 			policy: plain(policy),
 			meta: plain(meta) as MetaState,
 			workflow: workflowDoc?.exists ? (plain(workflowDoc) as Present<WorkflowRecord>) : undefined,
 			device: changedDevice === undefined ? undefined : (plain(await tx.doc(Device, changedDevice, null)) as DeviceRecord),
 		};
+	}
+
+	async #settingsSource(tx: Tx, meta: MetaState, revision: string): Promise<SettingsState> {
+		if (revision === "settings:initial") return initialCheckpointSettings();
+		let cursor: Parameters<typeof tx.scanEntries>[2];
+		for (;;) {
+			const page = await tx.scanEntries({ conversationId: meta.ledgerConversation as ConversationId, order: "ascending" }, 200, cursor);
+			for (const entry of page.items) {
+				const d = entry.data as Record<string, unknown>;
+				if (entry.kind !== CheckpointSettingsEntry.kind || d.ref !== revision) continue;
+				const unsupported = unsupportedRecordSchema(d.schema, revision);
+				if (unsupported) throw new Abort(unsupported);
+				if (typeof d.text !== "string" || !intact(d.text, String(d.digest), Number(d.byteLength)))
+					throw new Abort(
+						refusal("content_corrupt", `Exact settings ${revision} are corrupt; cached or newer settings cannot replace them.`),
+					);
+				return JSON.parse(d.text) as SettingsState;
+			}
+			if (!page.next) break;
+			cursor = page.next;
+		}
+		throw new Abort(refusal("missing_content", `Exact settings ${revision} are missing; supply those exact bytes, never newer settings.`));
 	}
 
 	async #verifyPolicySource(tx: Tx, meta: MetaState, revision: string, policy: PolicyState): Promise<void> {
@@ -1027,12 +1089,14 @@ export class Ledger {
 		meta: MetaState;
 		roles?: RoleWorkState;
 		policy?: PolicyState;
+		checkpointSettings?: SettingsState;
 		workflow?: Present<WorkflowRecord> | undefined;
 		device?: DeviceRecord | undefined;
 	}): void {
 		this.#meta = outcome.meta;
 		if (outcome.roles) this.#roleWork = outcome.roles;
 		if (outcome.policy) this.#policy = outcome.policy;
+		if (outcome.checkpointSettings) this.#checkpointSettings = outcome.checkpointSettings;
 		this.#roleTasks?.committed();
 		if (outcome.workflow !== undefined) this.#workflows.set(outcome.workflow.id, outcome.workflow);
 		if (outcome.device?.exists) {
@@ -1454,7 +1518,11 @@ export class Ledger {
 						const d = entry.data as Record<string, unknown>;
 						const sequence = Number(d.recordedAtSequence ?? d.sequence);
 						if (sequence > state.cutoff) continue;
-						const ref = String(entry.kind === PolicyEntry.kind ? d.ref : (d.revision ?? d.message ?? d.fact ?? `entry:${entry.id}`));
+						const ref = String(
+							entry.kind === PolicyEntry.kind || entry.kind === CheckpointSettingsEntry.kind
+								? d.ref
+								: (d.revision ?? d.message ?? d.fact ?? `entry:${entry.id}`),
+						);
 						if (entry.kind === RuntimeHistoryEntry.kind) {
 							const ref = String(d.ref);
 							seenRetained.add(ref);
@@ -1488,6 +1556,24 @@ export class Ledger {
 									receipt: task,
 									parents: [ref],
 								});
+							continue;
+						}
+						if (entry.kind === CheckpointSettingsEntry.kind) {
+							seenRetained.add(ref);
+							if (d.schema !== 1 || typeof d.text !== "string" || !intact(d.text, String(d.digest), Number(d.byteLength))) {
+								missing.push({ ref, code: d.schema !== 1 ? "unsupported_schema" : "content_corrupt" });
+								continue;
+							}
+							add({
+								...base(ref, "checkpoint_settings", null, sequence, String(d.commandId)),
+								settings: JSON.parse(d.text),
+								createdBy: d.by,
+								content: true,
+								mediaType: "text/plain",
+								digest: d.digest,
+								byteLength: d.byteLength,
+							});
+							content[ref] = Buffer.from(d.text).toString("base64");
 							continue;
 						}
 						if (entry.kind === PolicyEntry.kind) {
@@ -1527,6 +1613,7 @@ export class Ledger {
 							const refs = d.refs as Record<string, string>;
 							if ((wanted("runtime_transcript") || wanted("runtime_task")) && refs.runtimeHistory)
 								expectedRetained.add(refs.runtimeHistory);
+							if (wanted("checkpoint_settings") && refs.settings) expectedRetained.add(refs.settings);
 							if (wanted("policy")) {
 								if (refs.binding) expectedRetained.add(refs.binding);
 								else if (d.command === "changePolicy" && refs.policy) expectedRetained.add(refs.policy);
@@ -1651,6 +1738,10 @@ export class Ledger {
 				exportVersion: 1,
 				backup: false,
 			},
+			checkpointSettings:
+				principal.kind === "host" || (principal.kind === "human" && (principal.route === "local-admin" || principal.workflows === "all"))
+					? plain(this.#checkpointSettings)
+					: null,
 			policy:
 				principal.kind === "assignment-agent"
 					? null

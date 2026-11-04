@@ -107,7 +107,7 @@ async function deviceClients(f: Awaited<ReturnType<typeof roleFixture>>) {
 	};
 }
 
-async function fixture(sameFamily = true) {
+async function fixture(sameFamily = true, reviewOverrides: Record<string, unknown> = {}) {
 	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6", reasoning: true }] });
 	const gate = Promise.withResolvers<void>();
 	const prompts: Record<string, unknown>[] = [];
@@ -137,6 +137,17 @@ async function fixture(sameFamily = true) {
 							nearbyCopying: "checked",
 						},
 						objections: [{ id: "O1", node: "N1", reason: "Why not combine?" }],
+						delegation: {
+							agreedScopeRef: review.agreedScopeRef,
+							unresolvedProduct: [],
+							scopeChanges: [],
+							humanDecisions: [review.agreedScopeRef],
+							reason: "Technical choice within human Ground",
+						},
+						...reviewOverrides,
+						...(reviewOverrides.delegation
+							? { delegation: { ...(reviewOverrides.delegation as object), agreedScopeRef: review.agreedScopeRef } }
+							: {}),
 					}),
 					supports: [],
 				}),
@@ -250,6 +261,166 @@ async function fixture(sameFamily = true) {
 		},
 	};
 }
+
+async function setRouting(t: Awaited<ReturnType<typeof fixture>>, mode: "human" | "delegated") {
+	const settings = (t.f.ledger.snapshot(admin) as Frame).checkpointSettings as { currentRevision: string };
+	return result(
+		await t.f.ledger.command(
+			{
+				version: 1,
+				authorityEpoch: t.f.ledger.status().authorityEpoch,
+				commandId: `routing:${settings.currentRevision}`,
+				command: {
+					type: "changeCheckpointSettings",
+					expectedRevision: settings.currentRevision,
+					modes: { seams: mode, modules: mode, proposal: "human" },
+				},
+			},
+			admin,
+		),
+	).settings;
+}
+
+test("S04/S07 captured human survives rework; later Modules captures delegated without adoption", async () => {
+	const t = await fixture();
+	try {
+		const r = await t.request();
+		const capture = structuredClone(t.pending().requests[0]!);
+		const latest = await setRouting(t, "delegated");
+		assert.equal(
+			code(await t.cmd({ type: "requestCheckpoint", stage: "seams", scope: t.scope, required: { candidates: false, experiment: false } })),
+			"checkpoint_pending",
+			"second pending request must refuse",
+		);
+		await t.draft(r);
+		await t.emit(r);
+		assert.equal(code(await t.cmd({ type: "advanceDelegatedCheckpoint", ...t.basis(r), nonbinding: [] })), "forbidden_scope");
+		const note = await t.save(r);
+		result(await t.cmd({ type: "reworkCheckpoint", request: r }));
+		await t.draft(r, [{ concern: note.concern, disposition: "acted-on", reason: "Clarify", resulting: "N1" }]);
+		await t.emit(r);
+		assert.equal(t.pending().requests[0]!.mode, "human");
+		assert.equal(t.pending().requests[0]!.checkpointSettingsRevision, capture.checkpointSettingsRevision);
+		result(await t.f.command({ type: "approveCheckpoint", ...t.basis(r), nonbinding: [] }, admin));
+		const modules = await t.request("modules");
+		assert.equal(t.pending().requests[1]!.checkpointSettingsRevision, latest);
+		assert.equal(t.pending().requests[1]!.agreedScopeRef, t.scope);
+		assert.equal(t.pending().requests[1]!.mode, "delegated");
+		const m = manifest("modules");
+		m.nodes[0]!.classification = "product";
+		m.nodes[0]!.evidence = [t.scope as string];
+		await t.draft(modules, [], "modules", { manifest: { ...m, nodes: [{ ...m.nodes[0], humanDecision: t.scope }] } });
+		await t.emit(modules);
+		const approved = result(await t.cmd({ type: "advanceDelegatedCheckpoint", ...t.basis(modules), nonbinding: [] }));
+		const artifact = await t.f.ledger.artifact(admin, { read: approved.decision as string });
+		assert.ok("content" in artifact);
+		const decision = JSON.parse(artifact.content.toString());
+		assert.equal(decision.mode, "delegated");
+		assert.equal(decision.actor.kind, "assignment-agent");
+		assert.equal(decision.checkpointSettingsRevision, latest);
+		assert.equal(decision.agreedScopeRef, t.scope);
+		assert.ok(decision.review);
+		assert.equal(
+			code(
+				await t.cmd({
+					type: "acceptIntake",
+					intake: "intake:unaccepted",
+					review: "review:unaccepted",
+					annotations: 0,
+					policyBinding: "binding:unaccepted",
+					decisions: [],
+				}),
+			),
+			"forbidden_principal",
+			"agent must never accept intake",
+		);
+		await t.reopen();
+		assert.equal(t.pending().requests[1]!.decision, approved.decision);
+		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in exported && exported.manifest.complete && exported.content[approved.decision as string]);
+	} finally {
+		await t.close();
+	}
+});
+
+test("S05/S06 delegated capture survives default reversal; common basis and cancellation still apply", async () => {
+	const t = await fixture();
+	try {
+		await setRouting(t, "delegated");
+		const r = await t.request();
+		await setRouting(t, "human");
+		await t.draft(r);
+		assert.equal(code(await t.cmd({ type: "advanceDelegatedCheckpoint", ...t.basis(r), nonbinding: [] })), "review_required");
+		await t.emit(r);
+		assert.equal(
+			code(await t.cmd({ type: "advanceDelegatedCheckpoint", ...t.basis(r), emission: "wrong", nonbinding: [] })),
+			"stale_basis",
+		);
+		const note = await t.save(r);
+		assert.equal(
+			code(await t.cmd({ type: "advanceDelegatedCheckpoint", ...t.basis(r), nonbinding: [note.concern] })),
+			"annotation_mapping_required",
+		);
+		result(
+			await t.f.command({ type: "cancelCheckpoint", request: r, expectedEmission: t.basis(r).emission, reason: "Stop immediately" }, admin),
+		);
+		assert.equal(code(await t.cmd({ type: "advanceDelegatedCheckpoint", ...t.basis(r), nonbinding: [] })), "stale_basis");
+		await t.request();
+		assert.equal(t.pending().requests[1]!.mode, "human");
+	} finally {
+		await t.close();
+	}
+});
+
+for (const flag of ["unresolvedProduct", "scopeChanges", "missing-review"]) {
+	test(`S06 challenger ${flag} blocks author-labeled technical delegation`, async () => {
+		const t = await fixture(true, {
+			delegation:
+				flag === "missing-review"
+					? undefined
+					: {
+							agreedScopeRef: "unused",
+							unresolvedProduct: [],
+							scopeChanges: [],
+							humanDecisions: [],
+							reason: "New product choice",
+							[flag]: ["N1"],
+						},
+		});
+		try {
+			await setRouting(t, "delegated");
+			const r = await t.request();
+			await t.draft(r);
+			await t.emit(r);
+			const reply = await t.cmd({ type: "advanceDelegatedCheckpoint", ...t.basis(r), nonbinding: [] });
+			assert.equal(code(reply), "human_decision_required", "unresolved product or changed scope must block delegated advancement");
+			assert.equal(t.pending().requests[0]!.approved, null);
+		} finally {
+			await t.close();
+		}
+	});
+}
+
+test("S05/S09 default change cannot revoke captured delegation but canceled assignment cannot advance", async () => {
+	const t = await fixture();
+	try {
+		await setRouting(t, "delegated");
+		const r = await t.request();
+		await t.draft(r);
+		await t.emit(r);
+		await setRouting(t, "human");
+		result(await t.cmd({ type: "advanceDelegatedCheckpoint", ...t.basis(r), nonbinding: [] }));
+		await setRouting(t, "delegated");
+		const next = await t.request();
+		await t.draft(next);
+		await t.emit(next);
+		const a = assignments(t.f)[0]!;
+		result(await t.f.command({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, admin));
+		assert.notEqual((await t.cmd({ type: "advanceDelegatedCheckpoint", ...t.basis(next), nonbinding: [] })).status, "accepted");
+	} finally {
+		await t.close();
+	}
+});
 
 test("C17 Engine tools complete a fresh challenge and resume the workflow-owned coordinator", async () => {
 	const provider = fauxProvider({

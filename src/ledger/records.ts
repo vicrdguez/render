@@ -1,6 +1,7 @@
 // Ledger-owned records in the Durable SQLite store. Immutable bytes and facts are Durable entries; current
 // pointers, receipts and credentials are session documents committed in the same transaction.
 import { defineDoc, defineDocFamily, defineEntry } from "@earendil-works/pi-durable";
+import { initialCheckpointSettings, type CheckpointSettings as SettingsState } from "../kernel/checkpoint-settings.ts";
 import type { Checkpoints } from "../kernel/checkpoints.ts";
 import type { Intakes } from "../kernel/intake.ts";
 import type { MediaType, Persistence } from "../kernel/kernel.ts";
@@ -111,6 +112,24 @@ export const RuntimeHistoryEntry = defineEntry<{
 	digest: string;
 	byteLength: number;
 }>("render.runtime-history");
+
+export const CheckpointSettings = defineDoc<SettingsState>({
+	kind: "render.checkpoint-settings",
+	version: 1,
+	scope: "session",
+	initial: initialCheckpointSettings,
+	checkpointWhen,
+});
+export const CheckpointSettingsEntry = defineEntry<{
+	schema: number;
+	sequence: number;
+	commandId: string;
+	ref: string;
+	text: string;
+	digest: string;
+	byteLength: number;
+	by: AcceptedBy;
+}>("render.checkpoint-settings");
 
 export const Policy = defineDoc<PolicyState>({
 	kind: "render.policy",
