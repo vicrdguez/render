@@ -26,7 +26,7 @@ function generate(seed: number): Probe[] {
 	const random = seeded(seed);
 	return Array.from({ length: 8 }, () => probes[Math.floor(random() * probes.length)] as Probe);
 }
-type Coverage = { resumed: number; partialAudit: number; handoff: number; bindings: Set<string> };
+type Coverage = { resumed: number; partialAudit: number; handoff: number; bindings: Set<string>; returns: Set<string> };
 function run(steps: Probe[], coverage?: Coverage): string | undefined {
 	try {
 		let state: KernelState = {
@@ -62,9 +62,12 @@ function run(steps: Probe[], coverage?: Coverage): string | undefined {
 				principal,
 				sequence,
 				executorEpoch: "executor:1",
-				implementationSource: ["recordImplementationSource", "requestImplementationAudit", "submitImplementationHandoff"].includes(
-					String(c.type),
-				)
+				implementationSource: [
+					"recordImplementationSource",
+					"requestImplementationAudit",
+					"submitImplementationHandoff",
+					"openSuccessorPass",
+				].includes(String(c.type))
 					? source
 					: undefined,
 				ids: {
@@ -323,7 +326,7 @@ test("V1 seeded pass ownership, refusal, cancellation and reload schedules", () 
 	const base = Number(process.env.RENDER_V1_SEED ?? 0x5eed);
 	const count = Number(process.env.RENDER_V1_SCHEDULES ?? 10_000);
 	const coverage = new Set<Probe>();
-	const paths: Coverage = { resumed: 0, partialAudit: 0, handoff: 0, bindings: new Set() };
+	const paths: Coverage = { resumed: 0, partialAudit: 0, handoff: 0, bindings: new Set(), returns: new Set() };
 	for (let n = 0; n < count; n++) {
 		const seed = base + n;
 		const steps = process.env.RENDER_PASS_STEPS ? (JSON.parse(process.env.RENDER_PASS_STEPS) as Probe[]) : generate(seed);

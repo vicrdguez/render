@@ -23,11 +23,11 @@ export const selection = (contract: string): VerificationSelection => ({
 	behavioralRows: ["read"],
 	receipts: [],
 });
-export function capture(a: RoleAssignment, epoch: string, contract: string) {
+export function capture(a: RoleAssignment, epoch: string, contract: string, commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
 	const source = {
 		repository: "owned",
 		objectFormat: "sha1" as const,
-		commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		commit,
 		tree: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
 		root: "refs/render/source/literal",
 		entries: [],
@@ -47,7 +47,7 @@ export function capture(a: RoleAssignment, epoch: string, contract: string) {
 		configurationChanges: [],
 		durability: { git: "rooted", fsync: "all", method: "fsync" },
 	};
-	const selected = selection(contract);
+	const selected = { ...selection(contract), commit };
 	const evidence: CatalogEvidence = {
 		kind: "catalog-check",
 		role: "implementer",

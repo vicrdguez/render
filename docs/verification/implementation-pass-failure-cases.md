@@ -16,6 +16,24 @@ Preimplementation oracles for B1–B5 / A1–A3. Expected outcomes come from the
 - Lost handoff reply yields the authorized original receipt; another submission cannot create a second handoff or task. Revoked/stale principals cannot obtain dedup disclosures.
 - Authorized post-handoff source/verifier repair opens ordinal 2 with predecessor and cause/basis. Equal source bytes do not reuse ordinal-1 reports. Operational preparation retries alone never open a pass.
 
+## Successor passes
+
+Oracles from spec §§6.2.1, 9.4 and 11 and the recorded return-to-implementation decision. `target-preparation` and `watchdog-rework` own real production of these results, so the transition is exercised through a closed `openSuccessorPass` Effects-scope observation, never a free-text reason.
+
+- A validated preparation conflict opens exactly `(work, 2)` with cause, predecessor, B, T0, T1 and the retained literal observation, on a new linked current Attempt whose fresh workspace starts from T1. It starts no Watchdog and adds no completed review. P1, A1, its reports, B1, its handoff and its preparation outcome stay byte-identical.
+- Failed prepared-source checks that need repair open a successor from X and require nonzero real check exits on named catalog rows. Timeouts, 126/127 launch failures, signals and any other unchanged-source operational retry cannot open a pass.
+- Authorized Watchdog rework names a submitted Watchdog Assignment on this Slice whose retained report binds its verdict to this exact pass, handoff, B, X and T. A `pass` or `needs-human` verdict, an unrelated pass/B/X/T, another Slice's report or an incomplete review refuses.
+- Successors obey the completed-review cap for the workflow's current bound policy: at the cap a non-pass stops for the human, for every cause. Explicit D004 adoption of a larger cap permits it. Counts derive from retained reviews, so opening a pass neither adds nor resets one.
+- Arbitrary text, unknown causes, extra fields, wrong repository/B/commit, malformed object IDs, an empty conflict, or a conflict target equal to its base all refuse without writes. So do assignment agents, humans and scheduling/recovery host scopes.
+- A pass still open, a writer not yet quiescent, a superseded Contract, a missing/corrupt B or predecessor record, or a stale generation/Attempt all refuse without opening a pass.
+- A pass opens at most one successor. Replay of the same command returns the original receipt. A different command ID, or any later request from the predecessor's owner, refuses.
+- P2 has no Audit until its own fresh A2 and invocation. P1's reports cannot satisfy P2 handoff, P1's reviewers cannot report into P2, and this holds when A2's bytes equal A1's. A second P2 Audit request refuses.
+- The first P2 capture must name the opening base. A worker-chosen parent refuses.
+- P2 owner reads the predecessor's B, reports and observation. P2's reviewers read only A2 and their obligations, not the observation or predecessor reports.
+- Replacement or restart within P2 keeps ordinal 2. A late P1 preparation outcome is retained on P1 and does not disturb P2.
+- SIGKILL before commit leaves one pass and no extra task. After commit, replay returns one successor and one task. Export and reopen retain P1 and P2 with their real provenance.
+- Scripted two-pass journey on real Docker and Git: P1 handoff, conflict against a real T1, P2 from T1, fresh Audit on A2, B2 and its own handoff, each reporting the source it actually examined.
+
 ## Actual source / execution
 
 - Capture seals and stops the entire original runtime. Fresh preparation materializes retained literal A under the same implementing conversation and exclusive ownership, without reusing the stopped workspace.

@@ -4,13 +4,41 @@ import { rm } from "node:fs/promises";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 
+const cuts = [
+	{
+		name: "implementation handoff",
+		worker: "test/support/implementation-lifecycle-crash-worker.ts",
+		expected: (n: number) => ({
+			beforeHandoffs: n,
+			beforeTasks: n,
+			hadReceipt: n === 1,
+			duplicate: n === 1,
+			finalHandoffs: 1,
+			finalTasks: 1,
+		}),
+	},
+	{
+		name: "successor pass",
+		worker: "test/support/implementation-successor-crash-worker.ts",
+		expected: (n: number) => ({
+			beforePasses: 1 + n,
+			beforeTasks: n,
+			hadReceipt: n === 1,
+			duplicate: n === 1,
+			finalPasses: 2,
+			finalTasks: 1,
+			finalObservations: 1,
+		}),
+	},
+];
+for (const cut of cuts)
 for (const barrier of ["before-commit", "after-commit"])
 	for (let repetition = 0; repetition < Number(process.env.RENDER_V3_REPETITIONS ?? 1); repetition++)
-		test(`implementation handoff SIGKILL ${barrier} (${repetition + 1})`, { timeout: 20000 }, async () => {
+		test(`${cut.name} SIGKILL ${barrier} (${repetition + 1})`, { timeout: 20000 }, async () => {
 			const children: ReturnType<typeof spawn>[] = [];
 			let data: string | undefined;
 			const run = (mode: string, argument: string) => {
-				const child = spawn(process.execPath, ["test/support/implementation-lifecycle-crash-worker.ts", mode, argument], {
+				const child = spawn(process.execPath, [cut.worker, mode, argument], {
 					cwd: new URL("../", import.meta.url),
 					stdio: ["ignore", "pipe", "pipe"],
 				});
@@ -50,15 +78,7 @@ for (const barrier of ["before-commit", "after-commit"])
 					errors += String(chunk);
 				});
 				assert.equal(await new Promise((resolve) => recovered.once("exit", resolve)), 0, errors);
-				const expected = barrier === "after-commit" ? 1 : 0;
-				assert.deepEqual(JSON.parse(result.trim().split("\n").at(-1)!), {
-					beforeHandoffs: expected,
-					beforeTasks: expected,
-					hadReceipt: expected === 1,
-					duplicate: expected === 1,
-					finalHandoffs: 1,
-					finalTasks: 1,
-				});
+				assert.deepEqual(JSON.parse(result.trim().split("\n").at(-1)!), cut.expected(barrier === "after-commit" ? 1 : 0));
 			} finally {
 				for (const child of children)
 					if (child.exitCode === null && child.signalCode === null) {

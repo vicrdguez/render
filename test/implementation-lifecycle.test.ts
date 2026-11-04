@@ -140,7 +140,10 @@ function pure() {
 		}
 	}
 	const pass = () => state.roleWork!.passes![0]!;
-	return { command, ok, own, owner, id, first, writer, assignments, start, retain, audit, reports, pass, state: () => state };
+	const supersede = () => {
+		state = { ...state, intakes: { ...state.intakes!, slices: state.intakes!.slices.map((s) => ({ ...s, status: "superseded" as const })) } };
+	};
+	return { command, ok, own, owner, id, first, writer, assignments, start, retain, audit, reports, pass, supersede, state: () => state };
 }
 
 test("trusted mutable execution admission invalidates final B, not the retained workspace or Audit", () => {
@@ -167,6 +170,48 @@ test("trusted mutable execution admission invalidates final B, not the retained 
 	const sealed = structuredClone(f.pass());
 	assert.equal(f.command(execution, effects).outcome, "refused", "handoff cannot be reopened by execution admission");
 	assert.deepEqual(f.pass(), sealed);
+});
+
+test("superseded Contract refuses a successor pass after an otherwise valid handoff", () => {
+	const f = pure();
+	f.audit();
+	f.reports([]);
+	const B = f.retain("final");
+	f.ok({ type: "submitImplementationHandoff", text: "Sealed", dispositions: [], verification: assessment }, f.owner);
+	f.ok({
+		type: "recordQuiescence",
+		assignment: f.id,
+		generation: 1,
+		attempt: f.own(f.id).attempt,
+		providerIdle: true,
+		environment: "stopped",
+		effects: "reconciled",
+	});
+	f.supersede();
+	const before = structuredClone(f.state().roleWork!.passes);
+	const reply = f.command(
+		{
+			type: "openSuccessorPass",
+			assignment: f.id,
+			generation: 1,
+			attempt: f.own(f.id).attempt,
+			text: JSON.stringify({
+				schema: 1,
+				cause: "preparation-conflict",
+				repository: "owned",
+				source: B,
+				sourceCommit: "a".repeat(40),
+				baseCommit: "a".repeat(40),
+				targetCommit: "c".repeat(40),
+				algorithm: "merge-tree-write-tree",
+				resultTree: "d".repeat(40),
+				conflicts: ["value"],
+			}),
+		},
+		effects,
+	);
+	assert.equal(reply.outcome === "refused" && reply.code, "contract_superseded");
+	assert.deepEqual(f.state().roleWork!.passes, before);
 });
 
 test("untrusted, stale-epoch and revoked execution admission cannot invalidate final evidence", () => {
