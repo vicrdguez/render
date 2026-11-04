@@ -375,11 +375,11 @@ export class Ledger {
 						...scoped.flatMap((a) => [...packetRefs(plain(a.packet)), a.report, a.investigationSource, ...(a.evidence ?? [])]),
 						...intakes.slices.map((s) => s.contract),
 						...intakes.drafts.flatMap((d) => [
+							d.id,
 							d.manifestRef,
 							d.acceptance,
 							d.manifest.ground,
 							d.manifest.catalog,
-							d.manifest.breakdown,
 							...d.manifest.sources,
 							...d.manifest.decisions,
 							...d.manifest.slices.flatMap((s) => s.obligations.flatMap((o) => o.sources.map((r) => r.ref))),
