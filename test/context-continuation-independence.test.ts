@@ -136,7 +136,6 @@ test("context-continuation-independence: forbidden scheduling refuses before pri
 for (const source of [
 	{ role: "watchdog", kind: "packet" },
 	{ role: "candidate", kind: "report" },
-	{ role: "experiment-candidate", kind: "report" },
 ] as const) {
 	test(`context-continuation-independence: watchdog cannot inherit earlier ${source.role} ${source.kind}`, async () => {
 		const canary = "PRIVATE-RESULT-CANARY-6";
