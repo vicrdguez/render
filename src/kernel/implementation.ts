@@ -16,6 +16,33 @@ export type FindingDisposition = {
 };
 export type AuditAxis = "standards" | "contracts";
 export type AuditResult = { assignment: string; report: string; findings: AuditFinding[] };
+type ReturnLineage = {
+	schema: 1;
+	repository: string;
+	source: string;
+	sourceCommit: string;
+	baseCommit: string;
+	targetCommit: string;
+};
+/** Trusted host result that authorizes returning handed-off source to implementation. Operational retries have no shape here. */
+export type ReturnObservation =
+	| (ReturnLineage & { cause: "preparation-conflict"; algorithm: string; resultTree: string; conflicts: string[] })
+	| (ReturnLineage & {
+			cause: "prepared-check-failure";
+			preparedCommit: string;
+			verifierRevision: string;
+			failed: { name: string; exitCode: number }[];
+	  })
+	| (ReturnLineage & { cause: "watchdog-rework"; preparedCommit: string; review: string; report: string });
+export type WatchdogVerdict = {
+	schema: 1;
+	verdict: "pass" | "rework" | "needs-human";
+	passRef: string;
+	handoff: string;
+	source: string;
+	prepared: string;
+	target: string;
+};
 export const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
 const texts = (v: unknown): v is string[] => Array.isArray(v) && v.every(text);
@@ -54,6 +81,62 @@ export function auditFindings(value: string, binding: AuditBinding): AuditFindin
 			return;
 		if (new Set(v.findings.map((f) => f.id)).size !== v.findings.length) return;
 		return v.findings as AuditFinding[];
+	} catch {
+		return;
+	}
+}
+const RETURN_FIELDS = {
+	"preparation-conflict": ["algorithm", "resultTree", "conflicts"],
+	"prepared-check-failure": ["preparedCommit", "verifierRevision", "failed"],
+	"watchdog-rework": ["preparedCommit", "review", "report"],
+} as const;
+const LAUNCH_FAILURES = [126, 127];
+/** Closed shape only: lineage against retained B and any cited review belong to the caller's current state. */
+export function returnObservation(value: string, source: ImplementationSource): ReturnObservation | undefined {
+	try {
+		const v: unknown = JSON.parse(value);
+		if (!object(v) || v.schema !== 1 || !Object.hasOwn(RETURN_FIELDS, String(v.cause))) return;
+		const cause = v.cause as keyof typeof RETURN_FIELDS;
+		const fields = ["schema", "cause", "repository", "source", "sourceCommit", "baseCommit", "targetCommit", ...RETURN_FIELDS[cause]];
+		if (Object.keys(v).length !== fields.length || !fields.every((key) => Object.hasOwn(v, key))) return;
+		const size = source.source.source.objectFormat === "sha1" ? 40 : 64;
+		const id = (x: unknown) => typeof x === "string" && x.length === size && /^[0-9a-f]+$/.test(x);
+		if (![v.repository, v.source].every(text) || ![v.sourceCommit, v.baseCommit, v.targetCommit].every(id)) return;
+		if (v.cause === "preparation-conflict")
+			return text(v.algorithm) && id(v.resultTree) && texts(v.conflicts) && v.conflicts.length && v.targetCommit !== v.baseCommit
+				? (v as ReturnObservation)
+				: undefined;
+		if (!id(v.preparedCommit)) return;
+		if (v.cause === "watchdog-rework") return text(v.review) && text(v.report) ? (v as ReturnObservation) : undefined;
+		const rows = source.verification?.catalog.rows.map((row) => row.name) ?? [];
+		return text(v.verifierRevision) &&
+			Array.isArray(v.failed) &&
+			v.failed.length &&
+			v.failed.every(
+				(f) =>
+					object(f) &&
+					Object.keys(f).length === 2 &&
+					rows.includes(String(f.name)) &&
+					Number.isSafeInteger(f.exitCode) &&
+					f.exitCode !== 0 &&
+					!LAUNCH_FAILURES.includes(Number(f.exitCode)),
+			)
+			? (v as ReturnObservation)
+			: undefined;
+	} catch {
+		return;
+	}
+}
+/** A retained report without this exact shape is a counted review, never an authorizing verdict. */
+export function watchdogVerdict(value: string | undefined): WatchdogVerdict | undefined {
+	try {
+		const v: unknown = JSON.parse(value ?? "");
+		return object(v) &&
+			v.schema === 1 &&
+			["pass", "rework", "needs-human"].includes(String(v.verdict)) &&
+			[v.passRef, v.handoff, v.source, v.prepared, v.target].every(text)
+			? (v as WatchdogVerdict)
+			: undefined;
 	} catch {
 		return;
 	}

@@ -345,6 +345,7 @@ export class Ledger {
 				"submitImplementationHandoff",
 				"recordImplementationSource",
 				"recordImplementationExecution",
+				"openSuccessorPass",
 				...CHECKPOINT_COMMANDS,
 				...INTAKE_COMMANDS,
 			].includes(command.type)
@@ -464,6 +465,7 @@ export class Ledger {
 			"recordImplementationSource",
 			"recordImplementationExecution",
 			"submitRoleResult",
+			"openSuccessorPass",
 		].includes(command.type);
 		if (implementationPass && implementationPreflight) {
 			requiredInputs.push(
@@ -481,6 +483,19 @@ export class Ledger {
 				...Object.values(implementationPass.audit?.results ?? {}).map((r) => r?.report),
 			])
 				if (ref) requiredInputs.push(ref);
+			if (command.type === "openSuccessorPass" && implementationPass.handoff) {
+				requiredInputs.push(implementationPass.handoff.record);
+				// Verdicts and the review count are read from exact retained bytes, never restated by the caller.
+				for (const a of roles.assignments)
+					if (
+						a.packet.role === "watchdog" &&
+						a.workflow === env.workflow &&
+						a.slice === implementationPass.slice &&
+						a.status === "submitted" &&
+						a.report
+					)
+						requiredInputs.push(a.report);
+			}
 		}
 		for (const ref of requiredInputs) {
 			const location = await tx.doc(RevisionLocation, ref, null);
@@ -536,7 +551,9 @@ export class Ledger {
 					? implementationPass?.captureB
 					: command.type === "rebindAttempt"
 						? implementationPass?.workspace
-						: undefined;
+						: command.type === "openSuccessorPass"
+							? implementationPass?.handoff?.source
+							: undefined;
 		if (command.type === "recordImplementationSource" || sourceRef) {
 			let sourceText: string | undefined;
 			if (command.type === "recordImplementationSource") sourceText = (command as { text: string }).text;
@@ -945,6 +962,19 @@ export class Ledger {
 								task: pass.handoff!.preparationTask,
 								reason: c.reason,
 							}),
+							c,
+						);
+					}
+					if (command.type === "openSuccessorPass") {
+						const c = command as Extract<import("../kernel/roles.ts").RoleCommand, { type: "openSuccessorPass" }>;
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							decision.result.observation as string,
+							`implementation-return/${decision.result.passRef}`,
+							c.text,
 							c,
 						);
 					}
@@ -1357,19 +1387,25 @@ export class Ledger {
 	}
 
 	#implementationReads(a: RoleAssignment): string[] {
-		const pass = this.#roleWork.passes?.find((p) => p.ref === a.passRef);
+		const passes = this.#roleWork.passes ?? [];
+		const pass = passes.find((p) => p.ref === a.passRef);
 		if (!pass) return a.auditReview ? [a.auditReview.source, a.auditReview.contract] : [];
-		return [
-			pass.record,
-			pass.contract,
-			pass.captureA,
-			pass.captureB,
-			pass.workspace,
-			pass.audit?.record,
-			pass.handoff?.record,
-			pass.handoff?.preparationResult,
-			...Object.values(pass.audit?.results ?? {}).map((r) => r?.report),
-		].filter((ref): ref is string => !!ref);
+		const reads: (string | undefined)[] = [];
+		// Successors inherit read-only predecessor lineage; independent reviewers never reach this branch.
+		for (let p: typeof pass | undefined = pass; p; p = passes.find((x) => x.ref === p!.predecessor))
+			reads.push(
+				p.record,
+				p.contract,
+				p.captureA,
+				p.captureB,
+				p.workspace,
+				p.audit?.record,
+				p.handoff?.record,
+				p.handoff?.preparationResult,
+				p.opening?.observation,
+				...Object.values(p.audit?.results ?? {}).map((r) => r?.report),
+			);
+		return reads.filter((ref): ref is string => !!ref);
 	}
 
 	async #retainRoleText(

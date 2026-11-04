@@ -98,6 +98,51 @@ const CONTROLS: Control[] = [
 		pattern: "generic child request",
 	},
 	{
+		name: "implementation-old-audit-reuse",
+		expect: /Audit before A2/,
+		behavior: "let a successor pass inherit its predecessor's completed Audit",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: 'cause: returned?.cause ?? "initial-implementation",',
+				replace:
+					'cause: returned?.cause ?? "initial-implementation", ...(returned ? { audit: pass!.audit, captureA: pass!.captureA } : {}),',
+			},
+		],
+		test: "test/implementation-successor.test.ts",
+		pattern: "P1 reports cannot satisfy P2",
+	},
+	{
+		name: "implementation-operational-retry-opens-pass",
+		expect: /launch failure 126/,
+		behavior: "open a successor pass for an unchanged-source operational check failure",
+		edits: [
+			{
+				file: "src/kernel/implementation.ts",
+				find: "!LAUNCH_FAILURES.includes(Number(f.exitCode))",
+				replace: "LAUNCH_FAILURES.length > 0",
+			},
+		],
+		test: "test/implementation-successor.test.ts",
+		pattern: "prepared-check failure opens from X",
+	},
+	{
+		name: "implementation-unbound-rework-verdict",
+		expect: /other X/,
+		behavior: "accept a Watchdog rework verdict bound to another prepared source",
+		edits: [{ file: "src/kernel/roles.ts", find: "verdict.prepared !== observation.preparedCommit ||", replace: "" }],
+		test: "test/implementation-successor.test.ts",
+		pattern: "Watchdog rework needs",
+	},
+	{
+		name: "implementation-successor-ignores-review-cap",
+		expect: /cap reached/,
+		behavior: "open a successor after the completed-review limit instead of stopping for the human",
+		edits: [{ file: "src/kernel/roles.ts", find: "reviews.length >= limit", replace: "reviews.length < 0" }],
+		test: "test/implementation-successor.test.ts",
+		pattern: "Watchdog rework needs",
+	},
+	{
 		name: "implementation-stop-original-only",
 		expect: /scope stop must discover the latest runtime/,
 		behavior: "stop only the original captured runtime, leaving the fresh writable runtime alive",

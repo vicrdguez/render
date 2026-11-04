@@ -19,7 +19,7 @@
 		"verify:complete": "npm run verify:gate && npm run test:extended && npm run verify:unsafe-controls",
 		"typecheck": "tsc --noEmit -p .",
 		"lint": "biome check .",
-		"verify:implementation-pass": "node --test --test-concurrency=1 test/implementation-pass.test.ts test/implementation-pass-schedules.test.ts test/implementation-lifecycle.test.ts test/implementation-lifecycle-crash.integration.ts test/accepted-contracts.test.ts test/intake-retention.test.ts test/role-capability-refusal.test.ts test/implementation-capture.integration.ts test/implementation-engine.integration.ts",
+		"verify:implementation-pass": "node --test --test-concurrency=1 test/implementation-pass.test.ts test/implementation-pass-schedules.test.ts test/implementation-lifecycle.test.ts test/implementation-successor.test.ts test/implementation-lifecycle-crash.integration.ts test/accepted-contracts.test.ts test/intake-retention.test.ts test/role-capability-refusal.test.ts test/implementation-capture.integration.ts test/implementation-engine.integration.ts",
 		"verify:implementation-crash": "node --test test/implementation-lifecycle-crash.integration.ts",
 		"verify:design-candidates": "node --test --test-concurrency=1 test/design-candidates.test.ts test/editable-checkpoints.test.ts test/context-continuation-independence.test.ts test/web-evidence-retention.test.ts",
 		"verify:accepted-contracts": "node --test --test-concurrency=1 test/accepted-contracts.test.ts test/intake-retention.test.ts",

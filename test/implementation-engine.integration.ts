@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -522,7 +523,9 @@ test("two-pass journey: real conflict against T1 opens P2 from T1 with its own f
 		const base = t.writer.verification!.commit;
 		const repo = t.f.source.repo;
 		const T = git(repo, ["hash-object", "-w", "--stdin"], "T\n").toString().trim();
-		const entries = git(repo, ["ls-tree", base]).toString().replace(/^100644 blob [0-9a-f]+\tvalue$/m, `100644 blob ${T}\tvalue`);
+		const entries = git(repo, ["ls-tree", base])
+			.toString()
+			.replace(/^100644 blob [0-9a-f]+\tvalue$/m, `100644 blob ${T}\tvalue`);
 		const tree = git(repo, ["mktree"], entries).toString().trim();
 		const T1 = git(repo, ["commit-tree", tree, "-p", base], "Concurrent target change\n").toString().trim();
 		const text = JSON.stringify({
@@ -556,26 +559,43 @@ test("two-pass journey: real conflict against T1 opens P2 from T1 with its own f
 		assert.ok(p2.handoff);
 		const a1 = captureValue(await read(p1.captureA!));
 		const a2 = captureValue(await read(p2.captureA!));
-		assert.deepEqual([a1, captureValue(await read(p1.captureB!)), a2, captureValue(await read(p2.captureB!))], ["A\n", "B\n", "T\n", "C\n"]);
+		assert.deepEqual(
+			[a1, captureValue(await read(p1.captureB!)), a2, captureValue(await read(p2.captureB!))],
+			["A\n", "B\n", "T\n", "C\n"],
+		);
 		const a2Commit = (JSON.parse(await read(p2.captureA!)) as ImplementationSource).source.source.commit;
-		assert.doesNotThrow(() => git(repo, ["merge-base", "--is-ancestor", T1, a2Commit]), "host-sealed A2 descends from T1");
+		const retained = join(
+			t.f.source.root,
+			"catalog-owned",
+			createHash("sha256").update(receipt.source.repository).digest("hex"),
+			"source.git",
+		);
+		assert.doesNotThrow(() => git(retained, ["merge-base", "--is-ancestor", T1, a2Commit]), "host-sealed A2 descends from T1");
 		const audits = t.prompts.filter((p) => p.auditReview);
 		assert.equal(audits.length, 4, "each pass has exactly its own two reviewers");
-		assert.deepEqual(
-			audits.map((p) => p.auditReview!.passRef).sort(),
-			[p1.ref, p1.ref, p2.ref, p2.ref],
-		);
+		assert.deepEqual(audits.map((p) => p.auditReview!.passRef).sort(), [p1.ref, p1.ref, p2.ref, p2.ref]);
 		for (const p of audits) assert.equal(p.auditReview!.source, p.auditReview!.passRef === p2.ref ? p2.captureA : p1.captureA);
 		const reviewers = t.assignments().filter((a) => a.auditReview);
 		assert.equal(new Set(reviewers.map((a) => a.conversation)).size, 4, "P2 reviewers are fresh contexts");
 		const successorPrompts = t.prompts.filter((p) => p.implementation?.ordinal === 2);
 		assert.ok(successorPrompts.length);
-		assert.ok(successorPrompts[0]!.inputs?.some((input) => input.ref === opened.observation && input.text === text), "the writer sees the exact conflict");
+		assert.ok(
+			successorPrompts[0]!.inputs?.some((input) => input.ref === opened.observation && input.text === text),
+			"the writer sees the exact conflict",
+		);
 		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "conflict starts no Watchdog");
 		await t.wait(() => !!passes()[1]?.handoff?.blocker, "P2 preparation blockage");
 		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
 		assert.ok("manifest" in exported && exported.manifest.complete);
-		for (const ref of [p1.record, p2.record, p1.handoff!.record, p2.handoff.record, p2.captureA!, p2.captureB!, opened.observation as string])
+		for (const ref of [
+			p1.record,
+			p2.record,
+			p1.handoff!.record,
+			p2.handoff.record,
+			p2.captureA!,
+			p2.captureB!,
+			opened.observation as string,
+		])
 			assert.ok(exported.content[ref], `export retains ${ref}`);
 		t.gate.resolve();
 		await t.f.reopen();

@@ -141,7 +141,10 @@ function pure() {
 	}
 	const pass = () => state.roleWork!.passes![0]!;
 	const supersede = () => {
-		state = { ...state, intakes: { ...state.intakes!, slices: state.intakes!.slices.map((s) => ({ ...s, status: "superseded" as const })) } };
+		state = {
+			...state,
+			intakes: { ...state.intakes!, slices: state.intakes!.slices.map((s) => ({ ...s, status: "superseded" as const })) },
+		};
 	};
 	return { command, ok, own, owner, id, first, writer, assignments, start, retain, audit, reports, pass, supersede, state: () => state };
 }

@@ -34,6 +34,7 @@ const pass = (t: Lifecycle, ref: string) => {
 	return found;
 };
 const own = (t: Lifecycle, id: string) => t.assignments().find((a) => a.id === id)!;
+const callerPacket = ({ policyBinding: _binding, ...packet }: RoleAssignment["packet"]) => packet;
 const quiesce = async (t: Lifecycle, id: string) => {
 	const a = own(t, id);
 	accepted(
@@ -57,9 +58,23 @@ async function handedOff() {
 	await quiesce(t, t.id);
 	return { t, B, handoff: handoff.handoff as string };
 }
-const lineage = (B: string, cause: string) => ({ schema: 1, cause, repository: "owned", source: B, sourceCommit: S, baseCommit: S, targetCommit: T1 });
+const lineage = (B: string, cause: string) => ({
+	schema: 1,
+	cause,
+	repository: "owned",
+	source: B,
+	sourceCommit: S,
+	baseCommit: S,
+	targetCommit: T1,
+});
 const conflict = (B: string, over: Record<string, unknown> = {}) =>
-	JSON.stringify({ ...lineage(B, "preparation-conflict"), algorithm: "merge-tree-write-tree", resultTree: TREE, conflicts: ["value"], ...over });
+	JSON.stringify({
+		...lineage(B, "preparation-conflict"),
+		algorithm: "merge-tree-write-tree",
+		resultTree: TREE,
+		conflicts: ["value"],
+		...over,
+	});
 const failedChecks = (B: string, over: Record<string, unknown> = {}) =>
 	JSON.stringify({
 		...lineage(B, "prepared-check-failure"),
@@ -294,7 +309,6 @@ test("a pass still open, a running writer or damaged predecessor evidence blocks
 		const { t: damaged, B } = await handedOff();
 		try {
 			const snapshot = structuredClone(passes(damaged));
-			await damaged.f.close();
 			damageImplementation(damaged.f.data, B, failure);
 			await damaged.f.reopen(new LedgerOnlyEngine());
 			const reply = await openFrom(damaged, damaged.id, conflict(B));
@@ -325,12 +339,12 @@ test("one successor per pass: replay returns the original receipt and another co
 			assignment: t.id,
 			generation: t.owner().generation,
 			attempt: t.owner().attempt,
-			packet: t.owner().packet,
+			packet: callerPacket(t.owner().packet),
 		});
 		refusedWithoutWrites(t, replacing, "assignment_closed", after, "replacement of handed-off owner");
 		refusedWithoutWrites(
 			t,
-			await t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: t.owner().packet }),
+			await t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: callerPacket(t.owner().packet) }),
 			"ownership_conflict",
 			after,
 			"new delivery assignment",
@@ -353,7 +367,13 @@ test("P1 reports cannot satisfy P2 even for identical bytes; P2 needs its own on
 		refusedWithoutWrites(t, await t.f.command({ type: "requestImplementationAudit" }, actor), "missing_content", before, "Audit before A2");
 		const worker = capture(own(t, id), t.f.ledger.status().executorEpoch, t.contract);
 		const raw = { type: "recordImplementationSource", assignment: id, generation: 1, attempt: own(t, id).attempt, kind: "audit" as const };
-		refusedWithoutWrites(t, await t.f.command({ ...raw, text: JSON.stringify(worker) }, effects), "stale_basis", before, "worker-chosen parent");
+		refusedWithoutWrites(
+			t,
+			await t.f.command({ ...raw, text: JSON.stringify(worker) }, effects),
+			"stale_basis",
+			before,
+			"worker-chosen parent",
+		);
 		const source = capture(own(t, id), t.f.ledger.status().executorEpoch, t.contract, T1);
 		assert.equal(source.source.source.tree, capture(t.owner(), "any", t.contract).source.source.tree, "A2 has A1's exact tree");
 		const A2 = accepted(await t.f.command({ ...raw, text: JSON.stringify(source) }, effects)).source as string;
@@ -428,7 +448,10 @@ test("P2 owner reads predecessor lineage; its fresh reviewers stay scoped to A2"
 		}
 		const source = JSON.stringify(capture(own(t, id), t.f.ledger.status().executorEpoch, t.contract, T1));
 		const A2 = accepted(
-			await t.f.command({ type: "recordImplementationSource", assignment: id, generation: 1, attempt: own(t, id).attempt, kind: "audit", text: source }, effects),
+			await t.f.command(
+				{ type: "recordImplementationSource", assignment: id, generation: 1, attempt: own(t, id).attempt, kind: "audit", text: source },
+				effects,
+			),
 		).source as string;
 		accepted(await t.f.command({ type: "requestImplementationAudit" }, actor));
 		const reviewer = t.assignments().find((a) => a.parent === id)!;
@@ -467,7 +490,13 @@ test("replacement and restart keep P2's ordinal, and a late P1 preparation outco
 		const fenced = own(t, id);
 		await quiesce(t, id);
 		const replaced = accepted(
-			await t.f.command({ type: "replaceTask", assignment: id, generation: fenced.generation, attempt: fenced.attempt, packet: fenced.packet }),
+			await t.f.command({
+				type: "replaceTask",
+				assignment: id,
+				generation: fenced.generation,
+				attempt: fenced.attempt,
+				packet: callerPacket(fenced.packet),
+			}),
 		);
 		assert.equal(replaced.passRef, P2);
 		assert.equal(replaced.passOrdinal, 2);
@@ -475,7 +504,13 @@ test("replacement and restart keep P2's ordinal, and a late P1 preparation outco
 		assert.equal(pass(t, P2).assignment, replaced.assignment);
 		assert.deepEqual({ ...pass(t, P2), assignment: before.assignment, packet: before.packet }, before);
 		const after = structuredClone(passes(t));
-		refusedWithoutWrites(t, await openFrom(t, replaced.assignment as string, conflict(B)), "missing_content", after, "open P2 cannot succeed");
+		refusedWithoutWrites(
+			t,
+			await openFrom(t, replaced.assignment as string, conflict(B)),
+			"missing_content",
+			after,
+			"open P2 cannot succeed",
+		);
 	} finally {
 		await t.close();
 	}
@@ -515,22 +550,38 @@ test("Watchdog rework needs a bound retained verdict and obeys the completed-rev
 		const opened = accepted(await openFrom(j.t, j.t.id, rework(j.B, first)));
 		assert.equal(opened.passOrdinal, 2);
 		assert.equal(pass(j.t, P2).opening?.base, X);
-		assert.equal(j.t.assignments().filter((a) => a.packet.role === "watchdog" && a.status === "submitted").length, 1, "opening adds no review");
+		assert.equal(
+			j.t.assignments().filter((a) => a.packet.role === "watchdog" && a.status === "submitted").length,
+			1,
+			"opening adds no review",
+		);
 		const id = opened.assignment as string;
 		const second = await completePass(j.t, id, X);
 		const again = await review(j.t, P2, "rework");
 		const stopped = structuredClone(passes(j.t));
-		refusedWithoutWrites(j.t, await openFrom(j.t, id, rework(second.B, again)), "human_direction_required", stopped, "cap reached");
-		refusedWithoutWrites(j.t, await openFrom(j.t, id, conflict(second.B, { sourceCommit: S, baseCommit: X })), "human_direction_required", stopped, "cap applies to every cause");
+		const atX = { sourceCommit: X, baseCommit: X };
+		refusedWithoutWrites(j.t, await openFrom(j.t, id, rework(second.B, again, atX)), "human_direction_required", stopped, "cap reached");
+		refusedWithoutWrites(
+			j.t,
+			await openFrom(j.t, id, conflict(second.B, atX)),
+			"human_direction_required",
+			stopped,
+			"cap applies to every cause",
+		);
 		assert.equal(j.t.assignments().filter((a) => a.packet.role === "watchdog" && a.status === "submitted").length, 2, "count is retained");
 		const frame = j.t.f.ledger.snapshot(admin) as Frame;
 		const policy = frame.policy as { defaultRevision: string; bindings: Record<string, { revision: string }> };
 		const changed = accepted(
-			await j.t.f.command(
+			await j.t.f.ledger.command(
 				{
-					type: "changePolicy",
-					expectedRevision: policy.defaultRevision,
-					policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+					version: 1,
+					authorityEpoch: j.t.f.ledger.status().authorityEpoch,
+					commandId: "larger-cap",
+					command: {
+						type: "changePolicy",
+						expectedRevision: policy.defaultRevision,
+						policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+					},
 				},
 				admin,
 			),
@@ -538,9 +589,13 @@ test("Watchdog rework needs a bound retained verdict and obeys the completed-rev
 		accepted(
 			await j.t.f.command({ type: "adoptPolicy", revision: changed.policy, expectedBinding: policy.bindings[WORKFLOW]!.revision }, admin),
 		);
-		const adopted = accepted(await openFrom(j.t, id, rework(second.B, again)));
+		const adopted = accepted(await openFrom(j.t, id, rework(second.B, again, atX)));
 		assert.equal(adopted.passRef, P3);
-		assert.equal(j.t.assignments().filter((a) => a.packet.role === "watchdog" && a.status === "submitted").length, 2, "adoption keeps the count");
+		assert.equal(
+			j.t.assignments().filter((a) => a.packet.role === "watchdog" && a.status === "submitted").length,
+			2,
+			"adoption keeps the count",
+		);
 		assert.notEqual(pass(j.t, P3).policyBinding, pass(j.t, P2).policyBinding, "successor binds current policy");
 	} finally {
 		await j.t.close();
@@ -571,7 +626,8 @@ test("scripted two-pass flow stays complete through reopen and export", async ()
 		await t.f.reopen(new LedgerOnlyEngine());
 		const exported = await t.f.ledger.artifact(admin, { export: { workflow: WORKFLOW } });
 		assert.ok("manifest" in exported && exported.manifest.complete);
-		for (const ref of [B, done.A, done.B, done.handoff, opened.observation as string, opened.passRecord as string]) assert.ok(exported.content[ref], `export retains ${ref}`);
+		for (const ref of [B, done.A, done.B, done.handoff, opened.observation as string, opened.passRecord as string])
+			assert.ok(exported.content[ref], `export retains ${ref}`);
 		const facts = exported.jsonl
 			.trim()
 			.split("\n")

@@ -991,7 +991,7 @@ export class Engine {
 							audit: implementation.audit ? { ...implementation.audit, reports: results } : undefined,
 						},
 						implementationInstructions:
-							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately.",
+							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately. When implementation.opening is present this is a new pass after a retained handoff: the workspace starts from opening.base, the observation in inputs says why, predecessor source and reports are read-only references, and this pass needs its own Audit before its own handoff.",
 					}
 				: {}),
 			...(a.checkpointCandidate
@@ -1170,7 +1170,12 @@ export class Engine {
 				const receipt = (JSON.parse(read.content.toString()) as { source: SourceReceipt }).source;
 				await this.#effects!.reconcile(receipt);
 				source = receipt.source;
-			} else source = await this.#effects!.perform({ type: "resolve", repository: check.repository, commit: check.commit });
+			} else
+				source = await this.#effects!.perform({
+					type: "resolve",
+					repository: check.repository,
+					commit: pass.opening?.base ?? check.commit,
+				});
 		}
 		this.#implementationAdmitted.add(a.id);
 		let handle: SandboxHandle;

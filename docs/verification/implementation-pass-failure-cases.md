@@ -14,7 +14,7 @@ Preimplementation oracles for B1–B5 / A1–A3. Expected outcomes come from the
 - After Audit, repairs and verifier changes stay in ordinal 1. No command may reset the completed Audit. Final B may differ from A; reports continue to name A.
 - A sealed handoff atomically retains pass/A/reports/dispositions/B/current completion table and a preparation intent/task. Execution cannot occur before commit. Missing preparation/Watchdog capability is visible blockage, not successful delivery.
 - Lost handoff reply yields the authorized original receipt; another submission cannot create a second handoff or task. Revoked/stale principals cannot obtain dedup disclosures.
-- Authorized post-handoff source/verifier repair opens ordinal 2 with predecessor and cause/basis. Equal source bytes do not reuse ordinal-1 reports. Operational preparation retries alone never open a pass.
+- Authorized post-handoff source/verifier repair opens ordinal 2 with predecessor and cause/basis (see Successor passes). Equal source bytes do not reuse ordinal-1 reports. Operational preparation retries alone never open a pass.
 
 ## Successor passes
 
