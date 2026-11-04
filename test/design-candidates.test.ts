@@ -506,6 +506,72 @@ test("D3 coordinator replacement preserves completed checkpoint-bound alternativ
 	}
 });
 
+test("D1/D3 candidate assignment retains accepted Contract scope and permanent consumption", () => {
+	const state: KernelState = {
+		workflow: { id: "workflow:2", messageCount: 0 },
+		document: null,
+		device: null,
+		roleWork: { assignments: [] },
+		intakes: {
+			revision: "intake-record:1",
+			drafts: [],
+			concerns: [],
+			dependencies: [],
+			slices: [
+				{
+					id: "comparison",
+					contract: "contract:1",
+					intake: "intake:1",
+					acceptance: "acceptance:1",
+					everAssigned: false,
+					status: "accepted",
+					record: false,
+					predecessors: [],
+				},
+			],
+		},
+	};
+	const assign = (inputs: string[]) =>
+		change(
+			state,
+			{
+				type: "assignTask",
+				workflow: "workflow:2",
+				slice: "comparison",
+				delivery: false,
+				packet: packet({ role: "candidate", inputs }),
+			},
+			{
+				principal: { kind: "host", scope: "scheduling" },
+				sequence: 10,
+				ids: { fact: "fact:10", assignment: "candidate:10", attempt: "attempt:10" },
+			},
+		);
+	const missing = assign([]);
+	assert.equal(
+		missing.outcome === "refused" ? missing.code : missing.outcome,
+		"stale_basis",
+		"candidate assignment cannot bypass the accepted Contract with delivery false",
+	);
+	const valid = assign(["contract:1"]);
+	assert.ok(valid.outcome === "accepted");
+	const consumption = valid.writes.find((w) => w.type === "intakes.replace");
+	assert.ok(consumption?.type === "intakes.replace");
+	assert.equal(consumption.state.slices[0]!.everAssigned, true, "candidate assignment permanently consumes its accepted Contract");
+	assert.deepEqual(JSON.parse(consumption.documents[0]!.text), {
+		schema: 1,
+		event: "consumed",
+		slice: "comparison",
+		contract: "contract:1",
+		assignment: "candidate:10",
+		everAssigned: true,
+	});
+	assert.equal(state.intakes!.slices[0]!.everAssigned, false, "Kernel keeps the input state immutable");
+	state.intakes!.slices[0]!.status = "superseded";
+	const retired = assign(["contract:1"]);
+	assert.equal(retired.outcome === "refused" ? retired.code : retired.outcome, "contract_superseded");
+});
+
 test("D3 replacement stays bound to required question and gets a fresh context", async () => {
 	const x = await fixture();
 	try {
