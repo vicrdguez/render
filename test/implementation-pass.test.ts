@@ -140,7 +140,9 @@ test("generic report submission cannot release accepted implementation before it
 	const f = fixture();
 	const first = f.assign();
 	const agent = f.start(first.assignment as string);
-	const result = f.command({ type: "submitRoleResult", text: "done", supports: [] }, agent);
+	// A non-pass assessment needs no catalog evidence, so only the pass guard stands between this report and closure.
+	const verification = { outcome: "non-pass", rank: null, reason: "Checks not run" };
+	const result = f.command({ type: "submitRoleResult", text: "done", supports: [], verification }, agent);
 	assert.equal(result.outcome, "refused", "accepted implementation cannot bypass sealed handoff with a role report");
 	assert.equal(f.state().roleWork!.assignments[0]!.status, "running");
 });
