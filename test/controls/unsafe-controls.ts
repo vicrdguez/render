@@ -16,6 +16,20 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 // repair that ordering violation. Independent review of their behavioral sensitivity remains required.
 const CONTROLS: Control[] = [
 	{
+		name: "implementation-incompatible-audit-reviewers",
+		expect: /standards experiment candidate/,
+		behavior: "accept an experiment-bearing Audit reviewer into a pass",
+		edits: [
+			{
+				file: "src/kernel/implementation.ts",
+				find: "packet.requests.length || experiment || investigation ||",
+				replace: "packet.requests.length || investigation ||",
+			},
+		],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "accepted pass refuses",
+	},
+	{
 		name: "implementation-same-pass-reaudit",
 		expect: /no same-pass reaudit with a new command/,
 		behavior: "open a second Audit invocation in the same implementation pass",

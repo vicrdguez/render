@@ -11,8 +11,8 @@ const writer = packet({
 	execution: "linux-writer",
 	inputs: [contract],
 	requests: [
-		{ key: "standards", packet: packet({ role: "audit-standards", family: "review", inputs: [contract] }) },
-		{ key: "contracts", packet: packet({ role: "audit-contracts", family: "review", inputs: [contract] }) },
+		{ key: "standards", packet: packet({ role: "audit-standards", family: "review", requiredFamily: "review", inputs: [contract] }) },
+		{ key: "contracts", packet: packet({ role: "audit-contracts", family: "review", requiredFamily: "review", inputs: [contract] }) },
 	],
 });
 function fixture(retained?: KernelState) {

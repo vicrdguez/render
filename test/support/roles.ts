@@ -32,6 +32,18 @@ export function packet(overrides: Partial<RolePacket> = {}): RolePacket {
 		...overrides,
 	};
 }
+/** An implementer an accepted pass can retain: it names the one reviewer each Audit axis needs. */
+export function passOwner(contract: string, overrides: Partial<RolePacket> = {}): RolePacket {
+	return packet({
+		role: "implementer",
+		inputs: [contract],
+		requests: [
+			{ key: "standards", packet: packet({ role: "audit-standards" }) },
+			{ key: "contracts", packet: packet({ role: "audit-contracts" }) },
+		],
+		...overrides,
+	});
+}
 export const admin = mintContext({ kind: "human", human: "human:owner", route: "local-admin" });
 export const scheduler = mintContext({ kind: "host", scope: "scheduling" });
 export const recovery = mintContext({ kind: "host", scope: "recovery" });

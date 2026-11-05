@@ -27,6 +27,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { Effects, type Source, type SourceReceipt } from "../effects/source.ts";
 import { experimentInputs } from "../kernel/experiments.ts";
+import { auditReviewerPacket } from "../kernel/implementation.ts";
 import { currentChildren, type ImplementationPass, packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
 import { type CatalogEvidence, type CatalogResult, requiredCatalogRows, type SelectedCatalog } from "../kernel/verification.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
@@ -1647,12 +1648,7 @@ export class Engine {
 		if (!this.#config.apiKey) return "native_provider_configuration_missing";
 		if (a.packet.execution !== "read-only" && !a.passRef && !a.packet.experiment) return "sandbox_capability_unavailable";
 		if (this.#config.provider && this.#config.provider.id !== "anthropic") return "native_provider_required";
-		const packets = [
-			a.packet,
-			...(a.passRef
-				? a.packet.requests.filter((r) => ["audit-standards", "audit-contracts"].includes(r.packet.role)).map((r) => r.packet)
-				: []),
-		];
+		const packets = [a.packet, ...(a.passRef ? Object.values(this.#implementationPass(a).auditReviewers).map(auditReviewerPacket) : [])];
 		for (const packet of packets) {
 			if (this.#config.families?.[packet.model] !== packet.family || packet.requiredFamily !== packet.family)
 				return "required_model_family_unavailable";

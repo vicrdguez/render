@@ -8,7 +8,10 @@ import {
 	type AuditAxis,
 	type AuditBinding,
 	type AuditResult,
+	type AuditReviewers,
 	auditFindings,
+	auditReviewerPacket,
+	auditReviewers,
 	type FindingDisposition,
 	implementationEvidenceGap,
 	type ReturnObservation,
@@ -62,6 +65,7 @@ export type RolePacket = {
 	requests: { key: string; packet: RolePacket }[];
 };
 export type ImplementationPass = {
+	auditReviewers: AuditReviewers;
 	captureA?: string;
 	captureB?: string;
 	workspace?: string;
@@ -394,6 +398,15 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		(a.implementationBinding ?? pass?.policyBinding) !== a.policyBinding
 	)
 		return refusal("stale_basis", "Policy adoption fenced this implementation execution; quiesce and replace it explicitly.");
+	// A pass enters Kernel state only with its parsed reviewers; a successor inherits them.
+	const opensPass = !!acceptedSlice && delivery && (c.type === "assignTask" || (c.type === "replaceTask" && !a?.passRef));
+	const reviewers =
+		opensPass && proposedPacket ? auditReviewers(proposedPacket) : c.type === "openSuccessorPass" ? pass?.auditReviewers : undefined;
+	const incompatibleReviewers = () =>
+		refusal(
+			"invalid_content",
+			"Accepted implementation needs an implementer with exactly one read-only reviewer per Audit axis, in its required family, with no investigation, experiment or nested requests.",
+		);
 	// Debt: repeated current-policy lookups below could share one command-local binding without changing adoption semantics.
 	let returned: ReturnObservation | undefined;
 	function create(packet: RolePacket, slice: string, delivery: boolean, parent: string | null, key: string | null, axis?: AuditAxis) {
@@ -444,7 +457,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			created.passRef = a.passRef;
 			pass!.assignment = created.id;
 			for (const child of work.assignments) if (child.parent === a.id) child.parent = created.id;
-		} else if (acceptedSlice && delivery) {
+		} else if (acceptedSlice && reviewers) {
 			const ordinal = (returned && pass ? pass.ordinal : 0) + 1;
 			const successor: ImplementationPass = {
 				ref: `pass:${c.workflow}:${slice}:${ordinal}`,
@@ -452,6 +465,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				workflow: c.workflow,
 				slice,
 				contract: acceptedSlice.contract,
+				auditReviewers: reviewers,
 				cause: returned?.cause ?? "initial-implementation",
 				predecessor: returned ? pass!.ref : null,
 				...(returned
@@ -492,6 +506,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				"ownership_conflict",
 				"Resume the retained implementation pass with a linked replacement; assignment is not a return to implementation.",
 			);
+		if (opensPass && !reviewers) return incompatibleReviewers();
 		create(c.packet, c.slice, delivery, null, null);
 	} else if (c.type === "replaceTask") {
 		if ((a?.passRef || a?.auditReview) && (!pass || pass.handoff))
@@ -553,6 +568,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("ownership_conflict", "Predecessor already has a replacement.");
 		if (hasOwner(work, c.packet, a.slice, a.delivery))
 			return refusal("ownership_conflict", "Replacement would overlap a current delivery owner or writer.");
+		if (opensPass && !reviewers) return incompatibleReviewers();
 		create(c.packet, a.slice, a.delivery, a.parent, a.requestKey);
 		result.predecessor = a.id;
 	} else if (c.type === "requestImplementationAudit") {
@@ -561,29 +577,12 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (pass.audit) return refusal("role_already_requested", "This pass already has its one Audit invocation.");
 		const gap = implementationEvidenceGap(facts.implementationSource, a, pass.contract);
 		if (gap) return refusal("missing_content", gap);
-		const configured = (["standards", "contracts"] as const).map((axis) => ({
-			axis,
-			requests: a.packet.requests.filter((r) => r.packet.role === `audit-${axis}`),
-		}));
 		const policy = state.policy ?? initialPolicy();
-		for (const { requests } of configured) {
-			const p = requests[0]?.packet;
-			if (
-				requests.length !== 1 ||
-				!p ||
-				p.execution !== "read-only" ||
-				p.requests.length ||
-				p.investigation ||
-				p.experiment ||
-				p.family !== p.requiredFamily ||
-				(p.family === a.packet.family &&
-					policy.revisions[bindingFor(policy, a.workflow).policy]?.reviewerDiversity !== "human-directed-same-family")
-			)
-				return refusal(
-					"capability_unavailable",
-					"Audit needs exactly one configured fresh read-only packet per axis, with the required independent family and no investigation, experiment or nested requests.",
-				);
-		}
+		if (
+			Object.values(pass.auditReviewers).some((reviewer) => reviewer.packet.family === a.packet.family) &&
+			policy.revisions[bindingFor(policy, a.workflow).policy]?.reviewerDiversity !== "human-directed-same-family"
+		)
+			return refusal("capability_unavailable", "Same-family independent Audit needs recorded human policy direction; no family fallback.");
 		const audit = {
 			ref: `audit:${facts.sequence}`,
 			record: `implementation-audit:${facts.sequence}`,
@@ -592,14 +591,15 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			roles: {} as NonNullable<ImplementationPass["audit"]>["roles"],
 			results: {},
 		};
-		for (const { axis, requests } of configured) {
-			const request = requests[0]!;
+		for (const axis of ["standards", "contracts"] as const) {
+			const reviewer = pass.auditReviewers[axis];
+			const packet = auditReviewerPacket(reviewer);
 			const child = create(
-				{ ...request.packet, inputs: [...new Set([...request.packet.inputs, pass.contract, pass.captureA])] },
+				{ ...packet, inputs: [...new Set([...packet.inputs, pass.contract, pass.captureA])] },
 				a.slice,
 				false,
 				a.id,
-				request.key,
+				reviewer.key,
 				axis,
 			);
 			child.auditReview = { passRef: pass.ref, audit: audit.ref, source: pass.captureA, contract: pass.contract };

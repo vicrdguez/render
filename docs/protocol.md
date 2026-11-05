@@ -66,6 +66,8 @@ path admits `recordRunnerObservation` only from the trusted Effects host scope, 
 and complete receipt text; it is not a worker/device/admin capability. It retains an immutable `owned-check` document,
 not a general effect/publication protocol. See [owned checks and limits](owned-checks.md). Unknown types refuse with `unknown_command`.
 
+Delivery assignment on an accepted Slice opens an implementation pass, whose retained record freezes the packet's parsed Audit reviewers. The owner must be an `implementer` with exactly two `requests`: one `audit-standards` and one `audit-contracts` packet, each `read-only` with `family` equal to `requiredFamily`, and no `experiment`, `investigation` or nested `requests`. Anything else refuses with `invalid_content` before any pass, assignment or Contract consumption, so the Slice stays assignable. Replacement keeps those reviewers and a successor inherits them. `requestImplementationAudit` still checks current family authority, and Engine still checks model availability; those can change while the pass is open.
+
 `openSuccessorPass` is the one authorized return from a sealed handoff to implementation. It is admitted only from the Effects host scope, and names the handed-off owner's `assignment`, `generation`, `attempt` and `text`. `text` holds one closed JSON result: `schema: 1`, `cause`, `repository`, `source` (B's revision), `sourceCommit`, `baseCommit` and `targetCommit`, plus the fields for its cause.
 
 | `cause` | Extra fields | New pass starts from |

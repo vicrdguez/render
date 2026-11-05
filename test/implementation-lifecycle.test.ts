@@ -420,7 +420,12 @@ test("accepted pass refuses structurally incompatible Audit reviewers before ret
 		];
 		const writer = t.writer({ verification: selection(t.contract) });
 		const slice = () =>
-			((t.f.ledger.snapshot(admin) as Frame).workflows as { workflow: string; intakes: { slices: { id: string; everAssigned: boolean }[] } }[])
+			(
+				(t.f.ledger.snapshot(admin) as Frame).workflows as {
+					workflow: string;
+					intakes: { slices: { id: string; everAssigned: boolean }[] };
+				}[]
+			)
 				.find((w) => w.workflow === "workflow:2")!
 				.intakes.slices.find((s) => s.id === "read-fix")!;
 		const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
@@ -461,7 +466,12 @@ test("accepted pass refuses structurally incompatible Audit reviewers before ret
 		// The correction is an ordinary first assignment, and that pass reaches its one Audit across a reopen.
 		const id = accepted(await t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: writer })).assignment as string;
 		assert.deepEqual(
-			Object.entries(passes()[0]!.auditReviewers).map(([axis, reviewer]) => [axis, reviewer.key, reviewer.packet.role, reviewer.packet.execution]),
+			Object.entries(passes()[0]!.auditReviewers).map(([axis, reviewer]) => [
+				axis,
+				reviewer.key,
+				reviewer.packet.role,
+				reviewer.packet.execution,
+			]),
 			[
 				["standards", "arbitrary-left", "audit-standards", "read-only"],
 				["contracts", "arbitrary-right", "audit-contracts", "read-only"],

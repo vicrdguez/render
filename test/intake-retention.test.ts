@@ -10,7 +10,7 @@ import { deviceServer } from "../src/ledger/http.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { finding, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
-import { admin, allowSameFamily, packet, roleFixture } from "./support/roles.ts";
+import { admin, allowSameFamily, packet, passOwner, roleFixture } from "./support/roles.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
 
 function accepted(reply: CommandReply) {
@@ -272,7 +272,7 @@ test("implementation pass opening is atomic with ownership, scoped, exported and
 			type: "assignTask",
 			slice: "read-fix",
 			delivery: true,
-			packet: packet({ role: "implementer", execution: "linux-writer", inputs: [contract] }),
+			packet: passOwner(contract, { execution: "linux-writer" }),
 		};
 		const first = await t.f.command(command, undefined, "initial-implementation");
 		const opening = accepted(first);
@@ -634,7 +634,7 @@ for (const failure of ["missing_content", "content_corrupt", "unsupported_schema
 		try {
 			const draft = await t.stage();
 			accepted(await t.f.command({ type: "acceptIntake", ...t.basis(draft, await t.review(draft)) }, admin));
-			const writer = packet({ role: "implementer", execution: "linux-writer", inputs: [t.state().slices[0]!.contract] });
+			const writer = passOwner(t.state().slices[0]!.contract, { execution: "linux-writer" });
 			const first = accepted(await t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: writer }));
 			const assignments = () => (t.f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[];
 			await until(() => assignments().find((a) => a.id === first.assignment)?.status === "blocked");
@@ -712,8 +712,7 @@ test("I08/I09 V2 actual SQLite serializes first assignment against amendment and
 			const next = await t.stage();
 			const basis = t.basis(next, await t.review(next));
 			const amend = () => t.f.command({ type: "amendContract", slice: "read-fix", expected: old, ...basis }, admin);
-			const assign = () =>
-				t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: packet({ role: "implementer", inputs: [old] }) });
+			const assign = () => t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: passOwner(old) });
 			const first = await (assignmentFirst ? assign() : amend());
 			accepted(first);
 			assert.equal(code(await (assignmentFirst ? amend() : assign())), assignmentFirst ? "contract_frozen" : "stale_basis");

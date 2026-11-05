@@ -1,6 +1,6 @@
 // Pure implementation evidence validation. Ledger resolves and integrity-checks the actual bytes.
 import type { SourceReceipt } from "../effects/source.ts";
-import type { RoleAssignment } from "./roles.ts";
+import type { RoleAssignment, RolePacket } from "./roles.ts";
 import { type CatalogEvidence, completionGap, type VerificationAssessment } from "./verification.ts";
 
 export type ImplementationSource = { schema: 1; source: SourceReceipt; verification?: CatalogEvidence };
@@ -16,6 +16,18 @@ export type FindingDisposition = {
 };
 export type AuditAxis = "standards" | "contracts";
 export type AuditResult = { assignment: string; report: string; findings: AuditFinding[] };
+type AuditRole = "audit-standards" | "audit-contracts";
+type AuditReviewer<R extends AuditRole> = {
+	key: string;
+	/** Runs in its one family: `requiredFamily` is derived, so it cannot differ. */
+	packet: Omit<RolePacket, "role" | "execution" | "requests" | "experiment" | "investigation" | "requiredFamily"> & {
+		role: R;
+		execution: "read-only";
+		requests: [];
+	};
+};
+/** The fresh read-only reviewers an accepted pass runs its one Audit with, frozen when the pass is accepted. */
+export type AuditReviewers = { standards: AuditReviewer<"audit-standards">; contracts: AuditReviewer<"audit-contracts"> };
 type ReturnLineage = {
 	schema: 1;
 	repository: string;
@@ -48,6 +60,23 @@ const text = (v: unknown): v is string => typeof v === "string" && v.trim().leng
 const texts = (v: unknown): v is string[] => Array.isArray(v) && v.every(text);
 export function validAssessment(v: unknown): v is VerificationAssessment {
 	return object(v) && ["pass", "non-pass"].includes(String(v.outcome)) && (v.rank === null || text(v.rank)) && text(v.reason);
+}
+function auditReviewer<R extends AuditRole>(owner: RolePacket, role: R): AuditReviewer<R> | undefined {
+	const [request, ...others] = owner.requests.filter((r) => r.packet.role === role);
+	if (!request || others.length) return;
+	const { requiredFamily, experiment, investigation, ...packet } = request.packet;
+	if (packet.execution !== "read-only" || packet.requests.length || experiment || investigation || packet.family !== requiredFamily) return;
+	return { key: request.key, packet: { ...packet, role, execution: "read-only", requests: [] } };
+}
+/** Only an implementer naming exactly one compatible reviewer per axis can own a pass. */
+export function auditReviewers(owner: RolePacket): AuditReviewers | undefined {
+	if (owner.role !== "implementer" || owner.requests.length !== 2) return;
+	const standards = auditReviewer(owner, "audit-standards");
+	const contracts = auditReviewer(owner, "audit-contracts");
+	return standards && contracts ? { standards, contracts } : undefined;
+}
+export function auditReviewerPacket(reviewer: AuditReviewers[AuditAxis]): RolePacket {
+	return { ...reviewer.packet, requiredFamily: reviewer.packet.family };
 }
 export function validDispositions(v: unknown): v is FindingDisposition[] {
 	return (
