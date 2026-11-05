@@ -1221,8 +1221,8 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/engine/runtime.ts",
-				find: 'if (a.packet.execution !== "read-only" && !a.packet.experiment) return "sandbox_capability_unavailable";',
-				replace: 'if (a.packet.execution !== "read-only" && !a.packet.experiment) return "required_model_family_unavailable";',
+				find: 'if (a.packet.execution !== "read-only" && !a.passRef && !a.packet.experiment) return "sandbox_capability_unavailable";',
+				replace: 'if (a.packet.execution !== "read-only" && !a.passRef && !a.packet.experiment) return "required_model_family_unavailable";',
 			},
 		],
 		test: "test/role-capability-refusal.test.ts",
