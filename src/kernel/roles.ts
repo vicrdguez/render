@@ -530,7 +530,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			a?.passRef &&
 			(JSON.stringify(c.packet.inputs) !== JSON.stringify(a.packet.inputs) ||
 				JSON.stringify(c.packet.verification) !== JSON.stringify(a.packet.verification) ||
-				JSON.stringify(c.packet.requests) !== JSON.stringify(a.packet.requests) ||
+				!isDeepStrictEqual(auditReviewers(c.packet), pass?.auditReviewers) ||
 				c.packet.execution !== a.packet.execution ||
 				c.packet.profile !== a.packet.profile)
 		)
