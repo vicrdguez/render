@@ -574,13 +574,14 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				p.execution !== "read-only" ||
 				p.requests.length ||
 				p.investigation ||
+				p.experiment ||
 				p.family !== p.requiredFamily ||
 				(p.family === a.packet.family &&
 					policy.revisions[bindingFor(policy, a.workflow).policy]?.reviewerDiversity !== "human-directed-same-family")
 			)
 				return refusal(
 					"capability_unavailable",
-					"Audit needs exactly one configured fresh read-only packet per axis, with the required independent family and no nested requests.",
+					"Audit needs exactly one configured fresh read-only packet per axis, with the required independent family and no investigation, experiment or nested requests.",
 				);
 		}
 		const audit = {
