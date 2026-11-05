@@ -422,6 +422,18 @@ for (const role of ["audit-standards", "audit-contracts"] as const)
 					assert.deepEqual(await implementationTasks(engine.harness), tasks);
 					if (attempt === 0) {
 						await t.f.reopen(engine);
+						accepted(
+							await t.f.command({
+								type: "rebindAttempt",
+								assignment: id,
+								generation: 1,
+								attempt: owner().attempt,
+								providerIdle: true,
+								environment: "stopped",
+								effects: "reconciled",
+								executorEpoch: t.f.ledger.status().executorEpoch,
+							}),
+						);
 						actor = await t.start(id);
 					}
 				}
