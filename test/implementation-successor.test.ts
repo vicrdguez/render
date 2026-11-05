@@ -386,6 +386,7 @@ test("P1 reports cannot satisfy P2 even for identical bytes; P2 needs its own on
 			assert.equal(reply.status, "refused", "P1 reviewer cannot report into P2");
 			assert.deepEqual(passes(t), staged);
 		}
+		assert.deepEqual(pass(t, P2).auditReviewers, pass(t, P1).auditReviewers, "a successor inherits its frozen reviewers");
 		const audit = accepted(await t.f.command({ type: "requestImplementationAudit" }, actor, "p2-audit"));
 		assert.equal(audit.passRef, P2);
 		assert.equal(audit.source, A2);

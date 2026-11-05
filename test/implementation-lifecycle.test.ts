@@ -24,7 +24,8 @@ import { admin, packet } from "./support/roles.ts";
 
 const scheduling: Principal = { kind: "host", scope: "scheduling" };
 const effects: Principal = { kind: "host", scope: "effects" };
-function pure() {
+const humanOwner: Principal = { kind: "human", human: "owner", route: "local-admin" };
+function pure(overrides: Partial<RolePacket> = {}) {
 	let sequence = 0;
 	let retainedSource: ReturnType<typeof capture> | undefined;
 	let state: KernelState = {
@@ -60,6 +61,7 @@ function pure() {
 			{ key: "left", packet: packet({ role: "audit-standards", family: "review", requiredFamily: "review" }) },
 			{ key: "right", packet: packet({ role: "audit-contracts", family: "review", requiredFamily: "review" }) },
 		],
+		...overrides,
 	});
 	function command(c: Record<string, unknown>, principal: Principal = scheduling, extra: Record<string, unknown> = {}) {
 		sequence++;
@@ -342,105 +344,217 @@ test("paired Audit uses literal current pass/A bindings and atomically requests 
 	);
 });
 
-// Incompatible experiment capability on either axis must refuse the whole pair before
-// any Audit identity, child packet or task is retained, including after ordinary reopen.
-for (const role of ["audit-standards", "audit-contracts"] as const)
-	for (const candidate of ["favorite", null])
-		test(`paired Audit refuses ${role} experiment ${candidate ?? "comparison"} without consuming its invocation`, async () => {
-			const engine = new LedgerOnlyEngine();
-			const t = await acceptedImplementation(engine);
-			try {
-				const experimentGround = await saveGround(t.f.ledger, ground, t.ground, "experiment-ground");
-				const protocol = accepted(
-					await t.f.ledger.command(
-						{
-							version: 1,
-							authorityEpoch: t.f.ledger.status().authorityEpoch,
-							commandId: "audit-experiment-protocol",
-							workflow: "workflow:2",
-							expected: { document: null },
-							command: {
-								type: "saveDocument",
-								document: "audit-experiment-protocol",
-								mediaType: "text/plain",
-								content: Buffer.from(
-									JSON.stringify({
-										schema: 1,
-										ground: experimentGround,
-										question: "Does the candidate preserve exact bytes?",
-										hypothesis: "Bytes match",
-										falsifier: "Any changed byte",
-										decisionRule: "Accept only exact equality",
-										controls: ["Same input"],
-										fixtures: ["Literal bytes"],
-										failureCases: ["Missing output is inconclusive"],
-										retainedOutputs: ["Exact output and limitations"],
-										budget: { maxCommands: 4, timeoutMs: 1000 },
-										profile: { image: `sha256:${"0".repeat(64)}`, exclusions: [".git"], maxBytes: 1048576, maxEntries: 1000 },
-										source: { repository: "owned", commit: "a".repeat(40) },
-										candidates: ["favorite", "control"],
-									}),
-								).toString("base64"),
-							},
-						},
-						admin,
-					),
-				).revision as string;
-				const writer = t.writer({ verification: selection(t.contract) });
-				writer.requests.find((request) => request.packet.role === role)!.packet.experiment = { protocol, candidate };
-				const id = accepted(await t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: writer }))
-					.assignment as string;
-				let actor = await t.start(id);
-				const owner = () => t.assignments().find((assignment) => assignment.id === id)!;
-				accepted(
-					await t.f.command(
-						{
-							type: "recordImplementationSource",
-							assignment: id,
-							generation: 1,
-							attempt: owner().attempt,
-							kind: "audit",
-							text: JSON.stringify(capture(owner(), t.f.ledger.status().executorEpoch, t.contract)),
-						},
-						mintContext(effects),
-					),
-				);
-				const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
-				const before = structuredClone(passes());
-				assert.equal(before[0]!.audit, undefined);
-				const ids = t.assignments().map((assignment) => assignment.id);
-				const tasks = await implementationTasks(engine.harness);
-				for (let attempt = 0; attempt < 2; attempt++) {
-					const reply = await t.f.command({ type: "requestImplementationAudit" }, actor);
-					assert.equal(reply.status === "refused" && reply.code, "capability_unavailable");
-					assert.deepEqual(passes(), before, "refusal must not consume the one Audit invocation");
-					assert.deepEqual(
-						t.assignments().map((assignment) => assignment.id),
-						ids,
-						"neither axis may be staged",
-					);
-					assert.deepEqual(await implementationTasks(engine.harness), tasks);
-					if (attempt === 0) {
-						await t.f.reopen(engine);
-						accepted(
-							await t.f.command({
-								type: "rebindAttempt",
-								assignment: id,
-								generation: 1,
-								attempt: owner().attempt,
-								providerIdle: true,
-								environment: "stopped",
-								effects: "reconciled",
-								executorEpoch: t.f.ledger.status().executorEpoch,
+// An accepted pass names its Audit reviewers at construction; every incompatible configuration stays out of Kernel state.
+test("accepted pass refuses structurally incompatible Audit reviewers before retaining anything, and the Slice stays assignable", async () => {
+	const engine = new LedgerOnlyEngine();
+	const t = await acceptedImplementation(engine);
+	try {
+		const experimentGround = await saveGround(t.f.ledger, ground, t.ground, "experiment-ground");
+		const protocol = accepted(
+			await t.f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: t.f.ledger.status().authorityEpoch,
+					commandId: "audit-experiment-protocol",
+					workflow: "workflow:2",
+					expected: { document: null },
+					command: {
+						type: "saveDocument",
+						document: "audit-experiment-protocol",
+						mediaType: "text/plain",
+						content: Buffer.from(
+							JSON.stringify({
+								schema: 1,
+								ground: experimentGround,
+								question: "Does the candidate preserve exact bytes?",
+								hypothesis: "Bytes match",
+								falsifier: "Any changed byte",
+								decisionRule: "Accept only exact equality",
+								controls: ["Same input"],
+								fixtures: ["Literal bytes"],
+								failureCases: ["Missing output is inconclusive"],
+								retainedOutputs: ["Exact output and limitations"],
+								budget: { maxCommands: 4, timeoutMs: 1000 },
+								profile: { image: `sha256:${"0".repeat(64)}`, exclusions: [".git"], maxBytes: 1048576, maxEntries: 1000 },
+								source: { repository: "owned", commit: "a".repeat(40) },
+								candidates: ["favorite", "control"],
 							}),
-						);
-						actor = await t.start(id);
-					}
-				}
-			} finally {
-				await t.close();
+						).toString("base64"),
+					},
+				},
+				admin,
+			),
+		).revision as string;
+		const standards = packet({ role: "audit-standards" });
+		const contracts = packet({ role: "audit-contracts" });
+		const pair = (left: Partial<RolePacket>, right: Partial<RolePacket> = {}) => [
+			{ key: "standards", packet: { ...standards, ...left } },
+			{ key: "contracts", packet: { ...contracts, ...right } },
+		];
+		const investigation = { ground: t.ground, repository: "owned", commit: "a".repeat(40), paths: ["src/read.ts"] };
+		const incompatible: [string, Partial<RolePacket>][] = [
+			["standards experiment candidate", { requests: pair({ experiment: { protocol, candidate: "favorite" } }) }],
+			["contracts experiment candidate", { requests: pair({}, { experiment: { protocol, candidate: "favorite" } }) }],
+			["standards experiment comparison", { requests: pair({ experiment: { protocol, candidate: null } }) }],
+			["contracts experiment comparison", { requests: pair({}, { experiment: { protocol, candidate: null } }) }],
+			["writer standards reviewer", { requests: pair({ execution: "linux-writer" }) }],
+			["writer contracts reviewer", { requests: pair({}, { execution: "linux-writer" }) }],
+			["nested reviewer request", { requests: pair({ requests: [{ key: "nested", packet: packet({ role: "challenger" }) }] }) }],
+			["investigating reviewer", { requests: pair({ investigation }) }],
+			["reviewer outside its required family", { requests: pair({}, { family: "review", requiredFamily: "other" }) }],
+			["no reviewers", { requests: [] }],
+			["missing contracts axis", { requests: [{ key: "standards", packet: standards }] }],
+			["missing standards axis", { requests: [{ key: "contracts", packet: contracts }] }],
+			[
+				"duplicate standards axis",
+				{
+					requests: [
+						{ key: "standards", packet: standards },
+						{ key: "again", packet: standards },
+						{ key: "contracts", packet: contracts },
+					],
+				},
+			],
+			["unrelated requested role", { requests: [...pair({}), { key: "extra", packet: packet({ role: "challenger" }) }] }],
+			["owner that may not request Audit roles", { role: "coordinator", execution: "read-only" }],
+		];
+		const writer = t.writer({ verification: selection(t.contract) });
+		const slice = () =>
+			((t.f.ledger.snapshot(admin) as Frame).workflows as { workflow: string; intakes: { slices: { id: string; everAssigned: boolean }[] } }[])
+				.find((w) => w.workflow === "workflow:2")!
+				.intakes.slices.find((s) => s.id === "read-fix")!;
+		const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
+		const ids = t.assignments().map((assignment) => assignment.id);
+		const tasks = await implementationTasks(engine.harness);
+		const refuseAll = async () => {
+			for (const [name, overrides] of incompatible) {
+				const reply = await t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: { ...writer, ...overrides } });
+				assert.equal(reply.status === "refused" && reply.code, "invalid_content", name);
+				assert.deepEqual(passes(), [], `${name}: no pass exists to strand`);
+				assert.deepEqual(
+					t.assignments().map((assignment) => assignment.id),
+					ids,
+					`${name}: no owner or reviewer is staged`,
+				);
+				assert.equal(slice().everAssigned, false, `${name}: refusal does not consume the accepted Slice`);
 			}
-		});
+			assert.deepEqual(await implementationTasks(engine.harness), tasks);
+		};
+		await refuseAll();
+		await t.f.reopen(engine);
+		await refuseAll();
+
+		// Independent experiment work keeps its own authority beside the refused reviewers.
+		const experiment = accepted(
+			await t.f.command({
+				type: "assignTask",
+				slice: "independent-experiment",
+				delivery: false,
+				packet: packet({ role: "experiment-candidate", execution: "linux-writer", experiment: { protocol, candidate: "favorite" } }),
+			}),
+		);
+		const independent = t.assignments().find((assignment) => assignment.id === experiment.assignment)!;
+		assert.deepEqual(independent.packet.experiment, { protocol, candidate: "favorite" });
+		assert.equal(independent.passRef, undefined);
+		assert.deepEqual(passes(), []);
+
+		// The correction is an ordinary first assignment, and that pass reaches its one Audit across a reopen.
+		const id = accepted(await t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: writer })).assignment as string;
+		assert.deepEqual(
+			Object.entries(passes()[0]!.auditReviewers).map(([axis, reviewer]) => [axis, reviewer.key, reviewer.packet.role, reviewer.packet.execution]),
+			[
+				["standards", "arbitrary-left", "audit-standards", "read-only"],
+				["contracts", "arbitrary-right", "audit-contracts", "read-only"],
+			],
+		);
+		let actor = await t.start(id);
+		const owner = () => t.assignments().find((assignment) => assignment.id === id)!;
+		accepted(
+			await t.f.command(
+				{
+					type: "recordImplementationSource",
+					assignment: id,
+					generation: 1,
+					attempt: owner().attempt,
+					kind: "audit",
+					text: JSON.stringify(capture(owner(), t.f.ledger.status().executorEpoch, t.contract)),
+				},
+				mintContext(effects),
+			),
+		);
+		await t.f.reopen(engine);
+		accepted(
+			await t.f.command({
+				type: "rebindAttempt",
+				assignment: id,
+				generation: 1,
+				attempt: owner().attempt,
+				providerIdle: true,
+				environment: "stopped",
+				effects: "reconciled",
+				executorEpoch: t.f.ledger.status().executorEpoch,
+			}),
+		);
+		actor = await t.start(id);
+		const audit = accepted(await t.f.command({ type: "requestImplementationAudit" }, actor));
+		const children = t.assignments().filter((assignment) => assignment.parent === id);
+		assert.deepEqual(children.map((child) => [child.id, child.requestKey, child.packet.role, child.packet.execution]).sort(), [
+			[audit.contracts, "arbitrary-right", "audit-contracts", "read-only"],
+			[audit.standards, "arbitrary-left", "audit-standards", "read-only"],
+		]);
+	} finally {
+		await t.close();
+	}
+});
+
+test("Audit keeps checking current family authority dynamically, and a replacement owner can satisfy it", () => {
+	const f = pure({ family: "review", requiredFamily: "review" });
+	f.retain("audit");
+	const refused = f.command({ type: "requestImplementationAudit" }, f.owner);
+	assert.equal(refused.outcome === "refused" && refused.code, "capability_unavailable");
+	assert.equal(f.pass().audit, undefined, "refusal must not consume the one Audit invocation");
+	assert.deepEqual(
+		f.assignments().map((a) => a.id),
+		[f.id],
+		"neither axis may be staged",
+	);
+	const cancelled = f.ok({ type: "cancelWork", assignment: f.id, generation: 1, attempt: f.own(f.id).attempt }, humanOwner);
+	const identity = { assignment: f.id, generation: cancelled.result.generation, attempt: f.own(f.id).attempt };
+	f.ok({ type: "recordQuiescence", ...identity, providerIdle: true, environment: "stopped", effects: "reconciled" });
+	const next = f.ok({ type: "replaceTask", ...identity, packet: { ...f.writer, family: "claude", requiredFamily: "claude" } }).result
+		.assignment as string;
+	assert.equal(f.pass().assignment, next);
+	const audit = f.ok({ type: "requestImplementationAudit" }, f.start(next));
+	assert.equal(f.pass().audit?.ref, audit.result.audit);
+	assert.equal(f.assignments().filter((a) => a.parent === next).length, 2);
+});
+
+test("replacement cannot swap frozen Audit reviewers or turn a reviewer into experiment or investigation work", () => {
+	const f = pure();
+	f.audit();
+	const cancel = (a: RoleAssignment) => {
+		const stopped = f.ok({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, humanOwner);
+		const identity = { assignment: a.id, generation: stopped.result.generation, attempt: a.attempt };
+		f.ok({ type: "recordQuiescence", ...identity, providerIdle: true, environment: "stopped", effects: "reconciled" });
+		return identity;
+	};
+	const frozen = structuredClone(f.pass().auditReviewers);
+	const reviewer = f.assignments().find((a) => a.packet.role === "audit-standards")!;
+	const stoppedReviewer = cancel(reviewer);
+	for (const changed of [
+		{ experiment: { protocol: "protocol:1", candidate: "favorite" } },
+		{ investigation: { ground: "ground:1", repository: "owned", commit: "a".repeat(40), paths: ["src/read.ts"] } },
+		{ execution: "linux-writer" },
+		{ requests: [{ key: "nested", packet: packet({ role: "challenger" }) }] },
+	])
+		assert.equal(f.command({ type: "replaceTask", ...stoppedReviewer, packet: { ...reviewer.packet, ...changed } }).outcome, "refused");
+	const stoppedOwner = cancel(f.own(f.id));
+	const [left, right] = f.writer.requests;
+	const swapped = { ...f.writer, requests: [{ ...left!, packet: { ...left!.packet, model: "other-model" } }, right!] };
+	const refused = f.command({ type: "replaceTask", ...stoppedOwner, packet: swapped });
+	assert.equal(refused.outcome === "refused" && refused.code, "forbidden_scope");
+	assert.deepEqual(f.pass().auditReviewers, frozen);
+});
 
 test("Audit report refuses wrong role/pass/source/Contract and malformed or duplicate findings", () => {
 	const f = pure();
