@@ -4,7 +4,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { chmod, chown, lstat, mkdir, open, readdir, readFile, readlink, rename, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { blobOid, type LiteralEntry, type Source, treeOid, validateEntries, validatePath } from "../effects/source.ts";
+import { blobOid, type LiteralEntry, type Source, treeOid, validateEntries } from "../effects/source.ts";
+import { validatePath } from "../kernel/source-path.ts";
 import { faultBarrier } from "../ledger/barrier.ts";
 
 export type ExecutionScope = { assignment: string; generation: number; attempt: string; executorEpoch: string };

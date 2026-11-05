@@ -16,14 +16,68 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 // repair that ordering violation. Independent review of their behavioral sensitivity remains required.
 const CONTROLS: Control[] = [
 	{
+		name: "implementation-read-only-owner",
+		expect: /read-only owner/,
+		behavior: "accept a read-only implementer that can never capture source",
+		edits: [{ file: "src/kernel/implementation.ts", find: 'owner.execution !== "linux-writer" || ', replace: "" }],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "accepted pass refuses",
+	},
+	{
+		name: "implementation-selection-other-contract",
+		expect: /selection naming another retained document/,
+		behavior: "accept a verification selection bound to a document other than the accepted Contract",
+		edits: [{ file: "src/kernel/implementation.ts", find: "selection.contract !== contract || ", replace: "" }],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "accepted pass refuses",
+	},
+	{
+		name: "implementation-selection-no-behavioral-rows",
+		expect: /selection without behavioral rows/,
+		behavior: "accept a selection whose handoff can never establish behavioral coverage",
+		edits: [{ file: "src/kernel/implementation.ts", find: "!selection.behavioralRows.length || ", replace: "" }],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "accepted pass refuses",
+	},
+	{
+		name: "implementation-selection-impossible-path",
+		expect: /traversing catalog path/,
+		behavior: "accept a catalog path retained source cannot represent",
+		edits: [{ file: "src/kernel/implementation.ts", find: "validatePath(selection.path);", replace: "" }],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "accepted pass refuses",
+	},
+	{
+		name: "implementation-reviewer-frozen-verifier",
+		expect: /standards reviewer freezing a verifier before A/,
+		behavior: "freeze a caller-selected reviewer verifier before A exists",
+		edits: [{ file: "src/kernel/implementation.ts", find: " && !p.verification", replace: "" }],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "accepted pass refuses",
+	},
+	{
+		name: "implementation-replacement-changes-configuration",
+		expect: /forbidden_scope/,
+		behavior: "let a replacement owner change the pass's frozen configuration",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: "!isDeepStrictEqual(passConfiguration(c.packet, pass!.contract), pass!.configuration) ||",
+				replace: "false ||",
+			},
+		],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "replacement cannot change",
+	},
+	{
 		name: "implementation-incompatible-audit-reviewers",
 		expect: /standards experiment candidate/,
 		behavior: "accept an experiment-bearing Audit reviewer into a pass",
 		edits: [
 			{
 				file: "src/kernel/implementation.ts",
-				find: "packet.requests.length || experiment || investigation ||",
-				replace: "packet.requests.length || investigation ||",
+				find: "!p.requests.length && !p.experiment && !p.investigation",
+				replace: "!p.requests.length && !p.investigation",
 			},
 		],
 		test: "test/implementation-lifecycle.test.ts",

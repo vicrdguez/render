@@ -1,7 +1,14 @@
 // Pure implementation evidence validation. Ledger resolves and integrity-checks the actual bytes.
 import type { SourceReceipt } from "../effects/source.ts";
-import type { RoleAssignment, RolePacket } from "./roles.ts";
-import { type CatalogEvidence, completionGap, type VerificationAssessment } from "./verification.ts";
+import type { ImplementationPass, RoleAssignment, RolePacket } from "./roles.ts";
+import { validatePath } from "./source-path.ts";
+import {
+	type CatalogEvidence,
+	completionGap,
+	selectionRowsComplete,
+	type VerificationAssessment,
+	type VerificationSelection,
+} from "./verification.ts";
 
 export type ImplementationSource = { schema: 1; source: SourceReceipt; verification?: CatalogEvidence };
 export type AuditBinding = { passRef: string; audit: string; source: string; contract: string };
@@ -20,14 +27,19 @@ type AuditRole = "audit-standards" | "audit-contracts";
 type AuditReviewer<R extends AuditRole> = {
 	key: string;
 	/** Runs in its one family: `requiredFamily` is derived, so it cannot differ. */
-	packet: Omit<RolePacket, "role" | "execution" | "requests" | "experiment" | "investigation" | "requiredFamily"> & {
+	packet: Omit<RolePacket, "role" | "execution" | "requests" | "experiment" | "investigation" | "verification" | "requiredFamily"> & {
 		role: R;
 		execution: "read-only";
 		requests: [];
 	};
 };
-/** The fresh read-only reviewers an accepted pass runs its one Audit with, frozen when the pass is accepted. */
+/** The fresh read-only reviewers an accepted pass runs its one Audit with. */
 export type AuditReviewers = { standards: AuditReviewer<"audit-standards">; contracts: AuditReviewer<"audit-contracts"> };
+/**
+ * What an accepted pass executes with, frozen when it opens: only `passConfiguration` builds one, for a Linux-writer implementer.
+ * The selected file may not exist yet, since bootstrapping it is accepted source work. Owner packets stay as retained input.
+ */
+export type PassConfiguration = { verification: VerificationSelection; reviewers: AuditReviewers };
 type ReturnLineage = {
 	schema: 1;
 	repository: string;
@@ -61,19 +73,39 @@ const texts = (v: unknown): v is string[] => Array.isArray(v) && v.every(text);
 export function validAssessment(v: unknown): v is VerificationAssessment {
 	return object(v) && ["pass", "non-pass"].includes(String(v.outcome)) && (v.rank === null || text(v.rank)) && text(v.reason);
 }
+/** A reviewer inspects A through the verifier retained with it, so it freezes none of its own before A exists. */
+export function usableReviewer(p: RolePacket): boolean {
+	return (
+		p.execution === "read-only" &&
+		!p.requests.length &&
+		!p.experiment &&
+		!p.investigation &&
+		!p.verification &&
+		p.family === p.requiredFamily
+	);
+}
 function auditReviewer<R extends AuditRole>(owner: RolePacket, role: R): AuditReviewer<R> | undefined {
 	const [request, ...others] = owner.requests.filter((r) => r.packet.role === role);
-	if (!request || others.length) return;
-	const { requiredFamily, experiment, investigation, ...packet } = request.packet;
-	if (packet.execution !== "read-only" || packet.requests.length || experiment || investigation || packet.family !== requiredFamily) return;
+	if (!request || others.length || !usableReviewer(request.packet)) return;
+	const { requiredFamily, experiment, investigation, verification, ...packet } = request.packet;
 	return { key: request.key, packet: { ...packet, role, execution: "read-only", requests: [] } };
 }
-/** Only an implementer naming exactly one compatible reviewer per axis can own a pass. */
-export function auditReviewers(owner: RolePacket): AuditReviewers | undefined {
-	if (owner.role !== "implementer" || owner.requests.length !== 2) return;
+function usableSelection(selection: VerificationSelection | undefined, contract: string): selection is VerificationSelection {
+	if (!selection || selection.contract !== contract || !selection.behavioralRows.length || !selectionRowsComplete(selection)) return false;
+	try {
+		validatePath(selection.path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+/** Immutable structure only: catalog contents, check results, model availability and policy can still change after acceptance. */
+export function passConfiguration(owner: RolePacket, contract: string): PassConfiguration | undefined {
+	if (owner.role !== "implementer" || owner.execution !== "linux-writer" || owner.requests.length !== 2) return;
+	if (!usableSelection(owner.verification, contract)) return;
 	const standards = auditReviewer(owner, "audit-standards");
 	const contracts = auditReviewer(owner, "audit-contracts");
-	return standards && contracts ? { standards, contracts } : undefined;
+	return standards && contracts ? { verification: owner.verification, reviewers: { standards, contracts } } : undefined;
 }
 export function auditReviewerPacket(reviewer: AuditReviewers[AuditAxis]): RolePacket {
 	return { ...reviewer.packet, requiredFamily: reviewer.packet.family };
@@ -279,20 +311,17 @@ export function sourceScopeMatches(source: ImplementationSource | undefined, a: 
 }
 export function implementationEvidenceGap(
 	source: ImplementationSource | undefined,
-	a: RoleAssignment,
-	contract: string,
+	pass: ImplementationPass,
 	assessment?: VerificationAssessment,
 	minimum: string | null = null,
 ): string | undefined {
-	const selected = a.packet.verification;
+	const selected = pass.configuration.verification;
 	const e = source?.verification;
 	if (
 		!source ||
-		!selected ||
 		!e ||
 		e.role !== "implementer" ||
-		e.catalog.selection.contract !== contract ||
-		selected.contract !== contract ||
+		e.catalog.selection.contract !== pass.contract ||
 		e.catalog.selection.repository !== selected.repository ||
 		e.catalog.selection.path !== selected.path ||
 		!selected.behavioralRows.every((row) => e.catalog.selection.behavioralRows.includes(row))

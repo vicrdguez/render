@@ -8,15 +8,16 @@ import {
 	type AuditAxis,
 	type AuditBinding,
 	type AuditResult,
-	type AuditReviewers,
 	auditFindings,
 	auditReviewerPacket,
-	auditReviewers,
 	type FindingDisposition,
 	implementationEvidenceGap,
+	type PassConfiguration,
+	passConfiguration,
 	type ReturnObservation,
 	returnObservation,
 	sourceScopeMatches,
+	usableReviewer,
 	validAssessment,
 	validDispositions,
 	watchdogVerdict,
@@ -65,7 +66,7 @@ export type RolePacket = {
 	requests: { key: string; packet: RolePacket }[];
 };
 export type ImplementationPass = {
-	auditReviewers: AuditReviewers;
+	configuration: PassConfiguration;
 	captureA?: string;
 	captureB?: string;
 	workspace?: string;
@@ -398,15 +399,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		(a.implementationBinding ?? pass?.policyBinding) !== a.policyBinding
 	)
 		return refusal("stale_basis", "Policy adoption fenced this implementation execution; quiesce and replace it explicitly.");
-	// A pass enters Kernel state only with its parsed reviewers; a successor inherits them.
-	const opensPass = !!acceptedSlice && delivery && (c.type === "assignTask" || (c.type === "replaceTask" && !a?.passRef));
-	const reviewers =
-		opensPass && proposedPacket ? auditReviewers(proposedPacket) : c.type === "openSuccessorPass" ? pass?.auditReviewers : undefined;
-	const incompatibleReviewers = () =>
-		refusal(
-			"invalid_content",
-			"Accepted implementation needs an implementer with exactly one read-only reviewer per Audit axis, in its required family, with no investigation, experiment or nested requests.",
-		);
+	// A pass enters Kernel state only through this configuration; a successor inherits it.
+	let configuration: PassConfiguration | undefined;
 	// Debt: repeated current-policy lookups below could share one command-local binding without changing adoption semantics.
 	let returned: ReturnObservation | undefined;
 	function create(packet: RolePacket, slice: string, delivery: boolean, parent: string | null, key: string | null, axis?: AuditAxis) {
@@ -457,7 +451,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			created.passRef = a.passRef;
 			pass!.assignment = created.id;
 			for (const child of work.assignments) if (child.parent === a.id) child.parent = created.id;
-		} else if (acceptedSlice && reviewers) {
+		} else if (acceptedSlice && configuration) {
 			const ordinal = (returned && pass ? pass.ordinal : 0) + 1;
 			const successor: ImplementationPass = {
 				ref: `pass:${c.workflow}:${slice}:${ordinal}`,
@@ -465,7 +459,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				workflow: c.workflow,
 				slice,
 				contract: acceptedSlice.contract,
-				auditReviewers: reviewers,
+				configuration,
 				cause: returned?.cause ?? "initial-implementation",
 				predecessor: returned ? pass!.ref : null,
 				...(returned
@@ -506,7 +500,14 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				"ownership_conflict",
 				"Resume the retained implementation pass with a linked replacement; assignment is not a return to implementation.",
 			);
-		if (opensPass && !reviewers) return incompatibleReviewers();
+		if (acceptedSlice && delivery) {
+			configuration = passConfiguration(c.packet, acceptedSlice.contract);
+			if (!configuration)
+				return refusal(
+					"invalid_content",
+					"Accepted implementation needs a Linux-writer implementer, a verification selection for its Contract with a retainable path and unique required and behavioral rows, and exactly one read-only reviewer per Audit axis, in its required family, with no verifier, investigation, experiment or nested requests.",
+				);
+		}
 		create(c.packet, c.slice, delivery, null, null);
 	} else if (c.type === "replaceTask") {
 		if ((a?.passRef || a?.auditReview) && (!pass || pass.handoff))
@@ -514,12 +515,9 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (
 			a?.auditReview &&
 			(c.packet.role !== a.packet.role ||
-				c.packet.execution !== "read-only" ||
-				c.packet.requests.length ||
-				c.packet.family !== c.packet.requiredFamily ||
+				!usableReviewer(c.packet) ||
 				c.packet.requiredFamily !== a.packet.requiredFamily ||
 				JSON.stringify(c.packet.inputs) !== JSON.stringify(a.packet.inputs) ||
-				JSON.stringify(c.packet.verification) !== JSON.stringify(a.packet.verification) ||
 				c.packet.principles !== a.packet.principles ||
 				c.packet.instructions !== a.packet.instructions ||
 				c.packet.policy !== a.packet.policy ||
@@ -529,14 +527,10 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (
 			a?.passRef &&
 			(JSON.stringify(c.packet.inputs) !== JSON.stringify(a.packet.inputs) ||
-				JSON.stringify(c.packet.verification) !== JSON.stringify(a.packet.verification) ||
-				!isDeepStrictEqual(auditReviewers(c.packet), pass?.auditReviewers) ||
-				c.packet.execution !== a.packet.execution ||
+				!isDeepStrictEqual(passConfiguration(c.packet, pass!.contract), pass!.configuration) ||
 				c.packet.profile !== a.packet.profile)
 		)
-			return refusal("forbidden_scope", "Implementation replacement cannot widen source scope or change its frozen Audit obligations.");
-		if (a?.passRef && c.packet.role !== a.packet.role)
-			return refusal("forbidden_scope", "Implementation replacement must retain its role and pass obligations.");
+			return refusal("forbidden_scope", "Implementation replacement cannot widen source scope or change its frozen pass configuration.");
 		if (a?.packet.experiment)
 			return refusal("forbidden_scope", "Experimental corrections require a new protocol/round, not replacement or adoption.");
 		if (a?.checkpointCandidate) {
@@ -568,18 +562,17 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("ownership_conflict", "Predecessor already has a replacement.");
 		if (hasOwner(work, c.packet, a.slice, a.delivery))
 			return refusal("ownership_conflict", "Replacement would overlap a current delivery owner or writer.");
-		if (opensPass && !reviewers) return incompatibleReviewers();
 		create(c.packet, a.slice, a.delivery, a.parent, a.requestKey);
 		result.predecessor = a.id;
 	} else if (c.type === "requestImplementationAudit") {
 		if (!a?.passRef || !pass || pass.assignment !== a.id || pass.handoff || !pass.captureA)
 			return refusal("missing_content", "Current implementation requires retained Audit source A.");
 		if (pass.audit) return refusal("role_already_requested", "This pass already has its one Audit invocation.");
-		const gap = implementationEvidenceGap(facts.implementationSource, a, pass.contract);
+		const gap = implementationEvidenceGap(facts.implementationSource, pass);
 		if (gap) return refusal("missing_content", gap);
 		const policy = state.policy ?? initialPolicy();
 		if (
-			Object.values(pass.auditReviewers).some((reviewer) => reviewer.packet.family === a.packet.family) &&
+			Object.values(pass.configuration.reviewers).some((reviewer) => reviewer.packet.family === a.packet.family) &&
 			policy.revisions[bindingFor(policy, a.workflow).policy]?.reviewerDiversity !== "human-directed-same-family"
 		)
 			return refusal("capability_unavailable", "Same-family independent Audit needs recorded human policy direction; no family fallback.");
@@ -592,7 +585,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			results: {},
 		};
 		for (const axis of ["standards", "contracts"] as const) {
-			const reviewer = pass.auditReviewers[axis];
+			const reviewer = pass.configuration.reviewers[axis];
 			const packet = auditReviewerPacket(reviewer);
 			const child = create(
 				{ ...packet, inputs: [...new Set([...packet.inputs, pass.contract, pass.captureA])] },
@@ -651,8 +644,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		const policy = state.policy ?? initialPolicy();
 		const gap = implementationEvidenceGap(
 			evidence,
-			a,
-			pass.contract,
+			pass,
 			c.verification,
 			policy.revisions[bindingFor(policy, a.workflow).policy]!.minimumEvidenceRank,
 		);
@@ -699,7 +691,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			handoff: pass.handoff.record,
 		};
 	} else if (c.type === "openSuccessorPass") {
-		if (!a?.passRef || !pass || a.packet.role !== "implementer" || a.workflow !== c.workflow)
+		if (!a?.passRef || !pass || a.workflow !== c.workflow)
 			return refusal("not_found", "Successor requires the owner of a retained implementation pass.");
 		if (a.generation !== c.generation || a.attempt !== c.attempt)
 			return refusal("stale_assignment", "Generation or Attempt is no longer current.");
@@ -748,6 +740,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (hasOwner(work, a.packet, a.slice, a.delivery))
 			return refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer.");
 		returned = observation;
+		configuration = pass.configuration;
 		const predecessor = pass.ref;
 		create({ ...a.packet, inputs: [...new Set([...a.packet.inputs, facts.ids.revision!])] }, a.slice, a.delivery, null, null);
 		Object.assign(result, { predecessorPass: predecessor, observation: facts.ids.revision!, document0: facts.ids.revision! });
@@ -865,14 +858,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		switch (c.type) {
 			case "recordImplementationExecution":
 			case "recordImplementationSource": {
-				if (
-					!a.passRef ||
-					!pass ||
-					pass.assignment !== a.id ||
-					pass.handoff ||
-					a.packet.role !== "implementer" ||
-					a.packet.execution !== "linux-writer"
-				)
+				if (!a.passRef || !pass || pass.assignment !== a.id || pass.handoff)
 					return refusal("forbidden_scope", "Only current accepted implementation can record execution or source.");
 				if (c.type === "recordImplementationExecution") {
 					if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
@@ -901,7 +887,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				if (c.kind === "audit" && pass.captureA) return refusal("assignment_closed", "Audit A is immutable and captured once.");
 				if (c.kind === "final" && !pass.audit) return refusal("missing_content", "Request this pass's Audit before final capture.");
 				if (c.kind !== "checkpoint") {
-					const gap = implementationEvidenceGap(facts.implementationSource, a, pass.contract);
+					const gap = implementationEvidenceGap(facts.implementationSource, pass);
 					if (gap) return refusal("missing_content", gap);
 				}
 				const ref = facts.ids.revision!;
@@ -993,7 +979,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 						"Provider, whole environment and outstanding effects must all be reconciled; timeout is not death.",
 					);
 				if (c.type === "rebindAttempt") {
-					if (a.passRef && a.packet.execution === "linux-writer") {
+					if (a.passRef) {
 						if (
 							!pass?.workspace ||
 							pass.handoff ||

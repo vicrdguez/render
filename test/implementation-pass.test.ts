@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Command, change, type KernelState, type Principal } from "../src/kernel/kernel.ts";
-import { packet } from "./support/roles.ts";
+import { packet, selection } from "./support/roles.ts";
 
 const host: Principal = { kind: "host", scope: "scheduling" };
 const workflow = "workflow:implementation";
@@ -10,6 +10,7 @@ const writer = packet({
 	role: "implementer",
 	execution: "linux-writer",
 	inputs: [contract],
+	verification: selection(contract),
 	requests: [
 		{ key: "standards", packet: packet({ role: "audit-standards", family: "review", requiredFamily: "review", inputs: [contract] }) },
 		{ key: "contracts", packet: packet({ role: "audit-contracts", family: "review", requiredFamily: "review", inputs: [contract] }) },

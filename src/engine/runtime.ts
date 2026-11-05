@@ -936,9 +936,7 @@ export class Engine {
 						);
 					}
 					const tools = (this.#roles.tools ?? []).filter(
-						(tool) =>
-							((a.passRef && a.packet.role === "implementer") || !tool.name.startsWith("implementation_")) &&
-							(tool.name !== "experiment_run" || !!a.packet.experiment),
+						(tool) => (a.passRef || !tool.name.startsWith("implementation_")) && (tool.name !== "experiment_run" || !!a.packet.experiment),
 					);
 					await configure(tx, a.conversation as ConversationId, {
 						model: { provider: a.packet.provider, modelId: a.packet.model },
@@ -1063,7 +1061,7 @@ export class Engine {
 				? {
 						auditReview: a.auditReview,
 						auditInstructions:
-							"Inspect only this immutable A and accepted obligations, not later B/X. Submit schema:1 plus exact auditReview fields and findings:[{id,text,needsHuman}]. Report all violations; unresolved product/Contract choices need human direction. Own scope only; no inherited implementer conversation or other-axis context.",
+							"Inspect only this immutable A and accepted obligations, not later B/X. A's retained record carries its verification: the selected verifier and the results the implementer ran on A, not checks you ran. Submit schema:1 plus exact auditReview fields and findings:[{id,text,needsHuman}]. Report all violations; unresolved product/Contract choices need human direction. Own scope only; no inherited implementer conversation or other-axis context.",
 					}
 				: {}),
 			...(implementation
@@ -1320,7 +1318,7 @@ export class Engine {
 		const captured = await this.#sealImplementation(a);
 		// Preserve progress even when the selected verifier is missing or its execution fails.
 		await this.#recordImplementationSource(a, "checkpoint", captured);
-		const selected = a.packet.verification!;
+		const selected = this.#implementationPass(a).configuration.verification;
 		const entry = captured.source.entries.find((e) => e.path === selected.path && e.mode !== "120000");
 		if (!entry) throw new Error(`Bootstrap the selected verification asset ${selected.path} as accepted source work before capture`);
 		const digest = createHash("sha256").update(Buffer.from(entry.content, "base64")).digest("hex");
@@ -1634,9 +1632,9 @@ export class Engine {
 		if (a.packet.experiment && !this.#experiments) return "experiment_capability_unavailable";
 		if (a.passRef) {
 			const check = this.#config.ownedChecks?.checks[a.packet.profile];
-			if (!check || !this.#sandboxes || !this.#effects || !a.packet.verification)
-				return "implementation_source_or_verifier_capability_unavailable";
-			if (check.repository !== a.packet.verification.repository || check.commit !== a.packet.verification.commit)
+			if (!check || !this.#sandboxes || !this.#effects) return "implementation_source_or_verifier_capability_unavailable";
+			const selected = this.#implementationPass(a).configuration.verification;
+			if (check.repository !== selected.repository || check.commit !== selected.commit)
 				return "implementation_source_configuration_differs";
 			// Until intended-output exclusions are explicit, capture every non-Git file. Caches may exceed bounds; never silently drop deliverables.
 			if (JSON.stringify(check.profile.exclusions) !== '[".git"]') return "implementation_exclusion_profile_conflict";
@@ -1648,7 +1646,10 @@ export class Engine {
 		if (!this.#config.apiKey) return "native_provider_configuration_missing";
 		if (a.packet.execution !== "read-only" && !a.passRef && !a.packet.experiment) return "sandbox_capability_unavailable";
 		if (this.#config.provider && this.#config.provider.id !== "anthropic") return "native_provider_required";
-		const packets = [a.packet, ...(a.passRef ? Object.values(this.#implementationPass(a).auditReviewers).map(auditReviewerPacket) : [])];
+		const packets = [
+			a.packet,
+			...(a.passRef ? Object.values(this.#implementationPass(a).configuration.reviewers).map(auditReviewerPacket) : []),
+		];
 		for (const packet of packets) {
 			if (this.#config.families?.[packet.model] !== packet.family || packet.requiredFamily !== packet.family)
 				return "required_model_family_unavailable";

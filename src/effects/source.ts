@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, open, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { validatePath } from "../kernel/source-path.ts";
 import { faultBarrier } from "../ledger/barrier.ts";
 import type { Capture } from "../sandboxes/sandboxes.ts";
 
@@ -56,28 +57,6 @@ export function treeOid(entries: LiteralEntry[], format: Source["objectFormat"],
 			children.map(({ name, leaf, hash }) => Buffer.concat([Buffer.from(`${leaf?.mode ?? "40000"} ${name}\0`), Buffer.from(hash, "hex")])),
 		),
 	);
-}
-export function validatePath(path: string): void {
-	const parts = path.split("/");
-	if (
-		parts.length > 64 ||
-		Buffer.byteLength(path) > 4096 ||
-		path.normalize("NFC") !== path ||
-		!Buffer.from(path).equals(Buffer.from(path, "utf8"))
-	)
-		throw new Error(`Unsupported source name representation: ${JSON.stringify(path)}`);
-	for (const part of parts)
-		if (
-			!part ||
-			part === "." ||
-			part === ".." ||
-			/[\0\\:]/.test(part) ||
-			/[. ]$/.test(part) ||
-			part.toLowerCase() === ".git" ||
-			/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(part) ||
-			Buffer.byteLength(part) > 255
-		)
-			throw new Error(`Invalid/reserved source name: ${JSON.stringify(path)}`);
 }
 export function validateEntries(
 	entries: LiteralEntry[],

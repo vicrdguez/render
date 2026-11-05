@@ -1,8 +1,9 @@
 // Interpret one repository-owned Markdown asset, never discover a parallel registry.
 import { createHash } from "node:crypto";
-import { type Source, validatePath } from "../effects/source.ts";
+import type { Source } from "../effects/source.ts";
 import { catalogDefinition, catalogSections as sections } from "../kernel/catalog.ts";
-import { requiredCatalogRows, type SelectedCatalog, type VerificationSelection } from "../kernel/verification.ts";
+import { validatePath } from "../kernel/source-path.ts";
+import { type SelectedCatalog, selectionRowsComplete, type VerificationSelection } from "../kernel/verification.ts";
 
 function asset(source: Source, path: string): { text: string; digest: string } {
 	validatePath(path);
@@ -23,12 +24,7 @@ export function selectCatalog(source: Source, selection: VerificationSelection):
 	const selected = asset(source, selection.path);
 	if (selected.digest !== selection.digest) throw new Error("Verification catalog digest differs; restore exact verifier bytes.");
 	const { sections: parts, ranks, rows: all } = catalogDefinition(selected.text);
-	if (
-		!selection.rows.length ||
-		new Set(selection.rows).size !== selection.rows.length ||
-		new Set(selection.behavioralRows).size !== selection.behavioralRows.length ||
-		!requiredCatalogRows(selection).every((name) => selection.rows.includes(name))
-	)
+	if (!selectionRowsComplete(selection))
 		throw new Error("Verification catalog selection requires unique rows including full-suite, typecheck and lint.");
 	const rows = selection.rows.map((name) => {
 		const row = all.find((r) => r.name === name);
