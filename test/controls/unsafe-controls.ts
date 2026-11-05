@@ -51,7 +51,7 @@ const CONTROLS: Control[] = [
 		name: "implementation-reviewer-frozen-verifier",
 		expect: /standards reviewer freezing a verifier before A/,
 		behavior: "freeze a caller-selected reviewer verifier before A exists",
-		edits: [{ file: "src/kernel/implementation.ts", find: " && !p.verification", replace: "" }],
+		edits: [{ file: "src/kernel/implementation.ts", find: "\t\t!p.verification &&\n", replace: "" }],
 		test: "test/implementation-lifecycle.test.ts",
 		pattern: "accepted pass refuses",
 	},
@@ -76,8 +76,8 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/implementation.ts",
-				find: "!p.requests.length && !p.experiment && !p.investigation",
-				replace: "!p.requests.length && !p.investigation",
+				find: "\t\t!p.experiment &&\n",
+				replace: "",
 			},
 		],
 		test: "test/implementation-lifecycle.test.ts",

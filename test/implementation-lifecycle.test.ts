@@ -451,8 +451,7 @@ test("accepted pass refuses an owner or Audit reviewers its lifecycle cannot use
 		const refuseAll = async () => {
 			for (const [name, overrides] of incompatible) {
 				const reply = await t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: { ...writer, ...overrides } });
-				assert.equal(reply.status, "refused", `${name}: ${JSON.stringify(reply)}`);
-				assert.equal(reply.status === "refused" && reply.code, "invalid_content", name);
+				assert.equal(reply.status === "refused" && reply.code, "invalid_content", `${name}: ${JSON.stringify(reply)}`);
 				assert.deepEqual(passes(), [], `${name}: no pass exists to strand`);
 				assert.deepEqual(
 					t.assignments().map((assignment) => assignment.id),
