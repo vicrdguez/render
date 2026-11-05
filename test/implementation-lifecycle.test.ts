@@ -19,6 +19,7 @@ import {
 	LedgerOnlyEngine,
 	selection,
 } from "./support/implementation.ts";
+import { ground, saveGround } from "./support/investigation.ts";
 import { admin, packet } from "./support/roles.ts";
 
 const scheduling: Principal = { kind: "host", scope: "scheduling" };
@@ -340,6 +341,94 @@ test("paired Audit uses literal current pass/A bindings and atomically requests 
 		"A cannot be replaced",
 	);
 });
+
+// Incompatible experiment capability on either axis must refuse the whole pair before
+// any Audit identity, child packet or task is retained, including after ordinary reopen.
+for (const role of ["audit-standards", "audit-contracts"] as const)
+	for (const candidate of ["favorite", null])
+		test(`paired Audit refuses ${role} experiment ${candidate ?? "comparison"} without consuming its invocation`, async () => {
+			const engine = new LedgerOnlyEngine();
+			const t = await acceptedImplementation(engine);
+			try {
+				const experimentGround = await saveGround(t.f.ledger, ground, t.ground, "experiment-ground");
+				const protocol = accepted(
+					await t.f.ledger.command(
+						{
+							version: 1,
+							authorityEpoch: t.f.ledger.status().authorityEpoch,
+							commandId: "audit-experiment-protocol",
+							workflow: "workflow:2",
+							expected: { document: null },
+							command: {
+								type: "saveDocument",
+								document: "audit-experiment-protocol",
+								mediaType: "text/plain",
+								content: Buffer.from(
+									JSON.stringify({
+										schema: 1,
+										ground: experimentGround,
+										question: "Does the candidate preserve exact bytes?",
+										hypothesis: "Bytes match",
+										falsifier: "Any changed byte",
+										decisionRule: "Accept only exact equality",
+										controls: ["Same input"],
+										fixtures: ["Literal bytes"],
+										failureCases: ["Missing output is inconclusive"],
+										retainedOutputs: ["Exact output and limitations"],
+										budget: { maxCommands: 4, timeoutMs: 1000 },
+										profile: { image: `sha256:${"0".repeat(64)}`, exclusions: [".git"], maxBytes: 1048576, maxEntries: 1000 },
+										source: { repository: "owned", commit: "a".repeat(40) },
+										candidates: ["favorite", "control"],
+									}),
+								).toString("base64"),
+							},
+						},
+						admin,
+					),
+				).revision as string;
+				const writer = t.writer({ verification: selection(t.contract) });
+				writer.requests.find((request) => request.packet.role === role)!.packet.experiment = { protocol, candidate };
+				const id = accepted(await t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: writer }))
+					.assignment as string;
+				let actor = await t.start(id);
+				const owner = () => t.assignments().find((assignment) => assignment.id === id)!;
+				accepted(
+					await t.f.command(
+						{
+							type: "recordImplementationSource",
+							assignment: id,
+							generation: 1,
+							attempt: owner().attempt,
+							kind: "audit",
+							text: JSON.stringify(capture(owner(), t.f.ledger.status().executorEpoch, t.contract)),
+						},
+						mintContext(effects),
+					),
+				);
+				const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
+				const before = structuredClone(passes());
+				assert.equal(before[0]!.audit, undefined);
+				const ids = t.assignments().map((assignment) => assignment.id);
+				const tasks = await implementationTasks(engine.harness);
+				for (let attempt = 0; attempt < 2; attempt++) {
+					const reply = await t.f.command({ type: "requestImplementationAudit" }, actor);
+					assert.equal(reply.status === "refused" && reply.code, "capability_unavailable");
+					assert.deepEqual(passes(), before, "refusal must not consume the one Audit invocation");
+					assert.deepEqual(
+						t.assignments().map((assignment) => assignment.id),
+						ids,
+						"neither axis may be staged",
+					);
+					assert.deepEqual(await implementationTasks(engine.harness), tasks);
+					if (attempt === 0) {
+						await t.f.reopen(engine);
+						actor = await t.start(id);
+					}
+				}
+			} finally {
+				await t.close();
+			}
+		});
 
 test("Audit report refuses wrong role/pass/source/Contract and malformed or duplicate findings", () => {
 	const f = pure();
