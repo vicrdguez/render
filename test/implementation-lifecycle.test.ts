@@ -344,8 +344,8 @@ test("paired Audit uses literal current pass/A bindings and atomically requests 
 	);
 });
 
-// An accepted pass names its Audit reviewers at construction; every incompatible configuration stays out of Kernel state.
-test("accepted pass refuses structurally incompatible Audit reviewers before retaining anything, and the Slice stays assignable", async () => {
+// An accepted pass is constructed from a usable owner and reviewers; every unusable configuration stays out of Kernel state.
+test("accepted pass refuses an owner or Audit reviewers its lifecycle cannot use before retaining anything, and the Slice stays assignable", async () => {
 	const engine = new LedgerOnlyEngine();
 	const t = await acceptedImplementation(engine);
 	try {
@@ -392,7 +392,24 @@ test("accepted pass refuses structurally incompatible Audit reviewers before ret
 			{ key: "contracts", packet: { ...contracts, ...right } },
 		];
 		const investigation = { ground: t.ground, repository: "owned", commit: "a".repeat(40), paths: ["src/read.ts"] };
+		const selected = selection(t.contract);
+		const choose = (change: Partial<typeof selected>) => ({ verification: { ...selected, ...change } });
 		const incompatible: [string, Partial<RolePacket>][] = [
+			["owner without a verification selection", { verification: undefined }],
+			["read-only owner", { execution: "read-only" }],
+			["selection without rows", choose({ rows: [] })],
+			["selection without behavioral rows", choose({ behavioralRows: [] })],
+			["selection repeating a row", choose({ rows: [...selected.rows, "lint"] })],
+			["selection repeating a behavioral row", choose({ behavioralRows: ["read", "read"] })],
+			["selection missing a required row", choose({ rows: ["full-suite", "typecheck", "read"] })],
+			["behavioral row outside the selected rows", choose({ behavioralRows: ["other"] })],
+			["selection naming another retained document", choose({ contract: t.ground })],
+			["traversing catalog path", choose({ path: "../verify.md" })],
+			["absolute catalog path", choose({ path: "/verify.md" })],
+			["catalog path inside Git metadata", choose({ path: ".git/verify.md" })],
+			["standards reviewer freezing a verifier before A", { requests: pair({ verification: selected }) }],
+			["contracts reviewer freezing a verifier before A", { requests: pair({}, { verification: selected }) }],
+			["standards reviewer with an unusable selection", { requests: pair({ verification: { ...selected, rows: [] } }) }],
 			["standards experiment candidate", { requests: pair({ experiment: { protocol, candidate: "favorite" } }) }],
 			["contracts experiment candidate", { requests: pair({}, { experiment: { protocol, candidate: "favorite" } }) }],
 			["standards experiment comparison", { requests: pair({ experiment: { protocol, candidate: null } }) }],
@@ -434,6 +451,7 @@ test("accepted pass refuses structurally incompatible Audit reviewers before ret
 		const refuseAll = async () => {
 			for (const [name, overrides] of incompatible) {
 				const reply = await t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: { ...writer, ...overrides } });
+				assert.equal(reply.status, "refused", `${name}: ${JSON.stringify(reply)}`);
 				assert.equal(reply.status === "refused" && reply.code, "invalid_content", name);
 				assert.deepEqual(passes(), [], `${name}: no pass exists to strand`);
 				assert.deepEqual(
@@ -465,8 +483,9 @@ test("accepted pass refuses structurally incompatible Audit reviewers before ret
 
 		// The correction is an ordinary first assignment, and that pass reaches its one Audit across a reopen.
 		const id = accepted(await t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: writer })).assignment as string;
+		assert.deepEqual(passes()[0]!.configuration.verification, selected);
 		assert.deepEqual(
-			Object.entries(passes()[0]!.auditReviewers).map(([axis, reviewer]) => [
+			Object.entries(passes()[0]!.configuration.reviewers).map(([axis, reviewer]) => [
 				axis,
 				reviewer.key,
 				reviewer.packet.role,
@@ -493,6 +512,7 @@ test("accepted pass refuses structurally incompatible Audit reviewers before ret
 			),
 		);
 		await t.f.reopen(engine);
+		assert.deepEqual(passes()[0]!.configuration.verification, selected, "ordinary restart keeps the accepted configuration");
 		accepted(
 			await t.f.command({
 				type: "rebindAttempt",
@@ -512,6 +532,11 @@ test("accepted pass refuses structurally incompatible Audit reviewers before ret
 			[audit.contracts, "arbitrary-right", "audit-contracts", "read-only"],
 			[audit.standards, "arbitrary-left", "audit-standards", "read-only"],
 		]);
+		assert.deepEqual(
+			children.map((child) => child.packet.verification),
+			[undefined, undefined],
+			"reviewers receive the verifier retained with A",
+		);
 	} finally {
 		await t.close();
 	}
@@ -539,7 +564,7 @@ test("Audit keeps checking current family authority dynamically, and a replaceme
 	assert.equal(f.assignments().filter((a) => a.parent === next).length, 2);
 });
 
-test("replacement cannot swap frozen Audit reviewers or turn a reviewer into experiment or investigation work", () => {
+test("replacement cannot change a pass's frozen configuration or turn a reviewer into other work", () => {
 	const f = pure();
 	f.audit();
 	const cancel = (a: RoleAssignment) => {
@@ -548,7 +573,7 @@ test("replacement cannot swap frozen Audit reviewers or turn a reviewer into exp
 		f.ok({ type: "recordQuiescence", ...identity, providerIdle: true, environment: "stopped", effects: "reconciled" });
 		return identity;
 	};
-	const frozen = structuredClone(f.pass().auditReviewers);
+	const frozen = structuredClone(f.pass().configuration);
 	const reviewer = f.assignments().find((a) => a.packet.role === "audit-standards")!;
 	const stoppedReviewer = cancel(reviewer);
 	for (const changed of [
@@ -556,6 +581,8 @@ test("replacement cannot swap frozen Audit reviewers or turn a reviewer into exp
 		{ investigation: { ground: "ground:1", repository: "owned", commit: "a".repeat(40), paths: ["src/read.ts"] } },
 		{ execution: "linux-writer" },
 		{ requests: [{ key: "nested", packet: packet({ role: "challenger" }) }] },
+		{ verification: selection("contract:accepted") },
+		{ family: "other" },
 	])
 		assert.equal(f.command({ type: "replaceTask", ...stoppedReviewer, packet: { ...reviewer.packet, ...changed } }).outcome, "refused");
 	const stoppedOwner = cancel(f.own(f.id));
@@ -563,7 +590,21 @@ test("replacement cannot swap frozen Audit reviewers or turn a reviewer into exp
 	const swapped = { ...f.writer, requests: [{ ...left!, packet: { ...left!.packet, model: "other-model" } }, right!] };
 	const refused = f.command({ type: "replaceTask", ...stoppedOwner, packet: swapped });
 	assert.equal(refused.outcome === "refused" && refused.code, "forbidden_scope");
-	assert.deepEqual(f.pass().auditReviewers, frozen);
+	const chosen = selection("contract:accepted");
+	for (const changed of [
+		{ verification: undefined },
+		{ verification: { ...chosen, rows: [...chosen.rows, "extra"] } },
+		{ verification: { ...chosen, path: "../verify.md" } },
+		{ execution: "read-only" },
+		{ role: "coordinator" },
+	]) {
+		const reply = f.command({ type: "replaceTask", ...stoppedOwner, packet: { ...f.writer, ...changed } });
+		assert.equal(reply.outcome === "refused" && reply.code, "forbidden_scope", JSON.stringify(changed));
+	}
+	assert.deepEqual(f.pass().configuration, frozen);
+	const next = f.ok({ type: "replaceTask", ...stoppedOwner, packet: f.writer }).result.assignment as string;
+	assert.equal(f.pass().assignment, next);
+	assert.deepEqual(f.pass().configuration, frozen);
 });
 
 test("Audit report refuses wrong role/pass/source/Contract and malformed or duplicate findings", () => {

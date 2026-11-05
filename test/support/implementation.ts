@@ -7,22 +7,13 @@ import type { SourceReceipt } from "../../src/effects/source.ts";
 import { Engine } from "../../src/engine/runtime.ts";
 import type { IntakeManifest, Intakes } from "../../src/kernel/intake.ts";
 import type { RoleAssignment, RolePacket } from "../../src/kernel/roles.ts";
-import type { CatalogEvidence, VerificationSelection } from "../../src/kernel/verification.ts";
+import type { CatalogEvidence } from "../../src/kernel/verification.ts";
 import type { CommandReply, Frame } from "../../src/ledger/ledger.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
 import { Workflow } from "../../src/ledger/records.ts";
-import { admin, allowSameFamily, packet, roleFixture } from "./roles.ts";
+import { admin, allowSameFamily, packet, roleFixture, selection } from "./roles.ts";
 
-export const selection = (contract: string): VerificationSelection => ({
-	repository: "owned",
-	commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-	path: ".render/verify.md",
-	digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-	contract,
-	rows: ["full-suite", "typecheck", "lint", "read"],
-	behavioralRows: ["read"],
-	receipts: [],
-});
+export { selection };
 export function capture(a: RoleAssignment, epoch: string, contract: string, commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
 	const source = {
 		repository: "owned",

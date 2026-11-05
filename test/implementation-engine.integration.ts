@@ -23,7 +23,8 @@ function accepted(reply: CommandReply) {
 }
 
 type Prompt = {
-	packet: { role: string };
+	packet: { role: string; verification?: unknown };
+	auditInstructions?: string;
 	intakeReview?: Record<string, unknown>;
 	auditReview?: { passRef: string; audit: string; source: string; contract: string };
 	implementation?: { ordinal?: number; captureB?: string; audit?: { reports?: unknown; results?: { standards?: { report: string } } } };
@@ -161,6 +162,12 @@ async function fixture(
 						const source = await f.ledger.artifact(principal, { read: prompt.auditReview.source });
 						assert.ok("content" in source, "reviewer can read its actual bound source before reporting");
 						assert.equal(captureValue(source.content.toString()), prompt.auditReview.passRef.endsWith(":2") ? "T\n" : "A\n");
+						const retained = JSON.parse(source.content.toString()).verification;
+						assert.equal(retained.role, "implementer", "A's checks stay attributed to the implementer that ran them");
+						assert.equal(retained.catalog.selection.contract, prompt.auditReview.contract);
+						assert.ok(retained.catalog.text.length > 0 && retained.results.length > 0, "A retains its verifier and results");
+						assert.equal(prompt.packet.verification, undefined, "no separate pre-A verifier is frozen for a reviewer");
+						assert.match(prompt.auditInstructions ?? "", /verification.*implementer ran.*not checks you ran/);
 						return fauxAssistantMessage(
 							fauxToolCall("submit_role_result", {
 								text: JSON.stringify({
