@@ -909,7 +909,13 @@ const CONTROLS: Control[] = [
 		name: "blocked-slot-release",
 		expect: /capacity_exhausted/,
 		behavior: "a human-blocked but still executing Attempt releases its slot",
-		edits: [{ file: "src/kernel/roles.ts", find: "a.blocker = c.reason;", replace: "a.blocker = c.reason; a.executing = false;" }],
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: 'a.blocker = c.reason;\n\t\t\t\tif (a.status !== "canceling") a.status = "blocked";',
+				replace: 'a.blocker = c.reason; a.executing = false;\n\t\t\t\tif (a.status !== "canceling") a.status = "blocked";',
+			},
+		],
 		test: "test/cancellation-capacity.test.ts",
 		pattern: "R05",
 	},
