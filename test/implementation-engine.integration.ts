@@ -438,7 +438,7 @@ async function verifierDefect(verifier: (text: string) => string, defect: RegExp
 		const h = await preparedHarness(t);
 		const suiteLine = /^\| full-suite \| Process \| executed \| `sh verify-suite` \| SUITE OK \| tests \|$/m;
 		assert.match(t.f.text, suiteLine, "fixture verifier defines an executable full-suite row");
-		// TP22/TP23: the actual suite now fails, so a defective row standing in for it must never let X pass.
+		// `suite` is X's actual suite: failing in TP22/TP23, so a defective row standing in for it must never let X pass.
 		const T1 = advanceVerifier(h.store, h.base, verifier(t.f.text), suite);
 		releaseBarrier();
 		const settled = () => h.passes().length === 2 || /^awaiting_watchdog/.test(h.passes()[0]?.handoff?.blocker ?? "");

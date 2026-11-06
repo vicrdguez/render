@@ -1829,7 +1829,7 @@ export class Engine {
 		const frame = this.#ledger!.snapshot(scheduling);
 		if (!("policy" in frame)) throw new Error("Current policy is unavailable.");
 		const policy = frame.policy as PolicyState;
-		// The workflow's current policy, as at handoff: X's behavioral evidence must still reach its minimum rank.
+		// The workflow's policy current at this check, like the Kernel's at handoff: X's behavioral evidence must reach its minimum rank.
 		const minimum = policy.revisions[bindingFor(policy, owner.workflow).policy]!.minimumEvidenceRank;
 		for (const name of required) {
 			const gap = rowDefinitionGap(
