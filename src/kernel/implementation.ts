@@ -81,7 +81,9 @@ export type ReturnObservation =
 	  })
 	/** X's own verifier cannot define a required check: repair needs a source edit, and nothing ran or failed. */
 	| (ReturnLineage & { cause: "prepared-verifier-defect"; preparedCommit: string; defect: string })
-	| (ReturnLineage & { cause: "watchdog-rework"; preparedCommit: string; review: string; report: string });
+	| (ReturnLineage & { cause: "watchdog-rework"; preparedCommit: string; review: string; report: string })
+	/** A human's recorded direction on a stopped round (Needs Human or the review limit), never automatic. */
+	| (ReturnLineage & { cause: "human-direction"; preparedCommit: string; review: string; report: string; direction: string });
 export type WatchdogVerdict = {
 	schema: 1;
 	verdict: "pass" | "rework" | "needs-human";
@@ -178,6 +180,7 @@ const RETURN_FIELDS = {
 	"prepared-check-failure": ["preparedCommit", "verifierRevision", "failed"],
 	"prepared-verifier-defect": ["preparedCommit", "defect"],
 	"watchdog-rework": ["preparedCommit", "review", "report"],
+	"human-direction": ["preparedCommit", "review", "report", "direction"],
 } as const;
 const LAUNCH_FAILURES = [126, 127];
 /** Bound on a recorded preparation reason; a verifier defect returns that reason verbatim, so both share it. */
@@ -199,7 +202,10 @@ export function returnObservation(value: string, source: ImplementationSource): 
 				? (v as ReturnObservation)
 				: undefined;
 		if (!id(v.preparedCommit)) return;
-		if (v.cause === "watchdog-rework") return text(v.review) && text(v.report) ? (v as ReturnObservation) : undefined;
+		if (v.cause === "watchdog-rework" || v.cause === "human-direction")
+			return text(v.review) && text(v.report) && (v.cause === "watchdog-rework" || text(v.direction))
+				? (v as ReturnObservation)
+				: undefined;
 		if (v.cause === "prepared-verifier-defect")
 			return text(v.defect) && v.defect.length <= PREPARATION_REASON_BYTES ? (v as ReturnObservation) : undefined;
 		const rows = source.verification?.catalog.rows.map((row) => row.name) ?? [];

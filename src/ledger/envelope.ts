@@ -385,6 +385,7 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 	if (type === "recordImplementationSource") allowed.push("kind", "text");
 	if (type === "openSuccessorPass" || type === "recordPreparation" || type === "recordReviewChecks") allowed.push("text");
 	if (type === "requestWatchdogReview") allowed.push("preparation", "target");
+	if (type === "directRework") allowed.push("review", "text");
 	if (type === "recordRuntimeHistory") allowed.push("key");
 	if (
 		type === "recordRecoveryState" ||
@@ -408,6 +409,7 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 	// A record carries complete X check results, so it shares the runner-observation bound.
 	if (type === "recordPreparation") return { ...common, type, text: text(c.text, "text", 16 * 1024 * 1024) };
 	if (type === "retryPreparation") return { ...common, type };
+	if (type === "directRework") return { ...common, type, review: text(c.review, "review", 128), text: text(c.text, "text", 1024 * 1024) };
 	if (type === "requestWatchdogReview")
 		return { ...common, type, preparation: text(c.preparation, "preparation", 128), target: text(c.target, "target", 128) };
 	// Literal X plus its complete check results share the runner-observation bound.

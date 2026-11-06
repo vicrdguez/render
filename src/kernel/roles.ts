@@ -93,6 +93,8 @@ export type ImplementationPass = {
 		blocker?: string;
 		/** Every host preparation attempt of this handoff, in order; retries and drift append, never replace. */
 		preparations?: string[];
+		/** The one human direction resolving a stopped round of this handoff: Needs Human or the review limit. */
+		direction?: { review: string; text: string };
 	};
 	ref: string;
 	ordinal: number;
@@ -169,6 +171,7 @@ export type RoleCommand =
 	| { type: "recordPreparationBlocker"; workflow: string; assignment: string; generation: number; attempt: string; reason: string }
 	| { type: "recordPreparation"; workflow: string; assignment: string; generation: number; attempt: string; text: string }
 	| { type: "retryPreparation"; workflow: string; assignment: string; generation: number; attempt: string }
+	| { type: "directRework"; workflow: string; assignment: string; generation: number; attempt: string; review: string; text: string }
 	| {
 			type: "requestWatchdogReview";
 			workflow: string;
@@ -233,6 +236,7 @@ export const ROLE_COMMANDS = [
 	"recordPreparationBlocker",
 	"recordPreparation",
 	"retryPreparation",
+	"directRework",
 	"requestWatchdogReview",
 	"recordReviewChecks",
 	"openSuccessorPass",
@@ -414,6 +418,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			"recordPreparationBlocker",
 			"recordPreparation",
 			"retryPreparation",
+			"directRework",
 			"requestWatchdogReview",
 			"recordRunnerDiagnostic",
 			"recordRuntimeHistory",
@@ -819,16 +824,22 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			const verdict = watchdogVerdict(facts.checkpointInputs?.[r.report!]?.text);
 			return verdict?.handoff === pass.handoff!.record ? [verdict] : [];
 		});
-		if (verdicts.some((v) => v.verdict === "needs-human" || (v.verdict === "rework" && reviews.length >= limit)))
+		// Only the human direction recorded for this exact stopped round lets its return through the stop.
+		const directed =
+			observation.cause === "human-direction" &&
+			pass.handoff.direction?.review === observation.review &&
+			pass.handoff.direction.text === observation.direction;
+		if (!directed && verdicts.some((v) => v.verdict === "needs-human" || (v.verdict === "rework" && reviews.length >= limit)))
 			return refusal(
 				"human_direction_required",
 				`Needs Human or ${reviews.length} completed reviews at limit ${limit} stop automatic return; adopt policy or direct explicitly.`,
 			);
-		if (observation.cause === "watchdog-rework") {
+		if (observation.cause === "watchdog-rework" || observation.cause === "human-direction") {
 			const review = reviews.find((r) => r.id === observation.review && r.report === observation.report);
 			const verdict = watchdogVerdict(review && facts.checkpointInputs?.[review.report!]?.text);
 			if (!review || !verdict) return refusal("missing_content", "Rework must cite a submitted Watchdog report on this Slice.");
-			if (verdict.verdict !== "rework") return refusal("forbidden_scope", "Only a rework verdict authorizes this return.");
+			if (verdict.verdict === "pass" || (observation.cause === "watchdog-rework" && verdict.verdict !== "rework"))
+				return refusal("forbidden_scope", "Only a rework verdict, or a human-directed stopped round, authorizes this return.");
 			if (
 				// Only a host-launched round authorizes rework; its verdict was bound to that round's exact X/T on submission.
 				review.watchdogReview?.passRef !== pass.ref ||
@@ -848,7 +859,14 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		const predecessor = pass.ref;
 		// A conflict successor also reads the exact retained record: Git's own conflict output and the B/T0/T1 it merged.
 		const conflict = observation.cause === "preparation-conflict" ? pass.handoff.preparations?.at(-1) : undefined;
-		const inputs = [...a.packet.inputs, facts.ids.revision!, ...(conflict ? [conflict] : [])];
+		// A rework successor reads the exact findings it must address; they are required inputs, never guessed.
+		const findings =
+			observation.cause === "watchdog-rework"
+				? [observation.report]
+				: observation.cause === "human-direction"
+					? [observation.report, observation.direction]
+					: [];
+		const inputs = [...a.packet.inputs, facts.ids.revision!, ...(conflict ? [conflict] : []), ...findings];
 		create({ ...a.packet, inputs: [...new Set(inputs)] }, a.slice, a.delivery, null, null);
 		Object.assign(result, { predecessorPass: predecessor, observation: facts.ids.revision!, document0: facts.ids.revision! });
 	} else if (c.type === "requestRole") {
@@ -1093,6 +1111,42 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				const from = (pass.handoff.preparations?.length ?? 0) - (settles ? 1 : 0);
 				intents.push({ kind: "prepare-pass", assignment: a.id, from });
 				Object.assign(result, { passRef: pass.ref, handoff: pass.handoff.record, settles: settles ? latest! : null });
+				break;
+			}
+			case "directRework": {
+				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work.passes, pass))
+					return refusal("assignment_closed", "Only the current handed-off pass takes direction.");
+				const latest = pass.handoff.preparations?.at(-1);
+				const round = work.assignments.find((r) => r.id === c.review);
+				// The human directs the exact settled stop they saw: this handoff's latest completed round, once.
+				if (
+					!round?.watchdogReview ||
+					round.watchdogReview.passRef !== pass.ref ||
+					round.watchdogReview.preparation !== latest ||
+					round.status !== "submitted" ||
+					!pass.handoff.blocker ||
+					pass.handoff.direction ||
+					reviewing(work, pass)
+				)
+					return refusal("stale_basis", "Direct only the settled stop of this handoff's latest completed Watchdog round, once.");
+				const verdict = boundVerdict(facts.checkpointInputs?.[round.report!]?.text ?? "", round.watchdogReview);
+				if (!verdict) return refusal("missing_content", "Restore the exact Watchdog report this direction answers.");
+				if (verdict.verdict === "pass") return refusal("forbidden_scope", "A passing round is not a stop; it needs no direction.");
+				if (!c.text?.trim() || Buffer.byteLength(c.text) > 1024 * 1024)
+					return refusal("invalid_content", "Direction must contain at most 1 MiB of nonblank UTF-8 text.");
+				// Direction is implementer input within the frozen Contract, not a waiver; the count and reports stay.
+				pass.handoff.direction = { review: round.id, text: facts.ids.revision! };
+				delete pass.handoff.blocker;
+				a.blocker = null;
+				intents.push({ kind: "prepare-pass", assignment: a.id, from: pass.handoff.preparations!.length - 1 });
+				Object.assign(result, {
+					passRef: pass.ref,
+					handoff: pass.handoff.record,
+					review: round.id,
+					direction: facts.ids.revision!,
+					settles: latest,
+					document0: facts.ids.revision!,
+				});
 				break;
 			}
 			case "recordReviewChecks": {

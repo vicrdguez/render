@@ -508,6 +508,7 @@ export class Ledger {
 			"openSuccessorPass",
 			"recordPreparation",
 			"retryPreparation",
+			"directRework",
 			"requestWatchdogReview",
 		].includes(command.type);
 		if (implementationPass && implementationPreflight) {
@@ -528,7 +529,7 @@ export class Ledger {
 				if (ref) requiredInputs.push(ref);
 			if (command.type === "requestWatchdogReview" && implementationPass.handoff)
 				requiredInputs.push(implementationPass.handoff.record, (command as { preparation: string }).preparation);
-			if (command.type === "openSuccessorPass" && implementationPass.handoff) {
+			if ((command.type === "openSuccessorPass" || command.type === "directRework") && implementationPass.handoff) {
 				requiredInputs.push(implementationPass.handoff.record);
 				// Verdicts and the review count are read from exact retained bytes, never restated by the caller.
 				for (const a of roles.assignments)
@@ -1122,6 +1123,18 @@ export class Ledger {
 							`implementation-preparation/${pass.ref}/${pass.handoff!.preparations!.length}`,
 							c.text,
 							c,
+						);
+					}
+					if (command.type === "directRework") {
+						const c = command as Extract<import("../kernel/roles.ts").RoleCommand, { type: "directRework" }>;
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							decision.result.direction as string,
+							`watchdog-direction/${c.review}`,
+							c.text,
 						);
 					}
 					if (command.type === "recordReviewChecks") {

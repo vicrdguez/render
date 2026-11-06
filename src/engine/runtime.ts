@@ -1167,7 +1167,7 @@ export class Engine {
 							audit: implementation.audit ? { ...implementation.audit, reports: results } : undefined,
 						},
 						implementationInstructions:
-							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately. When implementation.opening is present this is a new pass after a retained handoff: the workspace starts from opening.base, the observation in inputs says why, predecessor source and reports are read-only references, and this pass needs its own Audit before its own handoff. After a preparation conflict, the retained preparation record in inputs holds Git's exact conflict output, and read-only originals are mounted at /candidates/implementation (B), /candidates/base (recorded base T0) and /candidates/target (T1); reapply and resolve in the writable workspace, never guess.",
+							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately. When implementation.opening is present this is a new pass after a retained handoff: the workspace starts from opening.base, the observation in inputs says why (after Watchdog rework, the cited Watchdog report with its findings and directions is also in inputs, and after a human-directed return so is the human's direction: address them), predecessor source and reports are read-only references, and this pass needs its own Audit before its own handoff. After a preparation conflict, the retained preparation record in inputs holds Git's exact conflict output, and read-only originals are mounted at /candidates/implementation (B), /candidates/base (recorded base T0) and /candidates/target (T1); reapply and resolve in the writable workspace, never guess.",
 					}
 				: {}),
 			...(a.packet.experiment
@@ -1770,7 +1770,10 @@ export class Engine {
 				const verdict = done ? watchdogVerdict(await this.#reportText(done)) : undefined;
 				const counted = () =>
 					`${completedReviews(this.#assignments(), owner.workflow, owner.slice).length} completed reviews, limit ${this.#reviewLimit(owner.workflow)}`;
-				if (done && verdict?.verdict === "rework") return this.#returnToImplementation(owner, pass, latest!, block, done);
+				// A human direction on this stopped round returns it; otherwise only a rework verdict asks to.
+				const direction = done && pass.handoff?.direction?.review === done.id ? pass.handoff.direction.text : undefined;
+				if (done && (direction || verdict?.verdict === "rework"))
+					return this.#returnToImplementation(owner, pass, latest!, block, done, direction);
 				if (done && verdict?.verdict !== "pass")
 					return block(
 						`needs_human: Watchdog ${done.id} ${verdict ? "requires human direction" : "submitted no bound verdict"} on prepared ${latest!.preparation!.result}; ${counted()}`,
@@ -2046,6 +2049,7 @@ export class Engine {
 		record: PreparationRecord,
 		block: (reason: string) => Promise<void>,
 		review?: RoleAssignment,
+		direction?: string,
 	) {
 		const sealed = await this.#handoffSource(pass);
 		const prepared = record.preparation!;
@@ -2059,7 +2063,14 @@ export class Engine {
 		};
 		let observation: Record<string, unknown>;
 		if (review)
-			observation = { cause: "watchdog-rework", ...lineage, preparedCommit: prepared.result, review: review.id, report: review.report };
+			observation = {
+				cause: direction ? "human-direction" : "watchdog-rework",
+				...lineage,
+				preparedCommit: prepared.result,
+				review: review.id,
+				report: review.report,
+				...(direction ? { direction } : {}),
+			};
 		else if (record.outcome === "conflict")
 			observation = {
 				cause: "preparation-conflict",
@@ -2083,7 +2094,7 @@ export class Engine {
 			{
 				version: 1,
 				authorityEpoch: this.#ledger!.status().authorityEpoch,
-				commandId: `preparation-return:${pass.ref}:${record.attempt}${review ? `:${review.id}` : ""}`,
+				commandId: `preparation-return:${pass.ref}:${record.attempt}${review ? `:${review.id}` : ""}${direction ? ":directed" : ""}`,
 				workflow: owner.workflow,
 				command: { type: "openSuccessorPass", assignment: owner.id, generation: owner.generation, attempt: owner.attempt, text },
 			},

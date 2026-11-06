@@ -280,6 +280,48 @@ const CONTROLS: Control[] = [
 		pattern: "WR19",
 	},
 	{
+		name: "watchdog-successor-blind",
+		expect: /the cited report is a required successor input/,
+		behavior: "open a rework successor without the cited Watchdog report among its inputs, so it cannot read its findings",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: '\t\t\tobservation.cause === "watchdog-rework"\n\t\t\t\t? [observation.report]\n',
+				replace: '\t\t\tobservation.cause === "watchdog-rework"\n\t\t\t\t? []\n',
+			},
+		],
+		test: "test/watchdog-rework.test.ts",
+		pattern: "WR25",
+	},
+	{
+		name: "watchdog-direction-bypass",
+		expect: /no recorded human direction/,
+		behavior: "admit a human-direction return through a Needs Human stop without a recorded human direction",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: '\t\t\tobservation.cause === "human-direction" &&\n\t\t\tpass.handoff.direction?.review === observation.review &&\n\t\t\tpass.handoff.direction.text === observation.direction;',
+				replace: '\t\t\tobservation.cause === "human-direction";',
+			},
+		],
+		test: "test/watchdog-rework.test.ts",
+		pattern: "WR26 only an authenticated",
+	},
+	{
+		name: "watchdog-cancel-abandons-check-runtime",
+		expect: /quiescence is recorded only after the check runtime stopped/,
+		behavior: "record a canceled Watchdog quiescent while its own check runtime still runs",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: "environment = await this.#stopPreparationScope(this.#scope(a, true));",
+				replace: 'environment = "absent";',
+			},
+		],
+		test: "test/watchdog-rework.integration.ts",
+		pattern: "WR27",
+	},
+	{
 		name: "implementation-stop-original-only",
 		expect: /scope stop must discover the latest runtime/,
 		behavior: "stop only the original captured runtime, leaving the fresh writable runtime alive",

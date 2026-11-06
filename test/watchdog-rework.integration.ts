@@ -203,6 +203,43 @@ test("WR17: an interrupted Watchdog round resumes its own Assignment and retaine
 	}
 });
 
+test("WR26: a human directs a Needs Human stop into P2, which applies only that direction and passes a fresh round", async () => {
+	const t = await fixture({ watchdog: ["needs-human", "pass"] });
+	try {
+		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
+		const settled = (p?: ImplementationPass) => /^(awaiting_|needs_human|watchdog_|preparation_)/.test(p?.handoff?.blocker ?? "");
+		await t.wait(() => settled(passes(t)[0]), "P1 reviewed");
+		assert.match(passes(t)[0]!.handoff!.blocker!, /^needs_human: .*1 completed reviews, limit 2/);
+		assert.equal(passes(t).length, 1, "Needs Human opens nothing by itself");
+		const [w1] = watchdogs(t);
+		const owner = t.assignments().find((a) => a.id === opening.assignment)!;
+		accepted(
+			await t.f.command(
+				{
+					type: "directRework",
+					assignment: owner.id,
+					generation: owner.generation,
+					attempt: owner.attempt,
+					review: w1!.id,
+					text: "Value must become D; the Needs Human question is settled.",
+				},
+				admin,
+			),
+		);
+		await t.wait(() => settled(passes(t)[1]) || /^preparation_/.test(passes(t)[0]!.handoff!.blocker ?? ""), "P2 reviewed");
+		const [p1, p2] = passes(t);
+		assert.ok(p2?.handoff, p1?.handoff?.blocker);
+		assert.equal(p2.cause, "human-direction");
+		assert.equal(p2.opening?.base, w1!.watchdogReview!.prepared, "P2 starts from the reviewed X");
+		assert.ok(p2.audit && p1!.audit && p2.audit.ref !== p1!.audit.ref, "fresh Audit for the directed pass");
+		assert.equal(captureValue(await read(t, p2.handoff.source)), "D\n", "P2 applied the human's direction");
+		assert.match(p2.handoff.blocker ?? "", /^awaiting_integration: .*2 completed reviews, limit 2/);
+		assert.equal(watchdogs(t).length, 2);
+	} finally {
+		await t.close();
+	}
+});
+
 test("WR27: cancelling a Watchdog while its own check runtime runs stops that runtime before quiescence releases the slot", async () => {
 	const t = await fixture({ watchdog: ["pass"] });
 	const runtimes: string[] = [];

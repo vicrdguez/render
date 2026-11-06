@@ -589,9 +589,7 @@ test("WR21 a canceled round counts nothing and its settled handoff can be prepar
 
 const blockHandoff = async (t: Lifecycle, reason: string) => {
 	const a = own(t, t.id);
-	accepted(
-		await t.f.command({ type: "recordPreparationBlocker", assignment: a.id, generation: a.generation, attempt: a.attempt, reason }),
-	);
+	accepted(await t.f.command({ type: "recordPreparationBlocker", assignment: a.id, generation: a.generation, attempt: a.attempt, reason }));
 };
 function direct(t: Lifecycle, review: string, text: string, context = admin, over: Record<string, unknown> = {}) {
 	const a = own(t, t.id);

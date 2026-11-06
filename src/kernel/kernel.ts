@@ -225,6 +225,7 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	recordPreparationBlocker: { family: "scheduling", available: true },
 	recordPreparation: { family: "source-effect", available: true },
 	retryPreparation: { family: "human-decision", available: true },
+	directRework: { family: "human-decision", available: true },
 	requestWatchdogReview: { family: "source-effect", available: true },
 	recordReviewChecks: { family: "source-effect", available: true },
 	openSuccessorPass: { family: "source-effect", available: true },

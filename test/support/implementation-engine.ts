@@ -237,11 +237,17 @@ export async function fixture(
 					assert.equal(prompt.packet.role, "implementer");
 					if (prompt.implementation?.ordinal === 2 && options.successorStops) return fauxAssistantMessage("Successor inspected.");
 					if (prompt.implementation?.ordinal === 2 && options.watchdog) {
-						// Watchdog rework successor: starts from reviewed X (value B) and applies the requested change.
+						// Watchdog rework successor: starts from reviewed X (value B) and applies only the change its rendered
+						// inputs direct, so a successor blind to its findings or direction cannot reach the expected value.
+						const directed = prompt.inputs
+							?.map((i) => /Value must become (\w)/.exec(i.text)?.[1])
+							.filter((v): v is string => !!v)
+							.at(-1);
+						assert.ok(directed, "the rework successor receives its findings or human direction as inputs");
 						const calls = [
 							["implementation_execute", { argv: ["sh", "-c", 'test "$(cat value)" = B && printf REWORK_FROM_X'] }],
 							["implementation_audit", {}],
-							["implementation_execute", { argv: ["sh", "-c", "printf 'C\\n' > value"] }],
+							["implementation_execute", { argv: ["sh", "-c", `printf '${directed}\\n' > value`] }],
 							[
 								"implementation_handoff",
 								{
