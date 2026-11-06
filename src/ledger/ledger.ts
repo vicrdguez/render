@@ -349,6 +349,7 @@ export class Ledger {
 				"recordImplementationSource",
 				"recordImplementationExecution",
 				"openSuccessorPass",
+				"recordPreparation",
 				...CHECKPOINT_COMMANDS,
 				...INTAKE_COMMANDS,
 			].includes(command.type)

@@ -1712,8 +1712,12 @@ export class Engine {
 					initial: check.commit,
 				});
 				// Debt: Watchdog launch and its final pre-launch reobservation are not wired yet, so a checked pass waits here
-				// as a visible blocker; a target that moves after this needs an explicit retry to be prepared again.
-				if (latest && latest.target.commit === observed.target.commit)
+				// as a visible blocker; a target or policy binding that moves after this needs an explicit retry to be prepared again.
+				if (
+					latest &&
+					latest.target.commit === observed.target.commit &&
+					latest.policy.binding === this.#policyBasis(owner.workflow).binding
+				)
 					return block(
 						`awaiting_watchdog: prepared ${latest.preparation!.result} checked on current target ${observed.target.commit}; Watchdog capability unavailable`,
 					);
@@ -1734,11 +1738,30 @@ export class Engine {
 					},
 					mintContext({ kind: "host", scope: "effects" }),
 				);
+				// A policy adopted while this attempt ran supersedes its qualification: nothing was retained, so prepare again.
+				if (
+					reply.status === "refused" &&
+					reply.code === "stale_basis" &&
+					record.policy.binding !== this.#policyBasis(owner.workflow).binding
+				)
+					continue;
 				if (reply.status !== "accepted") throw new Error(`Preparation record refused: ${reply.code}: ${reply.reason}`);
 			}
 		} catch (error) {
 			return block(`preparation_operational_error: ${error instanceof Error ? error.message : error}`);
 		}
+	}
+	/** The workflow's current policy binding; Ledger verifies its exact retained bytes when a record names it. */
+	#policyBasis(workflow: string): PreparationRecord["policy"] {
+		const frame = this.#ledger!.snapshot(scheduling);
+		if (!("policy" in frame)) throw new Error("Current policy is unavailable.");
+		const policy = frame.policy as PolicyState;
+		const binding = bindingFor(policy, workflow);
+		return {
+			binding: binding.revision,
+			revision: binding.policy,
+			minimumEvidenceRank: policy.revisions[binding.policy]!.minimumEvidenceRank,
+		};
 	}
 	async #preparationRecord(ref: string): Promise<PreparationRecord> {
 		const read = await this.#ledger!.artifact(scheduling, { read: ref });
@@ -1764,6 +1787,7 @@ export class Engine {
 			reason: null,
 			preparation: null,
 			checks: null,
+			policy: this.#policyBasis(job.owner.workflow),
 		};
 		let receipt: PreparationReceipt;
 		try {
@@ -1794,7 +1818,7 @@ export class Engine {
 		};
 		if (receipt.kind === "conflict") return { ...record, outcome: "conflict" };
 		try {
-			record.checks = await this.#checkPrepared(job, attempt, receipt.result);
+			record.checks = await this.#checkPrepared(job, attempt, receipt.result, record.policy.minimumEvidenceRank);
 		} catch (error) {
 			if (error instanceof VerifierDefect)
 				return {
@@ -1813,7 +1837,12 @@ export class Engine {
 		return { ...record, reason: `prepared_check_non_pass: ${status}` };
 	}
 	/** The pass's frozen selection, read from X's own verifier bytes, run against X in a fresh Linux workspace. */
-	async #checkPrepared({ owner, pass, check, save }: PreparationJob, attempt: number, x: Source): Promise<PreparedChecks> {
+	async #checkPrepared(
+		{ owner, pass, check, save }: PreparationJob,
+		attempt: number,
+		x: Source,
+		minimum: string | null,
+	): Promise<PreparedChecks> {
 		const selected = pass.configuration.verification;
 		const entry = x.entries.find((e) => e.path === selected.path && e.mode !== "120000");
 		if (!entry) throw new VerifierDefect(`Prepared source has no selected verifier ${selected.path}`);
@@ -1826,11 +1855,7 @@ export class Engine {
 			throw new VerifierDefect(error instanceof Error ? error.message : String(error));
 		}
 		const required = requiredCatalogRows(catalog.selection);
-		const frame = this.#ledger!.snapshot(scheduling);
-		if (!("policy" in frame)) throw new Error("Current policy is unavailable.");
-		const policy = frame.policy as PolicyState;
-		// The workflow's policy current at this check, like the Kernel's at handoff: X's behavioral evidence must reach its minimum rank.
-		const minimum = policy.revisions[bindingFor(policy, owner.workflow).policy]!.minimumEvidenceRank;
+		// X's behavioral evidence must reach the minimum rank of the policy this attempt records; Kernel accepts only the current one.
 		for (const name of required) {
 			const gap = rowDefinitionGap(
 				catalog.rows.find((r) => r.name === name),
@@ -1842,7 +1867,8 @@ export class Engine {
 		const scope: ExecutionScope = {
 			assignment: owner.id,
 			generation: owner.generation,
-			attempt: `${owner.attempt}:preparation:${attempt}`,
+			// A refused record retains nothing and its attempt number runs again; each try gets its own fresh runtime.
+			attempt: `${owner.attempt}:preparation:${attempt}:${this.#ledger!.status().sequence}`,
 			executorEpoch: this.#ledger!.status().executorEpoch,
 		};
 		await save(scope);

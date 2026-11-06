@@ -234,6 +234,8 @@ export type PreparationRecord = {
 		stderr: string;
 	};
 	checks: null | PreparedChecks;
+	/** The workflow policy binding this attempt qualified X against: only the current one is accepted. */
+	policy: { binding: string; revision: string; minimumEvidenceRank: string | null };
 };
 const closed = (v: Record<string, unknown>, keys: string[]) =>
 	Object.keys(v).length === keys.length && keys.every((key) => Object.hasOwn(v, key));
@@ -247,7 +249,11 @@ export function preparationRecord(value: string, format: "sha1" | "sha256"): Pre
 		const v: unknown = JSON.parse(value);
 		const id = objectId(format);
 		if (!object(v) || v.schema !== 1) return;
-		if (!closed(v, ["schema", "passRef", "handoff", "source", "attempt", "target", "outcome", "reason", "preparation", "checks"])) return;
+		if (!closed(v, ["schema", "passRef", "handoff", "source", "attempt", "target", "outcome", "reason", "preparation", "checks", "policy"]))
+			return;
+		const q = v.policy;
+		if (!object(q) || !closed(q, ["binding", "revision", "minimumEvidenceRank"]) || !text(q.binding) || !text(q.revision)) return;
+		if (q.minimumEvidenceRank !== null && !text(q.minimumEvidenceRank)) return;
 		if (![v.passRef, v.handoff, v.source].every(text) || !Number.isSafeInteger(v.attempt) || Number(v.attempt) < 1) return;
 		const t = v.target;
 		if (!object(t) || !closed(t, ["proposal", "ref", "commit"]) || !text(t.proposal) || !text(t.ref) || !id(t.commit)) return;
