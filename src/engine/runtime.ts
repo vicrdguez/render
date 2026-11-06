@@ -1684,18 +1684,18 @@ export class Engine {
 	 * Every exit leaves a visible result: a successor pass, an operational blocker or awaiting Watchdog.
 	 */
 	async #prepareHandoff(
-		task: number,
-		id: string,
+		taskId: number,
+		assignmentId: string,
 		from: number,
 		prior: ExecutionScope | undefined,
 		save: (scope: ExecutionScope) => Promise<unknown>,
 	) {
-		const owner = this.#assignment(id);
+		const owner = this.#assignment(assignmentId);
 		if (!owner?.passRef) throw new Error("Missing sealed handoff owner");
 		// Each preparation task settles once; a later retry's identical result is a new settlement, not a replay of this one.
 		const block = async (reason: string) => {
 			const command = { type: "recordPreparationBlocker", reason: reason.slice(0, 1900) };
-			const reply = await this.#command(this.#assignment(id)!, command, `preparation-task:${task}`);
+			const reply = await this.#command(this.#assignment(assignmentId)!, command, `preparation-task:${taskId}`);
 			if (reply.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${reply.code}`);
 		};
 		const check = this.#config.ownedChecks?.checks[owner.packet.profile];

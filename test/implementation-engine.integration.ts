@@ -660,13 +660,9 @@ test("TP30: each explicit retry of a checked handoff settles visibly and stays r
 		assert.equal(blocker(), first, "same X on the same target: the readiness reads as before");
 		const [p1, ...others] = passes();
 		assert.equal(others.length, 0, "the retry keeps the handed-off pass");
-		const x = JSON.parse(
-			await (async () => {
-				const value = await t.f.ledger.artifact(admin, { read: p1!.handoff!.preparations![1]! });
-				assert.ok("content" in value);
-				return value.content.toString();
-			})(),
-		) as Prepared;
+		const value = await t.f.ledger.artifact(admin, { read: p1!.handoff!.preparations![1]! });
+		assert.ok("content" in value);
+		const x = JSON.parse(value.content.toString()) as Prepared;
 		assert.equal(x.outcome, "checked");
 		assert.deepEqual(x.policy, { binding: adopted.binding, revision: published.policy, minimumEvidenceRank: "tests" });
 		// Nothing changed since: a further retry is still actionable and settles to the same visible result again.
