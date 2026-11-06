@@ -621,6 +621,65 @@ test("TP29: missing retained policy bytes block preparation instead of qualifyin
 	}
 });
 
+test("TP30: each explicit retry of a checked handoff settles visibly and stays retryable, even when its result repeats the last one", async () => {
+	const t = await fixture();
+	try {
+		const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
+		const blocker = () => passes()[0]?.handoff?.blocker ?? "";
+		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
+		await t.wait(() => /^awaiting_watchdog/.test(blocker()), "first preparation checked");
+		const first = blocker();
+		const old = policyOf(t).bindings["workflow:2"]!;
+		const current = policyOf(t).revisions[old.policy] as { minimumEvidenceRank: string | null } & Record<string, unknown>;
+		assert.equal(current.minimumEvidenceRank, "tests");
+		// A new binding that keeps minimum tests: X and T are unchanged, so the rechecked readiness reads exactly as before.
+		const published = accepted(
+			await t.f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: t.f.ledger.status().authorityEpoch,
+					commandId: "tp30-review-limit",
+					command: {
+						type: "changePolicy",
+						expectedRevision: policyOf(t).defaultRevision,
+						policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+					},
+				},
+				admin,
+			),
+		);
+		const adopted = accepted(await t.f.command({ type: "adoptPolicy", revision: published.policy, expectedBinding: old.revision }, admin));
+		const retry = async () => {
+			const owner = t.assignments().find((a) => a.id === opening.assignment)!;
+			return t.f.command({ type: "retryPreparation", assignment: owner.id, generation: owner.generation, attempt: owner.attempt }, admin);
+		};
+		accepted(await retry());
+		assert.equal(blocker(), "", "the retry clears the settled result");
+		await t.wait(() => passes()[0]?.handoff?.preparations?.length === 2, "retried preparation records X under the adopted binding");
+		await t.wait(() => blocker() !== "", "a settled retry must leave a visible result, not a cleared blocker");
+		assert.equal(blocker(), first, "same X on the same target: the readiness reads as before");
+		const [p1, ...others] = passes();
+		assert.equal(others.length, 0, "the retry keeps the handed-off pass");
+		const x = JSON.parse(
+			await (async () => {
+				const value = await t.f.ledger.artifact(admin, { read: p1!.handoff!.preparations![1]! });
+				assert.ok("content" in value);
+				return value.content.toString();
+			})(),
+		) as Prepared;
+		assert.equal(x.outcome, "checked");
+		assert.deepEqual(x.policy, { binding: adopted.binding, revision: published.policy, minimumEvidenceRank: "tests" });
+		// Nothing changed since: a further retry is still actionable and settles to the same visible result again.
+		accepted(await retry());
+		await t.wait(() => blocker() !== "", "a repeated retry must also leave a visible result");
+		assert.equal(blocker(), first);
+		assert.equal(passes()[0]!.handoff!.preparations!.length, 2, "an unchanged basis is not prepared again");
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "no Watchdog launch or count");
+	} finally {
+		await t.close();
+	}
+});
+
 test("TP08/TP12/TP14: an aborted merge stays operational across restart until an explicit retry, which keeps the pass and Audit", async () => {
 	const t = await fixture();
 	const path = process.env.PATH;
