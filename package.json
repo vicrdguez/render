@@ -54,6 +54,7 @@
 		"verify:whole-container-quiescence": "node --test test/whole-container-quiescence.integration.ts test/owned-source-recovery.integration.ts test/owned-check-cancellation.integration.ts",
 		"verify:source-root-crash": "node --test test/source-root-crash.integration.ts test/owned-check-crash.integration.ts",
 		"verify:local-verification-prompt": "node --test --test-concurrency=1 test/local-verification-prompt.test.ts test/intake-retention.test.ts test/verification-catalog.integration.ts",
+		"verify:target-preparation": "node --test --test-concurrency=1 test/target-preparation.test.ts test/target-preparation-record.test.ts test/implementation-successor.test.ts test/implementation-engine.integration.ts",
 		"verify:verification-catalog": "node --test --test-concurrency=1 test/verification-catalog.test.ts test/verification-catalog.integration.ts",
 		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts"
 	},
