@@ -358,11 +358,9 @@ export function reviewChecks(value: string): ReviewChecks | undefined {
 export function reviewSelection(pass: ImplementationPass, binding: WatchdogBinding): VerificationSelection {
 	return { ...pass.configuration.verification, commit: binding.prepared, digest: binding.verifier, receipts: [] };
 }
-/** Completed Watchdog reviews of a Slice: every submitted round counts once, whatever its pass, verdict or drift. */
+/** Completed Watchdog reviews of a Slice: every submitted launched round counts once, whatever its pass, verdict or drift. */
 export function completedReviews(assignments: readonly RoleAssignment[], workflow: string, slice: string): RoleAssignment[] {
-	return assignments.filter(
-		(a) => a.packet.role === "watchdog" && a.workflow === workflow && a.slice === slice && a.status === "submitted",
-	);
+	return assignments.filter((a) => !!a.watchdogReview && a.workflow === workflow && a.slice === slice && a.status === "submitted");
 }
 /**
  * Whether a completed review still qualifies its pass for integration on the current basis (spec §9.4 step 6). The

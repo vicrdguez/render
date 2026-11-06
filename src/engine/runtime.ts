@@ -38,7 +38,7 @@ import {
 	reviewSelection,
 	watchdogVerdict,
 } from "../kernel/implementation.ts";
-import { type PolicyBasis, type PolicyState, policyBasis } from "../kernel/policy.ts";
+import { bindingFor, initialPolicy, type PolicyBasis, type PolicyState, policyBasis } from "../kernel/policy.ts";
 import {
 	currentChildren,
 	type ImplementationPass,
@@ -2091,9 +2091,8 @@ export class Engine {
 	}
 	#reviewLimit(workflow: string): number {
 		const frame = this.#ledger!.snapshot(scheduling);
-		const policy = "policy" in frame ? (frame.policy as PolicyState) : undefined;
-		const binding = policy?.bindings[workflow];
-		return policy?.revisions[binding?.policy ?? "policy:initial"]?.completedReviewLimit ?? 2;
+		const policy = "policy" in frame ? (frame.policy as PolicyState) : initialPolicy();
+		return policy.revisions[bindingFor(policy, workflow).policy]!.completedReviewLimit;
 	}
 	/**
 	 * The Watchdog's own run of X's selected rows in a fresh Linux scratch copy of exact X (spec §6.2). Nothing it does
@@ -2114,6 +2113,7 @@ export class Engine {
 			const handle = await this.#sandboxes.prepare(scope, check.profile, x);
 			let evidence: CatalogEvidence & { scope: ExecutionScope };
 			try {
+				await faultBarrier("before-review-check", `review-check:${binding.passRef}`);
 				const run = (argv: string[]) =>
 					this.#sandboxes!.execute(handle, { scope, argv, timeoutMs: check.timeoutMs, verifierRevision: binding.verifier });
 				const { results, cleanup } = await this.#catalogResults(a, catalog, run);

@@ -125,40 +125,6 @@ async function completePass(t: Lifecycle, id: string, commit: string) {
 	await quiesce(t, id);
 	return { A, B, audit, handoff: handoff.handoff as string, actor };
 }
-/** A submitted scripted Watchdog Assignment bound to exact sealed lineage; its judgment is fixture data. */
-async function review(t: Lifecycle, ref: string, verdict: string, over: Record<string, unknown> = {}) {
-	const current = pass(t, ref);
-	const id = accepted(
-		await t.f.command({
-			type: "assignTask",
-			slice: "read-fix",
-			delivery: false,
-			packet: packet({ role: "watchdog", inputs: [t.contract, current.handoff!.record] }),
-		}),
-	).assignment as string;
-	const actor = await t.start(id);
-	const report = accepted(
-		await t.f.command(
-			{
-				type: "submitRoleResult",
-				text: JSON.stringify({
-					schema: 1,
-					verdict,
-					passRef: current.ref,
-					handoff: current.handoff!.record,
-					source: current.handoff!.source,
-					prepared: X,
-					target: T1,
-					...over,
-				}),
-				supports: [],
-			},
-			actor,
-		),
-	).report as string;
-	await quiesce(t, id);
-	return { id, report };
-}
 const rework = (B: string, r: { id: string; report: string }, over: Record<string, unknown> = {}) =>
 	JSON.stringify({ ...lineage(B, "watchdog-rework"), preparedCommit: X, review: r.id, report: r.report, ...over });
 
@@ -569,10 +535,19 @@ test("Watchdog rework needs a bound retained verdict and obeys the completed-rev
 	}
 	const u = await handedOff(true);
 	try {
+		// Only the host launches a round on exact prepared X/T: a scheduler cannot assign one to accepted work, so no
+		// unlaunched report can count, appear as a prior round or authorize rework.
 		const before = structuredClone(passes(u.t));
-		// A scheduler-assigned report is a counted review, never a host-launched round bound to exact X/T.
-		const unbound = await review(u.t, P1, "rework");
-		refusedWithoutWrites(u.t, await openFrom(u.t, u.t.id, rework(u.B, unbound)), "stale_basis", before, "unbound review");
+		const assigned = await u.t.f.command({
+			type: "assignTask",
+			slice: "read-fix",
+			delivery: false,
+			packet: packet({ role: "watchdog", inputs: [u.t.contract, pass(u.t, P1).handoff!.record] }),
+		});
+		assert.equal(assigned.status, "refused", JSON.stringify(assigned));
+		if (assigned.status === "refused") assert.equal(assigned.code, "forbidden_scope", "unlaunched Watchdog on accepted work");
+		assert.deepEqual(passes(u.t), before);
+		assert.equal(u.t.assignments().filter((a) => a.packet.role === "watchdog").length, 0);
 	} finally {
 		await u.t.close();
 	}
@@ -652,9 +627,9 @@ test("Watchdog rework needs a bound retained verdict and obeys the completed-rev
 });
 
 test("a needs-human verdict stops every return cause", async () => {
-	const { t, B } = await handedOff();
+	const { t, B } = await handedOff(true);
 	try {
-		const stopped = await review(t, P1, "needs-human");
+		const stopped = await watchdogRound(t, t.id, P1, { target: T1, X, base: S, source: S }, "needs-human");
 		const before = structuredClone(passes(t));
 		refusedWithoutWrites(t, await openFrom(t, t.id, rework(B, stopped)), "human_direction_required", before, "rework");
 		refusedWithoutWrites(t, await openFrom(t, t.id, conflict(B)), "human_direction_required", before, "conflict");

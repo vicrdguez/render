@@ -535,6 +535,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (!c.packet || !c.slice || typeof c.delivery !== "boolean")
 			return refusal("invalid_content", "Assignment requires an explicit packet, Slice and ownership mode.");
 		if (c.delivery && c.packet.investigation) return refusal("forbidden_scope", "Investigation creates no delivery commitment.");
+		if (acceptedSlice && c.packet.role === "watchdog")
+			return refusal("forbidden_scope", "Watchdog rounds on accepted work are host-launched on exact prepared X/T, never assigned.");
 		if (hasOwner(work, c.packet, c.slice, delivery))
 			return refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer.");
 		if (delivery && work.passes?.some((p) => p.workflow === c.workflow && p.slice === c.slice))
@@ -575,16 +577,10 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("forbidden_scope", "Implementation replacement cannot widen source scope or change its frozen pass configuration.");
 		if (a?.packet.experiment)
 			return refusal("forbidden_scope", "Experimental corrections require a new protocol/round, not replacement or adoption.");
-		if (a?.watchdogReview) {
-			const { policyBinding: _oldBinding, ...oldPacket } = a.packet;
-			const { policyBinding: _newBinding, ...newPacket } = c.packet;
-			if (!isDeepStrictEqual(oldPacket, newPacket))
-				return refusal("forbidden_scope", "A Watchdog round keeps its exact frozen reviewer, inputs and read-only scope.");
-		}
+		if (a?.watchdogReview && !samePacket(a.packet, c.packet))
+			return refusal("forbidden_scope", "A Watchdog round keeps its exact frozen reviewer, inputs and read-only scope.");
 		if (a?.checkpointCandidate) {
-			const { policyBinding: _oldBinding, ...oldPacket } = a.packet;
-			const { policyBinding: _newBinding, ...newPacket } = c.packet;
-			if (!isDeepStrictEqual(oldPacket, newPacket))
+			if (!samePacket(a.packet, c.packet))
 				return refusal(
 					"forbidden_scope",
 					"Candidate replacement retains exact question, conditions and role; changed comparison needs a new checkpoint.",
@@ -1080,30 +1076,25 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				Object.assign(result, { passRef: pass.ref, handoff: pass.handoff.record, preparation: ref, document0: ref });
 				break;
 			}
-			case "retryPreparation":
+			case "retryPreparation": {
 				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work.passes, pass))
 					return refusal("assignment_closed", "Only the current handed-off pass can be prepared again.");
 				// A blocker is recorded only by a settled preparation task, so this also keeps one preparation in flight. A round
 				// canceled without replacement leaves no blocker; its handoff is settled too and may be prepared again.
-				{
-					const latest = pass.handoff.preparations?.at(-1);
-					const rounds = work.assignments.filter((r) => !!latest && r.watchdogReview?.preparation === latest);
-					const abandoned = rounds.length > 0 && rounds.every((r) => r.status === "canceled");
-					if ((!pass.handoff.blocker && !abandoned) || reviewing(work, pass))
-						return refusal("stale_basis", "Preparation or review is still in progress; retry a settled blocked preparation.");
-				}
+				const latest = pass.handoff.preparations?.at(-1);
+				const rounds = work.assignments.filter((r) => !!latest && r.watchdogReview?.preparation === latest);
+				const abandoned = rounds.length > 0 && rounds.every((r) => r.status === "canceled");
+				if ((!pass.handoff.blocker && !abandoned) || reviewing(work, pass))
+					return refusal("stale_basis", "Preparation or review is still in progress; retry a settled blocked preparation.");
 				delete pass.handoff.blocker;
 				a.blocker = null;
-				{
-					// A completed round's verdict is settled again under current policy and target, never re-prepared away.
-					const latest = pass.handoff.preparations?.at(-1);
-					const settles =
-						latest && completedReviews(work.assignments, a.workflow, a.slice).some((r) => r.watchdogReview?.preparation === latest);
-					const from = (pass.handoff.preparations?.length ?? 0) - (settles ? 1 : 0);
-					intents.push({ kind: "prepare-pass", assignment: a.id, from });
-					Object.assign(result, { passRef: pass.ref, handoff: pass.handoff.record, settles: settles ? latest : null });
-				}
+				// A completed round's verdict is settled again under current policy and target, never re-prepared away.
+				const settles = rounds.some((r) => r.status === "submitted");
+				const from = (pass.handoff.preparations?.length ?? 0) - (settles ? 1 : 0);
+				intents.push({ kind: "prepare-pass", assignment: a.id, from });
+				Object.assign(result, { passRef: pass.ref, handoff: pass.handoff.record, settles: settles ? latest! : null });
 				break;
+			}
 			case "recordReviewChecks": {
 				const binding = a.watchdogReview;
 				if (!binding || a.packet.role !== "watchdog")
@@ -1283,6 +1274,12 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		}
 	}
 	return { outcome: "accepted", result, writes, facts: [facts.ids.fact] };
+}
+/** The same packet apart from the Ledger-generated policy binding a replacement receives. */
+function samePacket(old: RolePacket, next: RolePacket): boolean {
+	const { policyBinding: _old, ...a } = old;
+	const { policyBinding: _next, ...b } = next;
+	return isDeepStrictEqual(a, b);
 }
 /** An unsettled Watchdog round of this handoff: no preparation or retry runs beside it. */
 function reviewing(work: RoleWorkState, pass: ImplementationPass): boolean {

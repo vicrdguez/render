@@ -189,8 +189,9 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/implementation.ts",
-				find: "!LAUNCH_FAILURES.includes(Number(f.exitCode))",
-				replace: "LAUNCH_FAILURES.length > 0",
+				// The record parser shares the predicate; anchor on the return-observation parser this control targets.
+				find: "!LAUNCH_FAILURES.includes(Number(f.exitCode)),\n\t\t\t)\n\t\t\t? (v as ReturnObservation)",
+				replace: "LAUNCH_FAILURES.length > 0,\n\t\t\t)\n\t\t\t? (v as ReturnObservation)",
 			},
 		],
 		test: "test/implementation-successor.test.ts",
@@ -242,6 +243,29 @@ const CONTROLS: Control[] = [
 		pattern: "WR12/WR15/WR16",
 	},
 	{
+		name: "watchdog-changed-source-passes",
+		expect: /pass over source_changed/,
+		behavior: "accept a Watchdog pass over its own checks whose scratch run changed the reviewed tree",
+		edits: [
+			{ file: "src/kernel/verification.ts", find: '\t\treceipt.verification.status !== "needs_assessment" ||\n', replace: "" },
+			{
+				file: "src/kernel/verification.ts",
+				find: " ||\n\t\treceipt.verification.inputTree !== receipt.verification.resultTree\n",
+				replace: "\n",
+			},
+		],
+		test: "test/watchdog-rework.test.ts",
+		pattern: "WR06/WR07/WR08/WR09",
+	},
+	{
+		name: "watchdog-resume-abandons-check-runtime",
+		expect: /the interrupted check runtime was stopped, not abandoned/,
+		behavior: "resume an interrupted Watchdog round without stopping its own in-flight check runtime",
+		edits: [{ file: "src/engine/runtime.ts", find: "\t\t\t\t\t\t\tawait this.#stopPreparationScope(this.#scope(a));\n", replace: "" }],
+		test: "test/watchdog-crash.integration.ts",
+		pattern: "WR17 SIGKILL",
+	},
+	{
 		name: "watchdog-source-edit",
 		expect: /no source-writing tool/,
 		behavior: "give a Watchdog round the implementation tools that capture and hand off source",
@@ -291,7 +315,7 @@ const CONTROLS: Control[] = [
 		name: "design-candidate-replacement",
 		expect: /Candidate replacement retains exact question/,
 		behavior: "replace a design candidate with changed question, conditions or role",
-		edits: [{ file: "src/kernel/roles.ts", find: "if (!isDeepStrictEqual(oldPacket, newPacket))", replace: "if (false)" }],
+		edits: [{ file: "src/kernel/roles.ts", find: "\t\t\tif (!samePacket(a.packet, c.packet))\n", replace: "\t\t\tif (false)\n" }],
 		test: "test/experiment-design-candidates.test.ts",
 		pattern: "E18",
 	},

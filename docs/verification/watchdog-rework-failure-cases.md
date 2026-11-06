@@ -35,7 +35,8 @@ Interface these cases name (new in this Slice):
 | WR14 | Cap stop, then human `adoptPolicy` to a larger limit, then `retryPreparation` | retry re-settles the retained verdict (no new preparation); successor P2 opens with `watchdog-rework` cause from X; count and the earlier reports unchanged; P2 handoff without its own fresh Audit refuses `missing_content`; P1's Audit cannot satisfy P2 | Ledger/Kernel/Engine |
 | WR15 | Target moves after a passing review completes (stale qualification) | qualification refuses `stale_basis` naming both targets; the completed review stays counted and visible; Engine prepares the current target under the same pass (no new pass or Audit) and requests a new round | Kernel/Engine |
 | WR16 | Policy adopted after a passing review | qualification refuses `stale_basis`; count retained | Kernel |
-| WR17 | Watchdog review interrupted by host restart before submission | same Assignment resumes; count 0 until it submits; its checks are not rerun once retained | Engine/Ledger |
+| WR17 | Watchdog review interrupted by host restart before submission, including SIGKILL while its own checks run | same Assignment resumes; count 0 until it submits; checks retained once are not rerun; an interrupted check runtime is stopped and the checks run again under the recovering executor and are recorded once | Engine/Ledger/Sandboxes |
+| WR24 | A scheduler `assignTask` of a `watchdog` packet on accepted work | `forbidden_scope`; only host-launched rounds exist, count and appear as prior context | Ledger/Kernel |
 | WR18 | Restart and export after reviews | bindings, checks receipts, reports, count and preparation records survive reopen; export contains each Watchdog packet, checks receipt and report | Ledger |
 | WR19 | Engine journey (real Docker): P1 handed off and checked → Watchdog launched automatically on exact X1/T0 runs its own catalog in Linux → scripted rework → P2 opens from X1 with fresh Audit → P2 checked → fresh Watchdog Assignment and conversation → scripted pass → `awaiting_integration` blocker; count 2 | Engine/Ledger/Effects/Sandboxes |
 | WR20 | Engine journey: target moves between the check and review launch | no review of the stale X; preparation runs again on the current target and its review binds the new T | Engine/Effects |
@@ -47,7 +48,9 @@ Unsafe controls (must fail on their own assertion):
 
 - `watchdog-count-resets-per-pass`: counting only the current pass's reviews lets WR11's third non-pass return automatically.
 - `watchdog-drift-exempt`: qualification ignoring the target lets WR15's stale passing review qualify.
-- `watchdog-source-edit`: a `source_changed` receipt accepted as passing evidence (WR07).
+- `watchdog-changed-source-passes`: a `source_changed` receipt accepted as passing evidence (WR07).
+- `watchdog-source-edit`: a Watchdog round given the `implementation_*` source-writing tools (WR09/WR19).
+- `watchdog-resume-abandons-check-runtime`: recovery resumes an interrupted round without stopping its check runtime (WR17).
 
 Scripted provider fixtures exercise lifecycle and literal bytes, not semantic review quality. Canonical CAS/integration,
 readiness and publication are later Slices: `awaiting_integration` is a visible capability gap, not a qualification.
