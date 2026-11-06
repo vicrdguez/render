@@ -2,9 +2,14 @@
 // these checks establish acceptance, ordering, retry and retention boundaries, not that Effects or Linux produced them.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ImplementationPass } from "../src/kernel/roles.ts";
+import { setTimeout } from "node:timers/promises";
+import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
+import { type ConversationId, createRegistry, defineExtension, defineTask, type Harness } from "@earendil-works/pi-durable";
+import { Engine } from "../src/engine/runtime.ts";
+import type { ImplementationPass, RoleAssignment, RoleIntent } from "../src/kernel/roles.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
+import { Workflow } from "../src/ledger/records.ts";
 import { accepted, capture, implementationLifecycle, implementationTasks, LedgerOnlyEngine } from "./support/implementation.ts";
 import { admin, recovery, scheduler } from "./support/roles.ts";
 
@@ -306,6 +311,116 @@ test("TP20 records survive reopen and export and stay readable by the successor 
 		const reviewer = t.assignments().find((a) => a.parent === opened.assignment)!;
 		const principal = await t.start(reviewer.id);
 		assert.equal("content" in (await t.f.ledger.artifact(principal, { read: ref })), false, "fresh reviewers see only A2");
+	} finally {
+		await t.close();
+	}
+});
+
+/** The preparation task exactly as the prior release admitted it: same name, version, input and checkpoint. */
+const priorPreparation = defineTask<{ assignment: string }, { phase: "blocked" }, null>({
+	name: "render.implementation-preparation",
+	version: 1,
+	initial: () => ({ phase: "blocked" }),
+	// Held live until the store closes, as after a crash or pause; this definition never records anything itself.
+	phases: { blocked: (task, runtime, context) => runtime.sleepUntil(Date.now() + 1000, task.state.checkpoint, context) },
+	abort: (_task, runtime, context) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
+});
+/** The Ledger-seam role task these fixtures already retained; reinstalled so their terminal records stay supported. */
+const roleTask = defineTask<{ assignment: string }, { phase: "done" }, null>({
+	name: "test.implementation-task",
+	version: 1,
+	initial: () => ({ phase: "done" }),
+	phases: {
+		done: (_task, runtime, context) =>
+			runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context),
+	},
+	abort: (_task, runtime, context) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
+});
+class PriorReleaseEngine extends LedgerOnlyEngine {
+	override options(onReport: Parameters<LedgerOnlyEngine["options"]>[0]) {
+		const options = super.options(onReport);
+		const registry = createRegistry();
+		registry.install(defineExtension({ name: "test.prior-release", tasks: [roleTask, priorPreparation] }));
+		return {
+			...options,
+			registry,
+			roleTasks: {
+				...options.roleTasks!,
+				stage: async (tx: Parameters<NonNullable<typeof options.roleTasks>["stage"]>[0], intent: RoleIntent, a: RoleAssignment) => {
+					if (intent.kind !== "prepare-pass") return options.roleTasks!.stage(tx, intent, a);
+					const workflow = await tx.doc(Workflow, a.workflow, null);
+					if (!workflow.exists) throw new Error("fixture workflow missing");
+					return tx.createTask(
+						priorPreparation,
+						{ assignment: a.id },
+						{ conversationId: workflow.conversation as ConversationId, ownership: { kind: "conversation" } },
+					);
+				},
+			},
+		};
+	}
+}
+/** This release's Engine, unchanged, exposing only the reopened Durable harness for task inspection. */
+class CurrentEngine extends Engine {
+	harness!: Harness;
+	override options(onReport: Parameters<Engine["options"]>[0]) {
+		const options = super.options(onReport);
+		return {
+			...options,
+			bindLedger: (ledger: Parameters<NonNullable<typeof options.bindLedger>>[0], harness: Harness) => {
+				this.harness = harness;
+				options.bindLedger?.(ledger, harness);
+			},
+		};
+	}
+}
+async function tasksOf(harness: Harness, kind: string) {
+	return harness.commit(async (tx) => {
+		const found: { id: number; input: unknown; state: { status: string; checkpoint?: unknown } }[] = [];
+		let cursor: Parameters<typeof tx.scanTasks>[2];
+		for (;;) {
+			const page = await tx.scanTasks({}, 200, cursor);
+			for (const task of page.items) if (task.kind === kind) found.push(task as never);
+			if (!page.next) return found;
+			cursor = page.next;
+		}
+	}, ctx);
+}
+
+test("TP25 a preparation task admitted by the prior release reopens and drains with its retained meaning; retry uses the new task", async () => {
+	const prior = new PriorReleaseEngine();
+	const t = await implementationLifecycle(prior);
+	try {
+		await t.audit();
+		await t.reports();
+		await t.retain("final");
+		accepted(await t.f.command(t.handoff, t.actor, "p1-handoff"));
+		const [staged] = await tasksOf(prior.harness, "render.implementation-preparation");
+		assert.ok(staged, "the prior release staged its preparation task atomically with the handoff");
+		assert.deepEqual(staged.input, { assignment: t.owner().id });
+		assert.equal(staged.state.status, "running");
+		// Restart onto this release while that task is live: startup must not refuse the retained store.
+		const current = new CurrentEngine();
+		await t.f.reopen(current);
+		const drained = async () => (await tasksOf(current.harness, "render.implementation-preparation"))[0]!;
+		const deadline = Date.now() + 15000;
+		while ((await drained()).state.status !== "terminal") {
+			assert.ok(Date.now() < deadline, `prior task drains: ${JSON.stringify(await drained())}`);
+			await setTimeout(50);
+		}
+		assert.equal((await drained()).id, staged.id, "the same admitted task, not a replacement");
+		assert.equal(pass(t).handoff!.blocker, "preparation_capability_unavailable; Watchdog has not run", "its exact original meaning");
+		assert.equal(pass(t).handoff!.preparations, undefined, "no preparation attempt is invented for old work");
+		assert.equal((await tasksOf(current.harness, "render.target-preparation")).length, 0);
+		accepted(await t.f.command(retry(t), admin));
+		const retried = Date.now() + 15000;
+		while (!/^preparation_capability_unavailable: owned/.test(pass(t).handoff!.blocker ?? "")) {
+			assert.ok(Date.now() < retried, `retry settles: ${pass(t).handoff!.blocker}`);
+			await setTimeout(50);
+		}
+		assert.equal((await tasksOf(current.harness, "render.target-preparation")).length, 1, "explicit retry stages the current task");
+		assert.equal((await tasksOf(current.harness, "render.implementation-preparation")).length, 1);
+		assert.equal(passes(t).length, 1, "same pass, B and Audit");
 	} finally {
 		await t.close();
 	}

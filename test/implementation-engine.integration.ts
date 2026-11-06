@@ -27,7 +27,7 @@ type Prepared = {
 	source: string;
 	attempt: number;
 	target: { proposal: string; ref: string; commit: string };
-	outcome: "checked" | "check-failure" | "conflict" | "operational";
+	outcome: "checked" | "check-failure" | "conflict" | "operational" | "verifier-defect";
 	reason: string | null;
 	preparation: null | {
 		kind: string;
@@ -40,6 +40,7 @@ type Prepared = {
 		result: string;
 		tree: string;
 		conflicts: string[];
+		stdout: string;
 	};
 	checks: null | {
 		verifierRevision: string;
@@ -65,6 +66,21 @@ function advanceTarget(store: string, parent: string, files: Record<string, stri
 	const commit = git(store, ["commit-tree", tree, "-p", parent], "Canonical integration of another Slice\n").toString().trim();
 	git(store, ["update-ref", proposalRef("workflow:2"), commit, ...(expected ? [expected] : ["0".repeat(40)])]);
 	return commit;
+}
+/** Another Slice's integration that changes the selected verifier `.skl/verify.md` and the root suite script. */
+function advanceVerifier(store: string, parent: string, verifier: string, suite: string): string {
+	const blob = git(store, ["hash-object", "-w", "--stdin"], verifier).toString().trim();
+	const skl = git(store, ["ls-tree", `${parent}:.skl`])
+		.toString()
+		.replace(/^100644 blob [0-9a-f]+\tverify\.md$/m, `100644 blob ${blob}\tverify.md`);
+	const tree = git(store, ["mktree"], skl).toString().trim();
+	const withVerifier = git(store, ["ls-tree", parent])
+		.toString()
+		.replace(/^040000 tree [0-9a-f]+\t\.skl$/m, `040000 tree ${tree}\t.skl`);
+	const root = git(store, ["mktree"], withVerifier).toString().trim();
+	const staged = git(store, ["commit-tree", root, "-p", parent], "Integrate verifier change\n").toString().trim();
+	git(store, ["update-ref", proposalRef("workflow:2"), staged, "0".repeat(40)]);
+	return advanceTarget(store, staged, { "verify-suite": suite }, staged);
 }
 /** In-process use of the host fault barrier: wait until the host is parked there, change the world, then release it. */
 // Other process listeners may exist: only the barrier's own added once-listener is ever invoked.
@@ -204,12 +220,13 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 			repository: receipt.source.repository,
 			source: first.handoff!.source,
 			sourceCommit: receipt.source.commit,
-			baseCommit: receipt.base.commit,
+			baseCommit: base,
 			targetCommit: T1,
 			algorithm: "git-merge-tree-write-tree-z/v1",
 			resultTree: conflict.preparation!.tree,
 			conflicts: ["value"],
 		});
+		assert.notEqual(receipt.base.commit, base, "B's capture parent A is not the recorded original base T0");
 		await t.wait(settled(opened.assignment), "second pass handoff");
 		const p2Writer = t.assignments().find((a) => a.id === opened.assignment)!;
 		assert.equal(p2Writer.status, "submitted", `expected second handoff, got ${p2Writer.blocker}`);
@@ -246,6 +263,19 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 			successorPrompts[0]!.inputs?.some((input) => input.ref === opened.observation && input.text === text),
 			"the writer sees the exact conflict",
 		);
+		// TP24: Git's exact conflict output and the B/T0/T1 identities arrive as a scoped input, not just paths.
+		const conflictRef = returned.handoff!.preparations![1]!;
+		assert.ok(
+			successorPrompts[0]!.inputs?.some((input) => input.ref === conflictRef && input.text === JSON.stringify(conflict)),
+			"the writer receives the exact retained conflict record",
+		);
+		assert.match(conflict.preparation!.stdout, /CONFLICT[^\0]*value/, "the record keeps Git's own conflict messages");
+		assert.deepEqual(
+			[conflict.preparation!.source, conflict.preparation!.base, conflict.preparation!.target],
+			[receipt.source.commit, base, T1],
+		);
+		// Read-only original B, T0 and T1 are mounted beside the writable T1 workspace.
+		assert.match(t.originals(), /B\\nA\\nT\\nORIGINALS_READ_ONLY/, `successor saw ${t.originals()}`);
 		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "conflict starts no Watchdog");
 		await t.wait(() => /^awaiting_watchdog/.test(passes()[1]?.handoff?.blocker ?? ""), "P2 prepared and checked");
 		const x2 = await prepared(passes()[1]!.handoff!.preparations![0]!);
@@ -284,7 +314,7 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 						repository: sealedP2.source.repository,
 						source: p2.handoff.source,
 						sourceCommit: sealedP2.source.commit,
-						baseCommit: sealedP2.base.commit,
+						baseCommit: T1,
 						targetCommit: "f".repeat(40),
 						algorithm: "merge-tree-write-tree",
 						resultTree: conflict.preparation!.tree,
@@ -383,7 +413,7 @@ test("TP01/TP11/TP13: clean merge, drift after combined checks and a failing X c
 			repository: "owned",
 			source: p1.handoff.source,
 			sourceCommit: h.B.commit,
-			baseCommit: (JSON.parse(await h.read(p1.handoff.source)) as ImplementationSource).source.base.commit,
+			baseCommit: h.base,
 			targetCommit: T2,
 			preparedCommit: x2.preparation!.result,
 			verifierRevision: x2.checks!.verifierRevision,
@@ -396,6 +426,60 @@ test("TP01/TP11/TP13: clean merge, drift after combined checks and a failing X c
 		await t.close();
 	}
 });
+
+/** A target verifier defect on clean X: one non-pass record, then a verifier-repair pass from X with no check, Audit or Watchdog. */
+async function verifierDefect(verifier: (text: string) => string, defect: RegExp) {
+	const t = await fixture({ successorStops: true });
+	try {
+		const h = await preparedHarness(t);
+		const suiteLine = /^\| full-suite \| Process \| executed \| `sh verify-suite` \| SUITE OK \| tests \|$/m;
+		assert.match(t.f.text, suiteLine, "fixture verifier defines an executable full-suite row");
+		// The actual suite now fails: a discovery row standing in for it must never let X pass.
+		const T1 = advanceVerifier(h.store, h.base, verifier(t.f.text), "exit 17\n");
+		releaseBarrier();
+		await t.wait(() => h.passes().length === 2, "verifier defect opens a repair pass");
+		const [p1, p2] = h.passes();
+		assert.ok(p1?.handoff && p2);
+		const records = await Promise.all(p1.handoff.preparations!.map((ref) => h.prepared(ref)));
+		assert.equal(records.length, 1, "one attempt, not a retry loop");
+		const x = records[0]!;
+		assert.equal(x.outcome, "verifier-defect");
+		assert.equal(x.target.commit, T1);
+		assert.equal(x.preparation?.kind, "clean");
+		assert.equal(x.checks, null, "no check result is fabricated for a definition defect");
+		assert.match(x.reason ?? "", defect);
+		assert.equal(git(h.store, ["show", `${x.preparation!.result}:verify-suite`]).toString(), "exit 17\n");
+		assert.equal(p1.handoff.blocker, undefined, "a lawful return, not a stranded operational blocker");
+		assert.equal(p2.cause, "prepared-verifier-defect");
+		assert.equal(p2.predecessor, p1.ref);
+		assert.equal(p2.opening?.base, x.preparation?.result, "repair starts from actual X");
+		assert.equal(p2.opening?.target, T1);
+		assert.deepEqual(JSON.parse(await h.read(p2.opening!.observation)), {
+			schema: 1,
+			cause: "prepared-verifier-defect",
+			repository: "owned",
+			source: p1.handoff.source,
+			sourceCommit: h.B.commit,
+			baseCommit: h.base,
+			targetCommit: T1,
+			preparedCommit: x.preparation!.result,
+			defect: x.reason,
+		});
+		assert.equal(t.assignments().filter((a) => a.auditReview).length, 2, "the repair pass's Audit is its own, later");
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "no Watchdog launch or count");
+	} finally {
+		clearBarrier();
+		await t.close();
+	}
+}
+test("TP22: a target verifier that makes a required row discovery-only is a verifier defect, never a pass on X", () =>
+	verifierDefect(
+		(text) =>
+			text.replace(/^\| full-suite \|.*$/m, "| full-suite | Process | generated | `printf 'DISCOVERY ONLY'` | Discovery only | - |"),
+		/full-suite.*(generated|cannot prove)/,
+	));
+test("TP23: a target verifier that renames a required row opens a verifier-repair pass instead of stranding the handoff", () =>
+	verifierDefect((text) => text.replace(/^\| full-suite \|/m, "| suite-renamed |"), /Missing catalog row: full-suite/));
 
 test("TP08/TP12/TP14: an aborted merge stays operational across restart until an explicit retry, which keeps the pass and Audit", async () => {
 	const t = await fixture();

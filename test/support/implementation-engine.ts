@@ -78,6 +78,7 @@ export async function fixture(
 	const prompts: Prompt[] = [];
 	let writerTurn = 0;
 	let successorTurn = 0;
+	let originals = "";
 	let rawHandoffAttempted = false;
 	let checkedBeforeEdit: { B: string; report: string } | undefined;
 	let held = false;
@@ -180,8 +181,19 @@ export async function fixture(
 					assert.equal(prompt.packet.role, "implementer");
 					if (prompt.implementation?.ordinal === 2 && options.successorStops) return fauxAssistantMessage("Successor inspected.");
 					if (prompt.implementation?.ordinal === 2) {
+						if (successorTurn === 1)
+							originals = JSON.stringify(transcript.messages.filter((m) => m.role === "tool" || m.role === "toolResult"));
 						const calls = [
-							["implementation_execute", { argv: ["sh", "-c", "test \"$(cat value)\" = T && printf 'writer saw T\\n'"] }],
+							[
+								"implementation_execute",
+								{
+									argv: [
+										"sh",
+										"-c",
+										'test "$(cat value)" = T && cat /candidates/implementation/value /candidates/base/value /candidates/target/value && { touch /candidates/base/value 2>/dev/null && echo ORIGINALS_WRITABLE || echo ORIGINALS_READ_ONLY; }',
+									],
+								},
+							],
 							["implementation_audit", {}],
 							["implementation_execute", { argv: ["sh", "-c", "printf 'C\\n' > value"] }],
 							[
@@ -433,6 +445,8 @@ export async function fixture(
 		writer,
 		contract,
 		rawHandoffAttempted: () => rawHandoffAttempted,
+		/** What the conflict successor's first Linux command printed about its read-only originals. */
+		originals: () => originals,
 		held: () => held,
 		aborted: () => aborted,
 		release: () => release.resolve(),
