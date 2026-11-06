@@ -1,5 +1,6 @@
 // Pure implementation evidence validation. Ledger resolves and integrity-checks the actual bytes.
 import type { SourceReceipt } from "../effects/source.ts";
+import type { PolicyBasis } from "./policy.ts";
 import type { ImplementationPass, RoleAssignment, RolePacket } from "./roles.ts";
 import { validatePath } from "./source-path.ts";
 import {
@@ -235,7 +236,7 @@ export type PreparationRecord = {
 	};
 	checks: null | PreparedChecks;
 	/** The workflow policy binding this attempt qualified X against: only the current one is accepted. */
-	policy: { binding: string; revision: string; minimumEvidenceRank: string | null };
+	policy: PolicyBasis;
 };
 const closed = (v: Record<string, unknown>, keys: string[]) =>
 	Object.keys(v).length === keys.length && keys.every((key) => Object.hasOwn(v, key));

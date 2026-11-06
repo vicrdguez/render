@@ -34,7 +34,7 @@ import {
 	type PreparedChecks,
 	preparationBase,
 } from "../kernel/implementation.ts";
-import { bindingFor, type PolicyState } from "../kernel/policy.ts";
+import { type PolicyBasis, type PolicyState, policyBasis } from "../kernel/policy.ts";
 import {
 	currentChildren,
 	type ImplementationPass,
@@ -1711,17 +1711,14 @@ export class Engine {
 					proposal: owner.workflow,
 					initial: check.commit,
 				});
+				const basis = this.#policyBasis(owner.workflow);
 				// Debt: Watchdog launch and its final pre-launch reobservation are not wired yet, so a checked pass waits here
 				// as a visible blocker; a target or policy binding that moves after this needs an explicit retry to be prepared again.
-				if (
-					latest &&
-					latest.target.commit === observed.target.commit &&
-					latest.policy.binding === this.#policyBasis(owner.workflow).binding
-				)
+				if (latest && latest.target.commit === observed.target.commit && latest.policy.binding === basis.binding)
 					return block(
 						`awaiting_watchdog: prepared ${latest.preparation!.result} checked on current target ${observed.target.commit}; Watchdog capability unavailable`,
 					);
-				const record = await this.#preparationAttempt({ owner, pass, check, save }, refs.length + 1, observed);
+				const record = await this.#preparationAttempt({ owner, pass, check, save }, refs.length + 1, observed, basis);
 				const reply = await this.#ledger!.command(
 					{
 						version: 1,
@@ -1739,6 +1736,7 @@ export class Engine {
 					mintContext({ kind: "host", scope: "effects" }),
 				);
 				// A policy adopted while this attempt ran supersedes its qualification: nothing was retained, so prepare again.
+				// Each rerun needs another human adoption first, so the loop is paced by human policy changes.
 				if (
 					reply.status === "refused" &&
 					reply.code === "stale_basis" &&
@@ -1751,17 +1749,12 @@ export class Engine {
 			return block(`preparation_operational_error: ${error instanceof Error ? error.message : error}`);
 		}
 	}
-	/** The workflow's current policy binding; Ledger verifies its exact retained bytes when a record names it. */
-	#policyBasis(workflow: string): PreparationRecord["policy"] {
+	/** The workflow's current policy basis; Ledger verifies its exact retained bytes when a record names it. */
+	#policyBasis(workflow: string): PolicyBasis {
 		const frame = this.#ledger!.snapshot(scheduling);
-		if (!("policy" in frame)) throw new Error("Current policy is unavailable.");
-		const policy = frame.policy as PolicyState;
-		const binding = bindingFor(policy, workflow);
-		return {
-			binding: binding.revision,
-			revision: binding.policy,
-			minimumEvidenceRank: policy.revisions[binding.policy]!.minimumEvidenceRank,
-		};
+		const basis = "policy" in frame ? policyBasis(frame.policy as PolicyState, workflow) : undefined;
+		if (!basis) throw new Error("Current policy is unavailable.");
+		return basis;
 	}
 	async #preparationRecord(ref: string): Promise<PreparationRecord> {
 		const read = await this.#ledger!.artifact(scheduling, { read: ref });
@@ -1774,7 +1767,12 @@ export class Engine {
 		return (JSON.parse(read.content.toString()) as { source: SourceReceipt }).source;
 	}
 	/** One attempt against one observed target. Expected outcomes are records; only unrecordable failures throw. */
-	async #preparationAttempt(job: PreparationJob, attempt: number, observed: TargetObservation): Promise<PreparationRecord> {
+	async #preparationAttempt(
+		job: PreparationJob,
+		attempt: number,
+		observed: TargetObservation,
+		basis: PolicyBasis,
+	): Promise<PreparationRecord> {
 		const { pass } = job;
 		const record: PreparationRecord = {
 			schema: 1,
@@ -1787,7 +1785,7 @@ export class Engine {
 			reason: null,
 			preparation: null,
 			checks: null,
-			policy: this.#policyBasis(job.owner.workflow),
+			policy: basis,
 		};
 		let receipt: PreparationReceipt;
 		try {

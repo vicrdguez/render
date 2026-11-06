@@ -29,6 +29,14 @@ export function bindingFor(state: PolicyState, workflow: string): PolicyBinding 
 	// Stores predating D004 keep their original policy, never whatever defaults were published later.
 	return state.bindings[workflow] ?? { revision: `${workflow}:policy:initial`, policy: "policy:initial" };
 }
+/** What a preparation qualified X against: the workflow's binding, its immutable revision and that revision's minimum rank. */
+export type PolicyBasis = { binding: string; revision: string; minimumEvidenceRank: string | null };
+/** The workflow's current basis; undefined when its bound revision is absent from state. */
+export function policyBasis(state: PolicyState, workflow: string): PolicyBasis | undefined {
+	const binding = bindingFor(state, workflow);
+	const revision = state.revisions[binding.policy];
+	return revision && { binding: binding.revision, revision: binding.policy, minimumEvidenceRank: revision.minimumEvidenceRank };
+}
 export function changePolicy(state: KernelState, c: PolicyCommand, facts: VerifiedFacts): Decision {
 	const policy = structuredClone(state.policy ?? initialPolicy());
 	const p = facts.principal;

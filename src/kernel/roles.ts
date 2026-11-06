@@ -27,7 +27,7 @@ import {
 import { consumeIntake, type IntakeReview, intakeAssignmentGap } from "./intake.ts";
 import { type Investigation, readInvestigationOutcome, shapeConfirmed } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, Principal, VerifiedFacts } from "./kernel.ts";
-import { bindingFor, initialPolicy } from "./policy.ts";
+import { bindingFor, initialPolicy, policyBasis } from "./policy.ts";
 import { completionGap, type VerificationAssessment, type VerificationSelection } from "./verification.ts";
 
 export const ROLES = [
@@ -936,12 +936,12 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 							record.preparation.target !== record.target.commit))
 				)
 					return refusal("stale_basis", "Preparation names other lineage, attempt order or recorded base than this handoff.");
-				const policy = state.policy ?? initialPolicy();
-				const binding = bindingFor(policy, c.workflow);
+				const basis = policyBasis(state.policy ?? initialPolicy(), c.workflow);
 				if (
-					record.policy.binding !== binding.revision ||
-					record.policy.revision !== binding.policy ||
-					record.policy.minimumEvidenceRank !== policy.revisions[binding.policy]?.minimumEvidenceRank
+					!basis ||
+					record.policy.binding !== basis.binding ||
+					record.policy.revision !== basis.revision ||
+					record.policy.minimumEvidenceRank !== basis.minimumEvidenceRank
 				)
 					return refusal("stale_basis", "Preparation qualified X against another policy than the workflow's current binding.");
 				const ref = `implementation-preparation:${facts.sequence}`;
