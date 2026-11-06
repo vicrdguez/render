@@ -586,3 +586,136 @@ test("WR21 a canceled round counts nothing and its settled handoff can be prepar
 		await t.close();
 	}
 });
+
+const blockHandoff = async (t: Lifecycle, reason: string) => {
+	const a = own(t, t.id);
+	accepted(
+		await t.f.command({ type: "recordPreparationBlocker", assignment: a.id, generation: a.generation, attempt: a.attempt, reason }),
+	);
+};
+function direct(t: Lifecycle, review: string, text: string, context = admin, over: Record<string, unknown> = {}) {
+	const a = own(t, t.id);
+	return t.f.command(
+		{ type: "directRework", assignment: a.id, generation: a.generation, attempt: a.attempt, review, text, ...over },
+		context,
+	);
+}
+const directedObservation = (t: Lifecycle, r: { id: string; report: string }, direction: string, X: string, target: string) =>
+	JSON.stringify({ ...JSON.parse(reworkObservation(t, r, X, target)), cause: "human-direction", direction });
+function openDirected(t: Lifecycle, r: { id: string; report: string }, direction: string, X: string, target: string) {
+	const a = own(t, t.id);
+	return t.f.command(
+		{
+			type: "openSuccessorPass",
+			assignment: a.id,
+			generation: a.generation,
+			attempt: a.attempt,
+			text: directedObservation(t, r, direction, X, target),
+		},
+		effects,
+	);
+}
+const agent = (a: RoleAssignment) =>
+	mintContext({ kind: "assignment-agent", assignment: a.id, generation: a.generation, attempt: a.attempt, role: a.packet.role });
+
+test("WR25 a rework successor reads the exact Watchdog findings that returned it; missing ones refuse instead of guessing", async () => {
+	const engine = new LedgerOnlyEngine();
+	const t = await handedOff();
+	try {
+		await t.f.reopen(engine);
+		const rework = await round(t, T0, X1, "rework");
+		const opened = accepted(await openRework(t, rework, X1, T0));
+		await t.start(opened.assignment as string);
+		const successor = own(t, opened.assignment as string);
+		assert.ok(successor.packet.inputs.includes(rework.report), "the cited report is a required successor input");
+		const read = await t.f.ledger.artifact(agent(successor), { read: rework.report });
+		assert.ok("content" in read, `successor reads its findings: ${JSON.stringify(read)}`);
+		assert.match(read.content.toString(), /Value must be B/);
+		const rendered = JSON.parse(await engine.render(successor)) as { inputs: { ref: string; text: string }[] };
+		assert.match(rendered.inputs.find((i) => i.ref === rework.report)?.text ?? "", /Value must be B/);
+		damageImplementation(t.f.data, rework.report, "missing_content");
+		await assert.rejects(engine.render(own(t, successor.id)), new RegExp(`Required exact input ${rework.report}: missing_content`));
+	} finally {
+		await t.close();
+	}
+});
+
+test("WR26 only an authenticated human direction on the exact stopped round resolves Needs Human into a successor needing its own Audit", async () => {
+	const t = await handedOff();
+	try {
+		const passed = await round(t, T0, X1, "pass");
+		const preparation = await prepare(t, T1, X2);
+		accepted(await launch(t, preparation, T1));
+		const w = watchdogs(t).find((r) => r.watchdogReview?.preparation === preparation)!;
+		const actor = await t.start(w.id);
+		accepted(await recordChecks(t, own(t, w.id), receipt(t, own(t, w.id))));
+		refused(await direct(t, w.id, "Make value C."), "stale_basis", "an open round is not a stop");
+		const stopped = accepted(await submit(t, actor, verdictText(own(t, w.id), "needs-human"), nonPass));
+		assert.equal(stopped.reviews, 2);
+		await quiesce(t, w.id);
+		const r = { id: w.id, report: stopped.report as string };
+		refused(await openRework(t, r, X2, T1), "human_direction_required", "Needs Human stops automatic rework");
+		refused(await direct(t, w.id, "Make value C."), "stale_basis", "an unsettled handoff takes no direction");
+		await blockHandoff(t, `needs_human: Watchdog ${w.id} requires human direction`);
+		for (const [context, label] of [
+			[scheduler, "scheduling"],
+			[effects, "Effects host"],
+			[recovery, "recovery"],
+			[t.actor, "owner agent"],
+			[actor, "Watchdog agent"],
+		] as const)
+			refused(await direct(t, w.id, "Make value C.", context), "forbidden_principal", label);
+		refused(await direct(t, passed.id, "Make value C."), "stale_basis", "a round of another X");
+		refused(await direct(t, w.id, " "), "invalid_content", "empty direction");
+		refused(await direct(t, w.id, "Make value C.", admin, { generation: 9 }), "stale_assignment", "stale owner generation");
+		refused(await openDirected(t, r, "revision:1", X2, T1), "human_direction_required", "no recorded human direction");
+		const directed = accepted(await direct(t, w.id, "Make value C, keeping the interface."));
+		assert.equal(directed.settles, preparation, "the stopped round settles again, nothing is re-prepared");
+		const direction = directed.direction as string;
+		const retained = await t.f.ledger.artifact(admin, { read: direction });
+		assert.ok("content" in retained && retained.content.toString() === "Make value C, keeping the interface.");
+		refused(await direct(t, w.id, "Something else."), "stale_basis", "a stop takes one direction");
+		refused(await openDirected(t, r, "revision:1", X2, T1), "human_direction_required", "a direction other than the recorded one");
+		const opened = accepted(await openDirected(t, r, direction, X2, T1));
+		assert.equal(opened.passRef, P2);
+		assert.equal(pass(t, P2).cause, "human-direction");
+		assert.equal(pass(t, P2).opening?.base, X2, "the successor starts from reviewed X");
+		assert.equal(completed(t), 2, "direction and pass transition keep the count");
+		const successor = own(t, opened.assignment as string);
+		const successorActor = await t.start(successor.id);
+		for (const ref of [r.report, direction]) {
+			assert.ok(successor.packet.inputs.includes(ref), `successor input ${ref}`);
+			assert.ok("content" in (await t.f.ledger.artifact(successorActor, { read: ref })), `successor reads ${ref}`);
+		}
+		refused(await t.f.command(t.handoff, successorActor), "missing_content", "P1's Audit cannot satisfy P2");
+	} finally {
+		await t.close();
+	}
+});
+
+test("WR26 human direction also resolves a cap stop without adopting a larger limit; cap adoption alone never passes Needs Human", async () => {
+	const capped = await handedOff({ limit: 0 });
+	try {
+		const rework = await round(capped, T0, X1, "rework");
+		refused(await openRework(capped, rework, X1, T0), "human_direction_required", "limit zero stop");
+		await blockHandoff(capped, "preparation_return_refused: human_direction_required");
+		const direction = accepted(await direct(capped, rework.id, "Apply W1 as written.")).direction as string;
+		accepted(await openDirected(capped, rework, direction, X1, T0));
+		assert.equal(pass(capped, P2).cause, "human-direction");
+		assert.equal(completed(capped), 1);
+	} finally {
+		await capped.close();
+	}
+	const t = await handedOff();
+	try {
+		const stopped = await round(t, T0, X1, "needs-human");
+		await blockHandoff(t, "needs_human");
+		await adoptLimit(t, 5);
+		const a = own(t, t.id);
+		accepted(await t.f.command({ type: "retryPreparation", assignment: a.id, generation: a.generation, attempt: a.attempt }, admin));
+		refused(await openRework(t, stopped, X1, T0), "human_direction_required", "a larger cap is not a Needs Human direction");
+		assert.equal(passes(t).length, 1);
+	} finally {
+		await t.close();
+	}
+});

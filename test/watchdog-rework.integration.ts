@@ -2,6 +2,9 @@
 // provider. Verdicts are fixture data; these journeys establish launch, binding, counting and rework lifecycle,
 // not review quality.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { test } from "node:test";
 import { Engine } from "../src/engine/runtime.ts";
 import type { ImplementationPass, RoleAssignment } from "../src/kernel/roles.ts";
@@ -197,5 +200,39 @@ test("WR17: an interrupted Watchdog round resumes its own Assignment and retaine
 		assert.equal(after[0]!.status, "submitted");
 	} finally {
 		await t.close();
+	}
+});
+
+test("WR27: cancelling a Watchdog while its own check runtime runs stops that runtime before quiescence releases the slot", async () => {
+	const t = await fixture({ watchdog: ["pass"] });
+	const runtimes: string[] = [];
+	try {
+		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
+		holdAt("before-review-check", `review-check:${opening.passRef}`);
+		await parked("Watchdog check runtime");
+		const [w] = watchdogs(t);
+		assert.ok(w?.executing, "the round holds its executing slot while its checks run");
+		const root = join(t.f.config.root, "sandboxes");
+		for (const id of await readdir(root)) {
+			const state = JSON.parse(await readFile(join(root, id, "state.json"), "utf8"));
+			if (state.handle.scope.assignment === w.id) runtimes.push(state.handle.runtime);
+		}
+		assert.equal(runtimes.length, 1, "one owned check runtime for the round");
+		const running = () => execFileSync("docker", ["inspect", "--format", "{{.State.Running}}", runtimes[0]!], { encoding: "utf8" }).trim();
+		assert.equal(running(), "true", "the check runtime is live at the barrier");
+		accepted(await t.f.command({ type: "cancelWork", assignment: w.id, generation: w.generation, attempt: w.attempt }, admin));
+		const after = () => t.assignments().find((a) => a.id === w.id)!;
+		await t.wait(() => after().status === "canceled" || /unconfirmed|missing/.test(after().blocker ?? ""), "cancellation settles");
+		assert.equal(after().status, "canceled", after().blocker ?? "");
+		assert.equal(after().executing, false);
+		assert.equal(running(), "false", "quiescence is recorded only after the check runtime stopped");
+		assert.equal(after().watchdogReview?.checks, undefined, "a canceled round retains no checks");
+	} finally {
+		clearBarrier();
+		await t.close();
+		for (const runtime of runtimes)
+			try {
+				execFileSync("docker", ["rm", "-f", runtime], { stdio: "ignore" });
+			} catch {}
 	}
 });

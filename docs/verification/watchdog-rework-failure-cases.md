@@ -1,7 +1,12 @@
 # Watchdog review and rework failure cases
 
-Acceptance oracles written before product changes. These are requirements, not run results. Behavior rules B1–B5 and
-commitments A1–A3 are the `watchdog-rework` Contract's; spec §3 I8/I19, §6.2/§6.4/§6.5, §9.4 and §11 navigate them.
+Acceptance oracles for this Slice. These are requirements, not run results. Behavior rules B1–B5 and commitments A1–A3
+are the `watchdog-rework` Contract's; spec §3 I8/I19, §6.2/§6.4/§6.5, §9.4 and §11 navigate them.
+
+Chronology, kept as it happened: WR01–WR18 and WR21–WR22 were written before the first product change, and their
+Ledger/Kernel tests came first. WR19, WR20, WR23, WR24, the WR21 cancel case and the WR17 SIGKILL journey were added
+after that code, so they are not test-first evidence. WR25–WR27 were written for the first Watchdog round's rework
+(findings W1, W2, W4), and their regressions failed on the reviewed head before each repair.
 
 Interface these cases name (new in this Slice):
 
@@ -44,6 +49,20 @@ Interface these cases name (new in this Slice):
 | WR22 | Missing prior Watchdog report bytes when rendering a new round | prior material is shown as unavailable and the instructions require a full review; the count is unaffected | Engine render |
 | WR23 | 10,000 seeded schedules of rounds on one handoff over limits 0–3 with pass, rework, Needs Human, duplicate submission and larger-limit adoption | every accepted submission reports `reviews` equal to the oracle's count; automatic rework opens exactly when no Needs Human verdict is on the handoff and count < current limit, otherwise `human_direction_required` with no write; passes are accepted above the cap; Kernel never mutates its inputs | Kernel (V1) |
 
+
+Rework of the first Watchdog round (new interface: `directRework`, human only, `{assignment, generation, attempt,
+review, text}` naming the handed-off owner and the exact stopped round, with the human's direction text):
+
+| Case | Trigger | Literal expected outcome | Seam |
+|---|---|---|---|
+| WR25 | Rework verdict opens P2; P2's agent reads the cited report and its prompt is rendered | P2's packet inputs name the exact report; its own agent read returns the report bytes (not `not_found`); the rendered prompt contains the finding text; with the report bytes damaged, rendering P2 refuses on that exact input instead of starting without its direction | Ledger/Engine render |
+| WR26 | Needs Human stop (count 1, limit 2), then `directRework` by scheduling, the Effects host, the owner agent or the Watchdog agent | `forbidden_principal`; no direction, no successor | Ledger/Kernel |
+| WR26 | `directRework` by a human naming a round that passed, a round of another X, a stale Generation, an unsettled handoff, or empty text | `forbidden_scope` (pass), `stale_basis` (other round or unsettled), `stale_assignment`, `invalid_content`; nothing retained | Ledger/Kernel |
+| WR26 | Human `directRework` on the Needs Human round | direction retained as its own document, readable by the human; the handoff settles again; a host `human-direction` return citing it opens P2 from X with count still 1; P2's inputs carry the report and the direction, both readable by P2's agent; P2 handoff without its own Audit refuses `missing_content`; a second direction refuses; a `human-direction` return citing no recorded direction refuses `human_direction_required`, and so do cap adoption plus retry alone | Ledger/Kernel |
+| WR26 | Cap stop at limit 0 (rework verdict) then human `directRework` | same successor path without adopting a larger limit; count unchanged | Ledger/Kernel |
+| WR26 | Engine journey (real Docker): Needs Human → `needs_human` blocker → human `directRework` → P2 from X whose scripted implementer takes its edit only from the direction in its rendered inputs → fresh Audit → fresh round passes → `awaiting_integration`, count 2 | Engine/Ledger/Effects/Sandboxes |
+| WR27 | Human cancels a Watchdog while its own check runtime runs (parked at `before-review-check`) | the owned check container is stopped before quiescence: once the round is `canceled` with `executing:false`, `docker inspect` reports it not running and no checks receipt is retained; a failed or unconfirmed stop leaves a visible `watchdog_check_quiescence_unconfirmed` blocker and keeps the slot | Engine/Sandboxes/Ledger |
+
 Unsafe controls (must fail on their own assertion):
 
 - `watchdog-count-resets-per-pass`: counting only the current pass's reviews lets WR11's third non-pass return automatically.
@@ -51,6 +70,9 @@ Unsafe controls (must fail on their own assertion):
 - `watchdog-changed-source-passes`: a `source_changed` receipt accepted as passing evidence (WR07).
 - `watchdog-source-edit`: a Watchdog round given the `implementation_*` source-writing tools (WR09/WR19).
 - `watchdog-resume-abandons-check-runtime`: recovery resumes an interrupted round without stopping its check runtime (WR17).
+- `watchdog-successor-blind`: a rework successor not given the cited report lets WR25 start without its findings.
+- `watchdog-direction-bypass`: a `human-direction` return admitted without a recorded human direction (WR26).
+- `watchdog-cancel-abandons-check-runtime`: cancellation records quiescence without stopping the check runtime (WR27).
 
 Scripted provider fixtures exercise lifecycle and literal bytes, not semantic review quality. Canonical CAS/integration,
 readiness and publication are later Slices: `awaiting_integration` is a visible capability gap, not a qualification.
