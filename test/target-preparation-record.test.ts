@@ -21,6 +21,8 @@ const T1 = "c".repeat(40);
 const TREE = "d".repeat(40);
 const X = "e".repeat(40);
 const REF = `refs/render/proposals/${"0".repeat(64)}`;
+/** The fixture workflow's current policy binding, the basis a current preparation record must name. */
+const BASIS = { binding: "policy-binding:5", revision: "policy:4", minimumEvidenceRank: "tests" };
 
 type Lifecycle = Awaited<ReturnType<typeof implementationLifecycle>>;
 const passes = (t: Lifecycle) => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
@@ -84,6 +86,7 @@ function record(p: ImplementationPass, outcome: Outcome, over: Record<string, un
 		reason: outcome === "operational" ? "preparation_operational_error: merge-tree signal SIGABRT" : null,
 		preparation: outcome === "operational" ? null : preparation(p, outcome === "conflict" ? "conflict" : "clean"),
 		checks: outcome === "checked" ? checks("passed") : outcome === "check-failure" ? checks("failed") : null,
+		policy: BASIS,
 		...over,
 	});
 }
@@ -142,6 +145,8 @@ test("TP18 only trusted Effects retains one well-formed attempt per handed-off p
 			],
 			["operational without reason", record(p, "operational", { reason: null })],
 			["clean receipt as conflict", record(p, "conflict", { preparation: preparation(p, "clean") })],
+			["without policy basis", record(p, "checked", { policy: undefined })],
+			["policy basis without minimum", record(p, "checked", { policy: { binding: BASIS.binding, revision: BASIS.revision } })],
 		];
 		for (const [label, text] of malformed) refused(h, await h.f.command(recordCommand(h, text), effects), "invalid_content", before, label);
 		const lineage: [string, string][] = [
@@ -151,6 +156,9 @@ test("TP18 only trusted Effects retains one well-formed attempt per handed-off p
 			["other sealed B", record(p, "conflict", { preparation: { ...preparation(p, "conflict"), source: "b".repeat(40) } })],
 			["forged recorded base", record(p, "conflict", { preparation: { ...preparation(p, "conflict"), base: "b".repeat(40) } })],
 			["receipt for another target", record(p, "conflict", { preparation: { ...preparation(p, "conflict"), target: "b".repeat(40) } })],
+			["superseded policy binding", record(p, "checked", { policy: { ...BASIS, binding: "policy-binding:1" } })],
+			["other policy revision", record(p, "checked", { policy: { ...BASIS, revision: "policy:initial" } })],
+			["other minimum than the bound policy", record(p, "checked", { policy: { ...BASIS, minimumEvidenceRank: "static" } })],
 		];
 		for (const [label, text] of lineage) refused(h, await h.f.command(recordCommand(h, text), effects), "stale_basis", before, label);
 		const first = await h.f.command(recordCommand(h, valid), effects, "preparation:1");

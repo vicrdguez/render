@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
@@ -48,7 +49,16 @@ type Prepared = {
 		verification: { status: string; inputCommit: string; resultTree: string };
 		failed: { name: string; exitCode: number }[];
 	};
+	/** The workflow policy the attempt qualified X against. */
+	policy: { binding: string; revision: string; minimumEvidenceRank: string | null };
 };
+type Policy = {
+	defaultRevision: string;
+	revisions: Record<string, { minimumEvidenceRank: string | null }>;
+	bindings: Record<string, { revision: string; policy: string }>;
+};
+const policyOf = (t: { f: { ledger: { snapshot(context: typeof admin): unknown } } }) =>
+	(t.f.ledger.snapshot(admin) as { policy: Policy }).policy;
 /** Host-private Effects Git: the canonical proposal ref lives here, never in upstream or a forge. */
 function effectsStore(t: { f: { source: { root: string } } }) {
 	return join(t.f.source.root, "catalog-owned", "effects", sha("owned"), "source.git");
@@ -499,6 +509,117 @@ test("TP27: a target verifier that lowers the behavioral journey below the polic
 		// Every check still succeeds: only the rank, not an execution failure, separates X from a pass.
 		"printf 'SUITE OK'\n",
 	));
+
+test("TP28: a policy adopted while X's checks run never leaves X qualified under the superseded binding", async () => {
+	const t = await fixture({ successorStops: true });
+	try {
+		const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
+		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
+		holdAt("before-prepared-check", `prepared-check:${opening.passRef}:1`);
+		await parked("X checks under the handoff-time binding");
+		const old = policyOf(t).bindings["workflow:2"]!;
+		assert.equal(policyOf(t).revisions[old.policy]!.minimumEvidenceRank, "tests", "X's checks started under minimum tests");
+		const published = accepted(
+			await t.f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: t.f.ledger.status().authorityEpoch,
+					commandId: "tp28-stricter-policy",
+					command: {
+						type: "changePolicy",
+						expectedRevision: policyOf(t).defaultRevision,
+						policy: { completedReviewLimit: 2, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "live" },
+					},
+				},
+				admin,
+			),
+		);
+		const adopted = accepted(await t.f.command({ type: "adoptPolicy", revision: published.policy, expectedBinding: old.revision }, admin));
+		releaseBarrier();
+		const blocker = () => passes()[0]?.handoff?.blocker ?? "";
+		await t.wait(() => passes().length === 2 || /^awaiting_watchdog/.test(blocker()), "preparation settles after adoption");
+		assert.doesNotMatch(blocker(), /^awaiting_watchdog/, "X must not be checked ready for Watchdog under a superseded policy");
+		const [p1, p2] = passes();
+		assert.ok(p1?.handoff && p2, "the stricter policy's verifier defect opens a repair pass");
+		const records = await Promise.all(
+			p1.handoff.preparations!.map(async (ref) => {
+				const value = await t.f.ledger.artifact(admin, { read: ref });
+				assert.ok("content" in value);
+				return JSON.parse(value.content.toString()) as Prepared;
+			}),
+		);
+		assert.equal(records.length, 1, "nothing qualified under the superseded binding is retained");
+		const x = records[0]!;
+		assert.deepEqual(x.policy, { binding: adopted.binding, revision: published.policy, minimumEvidenceRank: "live" });
+		assert.equal(x.outcome, "verifier-defect");
+		assert.equal(x.checks, null, "no check result is qualified for a definition below the adopted minimum");
+		assert.match(x.reason ?? "", /behavior.*tests.*below.*minimum.*live/);
+		assert.equal(p2.cause, "prepared-verifier-defect");
+		assert.equal(p2.opening?.base, x.preparation?.result, "repair starts from actual X");
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "no Watchdog launch or count");
+	} finally {
+		clearBarrier();
+		await t.close();
+	}
+});
+
+test("TP29: missing retained policy bytes block preparation instead of qualifying X with the cached policy; restored bytes and a retry check X", async () => {
+	const t = await fixture();
+	try {
+		const h = await preparedHarness(t);
+		const binding = policyOf(t).bindings["workflow:2"]!;
+		assert.equal(policyOf(t).revisions[binding.policy]!.minimumEvidenceRank, "tests", "the cached policy still says tests");
+		const db = new DatabaseSync(join(t.f.data, "render.db"));
+		const removed: Record<string, SQLInputValue>[] = [];
+		try {
+			for (const row of db.prepare("SELECT * FROM entries").all()) {
+				const entry = JSON.parse(String(row.record)) as { kind: string; data: { ref?: string } };
+				if (entry.kind !== "render.policy" || entry.data.ref !== binding.policy) continue;
+				removed.push(row as Record<string, SQLInputValue>);
+				db.prepare("DELETE FROM entries WHERE id = ?").run(row.id as number);
+			}
+		} finally {
+			db.close();
+		}
+		assert.equal(removed.length, 1, "the current immutable policy revision is actually removed");
+		const control = await t.f.command({ type: "adoptPolicy", revision: binding.policy, expectedBinding: binding.revision }, admin);
+		assert.ok(control.status === "refused" && control.code === "missing_content", "the store really lacks those policy bytes");
+		releaseBarrier();
+		await t.wait(() => !!h.passes()[0]?.handoff?.blocker, "preparation settles without its policy bytes");
+		const blocked = structuredClone(h.passes());
+		assert.doesNotMatch(blocked[0]!.handoff!.blocker!, /^awaiting_watchdog/, "X must not be checked ready for Watchdog on a cached policy");
+		assert.match(blocked[0]!.handoff!.blocker!, /missing_content.*policy/);
+		assert.equal(blocked[0]!.handoff!.preparations, undefined, "no record qualified on a cached policy is retained");
+		assert.equal(blocked.length, 1, "no successor pass");
+		const restore = new DatabaseSync(join(t.f.data, "render.db"));
+		try {
+			for (const row of removed) {
+				const columns = Object.keys(row);
+				restore
+					.prepare(`INSERT INTO entries (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`)
+					.run(...columns.map((c) => row[c]!));
+			}
+		} finally {
+			restore.close();
+		}
+		const owner = t.assignments().find((a) => a.id === h.opening.assignment)!;
+		accepted(
+			await t.f.command({ type: "retryPreparation", assignment: owner.id, generation: owner.generation, attempt: owner.attempt }, admin),
+		);
+		await t.wait(() => /^awaiting_watchdog/.test(h.passes()[0]?.handoff?.blocker ?? ""), "retried preparation checked");
+		const [p1, ...others] = h.passes();
+		assert.equal(others.length, 0, "the retry keeps the handed-off pass");
+		assert.deepEqual({ ...p1, handoff: undefined }, { ...blocked[0], handoff: undefined }, "same pass, B and Audit");
+		assert.equal(p1!.handoff!.preparations?.length, 1);
+		const x = await h.prepared(p1!.handoff!.preparations![0]!);
+		assert.equal(x.outcome, "checked");
+		assert.deepEqual(x.policy, { binding: binding.revision, revision: binding.policy, minimumEvidenceRank: "tests" });
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "no Watchdog launch or count");
+	} finally {
+		clearBarrier();
+		await t.close();
+	}
+});
 
 test("TP08/TP12/TP14: an aborted merge stays operational across restart until an explicit retry, which keeps the pass and Audit", async () => {
 	const t = await fixture();
