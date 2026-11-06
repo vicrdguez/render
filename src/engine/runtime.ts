@@ -37,7 +37,14 @@ import {
 	type RoleIntent,
 	sameAgent,
 } from "../kernel/roles.ts";
-import { type CatalogEvidence, type CatalogResult, requiredCatalogRows, type SelectedCatalog } from "../kernel/verification.ts";
+import {
+	type CatalogEvidence,
+	type CatalogResult,
+	requiredCatalogRows,
+	rowDefinitionGap,
+	rowExecuted,
+	type SelectedCatalog,
+} from "../kernel/verification.ts";
 import { faultBarrier } from "../ledger/barrier.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
@@ -96,6 +103,8 @@ type PreparationJob = {
 	check: OwnedChecks["checks"][string];
 	save: (scope: ExecutionScope) => Promise<unknown>;
 };
+/** X's own verifier bytes cannot define its required checks; deterministic, so repair needs a new pass, not a retry. */
+class VerifierDefect extends Error {}
 type EngineConfig = {
 	apiKey?: string;
 	families?: Readonly<Record<string, string>>;
@@ -125,6 +134,7 @@ export class Engine {
 	/** Exact Sandboxes scopes of in-flight host checks of prepared X; they confer no role or writer authority. */
 	readonly #preparing = new Set<string>();
 	readonly #preparation;
+	readonly #priorPreparation;
 	readonly #roles;
 	readonly #run;
 	readonly #notify;
@@ -801,10 +811,30 @@ export class Engine {
 					context,
 				),
 		});
+		// The prior release's task keeps its exact meaning to drain work it admitted (spec §10 version policy); a human
+		// retry of the blocked handoff then stages actual preparation. New handoffs never stage it.
+		this.#priorPreparation = defineTask<{ assignment: string }, { phase: "blocked" }, null>({
+			name: "render.implementation-preparation",
+			version: 1,
+			initial: () => ({ phase: "blocked" }),
+			phases: {
+				blocked: async (task, runtime, context) => {
+					const owner = this.#assignment(task.input.assignment);
+					if (!owner) throw new Error("Missing sealed handoff owner");
+					const reply = await this.#command(owner, {
+						type: "recordPreparationBlocker",
+						reason: "preparation_capability_unavailable; Watchdog has not run",
+					});
+					if (reply.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${reply.code}`);
+					return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
+				},
+			},
+			abort: (_task, runtime, context) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
+		});
 		// Deterministic host work, not a role: Ledger state says which attempts exist, so a resumed task continues them.
 		this.#preparation = defineTask<{ assignment: string; from?: number }, { phase: "prepare"; scope?: ExecutionScope }, null>({
-			name: "render.implementation-preparation",
-			version: 2,
+			name: "render.target-preparation",
+			version: 1,
 			initial: () => ({ phase: "prepare" }),
 			phases: {
 				prepare: async (task, runtime, context) => {
@@ -837,7 +867,9 @@ export class Engine {
 	options(onReport: (error: unknown, info: ReportInfo) => void): RenderRuntimeOptions {
 		const registry = createRegistry();
 		registry.install(this.#roles);
-		registry.install(defineExtension({ name: "render.tasks", tasks: [this.#run, this.#notify, this.#preparation] }));
+		registry.install(
+			defineExtension({ name: "render.tasks", tasks: [this.#run, this.#notify, this.#preparation, this.#priorPreparation] }),
+		);
 		return {
 			models: this.#models,
 			registry,
@@ -1087,7 +1119,7 @@ export class Engine {
 							audit: implementation.audit ? { ...implementation.audit, reports: results } : undefined,
 						},
 						implementationInstructions:
-							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately. When implementation.opening is present this is a new pass after a retained handoff: the workspace starts from opening.base, the observation in inputs says why, predecessor source and reports are read-only references, and this pass needs its own Audit before its own handoff.",
+							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately. When implementation.opening is present this is a new pass after a retained handoff: the workspace starts from opening.base, the observation in inputs says why, predecessor source and reports are read-only references, and this pass needs its own Audit before its own handoff. After a preparation conflict, the retained preparation record in inputs holds Git's exact conflict output, and read-only originals are mounted at /candidates/implementation (B), /candidates/base (recorded base T0) and /candidates/target (T1); reapply and resolve in the writable workspace, never guess.",
 					}
 				: {}),
 			...(a.packet.experiment
@@ -1271,9 +1303,9 @@ export class Engine {
 		const check = this.#config.ownedChecks!.checks[a.packet.profile]!;
 		const previous = this.#workspaces.get(a.id);
 		if (previous && !previous.sealed) return previous;
+		const pass = this.#implementationPass(a);
 		let source = previous?.source;
 		if (!source) {
-			const pass = this.#implementationPass(a);
 			if (pass.workspace) {
 				const read = await this.#ledger!.artifact(scheduling, { read: pass.workspace });
 				if (!("content" in read)) throw new Error(`Restore exact workspace source ${pass.workspace}`);
@@ -1287,10 +1319,16 @@ export class Engine {
 					commit: pass.opening?.base ?? check.commit,
 				});
 		}
+		const readOnly = await this.#conflictOriginals(pass, check.repository);
+		const inputs = readOnly ? { ...source, readOnly } : source;
 		this.#implementationAdmitted.add(a.id);
 		let handle: SandboxHandle;
 		try {
-			handle = await this.#sandboxes!.prepare(this.#scope(a), check.profile, previous ? { source, after: previous.handle } : source);
+			handle = await this.#sandboxes!.prepare(
+				this.#scope(a),
+				check.profile,
+				previous ? { source: inputs, after: previous.handle } : inputs,
+			);
 		} catch (error) {
 			if (error instanceof SandboxInputRefusal && !previous) this.#implementationAdmitted.delete(a.id);
 			throw error;
@@ -1657,7 +1695,8 @@ export class Engine {
 				const ref = refs.length > from ? refs.at(-1) : undefined;
 				const latest = ref ? await this.#preparationRecord(ref) : undefined;
 				if (latest?.outcome === "operational") return;
-				if (latest?.outcome === "conflict" || latest?.outcome === "check-failure") return this.#returnToImplementation(owner, pass, latest);
+				if (latest && ["conflict", "check-failure", "verifier-defect"].includes(latest.outcome))
+					return this.#returnToImplementation(owner, pass, latest);
 				await faultBarrier("before-target-observe", `preparation-observe:${pass.ref}:${refs.length}`);
 				const observed = await this.#effects.perform({
 					type: "observe",
@@ -1745,6 +1784,8 @@ export class Engine {
 		try {
 			record.checks = await this.#checkPrepared(job, attempt, receipt.result);
 		} catch (error) {
+			if (error instanceof VerifierDefect)
+				return { ...record, outcome: "verifier-defect", reason: `prepared_verifier_defect: ${error.message}`.slice(0, 4096) };
 			return { ...record, reason: `prepared_check_operational_error: ${error instanceof Error ? error.message : error}`.slice(0, 4096) };
 		}
 		const status = record.checks.verification.status;
@@ -1756,9 +1797,23 @@ export class Engine {
 	async #checkPrepared({ owner, pass, check, save }: PreparationJob, attempt: number, x: Source): Promise<PreparedChecks> {
 		const selected = pass.configuration.verification;
 		const entry = x.entries.find((e) => e.path === selected.path && e.mode !== "120000");
-		if (!entry) throw new Error(`Prepared source has no selected verifier ${selected.path}`);
+		if (!entry) throw new VerifierDefect(`Prepared source has no selected verifier ${selected.path}`);
 		const digest = createHash("sha256").update(Buffer.from(entry.content, "base64")).digest("hex");
-		const catalog = selectCatalog(x, { ...selected, commit: x.commit, digest, receipts: [] });
+		// Everything here is read from X's own bytes before anything runs, so a refusal is a definition to repair, not an outage.
+		let catalog: SelectedCatalog;
+		try {
+			catalog = selectCatalog(x, { ...selected, commit: x.commit, digest, receipts: [] });
+		} catch (error) {
+			throw new VerifierDefect(error instanceof Error ? error.message : String(error));
+		}
+		const required = requiredCatalogRows(catalog.selection);
+		for (const name of required) {
+			const gap = rowDefinitionGap(
+				catalog.rows.find((r) => r.name === name),
+				catalog.ranks,
+			);
+			if (gap) throw new VerifierDefect(`Required row ${name}: ${gap}`);
+		}
 		const scope: ExecutionScope = {
 			assignment: owner.id,
 			generation: owner.generation,
@@ -1777,7 +1832,6 @@ export class Engine {
 				const { results, cleanup } = await this.#catalogResults(null, catalog, run);
 				const capture = await this.#sandboxes!.seal(handle);
 				const resultTree = treeOid(capture.entries, x.objectFormat);
-				const required = requiredCatalogRows(catalog.selection);
 				const rows = results.filter((r) => required.includes(r.name));
 				const runs = (r: CatalogResult) => [...r.steps, ...(r.sanity ? [r.sanity] : [])];
 				const failed = rows
@@ -1789,7 +1843,18 @@ export class Engine {
 				else if (cleanup.status !== "complete" || rows.some((r) => r.status === "unrun" || runs(r).some((s) => s.timedOut)))
 					status = "non-pass";
 				else if (failed.length) status = "failed";
-				else if (!required.every((name) => rows.some((r) => r.name === name && r.status === "completed"))) status = "non-pass";
+				else if (
+					!catalog.rows
+						.filter((row) => required.includes(row.name))
+						.every((row) =>
+							rowExecuted(
+								row,
+								results.find((r) => r.name === row.name),
+								digest,
+							),
+						)
+				)
+					status = "non-pass";
 				return {
 					verifierRevision: digest,
 					scope,
@@ -1819,30 +1884,29 @@ export class Engine {
 	/** Only a recorded validated conflict or real X check failure authorizes the return; Kernel applies cap and authority. */
 	async #returnToImplementation(owner: RoleAssignment, pass: ImplementationPass, record: PreparationRecord) {
 		const sealed = await this.#handoffSource(pass);
+		const p = record.preparation!;
+		// The recorded base is the pass's target-lineage T0 that Kernel bound when it accepted this record.
 		const lineage = {
-			schema: 1,
-			cause: record.outcome === "conflict" ? "preparation-conflict" : "prepared-check-failure",
 			repository: sealed.source.repository,
 			source: pass.handoff!.source,
 			sourceCommit: sealed.source.commit,
-			baseCommit: sealed.base.commit,
+			baseCommit: p.base,
 			targetCommit: record.target.commit,
 		};
-		const text = JSON.stringify(
-			record.outcome === "conflict"
-				? {
-						...lineage,
-						algorithm: record.preparation!.algorithm,
-						resultTree: record.preparation!.tree,
-						conflicts: record.preparation!.conflicts,
-					}
-				: {
-						...lineage,
-						preparedCommit: record.preparation!.result,
-						verifierRevision: record.checks!.verifierRevision,
-						failed: record.checks!.failed,
-					},
-		);
+		let observation: Record<string, unknown>;
+		if (record.outcome === "conflict")
+			observation = { cause: "preparation-conflict", ...lineage, algorithm: p.algorithm, resultTree: p.tree, conflicts: p.conflicts };
+		else if (record.outcome === "verifier-defect")
+			observation = { cause: "prepared-verifier-defect", ...lineage, preparedCommit: p.result, defect: record.reason };
+		else
+			observation = {
+				cause: "prepared-check-failure",
+				...lineage,
+				preparedCommit: p.result,
+				verifierRevision: record.checks!.verifierRevision,
+				failed: record.checks!.failed,
+			};
+		const text = JSON.stringify({ schema: 1, ...observation });
 		const reply = await this.#ledger!.command(
 			{
 				version: 1,
@@ -1876,10 +1940,25 @@ export class Engine {
 		const repository = this.#config.ownedChecks!.checks[a.packet.profile]!.repository;
 		try {
 			await this.#effects!.perform({ type: "resolve", repository, commit: pass.opening.base });
+			await this.#conflictOriginals(pass, repository);
 			return undefined;
 		} catch (error) {
 			return `implementation_opening_source_unavailable: ${pass.opening.base}: ${error}`.slice(0, 1900);
 		}
+	}
+	/** A conflict pass's read-only original B, T0 and T1 (spec §9.4), mounted beside its writable T1 workspace. */
+	async #conflictOriginals(pass: ImplementationPass, repository: string): Promise<Record<string, Source> | undefined> {
+		if (pass.cause !== "preparation-conflict" || !pass.opening) return undefined;
+		const read = async (ref: string) => {
+			const value = await this.#ledger!.artifact(scheduling, { read: ref });
+			if (!("content" in value)) throw new Error(`Restore exact conflict input ${ref}`);
+			return JSON.parse(value.content.toString());
+		};
+		const observation = (await read(pass.opening.observation)) as { source: string; baseCommit: string; targetCommit: string };
+		const sealed = ((await read(observation.source)) as { source: SourceReceipt }).source;
+		await this.#effects!.reconcile(sealed);
+		const resolve = (commit: string) => this.#effects!.perform({ type: "resolve", repository, commit });
+		return { implementation: sealed.source, base: await resolve(observation.baseCommit), target: await resolve(observation.targetCommit) };
 	}
 	#configurationBlocker(a: RoleAssignment): string | undefined {
 		if (a.packet.experiment && !this.#experiments) return "experiment_capability_unavailable";

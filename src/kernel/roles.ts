@@ -724,7 +724,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (
 			observation.source !== pass.handoff.source ||
 			observation.sourceCommit !== receipt.source.commit ||
-			observation.baseCommit !== receipt.base.commit ||
+			observation.baseCommit !== preparationBase(pass) ||
 			observation.repository !== receipt.source.repository
 		)
 			return refusal("stale_basis", "Result names other lineage than this pass's sealed source.");
@@ -759,7 +759,10 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		returned = observation;
 		configuration = pass.configuration;
 		const predecessor = pass.ref;
-		create({ ...a.packet, inputs: [...new Set([...a.packet.inputs, facts.ids.revision!])] }, a.slice, a.delivery, null, null);
+		// A conflict successor also reads the exact retained record: Git's own conflict output and the B/T0/T1 it merged.
+		const conflict = observation.cause === "preparation-conflict" ? pass.handoff.preparations?.at(-1) : undefined;
+		const inputs = [...a.packet.inputs, facts.ids.revision!, ...(conflict ? [conflict] : [])];
+		create({ ...a.packet, inputs: [...new Set(inputs)] }, a.slice, a.delivery, null, null);
 		Object.assign(result, { predecessorPass: predecessor, observation: facts.ids.revision!, document0: facts.ids.revision! });
 	} else if (c.type === "requestRole") {
 		if (a?.passRef) return refusal("forbidden_scope", "Accepted implementation requires its pass-bound paired Audit on retained source.");
