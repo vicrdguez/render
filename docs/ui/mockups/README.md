@@ -1,62 +1,112 @@
-# Mockups: HTML-prototype renders, not GPUI
+# Mockups: renders of the Brief prototype
 
-Every image here is a **render of the HTML prototype**, not of the GPUI client, against the scripted fake host.
-- **Size:** 1512 × 982 logical px (a maximised 14″ MacBook Pro window), unless the name ends in `-800` (an 800 px wide window).
-- **Variant:** `ember` (dark, the default) unless the name says `-soft` or `-light`.
+Every image here is a headless Chromium render of the HTML prototype (`~/dev/render-ui-design/experiments/e10-modern/proto/`, `node build.mjs`), driven by a scripted fake host. None is a rune render.
+- **Size:** 1512 × 982 logical px (a maximised 14″ MacBook Pro window), unless the name ends in `-800` or `-1200` (an 800 or 1200 px wide window).
+- **Variant:** Ember dark, the default, unless the name starts with `light-`.
+- **Build:** the final run, 2026-11-06 19:58 (+04), against the settled spec text. Its checks are in [`../evidence.md`](../evidence.md) §1.
 
-They show layout, type and copy as of their build. They do not show GPUI's text rendering, real fonts at native hinting, or GPUI performance.
+The images show layout, type, colour and copy. They don't show rune's text rendering, its wrapping or pills, real font hinting, or performance. **The spec's text wins over any image.** The frame regions, outlined and labelled with their pixel boxes, are in [`../wireframes/`](../wireframes/).
 
-**Every `proto-*` image predates the current colour system** (`reference/visual-language.md` §5.3–§5.6), so read their colours as history. The captions don't repeat this.
+## Where the renders differ from the text
 
-## Colour reference
-
-The `colour-*` images show the current colour system, from the final colour render (`experiments/e9-colour/png/final/`, 1512 px). They are prototype renders: IDs are coloured by a text match standing in for the client's typed fields, so a few differ from the rules. In particular, `Q1` and `op9` in the queue's reason column should be neutral. Differences per image:
-
-| File | Shows | Not current or not real |
+| Images | What the render shows | What the text says |
 |---|---|---|
-| `colour-SC-02-queue-ember.png` | Count tags, plain coral diamonds, the coral `NEEDS YOU` caption, steel labels, sage projects, orange IDs and key chips, role hues | — |
-| `colour-SC-02-calm-ember.png` | The calm queue: colour, and nothing that reads as needs-you | OWNER prints `undefined`, a fake-host glitch |
-| `colour-SC-03-chat-ember.png` | Roles and IDs in a transcript | — |
-| `colour-SC-04-review-ember.png` | `h2` orange beside gold inline code and code frames, salmon references, thin coral on the cursor bar and tab | — |
-| `colour-SC-04-markdown-ember.png` | Inline forms and heading levels: `h1` rose, `h2` orange, `h3` and below in `fg`, bold steel, neutral italic, salmon links and references | The frontmatter line's `za` isn't a chip in this build |
-| `colour-h1-h2-code-frame-ember.png` | `h1`, `h2` and a gold-ruled code frame together | Injected document |
-| `colour-rose-h1-beside-failure-ember.png` | A rose `h1` in the same pane as a failed tool block | Injected title, about 340 px from the block |
-| `colour-SC-09-readback-ember.png` | The grey readback, verb tag, solid `READBACK` badge, steel field names | — |
-| `colour-SC-19-package-ember.png` | The quiet Slice rows with K and columns next to the name, CHECKS, BLOCKER, top-bar tags | CHECKS and BLOCKER are hard-coded spec text |
-| `colour-SC-02-queue-light.png`, `colour-SC-04-markdown-light.png` | Light | As their Ember versions |
-| `colour-SC-04-review-soft.png` | Soft | As its Ember version |
+| `brief-heavy` | `20 more below`: 10 Waiting rows fit under Needs you and On the host at 1512 × 982 | `↓ 15 more below` |
+| `review-delegated` | modules r2 delegated: the Track's current stage is Modules with the bot icon | The delegated example is render-cli seams r1: `✓ Ground — ⚙ Seams — ◌ Modules — ◌ Proposal — ◌ Record` |
+| `brief-k`, `frame-leader`, `list-slices-k`, `list-slices-filter`; `decision-insert` | Under a float, the `⏎` chip on a solid coral head is hidden, not muted. In Insert, the coral `◆ ␣ad Answer Q1` takes the muted neutral shape | Every chip and segment outside a float, and the Track row's chips in Insert, are `fg.muted` and inert. A muted chip on coral is 1.3:1, so the render hides or neutralises it |
 
-## Older renders
+## The Brief (SC-02)
 
-**No single build carries the whole spec, and the images were not re-rendered for the last design pass. The spec's text wins over any image.** Each caption in [`spec.md`](../spec.md) says what its render gets wrong. Four places matter most, because the old picture shows something now wrong rather than merely missing:
+- `brief-landing.png`: the landing view after an hour away: the since line, the cursor on the needs-you head of `Direction on Q1`, Running on the right with each row's `lastActivity` on the content bar and its host time.
+- `brief-nothing-changed.png`: back after an hour with no row moved: `away 1 h · nothing changed`, no strong titles.
+- `brief-k.png`: `K` on `Answer Q1`, the handover in full in the bottom float, its footer `j k move · ⏎ opens · ␣n opens next · K closes`; the cursor entry stays above it and everything outside is muted.
+- `brief-since-list.png`: `za` opens the since-you-left list, five rows with their before and after groups.
+- `brief-never-left.png`: you never left, so no since line.
+- `brief-since-offline.png`: the since line after the client was offline.
+- `brief-since-restore.png`: the since line after the host was restored from a backup.
+- `brief-merge.png`: a merge entry, with the needs-you head on `Merge main · on the forge`.
+- `brief-cancelled-slot.png`: a cancelled run still holding its slot, with the hollow slot pip.
+- `brief-heavy.png`: 30 waiting rows, the 2 px coral bar on a non-needs-you row, and `20 more below`.
+- `brief-800.png`: the Brief at 800 px, one column.
+- `brief-1200.png`: the Brief at 1200 px, columns 632 and 416 (`layout.md` §0.1).
+- `light-brief.png`: the Brief in Light.
 
-| Screen | Image | What is wrong in it |
-|---|---|---|
-| **SC-07** | `proto-SC-07-pass-lineage-ember.png` (lineage build; replaces the older render, which called the Audit "behind") | Strip NEXT prints `␣ad` (should be `␣n`); COMMITMENT is cut (see spec §2.1); the bufferline prints seq and time; the INTEGRATION panel's wording is older |
-| **SC-10d** | `proto-SC-10d-op9-recovery-ember.png` (readiness build; replaces the older render, which called reissue deferred) | The DECIDE line prints `then ␣ad` (should be `⏎` only); the title should read `create draft proposal PR` |
-| **SC-09** | `proto-SC-09-*.png` (kept: every later build is wrong on the same point) | BINDS lacks `request … captured`, and shows a bare dash where the spec has `none`; the stale readback's `d` isn't a chip and its key bar isn't `confirm disabled` |
-| **SC-02** | `proto-SC-02-queue-merge-row-ember.png` (package build); `proto-SC-02-queue-ember-*.png` and `proto-CALM-queue-ember.png` are older | Package build: BLOCKER should read `none · 1 uncertainty`; no statusline counts; no bufferline seq or time. Older: the PROPOSALS block and legend, `rework 1/2`, card NEXT `␣ad` |
+## Frame (SC-01, SC-10h, SC-11, SC-12)
 
-**Other differences:**
-- **SC-19 (package build):** not drawn: the CHECKS line, BLOCKER `none · 1 uncertainty`, Slice columns next to the name with K.
-- **SC-04 and SC-01:** older: class letters and legend, DECISION segment, bufferline seq and time.
-- **SC-16 Proposals (package build):** line 2 is current; the frame is older.
-- **SC-17 (settings build):** the settings view is current; the frame is older.
-- **SC-10h (host restored):** the spec's copy was rewritten in plain words after this render.
-- **SC-14 diagrams:** drawn by mermaid.js as a stand-in for Pele. Label sizing, and one note box in Figure 1, differ from what Pele with the Etoile measurer will produce.
-- **Host segment:** older renders run it into `seq`.
+- `frame-tags-calm.png`: the calm state, nothing needs you and no coral fill; the `?` tag stays.
+- `frame-host-late.png`: the host segment when backups fall behind: `unprotected since seq 18340 · 7 m`.
+- `frame-host-offline.png`: the review offline with 1 draft on M5 ¶1; rework and approve are off with a dashed edge, and the draft stays on this device.
+- `frame-host-restore.png`: the host restored from a backup, with the notice on the Brief (SC-10h).
+- `frame-leader.png`: which-key after `␣`, with `␣ views`; the pending `␣` is in the statusline and everything outside the float is muted.
+- `frame-leader-a.png`: which-key after `␣a` in the review (SC-12).
+- `frame-cmdline.png`: the `:` line in the bottom float, with completions (SC-11).
+- `frame-status-visual.png`: V-LINE in the review, two paragraphs selected, the VISUAL badge.
 
-| File | Screen |
-|---|---|
-| `colour-*.png` | The colour reference above |
-| `proto-SC-01-frame-ember*.png` | SC-01 workspace frame |
-| `proto-SC-02-queue-merge-row-ember.png`, `proto-SC-02-queue-ember-*.png`, `proto-CALM-queue-ember.png` | SC-02 needs-me queue, and the calm state |
-| `proto-SC-03-chat-*.png` | SC-03 chat: main, expanded tool call, candidate (Soft), Light, 800 px |
-| `proto-SC-04-*.png` | SC-04 review, note-here, empty notes, and Markdown (Light, cursor, breakout, code, table at 800) |
-| `proto-SC-05-*.png`, `proto-SC-06-*.png`, `proto-SC-07-pass-lineage-ember.png` | SC-05 diff, SC-06 dispositions, SC-07 evidence |
-| `proto-SC-08-agents-ember.png`, `proto-SC-16-agents-ember.png` | SC-08, which is the explorer's Agents tab |
-| `proto-SC-09-*.png` | SC-09 decision, decision readback, approve readback (Light), stale readback |
-| `proto-SC-10*.png` | SC-10 a–e and h |
-| `proto-SC-11-*.png` … `proto-SC-16-*.png` | picker, which-key, hints, diagrams, reading, explorer |
-| `proto-SC-17-*.png` | SC-17 project settings and a routing readback |
-| `proto-SC-19-package-ember*.png` | SC-19 merge package |
+## Chat (SC-03)
+
+- `chat-stream.png`: the coordinator transcript while it streams.
+- `chat-tools.png`: a folded tool call under the cursor.
+- `chat-steer.png`: INSERT in the steer composer, with no pencil icon; the footer prints only Insert keys.
+- `chat-idle.png`: the transcript after the turn ends.
+- `chat-new.png`: a new chat with no transcript.
+
+## Review (SC-04, with SC-05 and SC-06 as lenses)
+
+- `review-notes.png`: modules r2 with margin notes, the previous round and the challenger summary.
+- `review-composer.png`: INSERT in a note composer on M4 ¶2; the note stays on this device until you save, and the Track row's chips and `:w` are muted.
+- `review-changes.png`: the compare lens, change 5 of 7, r1 → r2.
+- `review-dismissed.png`: a dismissed note `@6` with the coordinator's reason.
+- `review-wide.png`: an interface line wider than the measure, and the margin note stubbed below it.
+- `review-hint.png`: the `+ note c` affordance in the margin beside the cursor paragraph, in a saved review.
+- `review-readback-fresh.png`: the approve readback, fresh, with the READBACK badge and the solid verb tag.
+- `review-readback-stale.png`: the approve readback, stale, confirm off.
+- `review-readback-changed.png`: the approve readback when the annotations move while it is open.
+- `review-readback-rework.png`: the rework readback.
+- `review-delegated.png`: a review delegated to an agent, with the bot icon instead of the ◆, the slot `delegated (s3) · agent decides · saved notes must be answered first` and `␣ax cancel`.
+- `review-spoof.png`: the Contested section, whose content imitates an approval; it is content, not chrome.
+- `review-800.png`: the review at 800 px, with the notes inline.
+- `review-1200.png`: the review at 1200 px: text column 288–888, notes 928–1184 (`layout.md` §0.1).
+- `light-review-notes.png`: the review in Light.
+- `light-readback-fresh.png`: the fresh approve readback in Light.
+
+## Decision (SC-09)
+
+- `decision-q1.png`: Q1 with its three options and the evidence that bears on them.
+- `decision-insert.png`: INSERT in the answer's composer; the footer prints only Insert keys.
+- `decision-readback.png`: the answer readback.
+- `decision-800.png`: the decision at 800 px.
+
+## Evidence (SC-07)
+
+- `evidence-chain.png`: the evidence chain for Execute symbolic Calls.
+- `evidence-findings.png`: the findings, cursor on F16, needs-human, which leads to Q1.
+- `evidence-matrix.png`: the obligation matrix, cursor on A1.
+- `evidence-passes.png`: the pass list, cursor on the historical pass 1.
+- `evidence-web.png`: a retained web passage, shown as content.
+
+## Proposal page (SC-19)
+
+- `proposal-eligible.png`: the proposal page with the at-target coral primary `␣n Merge main · on the forge`.
+- `proposal-not-eligible.png`: the same page not eligible, the primary disabled.
+- `proposal-slices.png`: the Slices section of the proposal page.
+- `proposal-url.png`: the forge URL float.
+- `proposal-800.png`: the proposal page at 800 px.
+
+## Lists (SC-08, SC-16)
+
+- `list-slices.png`: the Slices list filtered to needs human and awaiting review, the needs-you head on the cursor row, the peek on.
+- `list-slices-filter.png`: the filter float (`␣sf`).
+- `list-slices-k.png`: `K` on a Slice; the peek gives way while the handover is open.
+- `list-slices-empty.png`: a filter with no matches in its scope, pointing to the match elsewhere.
+- `list-proposals.png`: the Proposals list (`␣oP`) with the peek.
+- `list-agents.png`: the Agents list with an assignment preview (SC-08).
+
+## States (SC-10)
+
+- `states-offline.png`: the Brief offline, with the notice and no since line.
+- `states-fresh.png`: reconnected to a fresh snapshot, with the `[!]` gutter on the changed paragraph.
+- `states-stale-basis.png`: the stale-basis reply to an approve.
+- `states-unknown.png`: the outbox, 1 unknown, 1 waiting, 2 refused, with the slot `? rework request · no reply since 14:09:30`.
+- `states-op9.png`: the operation view for `op9`, an effect with an unknown outcome.
+- `states-revoked.png`: the review when this device's access is revoked.
+- `states-cant-show.png`: content missing on the host.
