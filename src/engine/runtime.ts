@@ -34,6 +34,7 @@ import {
 	type PreparedChecks,
 	preparationBase,
 } from "../kernel/implementation.ts";
+import { bindingFor, type PolicyState } from "../kernel/policy.ts";
 import {
 	currentChildren,
 	type ImplementationPass,
@@ -1825,10 +1826,16 @@ export class Engine {
 			throw new VerifierDefect(error instanceof Error ? error.message : String(error));
 		}
 		const required = requiredCatalogRows(catalog.selection);
+		const frame = this.#ledger!.snapshot(scheduling);
+		if (!("policy" in frame)) throw new Error("Current policy is unavailable.");
+		const policy = frame.policy as PolicyState;
+		// The workflow's current policy, as at handoff: X's behavioral evidence must still reach its minimum rank.
+		const minimum = policy.revisions[bindingFor(policy, owner.workflow).policy]!.minimumEvidenceRank;
 		for (const name of required) {
 			const gap = rowDefinitionGap(
 				catalog.rows.find((r) => r.name === name),
 				catalog.ranks,
+				catalog.selection.behavioralRows.includes(name) ? minimum : undefined,
 			);
 			if (gap) throw new VerifierDefect(`Required row ${name}: ${gap}`);
 		}

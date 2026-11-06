@@ -57,10 +57,16 @@ export function selectionRowsComplete(selection: VerificationSelection): boolean
 	);
 }
 
-/** Why a selected row cannot prove required behavior by its own definition, before anything runs. */
-export function rowDefinitionGap(row: CatalogRow | undefined, ranks: readonly string[]): string | undefined {
+/**
+ * Why a selected row cannot prove required behavior by its own definition, before anything runs. A behavioral row
+ * also passes the policy's `minimum` rank (null: any ladder rank); omit `minimum` for full-suite/typecheck/lint.
+ */
+export function rowDefinitionGap(row: CatalogRow | undefined, ranks: readonly string[], minimum?: string | null): string | undefined {
 	if (!row || !["executed", "journey"].includes(row.kind)) return "Discovery/human/missing rows cannot prove behavior.";
 	if (!ranks.includes(row.rank ?? "")) return "Row rank is not in the selected project ladder.";
+	if (!minimum) return undefined;
+	if (!ranks.includes(minimum)) return `Project minimum rank ${minimum} is not in the selected project ladder.`;
+	if (ranks.indexOf(row.rank ?? "") > ranks.indexOf(minimum)) return `Row rank ${row.rank} is below the project minimum ${minimum}.`;
 	return undefined;
 }
 /** One successful independent execution of a row against exactly this verifier revision. */
