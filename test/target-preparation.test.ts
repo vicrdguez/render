@@ -232,14 +232,14 @@ test("TP26: the repository's target-preparation catalog row is selectable and ex
 	const path = ".render/verify.md";
 	const bytes = await readFile(join(import.meta.dirname, "..", path));
 	const commit = "a".repeat(40);
-	const source = {
+	const source: Source = {
 		repository: "render",
 		objectFormat: "sha1",
 		commit,
 		tree: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
 		root: "refs/render/source/literal",
-		entries: [{ path, mode: "100644", content: bytes.toString("base64") }],
-	} as unknown as Source;
+		entries: [{ path, mode: "100644", oid: "0".repeat(40), content: bytes.toString("base64") }],
+	};
 	const rows = ["target-preparation", "full-suite", "typecheck", "lint"];
 	const catalog = selectCatalog(source, {
 		repository: "render",

@@ -156,8 +156,8 @@ const RETURN_FIELDS = {
 	"watchdog-rework": ["preparedCommit", "review", "report"],
 } as const;
 const LAUNCH_FAILURES = [126, 127];
-/** Matches the bound on a recorded preparation reason, so a verifier defect is returned verbatim. */
-const DEFECT_BYTES = 4096;
+/** Bound on a recorded preparation reason; a verifier defect returns that reason verbatim, so both share it. */
+export const PREPARATION_REASON_BYTES = 4096;
 const objectId = (format: unknown) => (x: unknown) =>
 	typeof x === "string" && x.length === (format === "sha1" ? 40 : 64) && /^[0-9a-f]+$/.test(x);
 /** Closed shape only: lineage against retained B and any cited review belong to the caller's current state. */
@@ -177,7 +177,7 @@ export function returnObservation(value: string, source: ImplementationSource): 
 		if (!id(v.preparedCommit)) return;
 		if (v.cause === "watchdog-rework") return text(v.review) && text(v.report) ? (v as ReturnObservation) : undefined;
 		if (v.cause === "prepared-verifier-defect")
-			return text(v.defect) && v.defect.length <= DEFECT_BYTES ? (v as ReturnObservation) : undefined;
+			return text(v.defect) && v.defect.length <= PREPARATION_REASON_BYTES ? (v as ReturnObservation) : undefined;
 		const rows = source.verification?.catalog.rows.map((row) => row.name) ?? [];
 		return text(v.verifierRevision) &&
 			Array.isArray(v.failed) &&
@@ -253,7 +253,8 @@ export function preparationRecord(value: string, format: "sha1" | "sha256"): Pre
 		if (!object(t) || !closed(t, ["proposal", "ref", "commit"]) || !text(t.proposal) || !text(t.ref) || !id(t.commit)) return;
 		if (!["checked", "check-failure", "conflict", "operational", "verifier-defect"].includes(String(v.outcome))) return;
 		const reasoned = v.outcome === "operational" || v.outcome === "verifier-defect";
-		if (reasoned !== text(v.reason) || (v.reason !== null && !text(v.reason)) || String(v.reason ?? "").length > DEFECT_BYTES) return;
+		if (reasoned !== text(v.reason) || (v.reason !== null && !text(v.reason)) || String(v.reason ?? "").length > PREPARATION_REASON_BYTES)
+			return;
 		const p = v.preparation;
 		if (p !== null) {
 			const keys = ["kind", "algorithm", "profile", "git", "identity", "base", "source", "target", "result", "tree", "conflicts"];

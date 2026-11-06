@@ -27,7 +27,13 @@ import {
 } from "@earendil-works/pi-durable";
 import { Effects, type PreparationReceipt, type Source, type SourceReceipt, type TargetObservation, treeOid } from "../effects/source.ts";
 import { experimentInputs } from "../kernel/experiments.ts";
-import { auditReviewerPacket, type PreparationRecord, type PreparedChecks, preparationBase } from "../kernel/implementation.ts";
+import {
+	auditReviewerPacket,
+	PREPARATION_REASON_BYTES,
+	type PreparationRecord,
+	type PreparedChecks,
+	preparationBase,
+} from "../kernel/implementation.ts";
 import {
 	currentChildren,
 	type ImplementationPass,
@@ -1704,6 +1710,8 @@ export class Engine {
 					proposal: owner.workflow,
 					initial: check.commit,
 				});
+				// Debt: Watchdog launch and its final pre-launch reobservation are not wired yet, so a checked pass waits here
+				// as a visible blocker; a target that moves after this needs an explicit retry to be prepared again.
 				if (latest && latest.target.commit === observed.target.commit)
 					return block(
 						`awaiting_watchdog: prepared ${latest.preparation!.result} checked on current target ${observed.target.commit}; Watchdog capability unavailable`,
@@ -1762,7 +1770,10 @@ export class Engine {
 			const base = await this.#effects!.perform({ type: "resolve", repository: sealed.source.repository, commit: preparationBase(pass) });
 			receipt = await this.#effects!.perform({ type: "prepare", base, source: sealed.source, target: observed.target });
 		} catch (error) {
-			return { ...record, reason: `preparation_operational_error: ${error instanceof Error ? error.message : error}`.slice(0, 4096) };
+			return {
+				...record,
+				reason: `preparation_operational_error: ${error instanceof Error ? error.message : error}`.slice(0, PREPARATION_REASON_BYTES),
+			};
 		}
 		record.preparation = {
 			kind: receipt.kind,
@@ -1785,8 +1796,15 @@ export class Engine {
 			record.checks = await this.#checkPrepared(job, attempt, receipt.result);
 		} catch (error) {
 			if (error instanceof VerifierDefect)
-				return { ...record, outcome: "verifier-defect", reason: `prepared_verifier_defect: ${error.message}`.slice(0, 4096) };
-			return { ...record, reason: `prepared_check_operational_error: ${error instanceof Error ? error.message : error}`.slice(0, 4096) };
+				return {
+					...record,
+					outcome: "verifier-defect",
+					reason: `prepared_verifier_defect: ${error.message}`.slice(0, PREPARATION_REASON_BYTES),
+				};
+			return {
+				...record,
+				reason: `prepared_check_operational_error: ${error instanceof Error ? error.message : error}`.slice(0, PREPARATION_REASON_BYTES),
+			};
 		}
 		const status = record.checks.verification.status;
 		if (status === "passed") return { ...record, outcome: "checked" };
@@ -1884,25 +1902,31 @@ export class Engine {
 	/** Only a recorded validated conflict or real X check failure authorizes the return; Kernel applies cap and authority. */
 	async #returnToImplementation(owner: RoleAssignment, pass: ImplementationPass, record: PreparationRecord) {
 		const sealed = await this.#handoffSource(pass);
-		const p = record.preparation!;
+		const prepared = record.preparation!;
 		// The recorded base is the pass's target-lineage T0 that Kernel bound when it accepted this record.
 		const lineage = {
 			repository: sealed.source.repository,
 			source: pass.handoff!.source,
 			sourceCommit: sealed.source.commit,
-			baseCommit: p.base,
+			baseCommit: prepared.base,
 			targetCommit: record.target.commit,
 		};
 		let observation: Record<string, unknown>;
 		if (record.outcome === "conflict")
-			observation = { cause: "preparation-conflict", ...lineage, algorithm: p.algorithm, resultTree: p.tree, conflicts: p.conflicts };
+			observation = {
+				cause: "preparation-conflict",
+				...lineage,
+				algorithm: prepared.algorithm,
+				resultTree: prepared.tree,
+				conflicts: prepared.conflicts,
+			};
 		else if (record.outcome === "verifier-defect")
-			observation = { cause: "prepared-verifier-defect", ...lineage, preparedCommit: p.result, defect: record.reason };
+			observation = { cause: "prepared-verifier-defect", ...lineage, preparedCommit: prepared.result, defect: record.reason };
 		else
 			observation = {
 				cause: "prepared-check-failure",
 				...lineage,
-				preparedCommit: p.result,
+				preparedCommit: prepared.result,
 				verifierRevision: record.checks!.verifierRevision,
 				failed: record.checks!.failed,
 			};
