@@ -18,5 +18,12 @@ Acceptance oracles written before product changes. These are requirements, not r
 | TP12 | Operational verification failure or unchanged-source retry | retain B/pass/Audit; operational blockage and explicit safe retry | Engine/Ledger |
 | TP13 | T2 arrives between verification and review launch | prepare/recheck T2; no stale Watchdog launch, no new pass or Audit | Engine/Effects |
 | TP14 | Pause/restart/agent failure after retained preparation | exact immutable records/export and scoped continuation, no duplicate transitions | Ledger/Engine |
+| TP15 | First observation of a proposal with no canonical ref | Effects creates the host-private `refs/render/proposals/<sha256(proposal)>` at the host-configured base, expected-absent; a later different initial cannot rebind it | Effects.perform observe |
+| TP16 | Host moves the canonical ref; an upstream/forge branch moves | observation returns the host ref's rooted commit; upstream branches never become T | Effects.perform observe |
+| TP17 | Canonical ref names a blob | operational error, no target | Effects.perform observe |
+| TP18 | Preparation record from scheduling/agent principal, before handoff, out of order, other lineage, malformed or after a successor | refused without pass changes; one record per attempt; replay returns the same receipt | Ledger/Kernel |
+| TP19 | Operational record, then retry | blocker retained; retry is human-only, only while settled, keeps pass/B/Audit and stages one new preparation; no retry after a successor | Ledger/Kernel |
+| TP20 | Retained records after reopen/export | records exported and readable by the successor owner, not by its fresh reviewers | Ledger |
+| TP21 | Clean P1 whose B already includes the canonical T | fast path X=B after validation; actual Linux checks on X; reobserved unchanged T leaves a visible awaiting-Watchdog blocker; zero Watchdog Assignments | Engine/Effects/Sandboxes/Ledger |
 
-Effects-only cases do not establish Engine orchestration, Ledger acceptance, actual Linux checks, review judgments, or full V8/V9. Those remain explicit coverage obligations until their real seams are exercised. Run narratives and raw output belong outside the source tree.
+Effects-only cases do not establish Engine orchestration, Ledger acceptance, actual Linux checks, review judgments, or full V8/V9. Those remain explicit coverage obligations until their real seams are exercised. Watchdog launch, its final pre-launch reobservation and the canonical CAS belong to later Slices; TP13 here covers reobservation after X checks. Run narratives and raw output belong outside the source tree.

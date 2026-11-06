@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { Effects } from "../src/effects/source.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
@@ -132,3 +133,96 @@ test("empty exit 1, truncated output, false-clean output and SIGABRT remain diag
 		await f.close();
 	}
 });
+
+const storeOf = (root: string) => join(root, "effects", createHash("sha256").update("owned").digest("hex"), "source.git");
+const proposalRef = (proposal: string) => `refs/render/proposals/${createHash("sha256").update(proposal).digest("hex")}`;
+
+test("canonical observation binds the host-private proposal ref once and follows only host ref updates", async () => {
+	const f = await fixture();
+	try {
+		const observe = { type: "observe" as const, repository: "owned", proposal: "workflow:2", initial: f.commit };
+		const first = await f.effects.perform(observe);
+		assert.equal(first.proposal, "workflow:2");
+		assert.equal(first.ref, proposalRef("workflow:2"));
+		assert.deepEqual(first.target, f.base, "initial binding is the exact rooted host-configured base");
+		const store = storeOf(f.root);
+		assert.equal(git(store, ["rev-parse", first.ref]).toString().trim(), f.commit);
+		assert.deepEqual((await f.effects.perform({ ...observe, initial: f.target.commit })).target, f.base, "no rebinding");
+		git(f.repo, ["update-ref", "refs/heads/proposal/render", f.source.commit]);
+		assert.deepEqual((await f.effects.perform(observe)).target, f.base, "an upstream/forge branch never becomes T");
+		git(store, ["update-ref", first.ref, f.target.commit, f.commit]);
+		assert.deepEqual((await f.effects.perform(observe)).target, f.target, "a host canonical update is observed");
+		const other = await f.effects.perform({ ...observe, proposal: "workflow:3", initial: f.source.commit });
+		assert.deepEqual(other.target, f.source, "each proposal has its own binding");
+		const blob = git(store, ["hash-object", "-w", "--stdin"], "not a commit").toString().trim();
+		git(store, ["update-ref", first.ref, blob]);
+		await assert.rejects(f.effects.perform(observe), /commit/i);
+		await assert.rejects(f.effects.perform({ ...observe, proposal: "workflow:4", initial: "f".repeat(40) }));
+		assert.equal(git(store, ["for-each-ref", proposalRef("workflow:4")]).toString(), "", "unresolvable initial binds nothing");
+	} finally {
+		await f.close();
+	}
+});
+
+test("a host-rooted prepared commit resolves without upstream fetch; unknown commits still refuse", async () => {
+	const f = await fixture();
+	try {
+		const prepared = await f.effects.perform({ type: "prepare", base: f.base, source: f.source, target: f.target });
+		assert.throws(() => git(f.repo, ["cat-file", "-e", prepared.result.commit]), "X exists only in host-private Git");
+		assert.deepEqual(await f.resolve(prepared.result.commit), prepared.result);
+		await assert.rejects(f.resolve("e".repeat(40)));
+	} finally {
+		await f.close();
+	}
+});
+
+test("receipt identity binds the trusted Git profile and algorithm", async () => {
+	const f = await fixture();
+	try {
+		const result = await f.effects.perform({ type: "prepare", base: f.base, source: f.source, target: f.target });
+		assert.match(result.profile, /^render-trusted-git\/v1/);
+		assert.equal(
+			result.identity,
+			createHash("sha256")
+				.update(JSON.stringify(["owned", f.base.commit, f.source.commit, f.target.commit, result.algorithm, result.profile, result.git]))
+				.digest("hex"),
+		);
+	} finally {
+		await f.close();
+	}
+});
+
+// TP09: each hostile default-attribute source alone must not turn a real conflict clean. The direct Git run proves the
+// fixture really is hostile; the unsafe controls inherit exactly one variable and must be caught by these assertions.
+async function hostileAttributes(variable: "HOME" | "XDG_CONFIG_HOME") {
+	const f = await fixture();
+	const saved = { HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
+	try {
+		const source = await f.resolve(commit(f.repo, { common: "implementation\n" }, [f.commit]));
+		const target = await f.resolve(commit(f.repo, { common: "target\n" }, [f.commit]));
+		const hostile = join(f.root, `hostile-${variable}`);
+		const empty = join(f.root, "empty-home");
+		const file = join(hostile, variable === "HOME" ? ".config/git/attributes" : "git/attributes");
+		await mkdir(dirname(file), { recursive: true });
+		await mkdir(empty, { recursive: true });
+		await writeFile(file, "* merge=union\n");
+		const env = variable === "HOME" ? { HOME: hostile } : { HOME: empty, XDG_CONFIG_HOME: hostile };
+		const direct = spawnSync("git", ["--git-dir", f.repo, "merge-tree", "--write-tree", source.commit, target.commit], {
+			env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: "1", ...env },
+		});
+		assert.equal(direct.status, 0, "fixture sanity: the hostile default attributes union-merge this conflict in ordinary Git");
+		process.env.HOME = env.HOME;
+		if (env.XDG_CONFIG_HOME) process.env.XDG_CONFIG_HOME = env.XDG_CONFIG_HOME;
+		else delete process.env.XDG_CONFIG_HOME;
+		const result = await f.effects.perform({ type: "prepare", base: f.base, source, target });
+		assert.equal(result.kind, "conflict", `${variable}-only hostile default attributes changed a real conflict`);
+		assert.deepEqual(result.conflicts, ["common"]);
+	} finally {
+		for (const [key, value] of Object.entries(saved))
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		await f.close();
+	}
+}
+test("HOME-only hostile default attributes cannot turn a real conflict clean", () => hostileAttributes("HOME"));
+test("XDG-only hostile default attributes cannot turn a real conflict clean", () => hostileAttributes("XDG_CONFIG_HOME"));

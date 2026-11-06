@@ -1311,6 +1311,32 @@ const CONTROLS: Control[] = [
 		test: "test/workflow-task-survival.test.ts",
 		pattern: "R02",
 	},
+	{
+		name: "preparation-inherits-home-attributes",
+		expect: /HOME-only hostile default attributes changed a real conflict/,
+		behavior: "trusted preparation Git reads default attributes through the caller's HOME",
+		edits: [
+			{ file: "src/effects/source.ts", find: '\t\t\t\t\t"-c",\n\t\t\t\t\t"core.attributesFile=/dev/null",\n', replace: "" },
+			{ file: "src/effects/source.ts", find: "\t\t\t\t\t\tHOME: cwd,\n", replace: "\t\t\t\t\t\tHOME: process.env.HOME,\n" },
+		],
+		test: "test/target-preparation.test.ts",
+		pattern: "HOME-only hostile",
+	},
+	{
+		name: "preparation-inherits-xdg-attributes",
+		expect: /XDG_CONFIG_HOME-only hostile default attributes changed a real conflict/,
+		behavior: "trusted preparation Git reads default attributes through the caller's XDG_CONFIG_HOME",
+		edits: [
+			{ file: "src/effects/source.ts", find: '\t\t\t\t\t"-c",\n\t\t\t\t\t"core.attributesFile=/dev/null",\n', replace: "" },
+			{
+				file: "src/effects/source.ts",
+				find: "\t\t\t\t\t\tHOME: cwd,\n",
+				replace: "\t\t\t\t\t\tHOME: cwd,\n\t\t\t\t\t\tXDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,\n",
+			},
+		],
+		test: "test/target-preparation.test.ts",
+		pattern: "XDG-only hostile",
+	},
 ];
 
 async function copy(): Promise<string> {
