@@ -432,16 +432,19 @@ test("TP01/TP11/TP13: clean merge, drift after combined checks and a failing X c
 });
 
 /** A target verifier defect on clean X: one non-pass record, then a verifier-repair pass from X with no check, Audit or Watchdog. */
-async function verifierDefect(verifier: (text: string) => string, defect: RegExp) {
+async function verifierDefect(verifier: (text: string) => string, defect: RegExp, suite = "exit 17\n") {
 	const t = await fixture({ successorStops: true });
 	try {
 		const h = await preparedHarness(t);
 		const suiteLine = /^\| full-suite \| Process \| executed \| `sh verify-suite` \| SUITE OK \| tests \|$/m;
 		assert.match(t.f.text, suiteLine, "fixture verifier defines an executable full-suite row");
-		// The actual suite now fails: a discovery row standing in for it must never let X pass.
-		const T1 = advanceVerifier(h.store, h.base, verifier(t.f.text), "exit 17\n");
+		// TP22/TP23: the actual suite now fails, so a defective row standing in for it must never let X pass.
+		const T1 = advanceVerifier(h.store, h.base, verifier(t.f.text), suite);
 		releaseBarrier();
-		await t.wait(() => h.passes().length === 2, "verifier defect opens a repair pass");
+		const settled = () => h.passes().length === 2 || /^awaiting_watchdog/.test(h.passes()[0]?.handoff?.blocker ?? "");
+		await t.wait(settled, "preparation settles on X");
+		assert.doesNotMatch(h.passes()[0]?.handoff?.blocker ?? "", /^awaiting_watchdog/, "X must not be checked ready for Watchdog");
+		assert.equal(h.passes().length, 2, "verifier defect opens a repair pass");
 		const [p1, p2] = h.passes();
 		assert.ok(p1?.handoff && p2);
 		const records = await Promise.all(p1.handoff.preparations!.map((ref) => h.prepared(ref)));
@@ -452,7 +455,7 @@ async function verifierDefect(verifier: (text: string) => string, defect: RegExp
 		assert.equal(x.preparation?.kind, "clean");
 		assert.equal(x.checks, null, "no check result is fabricated for a definition defect");
 		assert.match(x.reason ?? "", defect);
-		assert.equal(git(h.store, ["show", `${x.preparation!.result}:verify-suite`]).toString(), "exit 17\n");
+		assert.equal(git(h.store, ["show", `${x.preparation!.result}:verify-suite`]).toString(), suite);
 		assert.equal(p1.handoff.blocker, undefined, "a lawful return, not a stranded operational blocker");
 		assert.equal(p2.cause, "prepared-verifier-defect");
 		assert.equal(p2.predecessor, p1.ref);
@@ -484,6 +487,18 @@ test("TP22: a target verifier that makes a required row discovery-only is a veri
 	));
 test("TP23: a target verifier that renames a required row opens a verifier-repair pass instead of stranding the handoff", () =>
 	verifierDefect((text) => text.replace(/^\| full-suite \|/m, "| suite-renamed |"), /Missing catalog row: full-suite/));
+
+test("TP27: a target verifier that lowers the behavioral journey below the policy minimum is a verifier defect, never a pass on X", () =>
+	verifierDefect(
+		(text) => {
+			const journey = "| behavior | Process | journey | `.skl/journey.md` | STEP OK and independent sanity |";
+			assert.ok(text.includes(`${journey} tests |`), "fixture behavioral journey starts at the workflow's minimum rank tests");
+			return text.replace(`${journey} tests |`, `${journey} static |`);
+		},
+		/behavior.*static.*below.*minimum.*tests/,
+		// Every check still succeeds: only the rank, not an execution failure, separates X from a pass.
+		"printf 'SUITE OK'\n",
+	));
 
 test("TP08/TP12/TP14: an aborted merge stays operational across restart until an explicit retry, which keeps the pass and Audit", async () => {
 	const t = await fixture();
