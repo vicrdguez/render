@@ -404,6 +404,7 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 	};
 	if (type === "recordImplementationExecution") return { ...common, type };
 	if (type === "openSuccessorPass") return { ...common, type, text: text(c.text, "text", 1024 * 1024) };
+	// A record carries complete X check results, so it shares the runner-observation bound.
 	if (type === "recordPreparation") return { ...common, type, text: text(c.text, "text", 16 * 1024 * 1024) };
 	if (type === "retryPreparation") return { ...common, type };
 	if (type === "recordRuntimeHistory") return { ...common, type, key: text(c.key, "key", 128) };

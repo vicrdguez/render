@@ -1337,6 +1337,20 @@ const CONTROLS: Control[] = [
 		test: "test/target-preparation.test.ts",
 		pattern: "XDG-only hostile",
 	},
+	{
+		name: "preparation-resume-abandons-check-runtime",
+		expect: /the interrupted check runtime was stopped, not abandoned/,
+		behavior: "a recovered preparation reruns its attempt without stopping the interrupted prepared-X check runtime",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: "if (prior && prior.executorEpoch !== this.#ledger!.status().executorEpoch) await this.#stopPreparationScope(prior);",
+				replace: "",
+			},
+		],
+		test: "test/target-preparation-crash.integration.ts",
+		pattern: "TP14 SIGKILL",
+	},
 ];
 
 async function copy(): Promise<string> {

@@ -916,7 +916,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				break;
 			}
 			case "recordPreparation": {
-				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work, pass))
+				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work.passes, pass))
 					return refusal("assignment_closed", "Preparation attempts belong to the current handed-off pass.");
 				const sealed = facts.implementationSource;
 				const record = sealed && c.text ? preparationRecord(c.text, sealed.source.source.objectFormat) : undefined;
@@ -944,7 +944,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				break;
 			}
 			case "retryPreparation":
-				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work, pass))
+				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work.passes, pass))
 					return refusal("assignment_closed", "Only the current handed-off pass can be prepared again.");
 				// A blocker is recorded only by a settled preparation task, so this also keeps one preparation in flight.
 				if (!pass.handoff.blocker) return refusal("stale_basis", "Preparation is still in progress; retry a settled blocked preparation.");
@@ -1103,8 +1103,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 	return { outcome: "accepted", result, writes, facts: [facts.ids.fact] };
 }
 /** A returned pass has a successor; its handoff no longer accepts preparation. */
-function latestPass(work: RoleWorkState, pass: ImplementationPass): boolean {
-	return !work.passes?.some((p) => p.workflow === pass.workflow && p.slice === pass.slice && p.ordinal > pass.ordinal);
+export function latestPass(passes: readonly ImplementationPass[] | undefined, pass: ImplementationPass): boolean {
+	return !passes?.some((p) => p.workflow === pass.workflow && p.slice === pass.slice && p.ordinal > pass.ordinal);
 }
 function hasOwner(work: RoleWorkState, packet: RolePacket, slice: string, delivery: boolean): boolean {
 	return work.assignments.some(

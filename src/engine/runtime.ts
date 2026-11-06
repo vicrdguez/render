@@ -28,7 +28,15 @@ import {
 import { Effects, type PreparationReceipt, type Source, type SourceReceipt, type TargetObservation, treeOid } from "../effects/source.ts";
 import { experimentInputs } from "../kernel/experiments.ts";
 import { auditReviewerPacket, type PreparationRecord, type PreparedChecks, preparationBase } from "../kernel/implementation.ts";
-import { currentChildren, type ImplementationPass, packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
+import {
+	currentChildren,
+	type ImplementationPass,
+	latestPass,
+	packetRefs,
+	type RoleAssignment,
+	type RoleIntent,
+	sameAgent,
+} from "../kernel/roles.ts";
 import { type CatalogEvidence, type CatalogResult, requiredCatalogRows, type SelectedCatalog } from "../kernel/verification.ts";
 import { faultBarrier } from "../ledger/barrier.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
@@ -81,6 +89,12 @@ export type OwnedChecks = {
 			)
 		>
 	>;
+};
+type PreparationJob = {
+	owner: RoleAssignment;
+	pass: ImplementationPass;
+	check: OwnedChecks["checks"][string];
+	save: (scope: ExecutionScope) => Promise<unknown>;
 };
 type EngineConfig = {
 	apiKey?: string;
@@ -1655,7 +1669,7 @@ export class Engine {
 					return block(
 						`awaiting_watchdog: prepared ${latest.preparation!.result} checked on current target ${observed.target.commit}; Watchdog capability unavailable`,
 					);
-				const record = await this.#preparationAttempt(owner, pass, refs.length + 1, observed, save);
+				const record = await this.#preparationAttempt({ owner, pass, check, save }, refs.length + 1, observed);
 				const reply = await this.#ledger!.command(
 					{
 						version: 1,
@@ -1689,13 +1703,8 @@ export class Engine {
 		return (JSON.parse(read.content.toString()) as { source: SourceReceipt }).source;
 	}
 	/** One attempt against one observed target. Expected outcomes are records; only unrecordable failures throw. */
-	async #preparationAttempt(
-		owner: RoleAssignment,
-		pass: ImplementationPass,
-		attempt: number,
-		observed: TargetObservation,
-		save: (scope: ExecutionScope) => Promise<unknown>,
-	): Promise<PreparationRecord> {
+	async #preparationAttempt(job: PreparationJob, attempt: number, observed: TargetObservation): Promise<PreparationRecord> {
+		const { pass } = job;
 		const record: PreparationRecord = {
 			schema: 1,
 			passRef: pass.ref,
@@ -1734,7 +1743,7 @@ export class Engine {
 		};
 		if (receipt.kind === "conflict") return { ...record, outcome: "conflict" };
 		try {
-			record.checks = await this.#checkPrepared(owner, pass, attempt, receipt.result, save);
+			record.checks = await this.#checkPrepared(job, attempt, receipt.result);
 		} catch (error) {
 			return { ...record, reason: `prepared_check_operational_error: ${error instanceof Error ? error.message : error}`.slice(0, 4096) };
 		}
@@ -1744,14 +1753,7 @@ export class Engine {
 		return { ...record, reason: `prepared_check_non_pass: ${status}` };
 	}
 	/** The pass's frozen selection, read from X's own verifier bytes, run against X in a fresh Linux workspace. */
-	async #checkPrepared(
-		owner: RoleAssignment,
-		pass: ImplementationPass,
-		attempt: number,
-		x: Source,
-		save: (scope: ExecutionScope) => Promise<unknown>,
-	): Promise<PreparedChecks> {
-		const check = this.#config.ownedChecks!.checks[owner.packet.profile]!;
+	async #checkPrepared({ owner, pass, check, save }: PreparationJob, attempt: number, x: Source): Promise<PreparedChecks> {
 		const selected = pass.configuration.verification;
 		const entry = x.entries.find((e) => e.path === selected.path && e.mode !== "120000");
 		if (!entry) throw new Error(`Prepared source has no selected verifier ${selected.path}`);
@@ -1769,29 +1771,25 @@ export class Engine {
 		try {
 			const handle = await this.#sandboxes!.prepare(scope, check.profile, x);
 			try {
+				await faultBarrier("before-prepared-check", `prepared-check:${pass.ref}:${attempt}`);
 				const run = (argv: string[]) =>
 					this.#sandboxes!.execute(handle, { scope, argv, timeoutMs: check.timeoutMs, verifierRevision: digest });
 				const { results, cleanup } = await this.#catalogResults(null, catalog, run);
 				const capture = await this.#sandboxes!.seal(handle);
 				const resultTree = treeOid(capture.entries, x.objectFormat);
 				const required = requiredCatalogRows(catalog.selection);
-				const failed = results
-					.filter((r) => required.includes(r.name) && r.status === "failed")
-					.map((r) => ({ name: r.name, exitCode: [...r.steps, ...(r.sanity ? [r.sanity] : [])].find((s) => s.exitCode !== 0)?.exitCode }));
-				const operational = results.some(
-					(r) =>
-						required.includes(r.name) && r.status === "failed" && [...r.steps, ...(r.sanity ? [r.sanity] : [])].some((s) => s.timedOut),
-				);
-				const status =
-					resultTree !== x.tree
-						? "source_changed"
-						: cleanup.status !== "complete" || operational || results.some((r) => required.includes(r.name) && r.status === "unrun")
-							? "non-pass"
-							: failed.length
-								? "failed"
-								: required.every((name) => results.some((r) => r.name === name && r.status === "completed"))
-									? "passed"
-									: "non-pass";
+				const rows = results.filter((r) => required.includes(r.name));
+				const runs = (r: CatalogResult) => [...r.steps, ...(r.sanity ? [r.sanity] : [])];
+				const failed = rows
+					.filter((r) => r.status === "failed")
+					.map((r) => ({ name: r.name, exitCode: runs(r).find((s) => s.exitCode !== 0)?.exitCode as number }));
+				// A timeout, unrun row or incomplete cleanup is operational, never evidence that X needs repair.
+				let status: PreparedChecks["verification"]["status"] = "passed";
+				if (resultTree !== x.tree) status = "source_changed";
+				else if (cleanup.status !== "complete" || rows.some((r) => r.status === "unrun" || runs(r).some((s) => s.timedOut)))
+					status = "non-pass";
+				else if (failed.length) status = "failed";
+				else if (!required.every((name) => rows.some((r) => r.name === name && r.status === "completed"))) status = "non-pass";
 				return {
 					verifierRevision: digest,
 					scope,
@@ -1799,7 +1797,7 @@ export class Engine {
 					results,
 					cleanup,
 					verification: { status, inputCommit: x.commit, inputTree: x.tree, resultTree },
-					failed: status === "failed" ? (failed as { name: string; exitCode: number }[]) : [],
+					failed: status === "failed" ? failed : [],
 				};
 			} catch (error) {
 				await this.#stopPreparationScope(scope);
@@ -1858,7 +1856,7 @@ export class Engine {
 		if (reply.status !== "accepted") {
 			const current = this.#implementationPass(owner);
 			// A later pass means this return already committed; anything else stays visible on this pass.
-			if (!this.#latestPass(current)) return;
+			if (!latestPass(this.#passes(), current)) return;
 			const r = await this.#command(this.#assignment(owner.id)!, {
 				type: "recordPreparationBlocker",
 				reason: `preparation_return_refused: ${reply.code}: ${reply.reason}`.slice(0, 1900),
@@ -1866,10 +1864,9 @@ export class Engine {
 			if (r.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${r.code}`);
 		}
 	}
-	#latestPass(pass: ImplementationPass): boolean {
+	#passes(): ImplementationPass[] {
 		const frame = this.#ledger!.snapshot(scheduling);
-		const all = "implementationPasses" in frame ? (frame.implementationPasses as ImplementationPass[]) : [];
-		return !all.some((p) => p.workflow === pass.workflow && p.slice === pass.slice && p.ordinal > pass.ordinal);
+		return "implementationPasses" in frame ? (frame.implementationPasses as ImplementationPass[]) : [];
 	}
 	/** A return commits before its base is materialized; an unresolvable base blocks visibly before any writer turn. */
 	async #openingBlocker(a: RoleAssignment): Promise<string | undefined> {

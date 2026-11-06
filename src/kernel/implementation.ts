@@ -192,10 +192,10 @@ export function returnObservation(value: string, source: ImplementationSource): 
 export type PreparedChecks = {
 	verifierRevision: string;
 	scope: { assignment: string; generation: number; attempt: string; executorEpoch: string };
-	catalog: unknown;
-	results: unknown[];
-	cleanup: unknown;
-	verification: { status: string; inputCommit: string; inputTree: string; resultTree: string };
+	catalog: CatalogEvidence["catalog"];
+	results: CatalogEvidence["results"];
+	cleanup: CatalogEvidence["cleanup"];
+	verification: { status: "passed" | "failed" | "non-pass" | "source_changed"; inputCommit: string; inputTree: string; resultTree: string };
 	failed: { name: string; exitCode: number }[];
 };
 /** One host preparation attempt of a handed-off pass: the observed canonical T, Effects' receipt and actual X checks. */
