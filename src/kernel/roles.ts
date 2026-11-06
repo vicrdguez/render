@@ -14,6 +14,8 @@ import {
 	implementationEvidenceGap,
 	type PassConfiguration,
 	passConfiguration,
+	preparationBase,
+	preparationRecord,
 	type ReturnObservation,
 	returnObservation,
 	sourceScopeMatches,
@@ -78,7 +80,15 @@ export type ImplementationPass = {
 		roles: Record<AuditAxis, { assignment: string; packet: string }>;
 		results: Partial<Record<AuditAxis, AuditResult>>;
 	};
-	handoff?: { record: string; source: string; preparationTask?: number; preparationResult?: string; blocker?: string };
+	handoff?: {
+		record: string;
+		source: string;
+		preparationTask?: number;
+		preparationResult?: string;
+		blocker?: string;
+		/** Every host preparation attempt of this handoff, in order; retries and drift append, never replace. */
+		preparations?: string[];
+	};
 	ref: string;
 	ordinal: number;
 	workflow: string;
@@ -128,7 +138,8 @@ export type RoleAssignment = {
 	experimentSource?: string;
 };
 export type RoleWorkState = { assignments: RoleAssignment[]; passes?: ImplementationPass[] };
-export type RoleIntent = { kind: "run-role" | "notify-role" | "prepare-pass"; assignment: string };
+/** `from`: preparation attempts a staged preparation task inherits as settled history rather than continues. */
+export type RoleIntent = { kind: "run-role" | "notify-role" | "prepare-pass"; assignment: string; from?: number };
 export type RoleCommand =
 	| { type: "recordImplementationExecution"; workflow: string; assignment: string; generation: number; attempt: string }
 	| {
@@ -149,6 +160,8 @@ export type RoleCommand =
 			verification: VerificationAssessment;
 	  }
 	| { type: "recordPreparationBlocker"; workflow: string; assignment: string; generation: number; attempt: string; reason: string }
+	| { type: "recordPreparation"; workflow: string; assignment: string; generation: number; attempt: string; text: string }
+	| { type: "retryPreparation"; workflow: string; assignment: string; generation: number; attempt: string }
 	| { type: "openSuccessorPass"; workflow: string; assignment: string; generation: number; attempt: string; text: string }
 	| { type: "assignTask"; workflow: string; slice: string; delivery: boolean; packet: RolePacket }
 	| { type: "replaceTask"; workflow: string; assignment: string; generation: number; attempt: string; packet: RolePacket }
@@ -201,6 +214,8 @@ export const ROLE_COMMANDS = [
 	"requestImplementationAudit",
 	"submitImplementationHandoff",
 	"recordPreparationBlocker",
+	"recordPreparation",
+	"retryPreparation",
 	"openSuccessorPass",
 	"assignTask",
 	"replaceTask",
@@ -378,6 +393,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			"recordQuiescence",
 			"recordBlocker",
 			"recordPreparationBlocker",
+			"recordPreparation",
+			"retryPreparation",
 			"recordRunnerDiagnostic",
 			"recordRuntimeHistory",
 			"replaceTask",
@@ -898,6 +915,44 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				result.passRef = pass.ref;
 				break;
 			}
+			case "recordPreparation": {
+				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work, pass))
+					return refusal("assignment_closed", "Preparation attempts belong to the current handed-off pass.");
+				const sealed = facts.implementationSource;
+				const record = sealed && c.text ? preparationRecord(c.text, sealed.source.source.objectFormat) : undefined;
+				if (!sealed || !record) return refusal("invalid_content", "Preparation requires a complete closed host result.");
+				const prior = pass.handoff.preparations ?? [];
+				if (
+					record.passRef !== pass.ref ||
+					record.handoff !== pass.handoff.record ||
+					record.source !== pass.handoff.source ||
+					record.attempt !== prior.length + 1 ||
+					(record.preparation &&
+						(record.preparation.base !== preparationBase(pass) ||
+							record.preparation.source !== sealed.source.source.commit ||
+							record.preparation.target !== record.target.commit))
+				)
+					return refusal("stale_basis", "Preparation names other lineage, attempt order or recorded base than this handoff.");
+				const ref = `implementation-preparation:${facts.sequence}`;
+				pass.handoff.preparations = [...prior, ref];
+				pass.handoff.preparationResult = ref;
+				if (record.outcome === "operational") {
+					pass.handoff.blocker = record.reason!;
+					a.blocker = record.reason;
+				}
+				Object.assign(result, { passRef: pass.ref, handoff: pass.handoff.record, preparation: ref, document0: ref });
+				break;
+			}
+			case "retryPreparation":
+				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work, pass))
+					return refusal("assignment_closed", "Only the current handed-off pass can be prepared again.");
+				// A blocker is recorded only by a settled preparation task, so this also keeps one preparation in flight.
+				if (!pass.handoff.blocker) return refusal("stale_basis", "Preparation is still in progress; retry a settled blocked preparation.");
+				delete pass.handoff.blocker;
+				a.blocker = null;
+				intents.push({ kind: "prepare-pass", assignment: a.id, from: pass.handoff.preparations?.length ?? 0 });
+				Object.assign(result, { passRef: pass.ref, handoff: pass.handoff.record });
+				break;
 			case "recordPreparationBlocker":
 				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !c.reason?.trim())
 					return refusal("assignment_closed", "Preparation blockage requires a handed-off pass.");
@@ -1046,6 +1101,10 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		}
 	}
 	return { outcome: "accepted", result, writes, facts: [facts.ids.fact] };
+}
+/** A returned pass has a successor; its handoff no longer accepts preparation. */
+function latestPass(work: RoleWorkState, pass: ImplementationPass): boolean {
+	return !work.passes?.some((p) => p.workflow === pass.workflow && p.slice === pass.slice && p.ordinal > pass.ordinal);
 }
 function hasOwner(work: RoleWorkState, packet: RolePacket, slice: string, delivery: boolean): boolean {
 	return work.assignments.some(

@@ -90,24 +90,30 @@ function advanceTarget(store: string, parent: string, files: Record<string, stri
 	return commit;
 }
 /** In-process use of the host fault barrier: wait until the host is parked there, change the world, then release it. */
+// Other process listeners may exist: only the barrier's own added once-listener is ever invoked.
+let unparked = process.rawListeners("SIGUSR2");
+const barrierListeners = () => process.rawListeners("SIGUSR2").filter((l) => !unparked.includes(l));
 function holdAt(name: string, command: string) {
+	unparked = process.rawListeners("SIGUSR2");
 	process.env.RENDER_FAULT_BARRIER = name;
 	process.env.RENDER_FAULT_COMMAND = command;
 }
 async function parked(label: string) {
 	const deadline = Date.now() + 60000;
-	while (process.listenerCount("SIGUSR2") === 0) {
+	while (!barrierListeners().length) {
 		assert.ok(Date.now() < deadline, `${label}: host never reached the barrier`);
 		await setTimeout(20);
 	}
 }
 function releaseBarrier(next?: [string, string]) {
-	if (next) holdAt(...next);
-	else {
+	if (next) {
+		process.env.RENDER_FAULT_BARRIER = next[0];
+		process.env.RENDER_FAULT_COMMAND = next[1];
+	} else {
 		delete process.env.RENDER_FAULT_BARRIER;
 		delete process.env.RENDER_FAULT_COMMAND;
 	}
-	process.emit("SIGUSR2");
+	for (const listener of barrierListeners()) (listener as () => void)();
 }
 
 // These scripted checks exercise lifecycle and literal bytes, not semantic adequacy.
@@ -749,7 +755,7 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 function clearBarrier() {
 	delete process.env.RENDER_FAULT_BARRIER;
 	delete process.env.RENDER_FAULT_COMMAND;
-	if (process.listenerCount("SIGUSR2")) process.emit("SIGUSR2");
+	for (const listener of barrierListeners()) (listener as () => void)();
 }
 async function preparedHarness(t: Awaited<ReturnType<typeof fixture>>) {
 	const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
@@ -850,6 +856,7 @@ test("TP08/TP12/TP14: an aborted merge stays operational across restart until an
 		assert.equal(operational.target.commit, T1);
 		assert.equal(operational.checks, null);
 		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0);
+		t.gate.resolve(); // let the parked design coordinator settle so the store can close
 		await t.f.reopen(
 			new Engine({
 				ownedChecks: t.f.config,

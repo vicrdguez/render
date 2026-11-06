@@ -189,6 +189,100 @@ export function returnObservation(value: string, source: ImplementationSource): 
 		return;
 	}
 }
+export type PreparedChecks = {
+	verifierRevision: string;
+	scope: { assignment: string; generation: number; attempt: string; executorEpoch: string };
+	catalog: unknown;
+	results: unknown[];
+	cleanup: unknown;
+	verification: { status: string; inputCommit: string; inputTree: string; resultTree: string };
+	failed: { name: string; exitCode: number }[];
+};
+/** One host preparation attempt of a handed-off pass: the observed canonical T, Effects' receipt and actual X checks. */
+export type PreparationRecord = {
+	schema: 1;
+	passRef: string;
+	handoff: string;
+	source: string;
+	attempt: number;
+	target: { proposal: string; ref: string; commit: string };
+	outcome: "checked" | "check-failure" | "conflict" | "operational";
+	reason: string | null;
+	preparation: null | {
+		kind: "clean" | "conflict";
+		algorithm: string;
+		profile: string;
+		git: string;
+		identity: string;
+		base: string;
+		source: string;
+		target: string;
+		result: string;
+		tree: string;
+		conflicts: string[];
+		exitCode: 0 | 1;
+		stdout: string;
+		stderr: string;
+	};
+	checks: null | PreparedChecks;
+};
+const closed = (v: Record<string, unknown>, keys: string[]) =>
+	Object.keys(v).length === keys.length && keys.every((key) => Object.hasOwn(v, key));
+/** The pass's recorded target-lineage base: the configured start, or the target a successor opened against. */
+export function preparationBase(pass: ImplementationPass): string {
+	return pass.opening?.target ?? pass.configuration.verification.commit;
+}
+/** Closed shape and internal consistency only; lineage against the pass and sealed B belongs to the caller. */
+export function preparationRecord(value: string, format: "sha1" | "sha256"): PreparationRecord | undefined {
+	try {
+		const v: unknown = JSON.parse(value);
+		const id = objectId(format);
+		if (!object(v) || v.schema !== 1) return;
+		if (!closed(v, ["schema", "passRef", "handoff", "source", "attempt", "target", "outcome", "reason", "preparation", "checks"])) return;
+		if (![v.passRef, v.handoff, v.source].every(text) || !Number.isSafeInteger(v.attempt) || Number(v.attempt) < 1) return;
+		const t = v.target;
+		if (!object(t) || !closed(t, ["proposal", "ref", "commit"]) || !text(t.proposal) || !text(t.ref) || !id(t.commit)) return;
+		if (!["checked", "check-failure", "conflict", "operational"].includes(String(v.outcome))) return;
+		if ((v.outcome === "operational") !== text(v.reason) || (v.reason !== null && !text(v.reason))) return;
+		const p = v.preparation;
+		if (p !== null) {
+			const keys = ["kind", "algorithm", "profile", "git", "identity", "base", "source", "target", "result", "tree", "conflicts"];
+			if (!object(p) || !closed(p, [...keys, "exitCode", "stdout", "stderr"])) return;
+			if (![p.algorithm, p.profile, p.git, p.identity].every(text) || ![p.base, p.source, p.target, p.result, p.tree].every(id)) return;
+			if (!Array.isArray(p.conflicts) || !p.conflicts.every(text) || typeof p.stdout !== "string" || typeof p.stderr !== "string") return;
+			if (!((p.kind === "clean" && p.exitCode === 0 && !p.conflicts.length) || (p.kind === "conflict" && p.exitCode === 1))) return;
+		}
+		const c = v.checks;
+		if (c !== null) {
+			if (!object(c) || !closed(c, ["verifierRevision", "scope", "catalog", "results", "cleanup", "verification", "failed"])) return;
+			const r = c.verification;
+			if (!text(c.verifierRevision) || !object(c.scope) || !Array.isArray(c.results) || !object(r) || !text(r.status)) return;
+			if (![r.inputCommit, r.inputTree, r.resultTree].every(id) || !Array.isArray(c.failed)) return;
+			const failures = c.failed.every(
+				(f) =>
+					object(f) &&
+					closed(f, ["name", "exitCode"]) &&
+					text(f.name) &&
+					Number.isSafeInteger(f.exitCode) &&
+					f.exitCode !== 0 &&
+					!LAUNCH_FAILURES.includes(Number(f.exitCode)),
+			);
+			if (!failures || !p || p.kind !== "clean" || r.inputCommit !== p.result || r.inputTree !== p.tree) return;
+		}
+		const checked = (status: string, failed: boolean) =>
+			p?.kind === "clean" &&
+			object(c) &&
+			(c.verification as Record<string, unknown>).status === status &&
+			(c.verification as Record<string, unknown>).resultTree === p.tree &&
+			(c.failed as unknown[]).length > 0 === failed;
+		if (v.outcome === "conflict" && (p?.kind !== "conflict" || !(p.conflicts as unknown[]).length || c !== null)) return;
+		if (v.outcome === "checked" && !checked("passed", false)) return;
+		if (v.outcome === "check-failure" && !checked("failed", true)) return;
+		return v as PreparationRecord;
+	} catch {
+		return;
+	}
+}
 /** A retained report without this exact shape is a counted review, never an authorizing verdict. */
 export function watchdogVerdict(value: string | undefined): WatchdogVerdict | undefined {
 	try {

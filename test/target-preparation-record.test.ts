@@ -102,7 +102,7 @@ test("TP18 only trusted Effects retains one well-formed attempt per handed-off p
 		await t.audit();
 		await t.reports();
 		await t.retain("final");
-		const open = structuredClone(pass(t));
+		const open = structuredClone(passes(t));
 		const early = JSON.stringify({ schema: 1, passRef: P1, attempt: 1 });
 		refused(t, await t.f.command(recordCommand(t, early), effects), "assignment_closed", open, "before handoff");
 	} finally {
@@ -153,7 +153,11 @@ test("TP18 only trusted Effects retains one well-formed attempt per handed-off p
 		assert.deepEqual(pass(h).handoff!.preparations, [ref]);
 		assert.equal(pass(h).handoff!.preparationResult, ref);
 		assert.equal(pass(h).handoff!.blocker, undefined, "a classified conflict is not an operational blockage");
-		assert.deepEqual(await h.f.command(recordCommand(h, valid), effects, "preparation:1"), first, "replay returns the same receipt");
+		assert.deepEqual(
+			await h.f.command(recordCommand(h, valid), effects, "preparation:1"),
+			{ ...first, duplicate: true },
+			"replay returns the same receipt",
+		);
 		const after = structuredClone(passes(h));
 		refused(h, await h.f.command(recordCommand(h, valid), effects), "stale_basis", after, "attempt 1 again");
 		const read = await h.f.ledger.artifact(admin, { read: ref });

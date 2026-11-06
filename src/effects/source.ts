@@ -32,6 +32,9 @@ export type Retain = { type: "retain"; base: Source; capture: Capture };
 export type Diff = { type: "diff"; repository: string; base: string; result: string };
 /** Inputs are host-retained sources, never worker-selected Git metadata. */
 export type Prepare = { type: "prepare"; base: Source; source: Source; target: Source };
+/** The host-private canonical proposal ref; `initial` binds it only while absent. */
+export type Observe = { type: "observe"; repository: string; proposal: string; initial: string };
+export type TargetObservation = { proposal: string; ref: string; target: Source };
 export type PreparationReceipt = {
 	kind: "clean" | "conflict";
 	base: Source;
@@ -39,6 +42,7 @@ export type PreparationReceipt = {
 	target: Source;
 	result: Source;
 	algorithm: "git-merge-tree-write-tree-z/v1";
+	profile: typeof PROFILE;
 	git: string;
 	identity: string;
 	conflicts: string[];
@@ -49,6 +53,9 @@ export type PreparationReceipt = {
 type GitResult = { stdout: Buffer; stderr: Buffer; exitCode: number | null; signal: string | null };
 const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_ENTRIES = 10000;
+/** Names the fixed trusted Git environment below; changing that environment changes preparation identity. */
+const PROFILE =
+	"render-trusted-git/v1: bare host-private store, empty host-owned HOME, no XDG, no system/global config or attributes, core.attributesFile=/dev/null, hooks disabled, LC_ALL=C";
 
 function oid(format: Source["objectFormat"], type: string, content: Buffer): string {
 	return createHash(format).update(`${type} ${content.length}\0`).update(content).digest("hex");
@@ -122,8 +129,12 @@ export class Effects {
 	perform(operation: Retain): Promise<SourceReceipt>;
 	perform(operation: Diff): Promise<string>;
 	perform(operation: Prepare): Promise<PreparationReceipt>;
-	async perform(operation: Resolve | Retain | Diff | Prepare): Promise<Source | SourceReceipt | string | PreparationReceipt> {
+	perform(operation: Observe): Promise<TargetObservation>;
+	async perform(
+		operation: Resolve | Retain | Diff | Prepare | Observe,
+	): Promise<Source | SourceReceipt | string | PreparationReceipt | TargetObservation> {
 		if (operation.type === "prepare") return this.#prepare(operation);
+		if (operation.type === "observe") return this.#observe(operation);
 		const repository = operation.type === "retain" ? operation.base.repository : operation.repository;
 		const store = await this.#store(repository);
 		if (operation.type === "diff") {
@@ -211,6 +222,27 @@ export class Effects {
 		}
 		return receipt;
 	}
+	async #observe({ repository, proposal, initial }: Observe): Promise<TargetObservation> {
+		const store = await this.#store(repository);
+		const ref = `refs/render/proposals/${createHash("sha256").update(proposal).digest("hex")}`;
+		const current = await this.#gitResult(store.path, store.cwd, ["rev-parse", "--verify", "--quiet", ref]);
+		if (current.signal || (current.exitCode !== 0 && current.exitCode !== 1)) throw gitFailure("rev-parse", current);
+		if (current.exitCode === 1) {
+			// First use binds the proposal to the host-configured base, expected-absent. A failed create means another
+			// binding won: the readback below decides, and nothing ever rebinds an existing ref.
+			const base = await this.perform({ type: "resolve", repository, commit: initial });
+			const created = await this.#gitResult(store.path, store.cwd, ["update-ref", ref, base.commit, "0".repeat(base.commit.length)]);
+			if (created.signal) throw gitFailure("update-ref", created);
+			await syncTree(store.path);
+		}
+		const commit = (await this.#git(store.path, store.cwd, ["rev-parse", "--verify", ref])).toString().trim();
+		this.#checkOid(commit, store.format);
+		if ((await this.#git(store.path, store.cwd, ["cat-file", "-t", commit])).toString().trim() !== "commit")
+			throw new Error("Canonical proposal ref must name a commit.");
+		const target = await this.#read(repository, commit);
+		await this.#rootSource(target);
+		return { proposal, ref, target };
+	}
 	async #prepare({ base, source, target }: Prepare): Promise<PreparationReceipt> {
 		if (base.repository !== source.repository || base.repository !== target.repository) throw new Error("Preparation repository mismatch.");
 		for (const input of [base, source, target]) await this.#verifySource(input);
@@ -225,7 +257,7 @@ export class Effects {
 		const algorithm = "git-merge-tree-write-tree-z/v1" as const;
 		const git = (await this.#git(store.path, store.cwd, ["--version"])).toString().trim();
 		const identity = createHash("sha256")
-			.update(JSON.stringify([source.repository, base.commit, source.commit, target.commit, algorithm, git]))
+			.update(JSON.stringify([source.repository, base.commit, source.commit, target.commit, algorithm, PROFILE, git]))
 			.digest("hex");
 		if (await ancestor(target.commit, source.commit))
 			return {
@@ -235,6 +267,7 @@ export class Effects {
 				target,
 				result: source,
 				algorithm,
+				profile: PROFILE,
 				git,
 				identity,
 				conflicts: [],
@@ -278,6 +311,7 @@ export class Effects {
 			target,
 			result,
 			algorithm,
+			profile: PROFILE,
 			git,
 			identity,
 			conflicts: parsed.conflicts,

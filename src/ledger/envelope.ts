@@ -383,7 +383,7 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 	const allowed = ["type", "assignment", "generation", "attempt"];
 	if (type === "recordBlocker" || type === "recordPreparationBlocker") allowed.push("reason");
 	if (type === "recordImplementationSource") allowed.push("kind", "text");
-	if (type === "openSuccessorPass") allowed.push("text");
+	if (type === "openSuccessorPass" || type === "recordPreparation") allowed.push("text");
 	if (type === "recordRuntimeHistory") allowed.push("key");
 	if (
 		type === "recordRecoveryState" ||
@@ -404,6 +404,8 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 	};
 	if (type === "recordImplementationExecution") return { ...common, type };
 	if (type === "openSuccessorPass") return { ...common, type, text: text(c.text, "text", 1024 * 1024) };
+	if (type === "recordPreparation") return { ...common, type, text: text(c.text, "text", 16 * 1024 * 1024) };
+	if (type === "retryPreparation") return { ...common, type };
 	if (type === "recordRuntimeHistory") return { ...common, type, key: text(c.key, "key", 128) };
 	if (type === "recordBlocker" || type === "recordPreparationBlocker") return { ...common, type, reason: text(c.reason, "reason", 2048) };
 	if (type === "recordImplementationSource") {

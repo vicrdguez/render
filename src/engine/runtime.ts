@@ -25,11 +25,12 @@ import {
 	type ToolExecutionApi,
 	type Tx,
 } from "@earendil-works/pi-durable";
-import { Effects, type Source, type SourceReceipt } from "../effects/source.ts";
+import { Effects, type PreparationReceipt, type Source, type SourceReceipt, type TargetObservation, treeOid } from "../effects/source.ts";
 import { experimentInputs } from "../kernel/experiments.ts";
-import { auditReviewerPacket } from "../kernel/implementation.ts";
+import { auditReviewerPacket, type PreparationRecord, type PreparedChecks, preparationBase } from "../kernel/implementation.ts";
 import { currentChildren, type ImplementationPass, packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
 import { type CatalogEvidence, type CatalogResult, requiredCatalogRows, type SelectedCatalog } from "../kernel/verification.ts";
+import { faultBarrier } from "../ledger/barrier.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
 import { Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
@@ -107,6 +108,8 @@ export class Engine {
 	readonly #workspaces = new Map<string, { handle: SandboxHandle; source: Source; sealed: boolean }>();
 	readonly #implementationActive = new Set<string>();
 	readonly #implementationAdmitted = new Set<string>();
+	/** Exact Sandboxes scopes of in-flight host checks of prepared X; they confer no role or writer authority. */
+	readonly #preparing = new Set<string>();
 	readonly #preparation;
 	readonly #roles;
 	readonly #run;
@@ -128,6 +131,8 @@ export class Engine {
 				root: `${config.ownedChecks.root}/sandboxes`,
 				authorize: (scope) => {
 					const a = this.#assignment(scope.assignment);
+					if (this.#preparing.has(JSON.stringify(scope)))
+						return !!a && a.status === "submitted" && scope.executorEpoch === this.#ledger?.status().executorEpoch;
 					return (
 						!!a &&
 						a.executing &&
@@ -782,19 +787,16 @@ export class Engine {
 					context,
 				),
 		});
-		this.#preparation = defineTask<{ assignment: string }, { phase: "blocked" }, null>({
+		// Deterministic host work, not a role: Ledger state says which attempts exist, so a resumed task continues them.
+		this.#preparation = defineTask<{ assignment: string; from?: number }, { phase: "prepare"; scope?: ExecutionScope }, null>({
 			name: "render.implementation-preparation",
-			version: 1,
-			initial: () => ({ phase: "blocked" }),
+			version: 2,
+			initial: () => ({ phase: "prepare" }),
 			phases: {
-				blocked: async (task, runtime, context) => {
-					const owner = this.#assignment(task.input.assignment);
-					if (!owner) throw new Error("Missing sealed handoff owner");
-					const reply = await this.#command(owner, {
-						type: "recordPreparationBlocker",
-						reason: "preparation_capability_unavailable; Watchdog has not run",
-					});
-					if (reply.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${reply.code}`);
+				prepare: async (task, runtime, context) => {
+					await this.#prepareHandoff(task.input.assignment, task.input.from ?? 0, task.state.checkpoint.scope, (scope) =>
+						runtime.commit(() => ({ status: "running", checkpoint: { phase: "prepare", scope } }), context),
+					);
 					return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
 				},
 			},
@@ -922,7 +924,7 @@ export class Engine {
 					if (intent.kind === "prepare-pass")
 						return tx.createTask(
 							this.#preparation,
-							{ assignment: a.id },
+							{ assignment: a.id, from: intent.from ?? 0 },
 							{ conversationId: workflow.conversation as ConversationId, ownership: { kind: "conversation" } },
 						);
 					if (intent.kind === "notify-role") {
@@ -1357,7 +1359,8 @@ export class Engine {
 		};
 		return this.#recordImplementationSource(a, kind, checked, verification);
 	}
-	async #catalogResults(a: RoleAssignment, catalog: SelectedCatalog, run: (argv: string[]) => Promise<ExecutionResult>) {
+	/** `a` null: host checks of prepared X, whose results are retained whole in the preparation record instead. */
+	async #catalogResults(a: RoleAssignment | null, catalog: SelectedCatalog, run: (argv: string[]) => Promise<ExecutionResult>) {
 		const results: CatalogResult[] = [];
 		for (const row of catalog.rows) {
 			const result: CatalogResult = { name: row.name, status: row.kind === "human" ? "advisory" : "completed", steps: [] };
@@ -1370,11 +1373,12 @@ export class Engine {
 			}
 			results.push(result);
 		}
-		await this.#retainDiagnostic(
-			a.workflow,
-			this.#scope(a),
-			JSON.stringify({ schema: 1, kind: "catalog-results", catalog, results, cleanup: "pending", verification: "unaccepted" }),
-		);
+		if (a)
+			await this.#retainDiagnostic(
+				a.workflow,
+				this.#scope(a),
+				JSON.stringify({ schema: 1, kind: "catalog-results", catalog, results, cleanup: "pending", verification: "unaccepted" }),
+			);
 		const cleanup: CatalogEvidence["cleanup"] = { status: "complete", results: [] };
 		for (const command of catalog.cleanup) cleanup.results.push(await run(["sh", "-c", command]));
 		if (cleanup.results.some((r) => r.exitCode !== 0 || r.timedOut)) cleanup.status = "pending";
@@ -1614,6 +1618,258 @@ export class Engine {
 		} catch (error) {
 			await this.#command(a, { type: "recordBlocker", reason: `experiment_quarantined_stop_unconfirmed: ${error}`.slice(0, 1900) });
 		}
+	}
+	/**
+	 * Prepare and check current-target source for a handed-off pass (spec §9.4). Each attempt observes the canonical T,
+	 * prepares X in Effects and checks actual X in Linux; Ledger retains one record per attempt before anything follows.
+	 * Every exit leaves a visible result: a successor pass, an operational blocker or awaiting Watchdog.
+	 */
+	async #prepareHandoff(id: string, from: number, prior: ExecutionScope | undefined, save: (scope: ExecutionScope) => Promise<unknown>) {
+		const owner = this.#assignment(id);
+		if (!owner?.passRef) throw new Error("Missing sealed handoff owner");
+		const block = async (reason: string) => {
+			const reply = await this.#command(this.#assignment(id)!, { type: "recordPreparationBlocker", reason: reason.slice(0, 1900) });
+			if (reply.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${reply.code}`);
+		};
+		const check = this.#config.ownedChecks?.checks[owner.packet.profile];
+		if (!check || !this.#effects || !this.#sandboxes)
+			return block("preparation_capability_unavailable: owned Effects/Sandboxes are not configured; Watchdog has not run");
+		try {
+			// An interrupted earlier execution may have left a check runtime; it must stop before any new attempt runs.
+			if (prior && prior.executorEpoch !== this.#ledger!.status().executorEpoch) await this.#stopPreparationScope(prior);
+			for (;;) {
+				const pass = this.#implementationPass(owner);
+				const refs = pass.handoff?.preparations ?? [];
+				const ref = refs.length > from ? refs.at(-1) : undefined;
+				const latest = ref ? await this.#preparationRecord(ref) : undefined;
+				if (latest?.outcome === "operational") return;
+				if (latest?.outcome === "conflict" || latest?.outcome === "check-failure") return this.#returnToImplementation(owner, pass, latest);
+				await faultBarrier("before-target-observe", `preparation-observe:${pass.ref}:${refs.length}`);
+				const observed = await this.#effects.perform({
+					type: "observe",
+					repository: check.repository,
+					proposal: owner.workflow,
+					initial: check.commit,
+				});
+				if (latest && latest.target.commit === observed.target.commit)
+					return block(
+						`awaiting_watchdog: prepared ${latest.preparation!.result} checked on current target ${observed.target.commit}; Watchdog capability unavailable`,
+					);
+				const record = await this.#preparationAttempt(owner, pass, refs.length + 1, observed, save);
+				const reply = await this.#ledger!.command(
+					{
+						version: 1,
+						authorityEpoch: this.#ledger!.status().authorityEpoch,
+						commandId: `preparation:${pass.ref}:${record.attempt}`,
+						workflow: owner.workflow,
+						command: {
+							type: "recordPreparation",
+							assignment: owner.id,
+							generation: owner.generation,
+							attempt: owner.attempt,
+							text: JSON.stringify(record),
+						},
+					},
+					mintContext({ kind: "host", scope: "effects" }),
+				);
+				if (reply.status !== "accepted") throw new Error(`Preparation record refused: ${reply.code}: ${reply.reason}`);
+			}
+		} catch (error) {
+			return block(`preparation_operational_error: ${error instanceof Error ? error.message : error}`);
+		}
+	}
+	async #preparationRecord(ref: string): Promise<PreparationRecord> {
+		const read = await this.#ledger!.artifact(scheduling, { read: ref });
+		if (!("content" in read)) throw new Error(`Restore exact preparation record ${ref}`);
+		return JSON.parse(read.content.toString()) as PreparationRecord;
+	}
+	async #handoffSource(pass: ImplementationPass): Promise<SourceReceipt> {
+		const read = await this.#ledger!.artifact(scheduling, { read: pass.handoff!.source });
+		if (!("content" in read)) throw new Error(`Restore exact sealed handoff source ${pass.handoff!.source}`);
+		return (JSON.parse(read.content.toString()) as { source: SourceReceipt }).source;
+	}
+	/** One attempt against one observed target. Expected outcomes are records; only unrecordable failures throw. */
+	async #preparationAttempt(
+		owner: RoleAssignment,
+		pass: ImplementationPass,
+		attempt: number,
+		observed: TargetObservation,
+		save: (scope: ExecutionScope) => Promise<unknown>,
+	): Promise<PreparationRecord> {
+		const record: PreparationRecord = {
+			schema: 1,
+			passRef: pass.ref,
+			handoff: pass.handoff!.record,
+			source: pass.handoff!.source,
+			attempt,
+			target: { proposal: observed.proposal, ref: observed.ref, commit: observed.target.commit },
+			outcome: "operational",
+			reason: null,
+			preparation: null,
+			checks: null,
+		};
+		let receipt: PreparationReceipt;
+		try {
+			const sealed = await this.#handoffSource(pass);
+			const base = await this.#effects!.perform({ type: "resolve", repository: sealed.source.repository, commit: preparationBase(pass) });
+			receipt = await this.#effects!.perform({ type: "prepare", base, source: sealed.source, target: observed.target });
+		} catch (error) {
+			return { ...record, reason: `preparation_operational_error: ${error instanceof Error ? error.message : error}`.slice(0, 4096) };
+		}
+		record.preparation = {
+			kind: receipt.kind,
+			algorithm: receipt.algorithm,
+			profile: receipt.profile,
+			git: receipt.git,
+			identity: receipt.identity,
+			base: receipt.base.commit,
+			source: receipt.source.commit,
+			target: receipt.target.commit,
+			result: receipt.result.commit,
+			tree: receipt.result.tree,
+			conflicts: receipt.conflicts,
+			exitCode: receipt.exitCode,
+			stdout: receipt.stdout,
+			stderr: receipt.stderr,
+		};
+		if (receipt.kind === "conflict") return { ...record, outcome: "conflict" };
+		try {
+			record.checks = await this.#checkPrepared(owner, pass, attempt, receipt.result, save);
+		} catch (error) {
+			return { ...record, reason: `prepared_check_operational_error: ${error instanceof Error ? error.message : error}`.slice(0, 4096) };
+		}
+		const status = record.checks.verification.status;
+		if (status === "passed") return { ...record, outcome: "checked" };
+		if (status === "failed") return { ...record, outcome: "check-failure" };
+		return { ...record, reason: `prepared_check_non_pass: ${status}` };
+	}
+	/** The pass's frozen selection, read from X's own verifier bytes, run against X in a fresh Linux workspace. */
+	async #checkPrepared(
+		owner: RoleAssignment,
+		pass: ImplementationPass,
+		attempt: number,
+		x: Source,
+		save: (scope: ExecutionScope) => Promise<unknown>,
+	): Promise<PreparedChecks> {
+		const check = this.#config.ownedChecks!.checks[owner.packet.profile]!;
+		const selected = pass.configuration.verification;
+		const entry = x.entries.find((e) => e.path === selected.path && e.mode !== "120000");
+		if (!entry) throw new Error(`Prepared source has no selected verifier ${selected.path}`);
+		const digest = createHash("sha256").update(Buffer.from(entry.content, "base64")).digest("hex");
+		const catalog = selectCatalog(x, { ...selected, commit: x.commit, digest, receipts: [] });
+		const scope: ExecutionScope = {
+			assignment: owner.id,
+			generation: owner.generation,
+			attempt: `${owner.attempt}:preparation:${attempt}`,
+			executorEpoch: this.#ledger!.status().executorEpoch,
+		};
+		await save(scope);
+		const key = JSON.stringify(scope);
+		this.#preparing.add(key);
+		try {
+			const handle = await this.#sandboxes!.prepare(scope, check.profile, x);
+			try {
+				const run = (argv: string[]) =>
+					this.#sandboxes!.execute(handle, { scope, argv, timeoutMs: check.timeoutMs, verifierRevision: digest });
+				const { results, cleanup } = await this.#catalogResults(null, catalog, run);
+				const capture = await this.#sandboxes!.seal(handle);
+				const resultTree = treeOid(capture.entries, x.objectFormat);
+				const required = requiredCatalogRows(catalog.selection);
+				const failed = results
+					.filter((r) => required.includes(r.name) && r.status === "failed")
+					.map((r) => ({ name: r.name, exitCode: [...r.steps, ...(r.sanity ? [r.sanity] : [])].find((s) => s.exitCode !== 0)?.exitCode }));
+				const operational = results.some(
+					(r) =>
+						required.includes(r.name) && r.status === "failed" && [...r.steps, ...(r.sanity ? [r.sanity] : [])].some((s) => s.timedOut),
+				);
+				const status =
+					resultTree !== x.tree
+						? "source_changed"
+						: cleanup.status !== "complete" || operational || results.some((r) => required.includes(r.name) && r.status === "unrun")
+							? "non-pass"
+							: failed.length
+								? "failed"
+								: required.every((name) => results.some((r) => r.name === name && r.status === "completed"))
+									? "passed"
+									: "non-pass";
+				return {
+					verifierRevision: digest,
+					scope,
+					catalog,
+					results,
+					cleanup,
+					verification: { status, inputCommit: x.commit, inputTree: x.tree, resultTree },
+					failed: status === "failed" ? (failed as { name: string; exitCode: number }[]) : [],
+				};
+			} catch (error) {
+				await this.#stopPreparationScope(scope);
+				throw error;
+			}
+		} finally {
+			this.#preparing.delete(key);
+		}
+	}
+	async #stopPreparationScope(scope: ExecutionScope): Promise<void> {
+		try {
+			await this.#sandboxes!.stop({ scope });
+		} catch (error) {
+			// No journal means create was never admitted for this scope; anything else is unconfirmed quiescence.
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+				throw new Error(`prepared_check_quiescence_unconfirmed: ${error instanceof Error ? error.message : error}`);
+		}
+	}
+	/** Only a recorded validated conflict or real X check failure authorizes the return; Kernel applies cap and authority. */
+	async #returnToImplementation(owner: RoleAssignment, pass: ImplementationPass, record: PreparationRecord) {
+		const sealed = await this.#handoffSource(pass);
+		const lineage = {
+			schema: 1,
+			cause: record.outcome === "conflict" ? "preparation-conflict" : "prepared-check-failure",
+			repository: sealed.source.repository,
+			source: pass.handoff!.source,
+			sourceCommit: sealed.source.commit,
+			baseCommit: sealed.base.commit,
+			targetCommit: record.target.commit,
+		};
+		const text = JSON.stringify(
+			record.outcome === "conflict"
+				? {
+						...lineage,
+						algorithm: record.preparation!.algorithm,
+						resultTree: record.preparation!.tree,
+						conflicts: record.preparation!.conflicts,
+					}
+				: {
+						...lineage,
+						preparedCommit: record.preparation!.result,
+						verifierRevision: record.checks!.verifierRevision,
+						failed: record.checks!.failed,
+					},
+		);
+		const reply = await this.#ledger!.command(
+			{
+				version: 1,
+				authorityEpoch: this.#ledger!.status().authorityEpoch,
+				commandId: `preparation-return:${pass.ref}:${record.attempt}`,
+				workflow: owner.workflow,
+				command: { type: "openSuccessorPass", assignment: owner.id, generation: owner.generation, attempt: owner.attempt, text },
+			},
+			mintContext({ kind: "host", scope: "effects" }),
+		);
+		if (reply.status !== "accepted") {
+			const current = this.#implementationPass(owner);
+			// A later pass means this return already committed; anything else stays visible on this pass.
+			if (!this.#latestPass(current)) return;
+			const r = await this.#command(this.#assignment(owner.id)!, {
+				type: "recordPreparationBlocker",
+				reason: `preparation_return_refused: ${reply.code}: ${reply.reason}`.slice(0, 1900),
+			});
+			if (r.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${r.code}`);
+		}
+	}
+	#latestPass(pass: ImplementationPass): boolean {
+		const frame = this.#ledger!.snapshot(scheduling);
+		const all = "implementationPasses" in frame ? (frame.implementationPasses as ImplementationPass[]) : [];
+		return !all.some((p) => p.workflow === pass.workflow && p.slice === pass.slice && p.ordinal > pass.ordinal);
 	}
 	/** A return commits before its base is materialized; an unresolvable base blocks visibly before any writer turn. */
 	async #openingBlocker(a: RoleAssignment): Promise<string | undefined> {
