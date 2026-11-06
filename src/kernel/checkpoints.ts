@@ -458,7 +458,7 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 			};
 			writes.push({
 				type: "roles.replace",
-				state: { assignments: [...structuredClone(state.roleWork!.assignments), child] },
+				state: structuredClone({ ...state.roleWork!, assignments: [...state.roleWork!.assignments, child] }),
 				intents: [{ kind: "run-role", assignment: child.id }],
 			});
 			Object.assign(result, { assignment: child.id, attempt: child.attempt });

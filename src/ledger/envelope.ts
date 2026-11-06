@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 import { validCheckpointModes } from "../kernel/checkpoint-settings.ts";
 import { CHECKPOINT_COMMANDS, type CheckpointCommand } from "../kernel/checkpoints.ts";
+import { validAssessment, validDispositions } from "../kernel/implementation.ts";
 import { INTAKE_COMMANDS, type IntakeCommand, validDependencies } from "../kernel/intake.ts";
 import { type Command, isAvailableCommand, type MediaType, type Persistence } from "../kernel/kernel.ts";
 
@@ -302,6 +303,26 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 				attempt: text(c.attempt, "attempt", 128),
 				packet: parsePacket(c.packet),
 			};
+		case "requestImplementationAudit":
+			only(c, ["type"], "command");
+			return { type, workflow };
+		case "submitImplementationHandoff": {
+			only(c, ["type", "text", "dispositions", "verification"], "command");
+			if (!validAssessment(c.verification) || !validDispositions(c.dispositions))
+				malformed("Handoff requires a structured assessment and complete finding dispositions.");
+			only(c.verification, ["outcome", "rank", "reason"], "verification");
+			text(c.verification.reason, "verification reason", 4096);
+			if (c.verification.rank !== null) text(c.verification.rank, "rank", 128);
+			for (const d of c.dispositions) {
+				only(d, ["report", "finding", "disposition", "reason", "changes", "rechecks"], "disposition");
+				text(d.report, "report", 128);
+				text(d.finding, "finding", 128);
+				text(d.reason, "reason", 4096);
+				if (d.changes.length > 128 || d.rechecks.length > 128) malformed("Disposition reference bounds exceeded");
+				for (const ref of [...d.changes, ...d.rechecks]) text(ref, "disposition reference", 128);
+			}
+			return { type, workflow, text: text(c.text, "text", 1024 * 1024), dispositions: c.dispositions, verification: c.verification };
+		}
 		case "requestRole":
 			only(c, ["type", "key", "request"], "command");
 			return {
@@ -360,7 +381,9 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 			return { type, workflow };
 	}
 	const allowed = ["type", "assignment", "generation", "attempt"];
-	if (type === "recordBlocker") allowed.push("reason");
+	if (type === "recordBlocker" || type === "recordPreparationBlocker") allowed.push("reason");
+	if (type === "recordImplementationSource") allowed.push("kind", "text");
+	if (type === "openSuccessorPass") allowed.push("text");
 	if (type === "recordRuntimeHistory") allowed.push("key");
 	if (
 		type === "recordRecoveryState" ||
@@ -379,8 +402,14 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 		generation: c.generation as number,
 		attempt: text(c.attempt, "attempt", 128),
 	};
+	if (type === "recordImplementationExecution") return { ...common, type };
+	if (type === "openSuccessorPass") return { ...common, type, text: text(c.text, "text", 1024 * 1024) };
 	if (type === "recordRuntimeHistory") return { ...common, type, key: text(c.key, "key", 128) };
-	if (type === "recordBlocker") return { ...common, type, reason: text(c.reason, "reason", 2048) };
+	if (type === "recordBlocker" || type === "recordPreparationBlocker") return { ...common, type, reason: text(c.reason, "reason", 2048) };
+	if (type === "recordImplementationSource") {
+		if (c.kind !== "audit" && c.kind !== "final" && c.kind !== "checkpoint") malformed("Source kind is audit, final or checkpoint");
+		return { ...common, type, kind: c.kind, text: text(c.text, "text", 16 * 1024 * 1024) };
+	}
 	if (
 		type === "recordRecoveryState" ||
 		type === "recordRunnerObservation" ||

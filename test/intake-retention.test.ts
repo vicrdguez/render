@@ -10,7 +10,7 @@ import { deviceServer } from "../src/ledger/http.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { finding, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
-import { admin, allowSameFamily, packet, roleFixture } from "./support/roles.ts";
+import { admin, allowSameFamily, packet, passOwner, roleFixture } from "./support/roles.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
 
 function accepted(reply: CommandReply) {
@@ -256,6 +256,71 @@ test("I07/I14 V8 real Engine fidelity and exact human intake survive ordinary re
 		assert.equal(restored.content.toString(), "# Contract\r\nReturn exact saved bytes.\n");
 		const frame = t.f.ledger.snapshot(admin) as Frame;
 		assert.equal((frame.workflows as { commitment: { acceptedIntake: string } }[])[0]!.commitment.acceptedIntake, result.acceptance);
+	} finally {
+		await t.close();
+	}
+});
+
+test("implementation pass opening is atomic with ownership, scoped, exported and stable after ordinary reopen", async () => {
+	const t = await fixture();
+	try {
+		const draft = await t.stage();
+		const review = await t.review(draft);
+		accepted(await t.f.command({ type: "acceptIntake", ...t.basis(draft, review) }, admin));
+		const contract = t.state().slices[0]!.contract;
+		const command = {
+			type: "assignTask",
+			slice: "read-fix",
+			delivery: true,
+			packet: passOwner(contract, { execution: "linux-writer" }),
+		};
+		const first = await t.f.command(command, undefined, "initial-implementation");
+		const opening = accepted(first);
+		assert.equal(opening.passOrdinal, 1);
+		assert.equal(opening.passRef, "pass:workflow:2:read-fix:1");
+		const record = await t.f.ledger.artifact(admin, { read: opening.passRecord as string });
+		assert.ok("content" in record, "opening record must commit alongside its assignment");
+		const body = JSON.parse(record.content.toString());
+		assert.equal(body.schema, 1);
+		assert.equal(body.contract, contract);
+		assert.equal(body.cause, "initial-implementation");
+		assert.equal(body.predecessor, null);
+		assert.equal(body.assignment, opening.assignment);
+		assert.equal(body.packet, opening.packet);
+		const assignments = () => (t.f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[];
+		const owner = assignments().find((a) => a.id === opening.assignment)!;
+		const principal = mintContext({
+			kind: "assignment-agent",
+			assignment: owner.id,
+			generation: owner.generation,
+			attempt: owner.attempt,
+			role: "implementer",
+		});
+		assert.ok("content" in (await t.f.ledger.artifact(principal, { read: opening.passRecord as string })));
+		assert.ok(
+			"code" in (await t.f.ledger.artifact(t.actor, { read: opening.passRecord as string })),
+			"unrelated coordinator has no pass-private read grant",
+		);
+		await until(() => assignments().find((a) => a.id === opening.assignment)?.status === "blocked");
+		assert.equal(
+			assignments().find((a) => a.id === opening.assignment)?.blocker,
+			"implementation_source_or_verifier_capability_unavailable",
+		);
+		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in exported && exported.manifest.complete);
+		assert.equal(Buffer.from(exported.content[opening.passRecord as string]!, "base64").toString(), record.content.toString());
+		await t.reopen();
+		const replay = await t.f.command(command, undefined, "initial-implementation");
+		assert.equal(replay.status, "accepted");
+		if (first.status !== "accepted" || replay.status !== "accepted") throw new Error("unreachable");
+		assert.equal(replay.duplicate, true);
+		assert.equal(replay.receipt, first.receipt);
+		assert.deepEqual(replay.result, first.result);
+		assert.equal(assignments().filter((a) => a.slice === "read-fix").length, 1);
+		const restored = await t.f.ledger.artifact(admin, { read: opening.passRecord as string });
+		assert.ok("content" in restored);
+		assert.equal(restored.content.toString(), record.content.toString());
+		assert.ok("content" in (await t.f.ledger.artifact(principal, { read: opening.passRecord as string })));
 	} finally {
 		await t.close();
 	}
@@ -563,6 +628,41 @@ for (const failure of ["missing_content", "content_corrupt", "unsupported_schema
 		}
 	});
 }
+for (const failure of ["missing_content", "content_corrupt", "unsupported_schema"]) {
+	test(`implementation pass ${failure} prevents replacement from reconstructing its immutable opening`, async () => {
+		const t = await fixture();
+		try {
+			const draft = await t.stage();
+			accepted(await t.f.command({ type: "acceptIntake", ...t.basis(draft, await t.review(draft)) }, admin));
+			const writer = passOwner(t.state().slices[0]!.contract, { execution: "linux-writer" });
+			const first = accepted(await t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: writer }));
+			const assignments = () => (t.f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[];
+			await until(() => assignments().find((a) => a.id === first.assignment)?.status === "blocked");
+			const owner = assignments().find((a) => a.id === first.assignment)!;
+			const canceled = accepted(
+				await t.f.command({ type: "cancelWork", assignment: owner.id, generation: owner.generation, attempt: owner.attempt }, admin),
+			);
+			await until(() => assignments().find((a) => a.id === first.assignment)?.status === "canceled");
+			damage(t.f.data, first.passRecord as string, failure);
+			await t.reopen();
+			const reply = await t.f.command({
+				type: "replaceTask",
+				assignment: owner.id,
+				generation: canceled.generation,
+				attempt: owner.attempt,
+				packet: writer,
+			});
+			assert.equal(code(reply), failure, "replacement must not reconstruct missing or corrupt opening evidence from current state");
+			const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			assert.ok("manifest" in exported);
+			assert.equal(exported.manifest.complete, false);
+			assert.equal((first.passRecord as string) in exported.content, false);
+		} finally {
+			await t.close();
+		}
+	});
+}
+
 function damage(data: string, ref: string, failure: string) {
 	// Deliberate fault injection into this owned temporary store only. Observations use Ledger.
 	const db = new DatabaseSync(join(data, "render.db"));
@@ -612,8 +712,7 @@ test("I08/I09 V2 actual SQLite serializes first assignment against amendment and
 			const next = await t.stage();
 			const basis = t.basis(next, await t.review(next));
 			const amend = () => t.f.command({ type: "amendContract", slice: "read-fix", expected: old, ...basis }, admin);
-			const assign = () =>
-				t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: packet({ role: "implementer", inputs: [old] }) });
+			const assign = () => t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: passOwner(old) });
 			const first = await (assignmentFirst ? assign() : amend());
 			accepted(first);
 			assert.equal(code(await (assignmentFirst ? amend() : assign())), assignmentFirst ? "contract_frozen" : "stale_basis");

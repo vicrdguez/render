@@ -5,6 +5,7 @@ import type { Harness, Registry } from "@earendil-works/pi-durable";
 import { Engine } from "../../src/engine/runtime.ts";
 import type { PolicyState } from "../../src/kernel/policy.ts";
 import type { RolePacket } from "../../src/kernel/roles.ts";
+import type { VerificationSelection } from "../../src/kernel/verification.ts";
 import type { Ledger } from "../../src/ledger/ledger.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
@@ -31,6 +32,30 @@ export function packet(overrides: Partial<RolePacket> = {}): RolePacket {
 		requests: [],
 		...overrides,
 	};
+}
+export const selection = (contract: string): VerificationSelection => ({
+	repository: "owned",
+	commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	path: ".render/verify.md",
+	digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	contract,
+	rows: ["full-suite", "typecheck", "lint", "read"],
+	behavioralRows: ["read"],
+	receipts: [],
+});
+/** An implementer an accepted pass can retain: a Linux writer with a usable selection and the one reviewer each Audit axis needs. */
+export function passOwner(contract: string, overrides: Partial<RolePacket> = {}): RolePacket {
+	return packet({
+		role: "implementer",
+		execution: "linux-writer",
+		verification: selection(contract),
+		inputs: [contract],
+		requests: [
+			{ key: "standards", packet: packet({ role: "audit-standards" }) },
+			{ key: "contracts", packet: packet({ role: "audit-contracts" }) },
+		],
+		...overrides,
+	});
 }
 export const admin = mintContext({ kind: "human", human: "human:owner", route: "local-admin" });
 export const scheduler = mintContext({ kind: "host", scope: "scheduling" });

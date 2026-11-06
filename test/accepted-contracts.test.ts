@@ -4,7 +4,7 @@ import type { CheckpointRequest } from "../src/kernel/checkpoints.ts";
 import type { IntakeManifest } from "../src/kernel/intake.ts";
 import { type Command, change, type KernelState, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
-import { packet } from "./support/roles.ts";
+import { packet, passOwner } from "./support/roles.ts";
 
 const workflow = "workflow:1";
 const human: VerifiedFacts["principal"] = { kind: "human", human: "owner", route: "local-admin" };
@@ -156,6 +156,7 @@ function fixture() {
 		state = {
 			...state,
 			roleWork: {
+				...state.roleWork!,
 				assignments: state.roleWork!.assignments.map((a) =>
 					a.id === reviewer.id ? { ...a, status: "submitted", executing: false, report } : a,
 				),
@@ -395,10 +396,7 @@ test("I08/I09 amendment before consumption succeeds; release never thaws a Contr
 	f.accepted({ type: "amendContract", slice: "fix", expected: original, ...f.basis(amended, f.review(amended)) }, human);
 	const contract = f.state.intakes!.slices[0]!.contract;
 	assert.notEqual(contract, original);
-	const assigned = f.accepted(
-		{ type: "assignTask", slice: "fix", delivery: true, packet: packet({ role: "implementer", inputs: [contract] }) },
-		host,
-	);
+	const assigned = f.accepted({ type: "assignTask", slice: "fix", delivery: true, packet: passOwner(contract) }, host);
 	assert.equal(f.state.intakes!.slices[0]!.everAssigned, true);
 	const a = f.state.roleWork!.assignments.find((a) => a.id === assigned.assignment)!;
 	f.accepted({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, human);
@@ -445,7 +443,7 @@ test("I10/I11 required Record stays blocked and supersession requires explicit d
 					type: "assignTask",
 					slice: "independent",
 					delivery: true,
-					packet: packet({ inputs: [slices.find((s) => s.id === "independent")!.contract] }),
+					packet: passOwner(slices.find((s) => s.id === "independent")!.contract),
 				},
 				host,
 			),
@@ -602,7 +600,7 @@ test("I08 assigning an accepted Slice without the delivery bit still consumes an
 		"stale_basis",
 		"delivery false cannot bypass an accepted Contract",
 	);
-	f.accepted({ type: "assignTask", slice: "fix", delivery: false, packet: packet({ role: "implementer", inputs: [contract] }) }, host);
+	f.accepted({ type: "assignTask", slice: "fix", delivery: false, packet: passOwner(contract) }, host);
 	assert.equal(f.state.intakes!.slices[0]!.everAssigned, true, "every accepted Slice assignment consumes its obligations");
 });
 
@@ -617,10 +615,7 @@ test("F3 active non-delivery Slice assignments block dependency edits and supers
 	const draft = f.stage(m);
 	f.accepted({ type: "acceptIntake", ...f.basis(draft, f.review(draft)) }, human);
 	const contract = f.state.intakes!.slices[0]!.contract;
-	const assigned = f.accepted(
-		{ type: "assignTask", slice: "fix", delivery: false, packet: packet({ role: "implementer", inputs: [contract] }) },
-		host,
-	);
+	const assigned = f.accepted({ type: "assignTask", slice: "fix", delivery: false, packet: passOwner(contract) }, host);
 	assert.equal(
 		code(
 			f.command(
@@ -758,7 +753,7 @@ test("V1 both acceptance/assignment/amendment orderings preserve permanent consu
 		Object.assign(f.inputs, base.inputs);
 		const commands: { principal: VerifiedFacts["principal"]; command: Record<string, unknown> }[] = [
 			{ principal: human, command: { type: "amendContract", slice: "fix", expected: contract, ...basis } },
-			{ principal: host, command: { type: "assignTask", slice: "fix", delivery: true, packet: packet({ inputs: [contract] }) } },
+			{ principal: host, command: { type: "assignTask", slice: "fix", delivery: true, packet: passOwner(contract) } },
 		];
 		if (assignmentFirst) commands.reverse();
 		const first = f.command(commands[0]!.command, commands[0]!.principal);

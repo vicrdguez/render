@@ -531,7 +531,7 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 			};
 			writes.push({
 				type: "roles.replace",
-				state: { assignments: [...structuredClone(state.roleWork!.assignments), child] },
+				state: structuredClone({ ...state.roleWork!, assignments: [...state.roleWork!.assignments, child] }),
 				intents: [{ kind: "run-role", assignment: child.id }],
 			});
 			Object.assign(result, { assignment: child.id, attempt: child.attempt });

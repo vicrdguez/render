@@ -16,6 +16,217 @@ type Control = { name: string; edits: Edit[]; test: string; pattern: string; beh
 // repair that ordering violation. Independent review of their behavioral sensitivity remains required.
 const CONTROLS: Control[] = [
 	{
+		name: "implementation-read-only-owner",
+		expect: /read-only owner/,
+		behavior: "accept a read-only implementer that can never capture source",
+		edits: [{ file: "src/kernel/implementation.ts", find: 'owner.execution !== "linux-writer" || ', replace: "" }],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "accepted pass refuses",
+	},
+	{
+		name: "implementation-selection-other-contract",
+		expect: /selection naming another retained document/,
+		behavior: "accept a verification selection bound to a document other than the accepted Contract",
+		edits: [{ file: "src/kernel/implementation.ts", find: "selection.contract !== contract || ", replace: "" }],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "accepted pass refuses",
+	},
+	{
+		name: "implementation-selection-no-behavioral-rows",
+		expect: /selection without behavioral rows/,
+		behavior: "accept a selection whose handoff can never establish behavioral coverage",
+		edits: [{ file: "src/kernel/implementation.ts", find: "!selection.behavioralRows.length || ", replace: "" }],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "accepted pass refuses",
+	},
+	{
+		name: "implementation-selection-impossible-path",
+		expect: /traversing catalog path/,
+		behavior: "accept a catalog path retained source cannot represent",
+		edits: [{ file: "src/kernel/implementation.ts", find: "validatePath(selection.path);", replace: "" }],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "accepted pass refuses",
+	},
+	{
+		name: "implementation-reviewer-frozen-verifier",
+		expect: /standards reviewer freezing a verifier before A/,
+		behavior: "freeze a caller-selected reviewer verifier before A exists",
+		edits: [{ file: "src/kernel/implementation.ts", find: "\t\t!p.verification &&\n", replace: "" }],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "accepted pass refuses",
+	},
+	{
+		name: "implementation-replacement-changes-configuration",
+		expect: /forbidden_scope/,
+		behavior: "let a replacement owner change the pass's frozen configuration",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: "!isDeepStrictEqual(passConfiguration(c.packet, pass!.contract), pass!.configuration) ||",
+				replace: "false ||",
+			},
+		],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "replacement cannot change",
+	},
+	{
+		name: "implementation-incompatible-audit-reviewers",
+		expect: /standards experiment candidate/,
+		behavior: "accept an experiment-bearing Audit reviewer into a pass",
+		edits: [
+			{
+				file: "src/kernel/implementation.ts",
+				find: "\t\t!p.experiment &&\n",
+				replace: "",
+			},
+		],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "accepted pass refuses",
+	},
+	{
+		name: "implementation-same-pass-reaudit",
+		expect: /no same-pass reaudit with a new command/,
+		behavior: "open a second Audit invocation in the same implementation pass",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: 'if (pass.audit) return refusal("role_already_requested", "This pass already has its one Audit invocation.");',
+				replace: "",
+			},
+		],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "paired Audit uses literal",
+	},
+	{
+		name: "implementation-report-source-relabel",
+		expect: /Audit must refuse mismatched report.*source/,
+		behavior: "admit a reviewer report claiming a source other than its inspected A",
+		edits: [
+			{
+				file: "src/kernel/implementation.ts",
+				find: "!Object.entries(binding).every(([k, x]) => v[k] === x)",
+				replace: '!Object.entries(binding).every(([k, x]) => k === "source" || v[k] === x)',
+			},
+		],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "Audit report refuses wrong",
+	},
+	{
+		name: "implementation-wrong-pass-report",
+		expect: /Audit must refuse mismatched report.*passRef/,
+		behavior: "admit a report selecting an old pass instead of its host-assigned pass",
+		edits: [
+			{
+				file: "src/kernel/implementation.ts",
+				find: "!Object.entries(binding).every(([k, x]) => v[k] === x)",
+				replace: '!Object.entries(binding).every(([k, x]) => k === "passRef" || v[k] === x)',
+			},
+		],
+		test: "test/implementation-lifecycle.test.ts",
+		pattern: "Audit report refuses wrong",
+	},
+	{
+		name: "implementation-pass-on-restart",
+		expect: /restart is not a new implementation interval/,
+		behavior: "increment the pass ordinal when replacing an Attempt after state reload",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: "created.passRef = a.passRef;",
+				replace: "created.passRef = a.passRef; work.passes!.find(p => p.ref === a.passRef)!.ordinal++;",
+			},
+		],
+		test: "test/implementation-pass.test.ts",
+		pattern: "ordinary state reload",
+	},
+	{
+		name: "implementation-generic-handoff",
+		expect: /accepted implementation cannot bypass sealed handoff/,
+		behavior: "close accepted implementation using a generic role report",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: 'if (a?.passRef)\n\t\t\treturn refusal("forbidden_scope", "Accepted implementation closes only through its sealed pass handoff, not a generic report.");',
+				replace: "",
+			},
+		],
+		test: "test/implementation-pass.test.ts",
+		pattern: "generic report submission",
+	},
+	{
+		name: "implementation-unpaired-audit",
+		expect: /accepted implementation Audit must retain A and stage both fresh axes together/,
+		behavior: "substitute a generic child role for the pass-bound paired Audit",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: 'if (a?.passRef) return refusal("forbidden_scope", "Accepted implementation requires its pass-bound paired Audit on retained source.");',
+				replace: "",
+			},
+		],
+		test: "test/implementation-pass.test.ts",
+		pattern: "generic child request",
+	},
+	{
+		name: "implementation-old-audit-reuse",
+		expect: /Audit before A2/,
+		behavior: "let a successor pass inherit its predecessor's completed Audit",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: 'cause: returned?.cause ?? "initial-implementation",',
+				replace:
+					'cause: returned?.cause ?? "initial-implementation", ...(returned ? { audit: pass!.audit, captureA: pass!.captureA } : {}),',
+			},
+		],
+		test: "test/implementation-successor.test.ts",
+		pattern: "P1 reports cannot satisfy P2",
+	},
+	{
+		name: "implementation-operational-retry-opens-pass",
+		expect: /launch failure 126/,
+		behavior: "open a successor pass for an unchanged-source operational check failure",
+		edits: [
+			{
+				file: "src/kernel/implementation.ts",
+				find: "!LAUNCH_FAILURES.includes(Number(f.exitCode))",
+				replace: "LAUNCH_FAILURES.length > 0",
+			},
+		],
+		test: "test/implementation-successor.test.ts",
+		pattern: "prepared-check failure opens from X",
+	},
+	{
+		name: "implementation-unbound-rework-verdict",
+		expect: /other X/,
+		behavior: "accept a Watchdog rework verdict bound to another prepared source",
+		edits: [{ file: "src/kernel/roles.ts", find: "verdict.prepared !== observation.preparedCommit ||", replace: "" }],
+		test: "test/implementation-successor.test.ts",
+		pattern: "Watchdog rework needs",
+	},
+	{
+		name: "implementation-successor-ignores-review-cap",
+		expect: /cap reached/,
+		behavior: "open a successor after the completed-review limit instead of stopping for the human",
+		edits: [{ file: "src/kernel/roles.ts", find: "reviews.length >= limit", replace: "reviews.length < 0" }],
+		test: "test/implementation-successor.test.ts",
+		pattern: "Watchdog rework needs",
+	},
+	{
+		name: "implementation-stop-original-only",
+		expect: /scope stop must discover the latest runtime/,
+		behavior: "stop only the original captured runtime, leaving the fresh writable runtime alive",
+		edits: [
+			{
+				file: "src/sandboxes/sandboxes.ts",
+				find: "executions.push(...last.executions);",
+				replace: "executions.push(...last.executions); return { ...last, executions };",
+			},
+		],
+		test: "test/implementation-capture.integration.ts",
+		pattern: "reopening and stopping a scope",
+	},
+	{
 		name: "local-prompt-experiment-evidence",
 		expect: /advisory must retain exact experiment source and raw negative evidence/,
 		behavior: "omit sealed experiment source and decisive negative bytes from advisory inputs",
@@ -742,7 +953,7 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/sandboxes/sandboxes.ts",
-				find: 'if (this.#fenced.has(handle.id)) throw new Error("Sandbox sealed/closed to execute.");',
+				find: 'if (this.#fenced.has(handle.id) || this.#stoppedScopes.has(identity(handle.scope)))\n\t\t\tthrow new Error("Sandbox sealed/closed to execute.");',
 				replace:
 					'return new Promise(resolve => execFile(call.argv[0]!, call.argv.slice(1), {encoding: "utf8"}, (error, stdout, stderr) => resolve({argv: call.argv, exitCode: error ? 1 : 0, stdout, stderr, platform: {os: "linux", cpu: "unknown"}, image: "host", timedOut: false})));',
 			},
@@ -752,7 +963,13 @@ const CONTROLS: Control[] = [
 		name: "blocked-slot-release",
 		expect: /capacity_exhausted/,
 		behavior: "a human-blocked but still executing Attempt releases its slot",
-		edits: [{ file: "src/kernel/roles.ts", find: "a.blocker = c.reason;", replace: "a.blocker = c.reason; a.executing = false;" }],
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: 'a.blocker = c.reason;\n\t\t\t\tif (a.status !== "canceling") a.status = "blocked";',
+				replace: 'a.blocker = c.reason; a.executing = false;\n\t\t\t\tif (a.status !== "canceling") a.status = "blocked";',
+			},
+		],
 		test: "test/cancellation-capacity.test.ts",
 		pattern: "R05",
 	},
@@ -1058,8 +1275,9 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/engine/runtime.ts",
-				find: 'if (a.packet.execution !== "read-only" && !a.packet.experiment) return "sandbox_capability_unavailable";',
-				replace: 'if (a.packet.execution !== "read-only" && !a.packet.experiment) return "required_model_family_unavailable";',
+				find: 'if (a.packet.execution !== "read-only" && !a.passRef && !a.packet.experiment) return "sandbox_capability_unavailable";',
+				replace:
+					'if (a.packet.execution !== "read-only" && !a.passRef && !a.packet.experiment) return "required_model_family_unavailable";',
 			},
 		],
 		test: "test/role-capability-refusal.test.ts",

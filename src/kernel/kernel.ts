@@ -90,6 +90,7 @@ export type VerifiedFacts = {
 	readonly checkpointInputs?: Record<string, CheckpointInput>;
 	readonly investigationGround?: Ground;
 	readonly verificationEvidence?: readonly import("./verification.ts").CatalogEvidence[];
+	readonly implementationSource?: import("./implementation.ts").ImplementationSource;
 	readonly executorEpoch?: string;
 	readonly principal: Principal;
 	/** The Render sequence an accepted command receives. */
@@ -135,6 +136,7 @@ export type DomainWrite =
 	| { readonly type: "fact.record"; readonly fact: string; readonly command: string; readonly refs: Readonly<Record<string, string>> };
 
 export type RefusalCode =
+	| "human_direction_required"
 	| "shape_confirmation_required"
 	| "stale_assignment"
 	| "assignment_not_running"
@@ -216,6 +218,12 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	saveDraft: { family: "role-work", available: false },
 	emitCheckpoint: { family: "role-work", available: true },
 	reworkCheckpoint: { family: "role-work", available: true },
+	requestImplementationAudit: { family: "role-work", available: true },
+	submitImplementationHandoff: { family: "role-work", available: true },
+	recordImplementationSource: { family: "source-effect", available: true },
+	recordImplementationExecution: { family: "source-effect", available: true },
+	recordPreparationBlocker: { family: "scheduling", available: true },
+	openSuccessorPass: { family: "source-effect", available: true },
 	requestRole: { family: "role-work", available: true },
 	requestOwnStop: { family: "role-work", available: true },
 	submitRoleResult: { family: "role-work", available: true },

@@ -48,6 +48,14 @@ export type CatalogEvidence = {
 export function requiredCatalogRows(selection: VerificationSelection): string[] {
 	return [...new Set(["full-suite", "typecheck", "lint", ...selection.behavioralRows])];
 }
+/** Rows are unique and include every required row, which also makes them nonempty. */
+export function selectionRowsComplete(selection: VerificationSelection): boolean {
+	return (
+		new Set(selection.rows).size === selection.rows.length &&
+		new Set(selection.behavioralRows).size === selection.behavioralRows.length &&
+		requiredCatalogRows(selection).every((name) => selection.rows.includes(name))
+	);
+}
 
 export function completionGap(
 	selection: VerificationSelection,
