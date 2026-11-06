@@ -7,10 +7,10 @@ Render's central promise is in spec §1: *leave, reconnect and resume without re
 1. **Re-entry in seconds.** You open the client cold and know within about 10 seconds what needs you, what's running and what's blocked, without reading chat. Those are the spec's five handover facts: accepted commitment, active owner, latest evidence, blocker and next human action.
 2. **Authority you can't misread.** Saving is not approving. A local draft is not a host-acknowledged save. A `stale_basis` reply is a diff to read, not a toast to dismiss. An approval always shows the exact revision it binds. A UI that makes you approve the wrong bytes undoes the server's careful guarantees.
 3. **Review fast enough that you aren't the bottleneck.** Checkpoint review, annotation and the decide/rework loop are where your time goes. That loop should be the most efficient path in the app.
-4. **A shared command vocabulary.** GPUI and the future TUI should use the same keys, modes and command names, rendered twice. You design it once and both clients feel the same.
+4. **A shared command vocabulary.** The rune client and the future TUI should use the same keys, modes and command names, rendered twice. You design it once and both clients feel the same.
 5. **Pressure on the wire format.** The protocol isn't settled (A012). Every screen forces the question "which fields do I need, and from which message?" The design should hand that back as concrete requirements, not quietly assume them.
 
-**The reframed task:** design Render's client interaction model and visual language as a stack-independent spec, GPUI first. Prove it with a keyboard-driveable prototype running against a scripted fake host. Measure it against numeric targets, and deliver the protocol requirements it implies.
+**The reframed task:** design Render's client interaction model and visual language as a stack-independent spec, rune first. Prove it with a keyboard-driveable prototype running against a scripted fake host. Measure it against numeric targets, and deliver the protocol requirements it implies.
 
 **What I'd need to do this and check it without you:**
 
@@ -19,7 +19,7 @@ Render's central promise is in spec §1: *leave, reconnect and resume without re
 | Read access to `~/.config/nvim` (Doom Emacs is UI inspiration only; its config is not read) | Match your leader key, which-key tree, motions, font and colours so muscle memory carries over | Present on this machine |
 | Real content: skl ledger docs, Contracts, long agent transcripts with tool calls, Mermaid designs, annotated checkpoints | Design against real density, not lorem ipsum | `~/skl-ledger`, **read-only** |
 | A scripted fake host emitting the §5.3 snapshot/update/receipt shapes, with scenario scripts H1–H9 (stale approval, unknown outcome, sequence gap, revocation, streaming firehose) | Deterministic states to design and test against | No existing fixture host is provided; I'd build my own in `~/dev/render-ui-design`, behind a thin adapter so wire changes stay local |
-| Rust + GPUI building on this Mac (Rust installed via `mise`); screen capture permission | Spike the risky parts and take screenshots for verification | To set up |
+| Rust + rune building on this Mac (Rust installed via `mise`); screen capture permission | Spike the risky parts and take screenshots for verification | rune builds here; the E-RUNE-1 spike ran headless on 2026-11-06 |
 | The browser pane | Drive and measure an HTML interaction prototype automatically | Available |
 | Two short sessions of your time | Only you can judge "feels like home"; handover timing needs a real human | To schedule |
 
@@ -34,7 +34,7 @@ Render's central promise is in spec §1: *leave, reconnect and resume without re
 - **Grammar before pixels.** Use vim's verb + object model with Render's own objects: checkpoint, annotation, hunk, assignment, slice, evidence. For example, select a range in Visual mode and press `c` to comment, `]a`/`[a` to jump between unresolved annotations, `]c` to jump between diff hunks. Modes are Normal/Insert/Visual plus a **minibuffer** (`:`, `SPC SPC`) with which-key discovery on the leader key.
 - **Navigation that works like vim:** a jumplist (`C-o`/`C-i`), marks, `/` search in every pane, `C-w hjkl` between panes, and a quickfix-style list of what needs you.
 - **Avy/vimium-style hint mode** so every visible target is reachable by keyboard, not just the ones that got a binding.
-- **The keymap as data.** One declarative table shared by GPUI and TUI, with lint rules: no prefix conflicts, no authority action on a single unmodified key, and every command reachable. The cheat sheet is generated from it.
+- **The keymap as data.** One declarative table shared by the rune client and the TUI, with lint rules: no prefix conflicts, no authority action on a single unmodified key, and every command reachable. The cheat sheet is generated from it.
 - **Target pinning.** A key sequence acts on the item that was under the cursor when the sequence *started*. A streaming update inserting a row must never redirect your `a` (approve).
 - **Visual system:**
   - a character-cell grid
@@ -42,7 +42,7 @@ Render's central promise is in spec §1: *leave, reconnect and resume without re
   - 0–2px corner radius
   - a base16-style palette where colour means state, not decoration
   - explicit marks for local/saved/stale/unknown, like vim's `[+]`
-- **Speed instruments:** event→frame timestamps logged in-app, Instruments on macOS, and a synthetic stream firehose from the fake host. Behaviour checks use GPUI's test context (`simulate_keystrokes`) and browser automation for the HTML prototype.
+- **Speed instruments:** event→frame timestamps logged in-app, Instruments on macOS, and a synthetic stream firehose from the fake host. Behaviour checks use rune's test `Runtime` (scripted keys and IME, element tree) and browser automation for the HTML prototype.
 - **Check the transcript's framework claims.** Things like GPUI Kit v0.8.0 WebView and `gpui_web` maturity are after my knowledge cutoff, so I can't vouch for them. I'd confirm them against current sources before relying on any.
 
 **A target that sounds unreasonably high but is achievable:**
@@ -67,7 +67,7 @@ Render's central promise is in spec §1: *leave, reconnect and resume without re
 - **Stale screens:** approving a view the host has already moved past.
 - **Lost outcomes:** disconnecting mid-command and assuming it failed.
 
-There's a second adversary to the whole design: **"I'd rather just use nvim plus a TUI."** If the GPUI client isn't measurably better than a terminal baseline for reading and reviewing, it has failed. That's tested, not argued.
+There's a second adversary to the whole design: **"I'd rather just use nvim plus a TUI."** If the rune client isn't measurably better than a terminal baseline for reading and reviewing, it has failed. That's tested, not argued.
 
 ## VERIFICATION: evidence other than my judgment
 
@@ -82,7 +82,7 @@ There's a second adversary to the whole design: **"I'd rather just use nvim plus
 
 ## Open decisions (my defaults in bold)
 
-1. **Prototype medium:** **an HTML interaction prototype** (fast, driveable by my browser tools) **plus a narrow GPUI spike** for the risky parts: streaming Markdown, virtualised chat, a modal prompt editor and input latency. Alternatives are GPUI only, or static mockups only.
+1. **Prototype medium:** **an HTML interaction prototype** (fast, driveable by my browser tools) **plus a narrow rune spike** for the risky parts: streaming Markdown, virtualised chat, a modal prompt editor and input latency. Alternatives are rune only, or static mockups only.
 2. **Prose font:** **mono chrome plus mono prose by default, with a proportional reading font as a tested option.** The reading trials decide; your taste isn't overridden.
 3. **Canvas (tldraw/Excalidraw):** **design only the boundary in this pass.** Mermaid renders natively in v1, and interactive canvas editing comes later.
 4. **TUI:** **share the grammar and keymap table and check that they map to the terminal**, but don't lay out the TUI screens.
@@ -102,11 +102,11 @@ There's a second adversary to the whole design: **"I'd rather just use nvim plus
 > Deliver:
 > 1. A task inventory with estimated frequencies, and the five handover facts mapped to screens.
 > 2. The failure catalogue.
-> 3. The interaction grammar: modes, leader/which-key tree, minibuffer, motions and text objects over Render objects, hint mode, jumplist, target pinning, and authority-command readback. The keymap is a single declarative table with lint rules, shared by GPUI and a future TUI (mapping check only for the TUI).
+> 3. The interaction grammar: modes, leader/which-key tree, minibuffer, motions and text objects over Render objects, hint mode, jumplist, target pinning, and authority-command readback. The keymap is a single declarative table with lint rules, shared by the rune client and a future TUI (mapping check only for the TUI).
 > 4. The visual language: cell grid, type, line length, semantic palette tokens (dark and light), borders/radius, density, and the state marks for local/saved/stale/unknown/blocked.
 > 5. Screen designs: workspace layout, "needs me" queue/overview, chat reader with modal prompt and steering, checkpoint review and annotation, emission diff, annotation disposition map, evidence/receipts, assignments/agents, decision confirmation, and reconnect/stale/unknown-outcome states. Mermaid renders natively; the canvas is a boundary only.
 > 6. A scripted fake host emitting the spec's proposed shapes, with scenarios H1–H9 and a streaming firehose.
-> 7. An HTML keyboard-driveable interaction prototype on the fake host, plus a narrow GPUI spike for streaming Markdown, a virtualised 10k-message chat, the modal prompt editor and input latency.
+> 7. An HTML keyboard-driveable interaction prototype on the fake host, plus a narrow rune spike for streaming Markdown, a virtualised 10k-message chat, the modal prompt editor and input latency.
 > 8. The client→protocol requirements list.
 > 9. A verification report.
 >
