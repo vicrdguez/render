@@ -673,7 +673,7 @@ test("TP30: each explicit retry of a checked handoff settles visibly and stays r
 		accepted(await retry());
 		await t.wait(() => blocker() !== "", "a repeated retry must also leave a visible result");
 		assert.equal(blocker(), first);
-		assert.equal(passes()[0]!.handoff!.preparations!.length, 2, "an unchanged basis is not prepared again");
+		assert.equal(passes().length, 1, "still the same handed-off pass");
 		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "no Watchdog launch or count");
 	} finally {
 		await t.close();

@@ -845,7 +845,7 @@ export class Engine {
 			initial: () => ({ phase: "prepare" }),
 			phases: {
 				prepare: async (task, runtime, context) => {
-					await this.#prepareHandoff(task.input.assignment, task.input.from ?? 0, task.state.checkpoint.scope, (scope) =>
+					await this.#prepareHandoff(task.id, task.input.assignment, task.input.from ?? 0, task.state.checkpoint.scope, (scope) =>
 						runtime.commit(() => ({ status: "running", checkpoint: { phase: "prepare", scope } }), context),
 					);
 					return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
@@ -1683,11 +1683,19 @@ export class Engine {
 	 * prepares X in Effects and checks actual X in Linux; Ledger retains one record per attempt before anything follows.
 	 * Every exit leaves a visible result: a successor pass, an operational blocker or awaiting Watchdog.
 	 */
-	async #prepareHandoff(id: string, from: number, prior: ExecutionScope | undefined, save: (scope: ExecutionScope) => Promise<unknown>) {
+	async #prepareHandoff(
+		task: number,
+		id: string,
+		from: number,
+		prior: ExecutionScope | undefined,
+		save: (scope: ExecutionScope) => Promise<unknown>,
+	) {
 		const owner = this.#assignment(id);
 		if (!owner?.passRef) throw new Error("Missing sealed handoff owner");
+		// Each preparation task settles once; a later retry's identical result is a new settlement, not a replay of this one.
 		const block = async (reason: string) => {
-			const reply = await this.#command(this.#assignment(id)!, { type: "recordPreparationBlocker", reason: reason.slice(0, 1900) });
+			const command = { type: "recordPreparationBlocker", reason: reason.slice(0, 1900) };
+			const reply = await this.#command(this.#assignment(id)!, command, `preparation-task:${task}`);
 			if (reply.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${reply.code}`);
 		};
 		const check = this.#config.ownedChecks?.checks[owner.packet.profile];
@@ -1703,7 +1711,7 @@ export class Engine {
 				const latest = ref ? await this.#preparationRecord(ref) : undefined;
 				if (latest?.outcome === "operational") return;
 				if (latest && ["conflict", "check-failure", "verifier-defect"].includes(latest.outcome))
-					return this.#returnToImplementation(owner, pass, latest);
+					return this.#returnToImplementation(owner, pass, latest, block);
 				await faultBarrier("before-target-observe", `preparation-observe:${pass.ref}:${refs.length}`);
 				const observed = await this.#effects.perform({
 					type: "observe",
@@ -1714,6 +1722,10 @@ export class Engine {
 				const basis = this.#policyBasis(owner.workflow);
 				// Debt: Watchdog launch and its final pre-launch reobservation are not wired yet, so a checked pass waits here
 				// as a visible blocker; a target or policy binding that moves after this needs an explicit retry to be prepared again.
+				// Debt: this readiness settlement trusts the cached policy basis read above. A policy adopted after that read, or
+				// the bound policy's retained bytes going missing after the record committed, can still settle `awaiting_watchdog`
+				// on a stale or unverifiable basis. No review runs from it today; before Watchdog launch consumes this readiness,
+				// its launch-time reobservation must recheck the current, verified policy basis.
 				if (latest && latest.target.commit === observed.target.commit && latest.policy.binding === basis.binding)
 					return block(
 						`awaiting_watchdog: prepared ${latest.preparation!.result} checked on current target ${observed.target.commit}; Watchdog capability unavailable`,
@@ -1931,7 +1943,12 @@ export class Engine {
 		}
 	}
 	/** Only a recorded validated conflict or real X check failure authorizes the return; Kernel applies cap and authority. */
-	async #returnToImplementation(owner: RoleAssignment, pass: ImplementationPass, record: PreparationRecord) {
+	async #returnToImplementation(
+		owner: RoleAssignment,
+		pass: ImplementationPass,
+		record: PreparationRecord,
+		block: (reason: string) => Promise<void>,
+	) {
 		const sealed = await this.#handoffSource(pass);
 		const prepared = record.preparation!;
 		// The recorded base is the pass's target-lineage T0 that Kernel bound when it accepted this record.
@@ -1976,11 +1993,7 @@ export class Engine {
 			const current = this.#implementationPass(owner);
 			// A later pass means this return already committed; anything else stays visible on this pass.
 			if (!latestPass(this.#passes(), current)) return;
-			const r = await this.#command(this.#assignment(owner.id)!, {
-				type: "recordPreparationBlocker",
-				reason: `preparation_return_refused: ${reply.code}: ${reply.reason}`.slice(0, 1900),
-			});
-			if (r.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${r.code}`);
+			await block(`preparation_return_refused: ${reply.code}: ${reply.reason}`);
 		}
 	}
 	#passes(): ImplementationPass[] {
@@ -2044,12 +2057,13 @@ export class Engine {
 		}
 		return undefined;
 	}
-	async #command(a: RoleAssignment, command: Record<string, unknown>) {
+	/** `occurrence` distinguishes a command that may legitimately repeat with identical text in a later settlement. */
+	async #command(a: RoleAssignment, command: Record<string, unknown>, occurrence?: string) {
 		const reply = await this.#ledger!.command(
 			{
 				version: 1,
 				authorityEpoch: this.#ledger!.status().authorityEpoch,
-				commandId: `engine:${a.id}:${a.generation}:${a.executionOrdinal}:${a.status}:${command.type}:${createHash("sha256").update(JSON.stringify(command)).digest("hex").slice(0, 24)}`,
+				commandId: `engine:${a.id}:${a.generation}:${a.executionOrdinal}:${a.status}:${command.type}:${createHash("sha256").update(JSON.stringify(command)).digest("hex").slice(0, 24)}${occurrence ? `:${occurrence}` : ""}`,
 				workflow: a.workflow,
 				command: { assignment: a.id, generation: a.generation, attempt: a.attempt, ...command },
 			},

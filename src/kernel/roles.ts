@@ -965,6 +965,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				Object.assign(result, { passRef: pass.ref, handoff: pass.handoff.record });
 				break;
 			case "recordPreparationBlocker":
+				// Debt: readiness is admitted without a policy basis or Ledger verification of the bound policy bytes, so it can
+				// reflect a basis superseded or lost since the checked record. Recheck the basis when Watchdog launch consumes it.
 				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !c.reason?.trim())
 					return refusal("assignment_closed", "Preparation blockage requires a handed-off pass.");
 				pass.handoff.blocker = c.reason;
