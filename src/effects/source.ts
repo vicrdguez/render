@@ -30,6 +30,23 @@ export type SourceReceipt = {
 export type Resolve = { type: "resolve"; repository: string; commit: string };
 export type Retain = { type: "retain"; base: Source; capture: Capture };
 export type Diff = { type: "diff"; repository: string; base: string; result: string };
+/** Inputs are host-retained sources, never worker-selected Git metadata. */
+export type Prepare = { type: "prepare"; base: Source; source: Source; target: Source };
+export type PreparationReceipt = {
+	kind: "clean" | "conflict";
+	base: Source;
+	source: Source;
+	target: Source;
+	result: Source;
+	algorithm: "git-merge-tree-write-tree-z/v1";
+	git: string;
+	identity: string;
+	conflicts: string[];
+	stdout: string;
+	stderr: string;
+	exitCode: 0 | 1;
+};
+type GitResult = { stdout: Buffer; stderr: Buffer; exitCode: number | null; signal: string | null };
 const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_ENTRIES = 10000;
 
@@ -104,7 +121,9 @@ export class Effects {
 	perform(operation: Resolve): Promise<Source>;
 	perform(operation: Retain): Promise<SourceReceipt>;
 	perform(operation: Diff): Promise<string>;
-	async perform(operation: Resolve | Retain | Diff): Promise<Source | SourceReceipt | string> {
+	perform(operation: Prepare): Promise<PreparationReceipt>;
+	async perform(operation: Resolve | Retain | Diff | Prepare): Promise<Source | SourceReceipt | string | PreparationReceipt> {
+		if (operation.type === "prepare") return this.#prepare(operation);
 		const repository = operation.type === "retain" ? operation.base.repository : operation.repository;
 		const store = await this.#store(repository);
 		if (operation.type === "diff") {
@@ -179,10 +198,93 @@ export class Effects {
 			durability: { git: (await this.#git(store.path, store.cwd, ["--version"])).toString().trim(), fsync: "all", method: "fsync" },
 		};
 	}
-	async reconcile(receipt: SourceReceipt): Promise<SourceReceipt> {
+	reconcile(receipt: SourceReceipt): Promise<SourceReceipt>;
+	reconcile(receipt: PreparationReceipt): Promise<PreparationReceipt>;
+	async reconcile(receipt: SourceReceipt | PreparationReceipt): Promise<SourceReceipt | PreparationReceipt> {
 		await this.#verifySource(receipt.base);
 		await this.#verifySource(receipt.source);
+		if ("algorithm" in receipt) {
+			await this.#verifySource(receipt.target);
+			await this.#verifySource(receipt.result);
+			const actual = await this.#prepare({ type: "prepare", base: receipt.base, source: receipt.source, target: receipt.target });
+			if (JSON.stringify(actual) !== JSON.stringify(receipt)) throw new Error("Preparation receipt mismatch.");
+		}
 		return receipt;
+	}
+	async #prepare({ base, source, target }: Prepare): Promise<PreparationReceipt> {
+		if (base.repository !== source.repository || base.repository !== target.repository) throw new Error("Preparation repository mismatch.");
+		for (const input of [base, source, target]) await this.#verifySource(input);
+		const store = await this.#store(source.repository);
+		const ancestor = async (a: string, b: string): Promise<boolean> => {
+			const result = await this.#gitResult(store.path, store.cwd, ["merge-base", "--is-ancestor", a, b]);
+			if (result.signal || (result.exitCode !== 0 && result.exitCode !== 1)) throw gitFailure("merge-base", result);
+			return result.exitCode === 0;
+		};
+		if (!(await ancestor(base.commit, source.commit)) || !(await ancestor(base.commit, target.commit)))
+			throw new Error("Recorded base must be an ancestor of both B and target.");
+		const algorithm = "git-merge-tree-write-tree-z/v1" as const;
+		const git = (await this.#git(store.path, store.cwd, ["--version"])).toString().trim();
+		const identity = createHash("sha256")
+			.update(JSON.stringify([source.repository, base.commit, source.commit, target.commit, algorithm, git]))
+			.digest("hex");
+		if (await ancestor(target.commit, source.commit))
+			return {
+				kind: "clean",
+				base,
+				source,
+				target,
+				result: source,
+				algorithm,
+				git,
+				identity,
+				conflicts: [],
+				stdout: "",
+				stderr: "",
+				exitCode: 0,
+			};
+		const raw = await this.#gitResult(store.path, store.cwd, [
+			"merge-tree",
+			"--write-tree",
+			"--messages",
+			"-z",
+			source.commit,
+			target.commit,
+		]);
+		if (raw.signal || (raw.exitCode !== 0 && raw.exitCode !== 1)) throw gitFailure("merge-tree", raw);
+		let parsed: { tree: string; conflicts: string[] };
+		try {
+			parsed = parseMergeResult(raw.stdout, raw.exitCode, store.format);
+			if ((await this.#git(store.path, store.cwd, ["cat-file", "-t", parsed.tree])).toString().trim() !== "tree")
+				throw new Error("Preparation result is not a tree.");
+		} catch (error) {
+			throw new Error(`Operational merge-tree result: ${error}; stderr: ${raw.stderr.toString("utf8")}`);
+		}
+		const commit = (
+			await this.#git(
+				store.path,
+				store.cwd,
+				["commit-tree", parsed.tree, "-p", source.commit, "-p", target.commit],
+				Buffer.from(`Render preparation ${identity}\n`),
+			)
+		)
+			.toString()
+			.trim();
+		const result = await this.#read(source.repository, commit);
+		await this.#rootSource(result);
+		return {
+			kind: raw.exitCode === 0 ? "clean" : "conflict",
+			base,
+			source,
+			target,
+			result,
+			algorithm,
+			git,
+			identity,
+			conflicts: parsed.conflicts,
+			stdout: raw.stdout.toString("base64"),
+			stderr: raw.stderr.toString("base64"),
+			exitCode: raw.exitCode,
+		};
 	}
 	async #verifySource(source: Source): Promise<void> {
 		const store = await this.#store(source.repository);
@@ -280,7 +382,12 @@ export class Effects {
 	#checkOid(value: string, format: Source["objectFormat"]): void {
 		if (!(format === "sha1" ? /^[0-9a-f]{40}$/ : /^[0-9a-f]{64}$/).test(value)) throw new Error("Exact source commit/object ID required.");
 	}
-	#git(path: string, cwd: string, args: string[], input?: Buffer): Promise<Buffer> {
+	async #git(path: string, cwd: string, args: string[], input?: Buffer): Promise<Buffer> {
+		const result = await this.#gitResult(path, cwd, args, input);
+		if (result.exitCode !== 0 || result.signal) throw gitFailure(args[0]!, result);
+		return result.stdout;
+	}
+	#gitResult(path: string, cwd: string, args: string[], input?: Buffer): Promise<GitResult> {
 		return new Promise((resolve, reject) => {
 			const child = execFile(
 				"git",
@@ -309,6 +416,7 @@ export class Effects {
 						PATH: process.env.PATH,
 						HOME: cwd,
 						GIT_CONFIG_NOSYSTEM: "1",
+						GIT_ATTR_NOSYSTEM: "1",
 						GIT_CONFIG_GLOBAL: "/dev/null",
 						GIT_TERMINAL_PROMPT: "0",
 						GIT_AUTHOR_NAME: "Render",
@@ -320,13 +428,69 @@ export class Effects {
 						LC_ALL: "C",
 					},
 				},
-				(error, stdout, stderr) =>
-					error ? reject(new Error(`Trusted source Git ${args[0]} failed: ${stderr.toString()}`)) : resolve(stdout),
+				(error, stdout, stderr) => {
+					if (error && typeof error.code !== "number" && !error.signal) {
+						reject(new Error(`Trusted source Git ${args[0]} failed: ${error.message}; ${stderr.toString()}`));
+						return;
+					}
+					resolve({
+						stdout,
+						stderr,
+						exitCode: error ? (typeof error.code === "number" ? error.code : null) : 0,
+						signal: error?.signal ?? null,
+					});
+				},
 			);
 			child.stdin?.end(input);
 		});
 	}
 }
+function gitFailure(command: string, result: GitResult): Error {
+	return new Error(
+		`Trusted source Git ${command} failed (exit ${result.exitCode}, signal ${result.signal}): ${result.stderr.toString("utf8")}`,
+	);
+}
+
+// Git's -z protocol: tree, stage records, empty separator, then count/paths/type/message tuples.
+// Validate the complete stream; an exit code or a first tree alone never authorizes conflict return.
+function parseMergeResult(stdout: Buffer, exitCode: 0 | 1, format: Source["objectFormat"]): { tree: string; conflicts: string[] } {
+	const text = stdout.toString("utf8");
+	if (!Buffer.from(text).equals(stdout) || !text.endsWith("\0")) throw new Error("Invalid merge-tree framing.");
+	const fields = text.slice(0, -1).split("\0");
+	const tree = fields.shift()!;
+	const hash = format === "sha1" ? "[0-9a-f]{40}" : "[0-9a-f]{64}";
+	if (!new RegExp(`^${hash}$`).test(tree)) throw new Error("Invalid merge-tree tree framing.");
+	const conflicts = new Set<string>();
+	let stages = 0;
+	while (fields.length && fields[0] !== "") {
+		const stage = new RegExp(`^(100644|100755|120000) (${hash}) [123]\\t(.+)$`, "s").exec(fields.shift()!);
+		if (!stage) throw new Error("Invalid merge-tree stage framing.");
+		validatePath(stage[3]!);
+		conflicts.add(stage[3]!);
+		if (++stages > MAX_ENTRIES * 3) throw new Error("Merge-tree stage bound exceeded.");
+	}
+	if (fields.shift() !== "") throw new Error("Missing merge-tree section framing.");
+	let conflictMessages = 0;
+	while (fields.length) {
+		const countText = fields.shift()!;
+		if (!/^[1-9][0-9]*$/.test(countText)) throw new Error("Invalid merge-tree message framing.");
+		const count = Number(countText);
+		if (count > MAX_ENTRIES || fields.length < count + 2) throw new Error("Truncated merge-tree message framing.");
+		const paths = fields.splice(0, count);
+		for (const path of paths) validatePath(path);
+		const type = fields.shift()!;
+		const message = fields.shift()!;
+		if (!type || !message) throw new Error("Empty merge-tree message framing.");
+		if (type.startsWith("CONFLICT")) {
+			conflictMessages++;
+			for (const path of paths) conflicts.add(path);
+		} else if (type !== "Auto-merging") throw new Error(`Unsupported merge-tree message classification: ${type}`);
+	}
+	if ((exitCode === 0 && (stages > 0 || conflictMessages > 0)) || (exitCode === 1 && conflictMessages === 0))
+		throw new Error("Invalid merge-tree result classification.");
+	return { tree, conflicts: [...conflicts].sort() };
+}
+
 async function syncTree(path: string): Promise<void> {
 	for (const entry of await readdir(path, { withFileTypes: true })) {
 		const child = join(path, entry.name);
