@@ -1351,6 +1351,16 @@ const CONTROLS: Control[] = [
 		test: "test/target-preparation-crash.integration.ts",
 		pattern: "TP14 SIGKILL",
 	},
+	{
+		name: "preparation-discovery-row-qualifies",
+		expect: /verifier defect opens a repair pass/,
+		behavior: "a required row that X's own verifier defines as discovery-only runs and qualifies X as checked",
+		edits: [
+			{ file: "src/engine/runtime.ts", find: "\t\t\tif (gap) throw new VerifierDefect(`Required row ${name}: ${gap}`);\n", replace: "" },
+		],
+		test: "test/implementation-engine.integration.ts",
+		pattern: "TP22",
+	},
 ];
 
 async function copy(): Promise<string> {

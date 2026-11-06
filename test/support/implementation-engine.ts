@@ -182,7 +182,9 @@ export async function fixture(
 					if (prompt.implementation?.ordinal === 2 && options.successorStops) return fauxAssistantMessage("Successor inspected.");
 					if (prompt.implementation?.ordinal === 2) {
 						if (successorTurn === 1)
-							originals = JSON.stringify(transcript.messages.filter((m) => m.role === "tool" || m.role === "toolResult"));
+							originals = JSON.parse(
+								(transcript.messages.findLast((m) => m.role === "toolResult")!.content as { text: string }[])[0]!.text,
+							).stdout;
 						const calls = [
 							[
 								"implementation_execute",

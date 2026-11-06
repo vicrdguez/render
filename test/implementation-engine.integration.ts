@@ -269,13 +269,17 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 			successorPrompts[0]!.inputs?.some((input) => input.ref === conflictRef && input.text === JSON.stringify(conflict)),
 			"the writer receives the exact retained conflict record",
 		);
-		assert.match(conflict.preparation!.stdout, /CONFLICT[^\0]*value/, "the record keeps Git's own conflict messages");
+		assert.match(
+			Buffer.from(conflict.preparation!.stdout, "base64").toString(),
+			/CONFLICT \(content\): Merge conflict in value/,
+			"the record keeps Git's exact conflict output bytes",
+		);
 		assert.deepEqual(
 			[conflict.preparation!.source, conflict.preparation!.base, conflict.preparation!.target],
 			[receipt.source.commit, base, T1],
 		);
 		// Read-only original B, T0 and T1 are mounted beside the writable T1 workspace.
-		assert.match(t.originals(), /B\\nA\\nT\\nORIGINALS_READ_ONLY/, `successor saw ${t.originals()}`);
+		assert.equal(t.originals(), "B\nA\nT\nORIGINALS_READ_ONLY\n", "the successor reads B, T0 and T1 but cannot change them");
 		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "conflict starts no Watchdog");
 		await t.wait(() => /^awaiting_watchdog/.test(passes()[1]?.handoff?.blocker ?? ""), "P2 prepared and checked");
 		const x2 = await prepared(passes()[1]!.handoff!.preparations![0]!);
