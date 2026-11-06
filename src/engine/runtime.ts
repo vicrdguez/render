@@ -1259,13 +1259,23 @@ export class Engine {
 							await this.#command(a, { type: "recordBlocker", reason: "whole_environment_stop_unavailable" });
 						continue;
 					}
+					// A read-only Watchdog round may own a check environment: stop it whole before releasing the slot.
+					let environment: "absent" | "stopped" = "absent";
+					if (a.watchdogReview && !a.watchdogReview.checks && a.executing && this.#sandboxes)
+						try {
+							environment = await this.#stopPreparationScope(this.#scope(a, true));
+						} catch (error) {
+							const reason = `watchdog_check_quiescence_unconfirmed: ${error}`.slice(0, 1900);
+							if (a.blocker !== reason) await this.#command(a, { type: "recordBlocker", reason });
+							continue;
+						}
 					const c = await this.#harness.conversation(a.conversation as ConversationId, ctx);
 					if (!c) {
 						await this.#command(a, { type: "recordBlocker", reason: "missing_execution_conversation" });
 						continue;
 					}
 					await c.abort(ctx);
-					await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "absent", effects: "reconciled" });
+					await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment, effects: "reconciled" });
 				}
 			}
 		} finally {
@@ -2018,13 +2028,15 @@ export class Engine {
 			this.#preparing.delete(key);
 		}
 	}
-	async #stopPreparationScope(scope: ExecutionScope): Promise<void> {
+	async #stopPreparationScope(scope: ExecutionScope): Promise<"absent" | "stopped"> {
 		try {
 			await this.#sandboxes!.stop({ scope });
+			return "stopped";
 		} catch (error) {
 			// No journal means create was never admitted for this scope; anything else is unconfirmed quiescence.
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT")
 				throw new Error(`prepared_check_quiescence_unconfirmed: ${error instanceof Error ? error.message : error}`);
+			return "absent";
 		}
 	}
 	/** Only a recorded validated conflict or real X check failure authorizes the return; Kernel applies cap and authority. */
