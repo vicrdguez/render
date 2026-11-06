@@ -213,6 +213,49 @@ const CONTROLS: Control[] = [
 		pattern: "Watchdog rework needs",
 	},
 	{
+		name: "watchdog-count-resets-per-pass",
+		expect: /cap reached/,
+		behavior: "count only the current pass's completed Watchdog reviews, so a successor pass resets the rework budget",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: "const reviews = completedReviews(work.assignments, c.workflow, a.slice);",
+				replace:
+					"const reviews = completedReviews(work.assignments, c.workflow, a.slice).filter((r) => !r.watchdogReview || r.watchdogReview.passRef === pass.ref);",
+			},
+		],
+		test: "test/implementation-successor.test.ts",
+		pattern: "Watchdog rework needs",
+	},
+	{
+		name: "watchdog-drift-exempt",
+		expect: /moved target never qualifies/,
+		behavior: "let a completed passing review qualify after the canonical target moved",
+		edits: [
+			{
+				file: "src/kernel/implementation.ts",
+				find: "\tif (record.target.commit !== target)\n",
+				replace: "\tif (false)\n",
+			},
+		],
+		test: "test/watchdog-rework.test.ts",
+		pattern: "WR12/WR15/WR16",
+	},
+	{
+		name: "watchdog-source-edit",
+		expect: /no source-writing tool/,
+		behavior: "give a Watchdog round the implementation tools that capture and hand off source",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: '(a.passRef || !tool.name.startsWith("implementation_"))',
+				replace: '(a.passRef || a.watchdogReview || !tool.name.startsWith("implementation_"))',
+			},
+		],
+		test: "test/watchdog-rework.integration.ts",
+		pattern: "WR19",
+	},
+	{
 		name: "implementation-stop-original-only",
 		expect: /scope stop must discover the latest runtime/,
 		behavior: "stop only the original captured runtime, leaving the fresh writable runtime alive",

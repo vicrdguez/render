@@ -15,6 +15,7 @@ import {
 	LedgerOnlyEngine,
 } from "./support/implementation.ts";
 import { admin, packet, recovery, scheduler } from "./support/roles.ts";
+import { watchdogRound, watched } from "./support/watchdog.ts";
 
 const effects = mintContext({ kind: "host", scope: "effects" });
 const S = "a".repeat(40);
@@ -49,8 +50,8 @@ const quiesce = async (t: Lifecycle, id: string) => {
 		}),
 	);
 };
-async function handedOff() {
-	const t = await implementationLifecycle();
+async function handedOff(watchdog = false) {
+	const t = await implementationLifecycle(undefined, watchdog ? watched : () => ({}));
 	await t.audit();
 	await t.reports();
 	const B = await t.retain("final");
@@ -554,36 +555,44 @@ test("replacement and restart keep P2's ordinal, and a late P1 preparation outco
 });
 
 test("Watchdog rework needs a bound retained verdict and obeys the completed-review cap without resetting it", async () => {
-	const { t, B } = await handedOff();
+	const P1Lineage = { target: T1, X, base: S, source: S };
+	const { t, B } = await handedOff(true);
 	try {
 		const before = structuredClone(passes(t));
 		const bogus = { id: "assignment:missing", report: "revision:missing" };
 		refusedWithoutWrites(t, await openFrom(t, t.id, rework(B, bogus)), "missing_content", before, "no such review");
-		const passed = await review(t, P1, "pass");
-		refusedWithoutWrites(t, await openFrom(t, t.id, rework(B, passed)), "forbidden_scope", before, "a passing verdict is not rework");
+		const passed = await watchdogRound(t, t.id, P1, P1Lineage, "pass");
+		const reviewed = structuredClone(passes(t));
+		refusedWithoutWrites(t, await openFrom(t, t.id, rework(B, passed)), "forbidden_scope", reviewed, "a passing verdict is not rework");
 	} finally {
 		await t.close();
 	}
+	const u = await handedOff(true);
+	try {
+		const before = structuredClone(passes(u.t));
+		// A scheduler-assigned report is a counted review, never a host-launched round bound to exact X/T.
+		const unbound = await review(u.t, P1, "rework");
+		refusedWithoutWrites(u.t, await openFrom(u.t, u.t.id, rework(u.B, unbound)), "stale_basis", before, "unbound review");
+	} finally {
+		await u.t.close();
+	}
 	for (const [label, over] of [
-		["other pass", { passRef: "pass:other" }],
-		["other handoff", { handoff: "implementation-handoff:other" }],
-		["other B", { source: "revision:other" }],
-		["other X", { prepared: "f".repeat(40) }],
-		["other T", { target: "f".repeat(40) }],
+		["other X", { preparedCommit: "f".repeat(40) }],
+		["other T", { targetCommit: "f".repeat(40) }],
 	] as const) {
-		const f = await handedOff();
+		const f = await handedOff(true);
 		try {
+			const bound = await watchdogRound(f.t, f.t.id, P1, P1Lineage, "rework");
 			const before = structuredClone(passes(f.t));
-			const unbound = await review(f.t, P1, "rework", over);
-			refusedWithoutWrites(f.t, await openFrom(f.t, f.t.id, rework(f.B, unbound)), "stale_basis", before, label);
+			refusedWithoutWrites(f.t, await openFrom(f.t, f.t.id, rework(f.B, bound, over)), "stale_basis", before, label);
 		} finally {
 			await f.t.close();
 		}
 	}
-	const j = await handedOff();
+	const j = await handedOff(true);
 	try {
 		// Limit 2: review 1 rework opens P2; P2's review 2 non-pass reaches the human.
-		const first = await review(j.t, P1, "rework");
+		const first = await watchdogRound(j.t, j.t.id, P1, P1Lineage, "rework");
 		const opened = accepted(await openFrom(j.t, j.t.id, rework(j.B, first)));
 		assert.equal(opened.passOrdinal, 2);
 		assert.equal(pass(j.t, P2).opening?.base, X);
@@ -594,14 +603,16 @@ test("Watchdog rework needs a bound retained verdict and obeys the completed-rev
 		);
 		const id = opened.assignment as string;
 		const second = await completePass(j.t, id, X);
-		const again = await review(j.t, P2, "rework");
-		const stopped = structuredClone(passes(j.t));
 		// P2's recorded target-lineage base is the target its rework opened against, not its own capture.
-		const atX = { sourceCommit: X, baseCommit: T1 };
+		const X2 = "f".repeat(40);
+		const again = await watchdogRound(j.t, id, P2, { target: T1, X: X2, base: T1, source: X }, "rework");
+		assert.equal(again.reviews, 2);
+		const stopped = structuredClone(passes(j.t));
+		const atX = { sourceCommit: X, baseCommit: T1, preparedCommit: X2 };
 		refusedWithoutWrites(j.t, await openFrom(j.t, id, rework(second.B, again, atX)), "human_direction_required", stopped, "cap reached");
 		refusedWithoutWrites(
 			j.t,
-			await openFrom(j.t, id, conflict(second.B, { ...atX, targetCommit: "b".repeat(40) })),
+			await openFrom(j.t, id, conflict(second.B, { sourceCommit: X, baseCommit: T1, targetCommit: "b".repeat(40) })),
 			"human_direction_required",
 			stopped,
 			"cap applies to every cause",

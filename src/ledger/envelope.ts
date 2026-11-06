@@ -383,7 +383,8 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 	const allowed = ["type", "assignment", "generation", "attempt"];
 	if (type === "recordBlocker" || type === "recordPreparationBlocker") allowed.push("reason");
 	if (type === "recordImplementationSource") allowed.push("kind", "text");
-	if (type === "openSuccessorPass" || type === "recordPreparation") allowed.push("text");
+	if (type === "openSuccessorPass" || type === "recordPreparation" || type === "recordReviewChecks") allowed.push("text");
+	if (type === "requestWatchdogReview") allowed.push("preparation", "target");
 	if (type === "recordRuntimeHistory") allowed.push("key");
 	if (
 		type === "recordRecoveryState" ||
@@ -407,6 +408,10 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 	// A record carries complete X check results, so it shares the runner-observation bound.
 	if (type === "recordPreparation") return { ...common, type, text: text(c.text, "text", 16 * 1024 * 1024) };
 	if (type === "retryPreparation") return { ...common, type };
+	if (type === "requestWatchdogReview")
+		return { ...common, type, preparation: text(c.preparation, "preparation", 128), target: text(c.target, "target", 128) };
+	// Literal X plus its complete check results share the runner-observation bound.
+	if (type === "recordReviewChecks") return { ...common, type, text: text(c.text, "text", 16 * 1024 * 1024) };
 	if (type === "recordRuntimeHistory") return { ...common, type, key: text(c.key, "key", 128) };
 	if (type === "recordBlocker" || type === "recordPreparationBlocker") return { ...common, type, reason: text(c.reason, "reason", 2048) };
 	if (type === "recordImplementationSource") {

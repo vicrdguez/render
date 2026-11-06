@@ -14,12 +14,24 @@ import type { ImplementationPass, RoleAssignment } from "../src/kernel/roles.ts"
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { rows } from "./support/catalog.ts";
-import { accepted, captureFile, captureValue, fixture } from "./support/implementation-engine.ts";
+import {
+	accepted,
+	advanceTarget,
+	advanceVerifier,
+	captureFile,
+	captureValue,
+	clearBarrier,
+	effectsStore,
+	fixture,
+	holdAt,
+	parked,
+	proposalRef,
+	releaseBarrier,
+	sha,
+} from "./support/implementation-engine.ts";
 import { admin } from "./support/roles.ts";
 import { git } from "./support/source.ts";
 
-const sha = (text: string) => createHash("sha256").update(text).digest("hex");
-const proposalRef = (workflow: string) => `refs/render/proposals/${sha(workflow)}`;
 // Written independently of the product's record type: these are the fields the Contract requires a reader to find.
 type Prepared = {
 	schema: 1;
@@ -59,66 +71,6 @@ type Policy = {
 };
 const policyOf = (t: { f: { ledger: { snapshot(context: typeof admin): unknown } } }) =>
 	(t.f.ledger.snapshot(admin) as { policy: Policy }).policy;
-/** Host-private Effects Git: the canonical proposal ref lives here, never in upstream or a forge. */
-function effectsStore(t: { f: { source: { root: string } } }) {
-	return join(t.f.source.root, "catalog-owned", "effects", sha("owned"), "source.git");
-}
-/** Simulates the later canonical-integration producer: a host commit on the canonical ref with replaced root files. */
-function advanceTarget(store: string, parent: string, files: Record<string, string>, expected: string | null): string {
-	let entries = git(store, ["ls-tree", parent]).toString();
-	for (const [name, text] of Object.entries(files)) {
-		const blob = git(store, ["hash-object", "-w", "--stdin"], text).toString().trim();
-		const line = `100644 blob ${blob}\t${name}`;
-		const pattern = new RegExp(`^100644 blob [0-9a-f]+\\t${name}$`, "m");
-		entries = pattern.test(entries) ? entries.replace(pattern, line) : `${entries}${line}\n`;
-	}
-	const tree = git(store, ["mktree"], entries).toString().trim();
-	const commit = git(store, ["commit-tree", tree, "-p", parent], "Canonical integration of another Slice\n").toString().trim();
-	git(store, ["update-ref", proposalRef("workflow:2"), commit, ...(expected ? [expected] : ["0".repeat(40)])]);
-	return commit;
-}
-/** Another Slice's integration that changes the selected verifier `.skl/verify.md` and the root suite script. */
-function advanceVerifier(store: string, parent: string, verifier: string, suite: string): string {
-	const blob = git(store, ["hash-object", "-w", "--stdin"], verifier).toString().trim();
-	const skl = git(store, ["ls-tree", `${parent}:.skl`])
-		.toString()
-		.replace(/^100644 blob [0-9a-f]+\tverify\.md$/m, `100644 blob ${blob}\tverify.md`);
-	const tree = git(store, ["mktree"], skl).toString().trim();
-	const withVerifier = git(store, ["ls-tree", parent])
-		.toString()
-		.replace(/^040000 tree [0-9a-f]+\t\.skl$/m, `040000 tree ${tree}\t.skl`);
-	const root = git(store, ["mktree"], withVerifier).toString().trim();
-	const staged = git(store, ["commit-tree", root, "-p", parent], "Integrate verifier change\n").toString().trim();
-	git(store, ["update-ref", proposalRef("workflow:2"), staged, "0".repeat(40)]);
-	return advanceTarget(store, staged, { "verify-suite": suite }, staged);
-}
-/** In-process use of the host fault barrier: wait until the host is parked there, change the world, then release it. */
-// Other process listeners may exist: only the barrier's own added once-listener is ever invoked.
-let unparked = process.rawListeners("SIGUSR2");
-const barrierListeners = () => process.rawListeners("SIGUSR2").filter((l) => !unparked.includes(l));
-function holdAt(name: string, command: string) {
-	unparked = process.rawListeners("SIGUSR2");
-	process.env.RENDER_FAULT_BARRIER = name;
-	process.env.RENDER_FAULT_COMMAND = command;
-}
-async function parked(label: string) {
-	const deadline = Date.now() + 60000;
-	while (!barrierListeners().length) {
-		assert.ok(Date.now() < deadline, `${label}: host never reached the barrier`);
-		await setTimeout(20);
-	}
-}
-function releaseBarrier(next?: [string, string]) {
-	if (next) {
-		process.env.RENDER_FAULT_BARRIER = next[0];
-		process.env.RENDER_FAULT_COMMAND = next[1];
-	} else {
-		delete process.env.RENDER_FAULT_BARRIER;
-		delete process.env.RENDER_FAULT_COMMAND;
-	}
-	for (const listener of barrierListeners()) (listener as () => void)();
-}
-
 test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic preparation, then a real conflict opens P2 from T1 with its own fresh Audit, surviving export/reopen", async () => {
 	const t = await fixture();
 	try {
@@ -363,11 +315,6 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 	}
 });
 
-function clearBarrier() {
-	delete process.env.RENDER_FAULT_BARRIER;
-	delete process.env.RENDER_FAULT_COMMAND;
-	for (const listener of barrierListeners()) (listener as () => void)();
-}
 async function preparedHarness(t: Awaited<ReturnType<typeof fixture>>) {
 	const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
 	const read = async (ref: string) => {

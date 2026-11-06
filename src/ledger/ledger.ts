@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId, EntryId, Harness, Tx } from "@earendil-works/pi-durable";
-import { treeOid, validateEntries } from "../effects/source.ts";
+import { type Source, treeOid, validateEntries } from "../effects/source.ts";
 import { type PromptInput, renderLocalVerification } from "../engine/local-verification.ts";
 import type { RoleTaskStaging } from "../engine/runtime.ts";
 import type { WebWorking } from "../engine/web.ts";
@@ -34,6 +34,7 @@ import {
 } from "../kernel/kernel.ts";
 import { bindingFor, initialPolicy, type PolicyState } from "../kernel/policy.ts";
 import { packetRefs, type RoleAssignment, type RolePacket, type RoleWorkState, sameAgent } from "../kernel/roles.ts";
+import type { CatalogEvidence } from "../kernel/verification.ts";
 import { faultBarrier } from "./barrier.ts";
 import { decodeUtf8, type Envelope, PROTOCOL_VERSION, parseEnvelope } from "./envelope.ts";
 import {
@@ -350,6 +351,7 @@ export class Ledger {
 				"recordImplementationExecution",
 				"openSuccessorPass",
 				"recordPreparation",
+				"requestWatchdogReview",
 				...CHECKPOINT_COMMANDS,
 				...INTAKE_COMMANDS,
 			].includes(command.type)
@@ -506,6 +508,7 @@ export class Ledger {
 			"openSuccessorPass",
 			"recordPreparation",
 			"retryPreparation",
+			"requestWatchdogReview",
 		].includes(command.type);
 		if (implementationPass && implementationPreflight) {
 			requiredInputs.push(
@@ -523,6 +526,8 @@ export class Ledger {
 				...Object.values(implementationPass.audit?.results ?? {}).map((r) => r?.report),
 			])
 				if (ref) requiredInputs.push(ref);
+			if (command.type === "requestWatchdogReview" && implementationPass.handoff)
+				requiredInputs.push(implementationPass.handoff.record, (command as { preparation: string }).preparation);
 			if (command.type === "openSuccessorPass" && implementationPass.handoff) {
 				requiredInputs.push(implementationPass.handoff.record);
 				// Verdicts and the review count are read from exact retained bytes, never restated by the caller.
@@ -632,7 +637,7 @@ export class Ledger {
 					? implementationPass?.captureB
 					: command.type === "rebindAttempt"
 						? implementationPass?.workspace
-						: command.type === "openSuccessorPass" || command.type === "recordPreparation"
+						: command.type === "openSuccessorPass" || command.type === "recordPreparation" || command.type === "requestWatchdogReview"
 							? implementationPass?.handoff?.source
 							: undefined;
 		if (command.type === "recordImplementationSource" || sourceRef) {
@@ -670,6 +675,19 @@ export class Ledger {
 						"invalid_content",
 						`Complete trusted implementation source is invalid: ${error instanceof Error ? error.message : "invalid source"}`,
 					),
+				);
+			}
+		}
+		if (command.type === "recordReviewChecks" && current.kind === "host" && current.scope === "effects") {
+			// The reviewed X is retained literally; its entries must form exactly the tree the receipt claims.
+			try {
+				const x = (JSON.parse((command as { text: string }).text) as { source?: Source }).source;
+				if (!x || !Array.isArray(x.entries) || !["sha1", "sha256"].includes(x.objectFormat)) throw new Error("missing literal X");
+				validateEntries(x.entries, x.objectFormat);
+				if (treeOid(x.entries, x.objectFormat) !== x.tree) throw new Error("Literal X tree identity differs");
+			} catch (error) {
+				throw new Abort(
+					refusal("invalid_content", `Reviewed source is invalid: ${error instanceof Error ? error.message : "invalid source"}`),
 				);
 			}
 		}
@@ -818,6 +836,22 @@ export class Ledger {
 				} catch {
 					throw new Abort({ status: "refused", code: "invalid_content", reason: `Invalid verification receipt ${ref}.` });
 				}
+			}
+			const checks = own?.watchdogReview?.checks;
+			if (checks) {
+				// Only the host-retained receipt of this round's own run can support its assessment.
+				const location = await tx.doc(RevisionLocation, checks, null);
+				const entry =
+					location.exists && location.workflow === env.workflow ? await tx.entry(RevisionEntry, location.entry as EntryId) : undefined;
+				if (
+					!entry ||
+					entry.data.schema !== 1 ||
+					!intact(entry.data.text, entry.data.digest, entry.data.byteLength) ||
+					entry.data.createdBy.principal !== "host" ||
+					entry.data.document !== `watchdog-checks/${own!.id}`
+				)
+					throw new Abort({ status: "refused", code: "missing_content", reason: `Restore exact trusted review checks ${checks}.` });
+				verificationEvidence.push((JSON.parse(entry.data.text) as { evidence: CatalogEvidence }).evidence);
 			}
 			for (const ref of (command as { supports: string[] }).supports) {
 				const own = roles.assignments.find((a) => sameAgent(a as RoleAssignment, current));
@@ -1086,6 +1120,19 @@ export class Ledger {
 							sequence,
 							decision.result.preparation as string,
 							`implementation-preparation/${pass.ref}/${pass.handoff!.preparations!.length}`,
+							c.text,
+							c,
+						);
+					}
+					if (command.type === "recordReviewChecks") {
+						const c = command as Extract<import("../kernel/roles.ts").RoleCommand, { type: "recordReviewChecks" }>;
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							decision.result.checks as string,
+							`watchdog-checks/${c.assignment}`,
 							c.text,
 							c,
 						);
@@ -1556,6 +1603,7 @@ export class Ledger {
 	#implementationReads(a: RoleAssignment): string[] {
 		const passes = this.#roleWork.passes ?? [];
 		const pass = passes.find((p) => p.ref === a.passRef);
+		if (!pass && a.watchdogReview) return [...(a.watchdogReview.checks ? [a.watchdogReview.checks] : []), ...a.watchdogReview.prior];
 		if (!pass) return a.auditReview ? [a.auditReview.source, a.auditReview.contract] : [];
 		const reads: (string | undefined)[] = [];
 		// Successors inherit read-only predecessor lineage; independent reviewers never reach this branch.

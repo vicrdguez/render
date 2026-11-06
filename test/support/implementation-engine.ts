@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { IntakeManifest, Intakes } from "../../src/kernel/intake.ts";
@@ -20,6 +22,18 @@ export type Prompt = {
 	auditInstructions?: string;
 	intakeReview?: Record<string, unknown>;
 	auditReview?: { passRef: string; audit: string; source: string; contract: string };
+	assignment?: string;
+	watchdogReview?: {
+		passRef: string;
+		handoff: string;
+		source: string;
+		preparation: string;
+		prepared: string;
+		target: string;
+		checks?: string;
+		prior: { ref: string; text?: string; unavailable?: string }[];
+	};
+	watchdogInstructions?: string;
 	implementation?: { ordinal?: number; captureB?: string; audit?: { reports?: unknown; results?: { standards?: { report: string } } } };
 	inputs?: { ref: string; text: string }[];
 };
@@ -41,11 +55,13 @@ export async function fixture(
 		exclusions?: string[];
 		missingFamily?: boolean;
 		failFinal?: boolean;
-		hold?: "writer" | "contracts";
+		hold?: "writer" | "contracts" | "watchdog";
 		finding?: boolean;
 		bootstrap?: boolean;
 		staleFinal?: boolean;
 		successorStops?: boolean;
+		/** Scripted verdicts, one per Watchdog round in launch order; also freezes a Watchdog reviewer on the writer. */
+		watchdog?: ("pass" | "rework" | "needs-human")[];
 	} = {},
 ) {
 	const f = await catalogFixture(true, { text: catalog().replaceAll("endpoint", "tests").replace("printf 'SUITE OK'", "sh verify-suite") });
@@ -78,6 +94,9 @@ export async function fixture(
 	const prompts: Prompt[] = [];
 	let writerTurn = 0;
 	let successorTurn = 0;
+	const rounds = new Map<string, "pass" | "rework" | "needs-human">();
+	/** Each Watchdog request's declared system context without the packet section: where its tool declarations live. */
+	const watchdogContexts: string[] = [];
 	let originals = "";
 	let rawHandoffAttempted = false;
 	let checkedBeforeEdit: { B: string; report: string } | undefined;
@@ -101,7 +120,8 @@ export async function fixture(
 					if (
 						!held &&
 						((options.hold === "writer" && prompt.packet.role === "implementer" && writerTurn === 1) ||
-							(options.hold === "contracts" && prompt.packet.role === "audit-contracts"))
+							(options.hold === "contracts" && prompt.packet.role === "audit-contracts") ||
+							(options.hold === "watchdog" && prompt.packet.role === "watchdog"))
 					) {
 						held = true;
 						assert.ok(stream?.signal, "provider request carries abort signal");
@@ -141,6 +161,39 @@ export async function fixture(
 							}),
 							{ stopReason: "toolUse" },
 						);
+					if (prompt.watchdogReview) {
+						const b = prompt.watchdogReview;
+						watchdogContexts.push(
+							JSON.stringify(transcript.messages.filter((m) => m.role === "system").map(({ sections: _packet, ...m }) => m)),
+						);
+						if (!rounds.has(prompt.assignment!)) {
+							const next = options.watchdog?.[rounds.size];
+							assert.ok(next, "no unscripted Watchdog round");
+							rounds.set(prompt.assignment!, next);
+						}
+						const verdict = rounds.get(prompt.assignment!)!;
+						return fauxAssistantMessage(
+							fauxToolCall("submit_role_result", {
+								text: JSON.stringify({
+									schema: 1,
+									verdict,
+									passRef: b.passRef,
+									handoff: b.handoff,
+									source: b.source,
+									prepared: b.prepared,
+									target: b.target,
+									findings: verdict === "pass" ? [] : [{ id: "W1", text: "Value must become C" }],
+									directions: [],
+								}),
+								supports: [],
+								verification:
+									verdict === "pass"
+										? { outcome: "pass", rank: "tests", reason: "Own checks on exact X passed" }
+										: { outcome: "non-pass", rank: null, reason: "Value must become C" },
+							}),
+							{ stopReason: "toolUse" },
+						);
+					}
 					if (prompt.auditReview) {
 						const reviewer = ((f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[]).find(
 							(a) => a.packet.role === prompt.packet.role && a.status === "running",
@@ -156,7 +209,10 @@ export async function fixture(
 						assert.ok(reviewer.packet.inputs.includes(prompt.auditReview.source), "reviewer input includes exact frozen A");
 						const source = await f.ledger.artifact(principal, { read: prompt.auditReview.source });
 						assert.ok("content" in source, "reviewer can read its actual bound source before reporting");
-						assert.equal(captureValue(source.content.toString()), prompt.auditReview.passRef.endsWith(":2") ? "T\n" : "A\n");
+						assert.equal(
+							captureValue(source.content.toString()),
+							prompt.auditReview.passRef.endsWith(":2") ? (options.watchdog ? "B\n" : "T\n") : "A\n",
+						);
 						const retained = JSON.parse(source.content.toString()).verification;
 						assert.equal(retained.role, "implementer", "A's checks stay attributed to the implementer that ran them");
 						assert.equal(retained.catalog.selection.contract, prompt.auditReview.contract);
@@ -180,6 +236,25 @@ export async function fixture(
 					}
 					assert.equal(prompt.packet.role, "implementer");
 					if (prompt.implementation?.ordinal === 2 && options.successorStops) return fauxAssistantMessage("Successor inspected.");
+					if (prompt.implementation?.ordinal === 2 && options.watchdog) {
+						// Watchdog rework successor: starts from reviewed X (value B) and applies the requested change.
+						const calls = [
+							["implementation_execute", { argv: ["sh", "-c", 'test "$(cat value)" = B && printf REWORK_FROM_X'] }],
+							["implementation_audit", {}],
+							["implementation_execute", { argv: ["sh", "-c", "printf 'C\\n' > value"] }],
+							[
+								"implementation_handoff",
+								{
+									text: "Applied the Watchdog rework",
+									dispositions: [],
+									verification: { outcome: "pass", rank: "tests", reason: "Selected checks pass on final source" },
+								},
+							],
+						] as const;
+						const call = calls[successorTurn++];
+						assert.ok(call, "rework successor must not continue after its handoff");
+						return fauxAssistantMessage(fauxToolCall(call[0], call[1]), { stopReason: "toolUse" });
+					}
 					if (prompt.implementation?.ordinal === 2) {
 						if (successorTurn === 1)
 							originals = JSON.parse(
@@ -436,12 +511,14 @@ export async function fixture(
 		requests: [
 			{ key: "standards", packet: reviewer("audit-standards") },
 			{ key: "contracts", packet: reviewer("audit-contracts") },
+			...(options.watchdog ? [{ key: "watchdog", packet: packet({ role: "watchdog", maxTurns: 20, maxInputBytes: 4 * 1048576 }) }] : []),
 		],
 	});
 	return {
 		f,
 		gate,
 		prompts,
+		watchdogContexts,
 		assignments,
 		wait,
 		writer,
@@ -458,4 +535,72 @@ export async function fixture(
 			await f.close();
 		},
 	};
+}
+
+export const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+export const proposalRef = (workflow: string) => `refs/render/proposals/${sha(workflow)}`;
+/** Host-private Effects Git: the canonical proposal ref lives here, never in upstream or a forge. */
+export function effectsStore(t: { f: { source: { root: string } } }) {
+	return join(t.f.source.root, "catalog-owned", "effects", sha("owned"), "source.git");
+}
+/** Simulates the later canonical-integration producer: a host commit on the canonical ref with replaced root files. */
+export function advanceTarget(store: string, parent: string, files: Record<string, string>, expected: string | null): string {
+	let entries = git(store, ["ls-tree", parent]).toString();
+	for (const [name, text] of Object.entries(files)) {
+		const blob = git(store, ["hash-object", "-w", "--stdin"], text).toString().trim();
+		const line = `100644 blob ${blob}\t${name}`;
+		const pattern = new RegExp(`^100644 blob [0-9a-f]+\\t${name}$`, "m");
+		entries = pattern.test(entries) ? entries.replace(pattern, line) : `${entries}${line}\n`;
+	}
+	const tree = git(store, ["mktree"], entries).toString().trim();
+	const commit = git(store, ["commit-tree", tree, "-p", parent], "Canonical integration of another Slice\n").toString().trim();
+	git(store, ["update-ref", proposalRef("workflow:2"), commit, ...(expected ? [expected] : ["0".repeat(40)])]);
+	return commit;
+}
+/** Another Slice's integration that changes the selected verifier `.skl/verify.md` and the root suite script. */
+export function advanceVerifier(store: string, parent: string, verifier: string, suite: string): string {
+	const blob = git(store, ["hash-object", "-w", "--stdin"], verifier).toString().trim();
+	const skl = git(store, ["ls-tree", `${parent}:.skl`])
+		.toString()
+		.replace(/^100644 blob [0-9a-f]+\tverify\.md$/m, `100644 blob ${blob}\tverify.md`);
+	const tree = git(store, ["mktree"], skl).toString().trim();
+	const withVerifier = git(store, ["ls-tree", parent])
+		.toString()
+		.replace(/^040000 tree [0-9a-f]+\t\.skl$/m, `040000 tree ${tree}\t.skl`);
+	const root = git(store, ["mktree"], withVerifier).toString().trim();
+	const staged = git(store, ["commit-tree", root, "-p", parent], "Integrate verifier change\n").toString().trim();
+	git(store, ["update-ref", proposalRef("workflow:2"), staged, "0".repeat(40)]);
+	return advanceTarget(store, staged, { "verify-suite": suite }, staged);
+}
+/** In-process use of the host fault barrier: wait until the host is parked there, change the world, then release it. */
+// Other process listeners may exist: only the barrier's own added once-listener is ever invoked.
+let unparked = process.rawListeners("SIGUSR2");
+const barrierListeners = () => process.rawListeners("SIGUSR2").filter((l) => !unparked.includes(l));
+export function holdAt(name: string, command: string) {
+	unparked = process.rawListeners("SIGUSR2");
+	process.env.RENDER_FAULT_BARRIER = name;
+	process.env.RENDER_FAULT_COMMAND = command;
+}
+export async function parked(label: string) {
+	const deadline = Date.now() + 60000;
+	while (!barrierListeners().length) {
+		assert.ok(Date.now() < deadline, `${label}: host never reached the barrier`);
+		await setTimeout(20);
+	}
+}
+export function releaseBarrier(next?: [string, string]) {
+	if (next) {
+		process.env.RENDER_FAULT_BARRIER = next[0];
+		process.env.RENDER_FAULT_COMMAND = next[1];
+	} else {
+		delete process.env.RENDER_FAULT_BARRIER;
+		delete process.env.RENDER_FAULT_COMMAND;
+	}
+	for (const listener of barrierListeners()) (listener as () => void)();
+}
+
+export function clearBarrier() {
+	delete process.env.RENDER_FAULT_BARRIER;
+	delete process.env.RENDER_FAULT_COMMAND;
+	for (const listener of barrierListeners()) (listener as () => void)();
 }

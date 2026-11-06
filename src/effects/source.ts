@@ -28,6 +28,8 @@ export type SourceReceipt = {
 	durability: { git: string; fsync: "all"; method: "fsync" };
 };
 export type Resolve = { type: "resolve"; repository: string; commit: string };
+/** An already rooted host source (such as prepared X) read back exactly, with no fetch. */
+export type Read = { type: "read"; repository: string; commit: string };
 export type Retain = { type: "retain"; base: Source; capture: Capture };
 export type Diff = { type: "diff"; repository: string; base: string; result: string };
 /** Inputs are host-retained sources, never worker-selected Git metadata. */
@@ -125,15 +127,21 @@ export class Effects {
 		this.#root = options.root;
 		this.#repositories = options.repositories;
 	}
-	perform(operation: Resolve): Promise<Source>;
+	perform(operation: Resolve | Read): Promise<Source>;
 	perform(operation: Retain): Promise<SourceReceipt>;
 	perform(operation: Diff): Promise<string>;
 	perform(operation: Prepare): Promise<PreparationReceipt>;
 	perform(operation: Observe): Promise<TargetObservation>;
 	async perform(
-		operation: Resolve | Retain | Diff | Prepare | Observe,
+		operation: Resolve | Read | Retain | Diff | Prepare | Observe,
 	): Promise<Source | SourceReceipt | string | PreparationReceipt | TargetObservation> {
 		if (operation.type === "prepare") return this.#prepare(operation);
+		if (operation.type === "read") {
+			this.#checkOid(operation.commit, (await this.#store(operation.repository)).format);
+			const source = await this.#read(operation.repository, operation.commit);
+			await this.#verifySource(source);
+			return source;
+		}
 		if (operation.type === "observe") return this.#observe(operation);
 		const repository = operation.type === "retain" ? operation.base.repository : operation.repository;
 		const store = await this.#store(repository);

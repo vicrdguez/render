@@ -29,7 +29,7 @@
 		"verify:editable-checkpoints": "node --test --test-concurrency=1 test/checkpoint-authority.test.ts test/editable-checkpoints.test.ts",
 		"verify:ground-investigation": "node --test --test-concurrency=1 test/ground-investigation.test.ts test/investigation-crash.integration.ts",
 		"verify:investigation-crash": "node --test test/investigation-crash.integration.ts",
-		"verify:kernel-authority-schedules": "RENDER_V1_SCHEDULES=10000 node --test test/kernel-authority-schedules.test.ts test/implementation-pass-schedules.test.ts",
+		"verify:kernel-authority-schedules": "RENDER_V1_SCHEDULES=10000 node --test test/kernel-authority-schedules.test.ts test/implementation-pass-schedules.test.ts test/watchdog-rework-schedules.test.ts",
 		"verify:sqlite-command-atomicity": "RENDER_V2_SCHEDULES=256 node --test test/sqlite-command-atomicity.test.ts test/sqlite-command-schedules.integration.ts",
 		"verify:command-crash-recovery": "node --test test/command-crash-recovery.integration.ts",
 		"verify:two-client-reattach": "node --test --test-concurrency=1 test/two-client-reattach.integration.ts test/stalled-observer.performance.ts test/history-cutoff-export.test.ts test/history-cursor-transfer.test.ts",
@@ -56,6 +56,7 @@
 		"verify:local-verification-prompt": "node --test --test-concurrency=1 test/local-verification-prompt.test.ts test/intake-retention.test.ts test/verification-catalog.integration.ts",
 		"verify:target-preparation": "node --test --test-concurrency=1 test/target-preparation.test.ts test/target-preparation-record.test.ts test/implementation-successor.test.ts test/implementation-engine.integration.ts test/target-preparation-crash.integration.ts",
 		"verify:preparation-crash": "node --test test/target-preparation-crash.integration.ts",
+		"verify:watchdog-rework": "node --test --test-concurrency=1 test/watchdog-rework.test.ts test/watchdog-rework-schedules.test.ts test/implementation-successor.test.ts test/watchdog-rework.integration.ts",
 		"verify:verification-catalog": "node --test --test-concurrency=1 test/verification-catalog.test.ts test/verification-catalog.integration.ts",
 		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts"
 	},
