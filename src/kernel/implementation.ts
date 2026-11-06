@@ -1,5 +1,6 @@
 // Pure implementation evidence validation. Ledger resolves and integrity-checks the actual bytes.
 import type { SourceReceipt } from "../effects/source.ts";
+import type { PolicyBasis } from "./policy.ts";
 import type { ImplementationPass, RoleAssignment, RolePacket } from "./roles.ts";
 import { validatePath } from "./source-path.ts";
 import {
@@ -40,6 +41,7 @@ export type AuditReviewers = { standards: AuditReviewer<"audit-standards">; cont
  * The selected file may not exist yet, since bootstrapping it is accepted source work. Owner packets stay as retained input.
  */
 export type PassConfiguration = { verification: VerificationSelection; reviewers: AuditReviewers };
+/** `baseCommit` is the pass's recorded target-lineage base T0 that preparation merged against, not B's capture parent. */
 type ReturnLineage = {
 	schema: 1;
 	repository: string;
@@ -57,6 +59,8 @@ export type ReturnObservation =
 			verifierRevision: string;
 			failed: { name: string; exitCode: number }[];
 	  })
+	/** X's own verifier cannot define a required check: repair needs a source edit, and nothing ran or failed. */
+	| (ReturnLineage & { cause: "prepared-verifier-defect"; preparedCommit: string; defect: string })
 	| (ReturnLineage & { cause: "watchdog-rework"; preparedCommit: string; review: string; report: string });
 export type WatchdogVerdict = {
 	schema: 1;
@@ -149,9 +153,12 @@ export function auditFindings(value: string, binding: AuditBinding): AuditFindin
 const RETURN_FIELDS = {
 	"preparation-conflict": ["algorithm", "resultTree", "conflicts"],
 	"prepared-check-failure": ["preparedCommit", "verifierRevision", "failed"],
+	"prepared-verifier-defect": ["preparedCommit", "defect"],
 	"watchdog-rework": ["preparedCommit", "review", "report"],
 } as const;
 const LAUNCH_FAILURES = [126, 127];
+/** Bound on a recorded preparation reason; a verifier defect returns that reason verbatim, so both share it. */
+export const PREPARATION_REASON_BYTES = 4096;
 const objectId = (format: unknown) => (x: unknown) =>
 	typeof x === "string" && x.length === (format === "sha1" ? 40 : 64) && /^[0-9a-f]+$/.test(x);
 /** Closed shape only: lineage against retained B and any cited review belong to the caller's current state. */
@@ -170,6 +177,8 @@ export function returnObservation(value: string, source: ImplementationSource): 
 				: undefined;
 		if (!id(v.preparedCommit)) return;
 		if (v.cause === "watchdog-rework") return text(v.review) && text(v.report) ? (v as ReturnObservation) : undefined;
+		if (v.cause === "prepared-verifier-defect")
+			return text(v.defect) && v.defect.length <= PREPARATION_REASON_BYTES ? (v as ReturnObservation) : undefined;
 		const rows = source.verification?.catalog.rows.map((row) => row.name) ?? [];
 		return text(v.verifierRevision) &&
 			Array.isArray(v.failed) &&
@@ -185,6 +194,110 @@ export function returnObservation(value: string, source: ImplementationSource): 
 			)
 			? (v as ReturnObservation)
 			: undefined;
+	} catch {
+		return;
+	}
+}
+export type PreparedChecks = {
+	verifierRevision: string;
+	scope: { assignment: string; generation: number; attempt: string; executorEpoch: string };
+	catalog: CatalogEvidence["catalog"];
+	results: CatalogEvidence["results"];
+	cleanup: CatalogEvidence["cleanup"];
+	verification: { status: "passed" | "failed" | "non-pass" | "source_changed"; inputCommit: string; inputTree: string; resultTree: string };
+	failed: { name: string; exitCode: number }[];
+};
+/** One host preparation attempt of a handed-off pass: the observed canonical T, Effects' receipt and actual X checks. */
+export type PreparationRecord = {
+	schema: 1;
+	passRef: string;
+	handoff: string;
+	source: string;
+	attempt: number;
+	target: { proposal: string; ref: string; commit: string };
+	/** `verifier-defect`: X's own verifier cannot define a required check; nothing ran, and repair needs a new pass. */
+	outcome: "checked" | "check-failure" | "conflict" | "operational" | "verifier-defect";
+	reason: string | null;
+	preparation: null | {
+		kind: "clean" | "conflict";
+		algorithm: string;
+		profile: string;
+		git: string;
+		identity: string;
+		base: string;
+		source: string;
+		target: string;
+		result: string;
+		tree: string;
+		conflicts: string[];
+		exitCode: 0 | 1;
+		stdout: string;
+		stderr: string;
+	};
+	checks: null | PreparedChecks;
+	/** The workflow policy binding this attempt qualified X against: only the current one is accepted. */
+	policy: PolicyBasis;
+};
+const closed = (v: Record<string, unknown>, keys: string[]) =>
+	Object.keys(v).length === keys.length && keys.every((key) => Object.hasOwn(v, key));
+/** The pass's recorded target-lineage base: the configured start, or the target a successor opened against. */
+export function preparationBase(pass: ImplementationPass): string {
+	return pass.opening?.target ?? pass.configuration.verification.commit;
+}
+/** Closed shape and internal consistency only; lineage against the pass and sealed B belongs to the caller. */
+export function preparationRecord(value: string, format: "sha1" | "sha256"): PreparationRecord | undefined {
+	try {
+		const v: unknown = JSON.parse(value);
+		const id = objectId(format);
+		if (!object(v) || v.schema !== 1) return;
+		if (!closed(v, ["schema", "passRef", "handoff", "source", "attempt", "target", "outcome", "reason", "preparation", "checks", "policy"]))
+			return;
+		const q = v.policy;
+		if (!object(q) || !closed(q, ["binding", "revision", "minimumEvidenceRank"]) || !text(q.binding) || !text(q.revision)) return;
+		if (q.minimumEvidenceRank !== null && !text(q.minimumEvidenceRank)) return;
+		if (![v.passRef, v.handoff, v.source].every(text) || !Number.isSafeInteger(v.attempt) || Number(v.attempt) < 1) return;
+		const t = v.target;
+		if (!object(t) || !closed(t, ["proposal", "ref", "commit"]) || !text(t.proposal) || !text(t.ref) || !id(t.commit)) return;
+		if (!["checked", "check-failure", "conflict", "operational", "verifier-defect"].includes(String(v.outcome))) return;
+		const reasoned = v.outcome === "operational" || v.outcome === "verifier-defect";
+		if (reasoned !== text(v.reason) || (v.reason !== null && !text(v.reason)) || String(v.reason ?? "").length > PREPARATION_REASON_BYTES)
+			return;
+		const p = v.preparation;
+		if (p !== null) {
+			const keys = ["kind", "algorithm", "profile", "git", "identity", "base", "source", "target", "result", "tree", "conflicts"];
+			if (!object(p) || !closed(p, [...keys, "exitCode", "stdout", "stderr"])) return;
+			if (![p.algorithm, p.profile, p.git, p.identity].every(text) || ![p.base, p.source, p.target, p.result, p.tree].every(id)) return;
+			if (!Array.isArray(p.conflicts) || !p.conflicts.every(text) || typeof p.stdout !== "string" || typeof p.stderr !== "string") return;
+			if (!((p.kind === "clean" && p.exitCode === 0 && !p.conflicts.length) || (p.kind === "conflict" && p.exitCode === 1))) return;
+		}
+		const c = v.checks;
+		if (c !== null) {
+			if (!object(c) || !closed(c, ["verifierRevision", "scope", "catalog", "results", "cleanup", "verification", "failed"])) return;
+			const r = c.verification;
+			if (!text(c.verifierRevision) || !object(c.scope) || !Array.isArray(c.results) || !object(r) || !text(r.status)) return;
+			if (![r.inputCommit, r.inputTree, r.resultTree].every(id) || !Array.isArray(c.failed)) return;
+			const failures = c.failed.every(
+				(f) =>
+					object(f) &&
+					closed(f, ["name", "exitCode"]) &&
+					text(f.name) &&
+					Number.isSafeInteger(f.exitCode) &&
+					f.exitCode !== 0 &&
+					!LAUNCH_FAILURES.includes(Number(f.exitCode)),
+			);
+			if (!failures || !p || p.kind !== "clean" || r.inputCommit !== p.result || r.inputTree !== p.tree) return;
+		}
+		const checked = (status: string, failed: boolean) =>
+			p?.kind === "clean" &&
+			object(c) &&
+			(c.verification as Record<string, unknown>).status === status &&
+			(c.verification as Record<string, unknown>).resultTree === p.tree &&
+			(c.failed as unknown[]).length > 0 === failed;
+		if (v.outcome === "conflict" && (p?.kind !== "conflict" || !(p.conflicts as unknown[]).length || c !== null)) return;
+		if (v.outcome === "verifier-defect" && (p?.kind !== "clean" || c !== null)) return;
+		if (v.outcome === "checked" && !checked("passed", false)) return;
+		if (v.outcome === "check-failure" && !checked("failed", true)) return;
+		return v as PreparationRecord;
 	} catch {
 		return;
 	}

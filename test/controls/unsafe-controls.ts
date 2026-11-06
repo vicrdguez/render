@@ -1311,6 +1311,57 @@ const CONTROLS: Control[] = [
 		test: "test/workflow-task-survival.test.ts",
 		pattern: "R02",
 	},
+	{
+		name: "preparation-inherits-home-attributes",
+		expect: /HOME-only hostile default attributes changed a real conflict/,
+		behavior: "trusted preparation Git reads default attributes through the caller's HOME",
+		edits: [
+			{ file: "src/effects/source.ts", find: '\t\t\t\t\t"-c",\n\t\t\t\t\t"core.attributesFile=/dev/null",\n', replace: "" },
+			{ file: "src/effects/source.ts", find: "\t\t\t\t\t\tHOME: cwd,\n", replace: "\t\t\t\t\t\tHOME: process.env.HOME,\n" },
+		],
+		test: "test/target-preparation.test.ts",
+		pattern: "HOME-only hostile",
+	},
+	{
+		name: "preparation-inherits-xdg-attributes",
+		expect: /XDG_CONFIG_HOME-only hostile default attributes changed a real conflict/,
+		behavior: "trusted preparation Git reads default attributes through the caller's XDG_CONFIG_HOME",
+		edits: [
+			{ file: "src/effects/source.ts", find: '\t\t\t\t\t"-c",\n\t\t\t\t\t"core.attributesFile=/dev/null",\n', replace: "" },
+			{
+				file: "src/effects/source.ts",
+				find: "\t\t\t\t\t\tHOME: cwd,\n",
+				replace: "\t\t\t\t\t\tHOME: cwd,\n\t\t\t\t\t\tXDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,\n",
+			},
+		],
+		test: "test/target-preparation.test.ts",
+		pattern: "XDG-only hostile",
+	},
+	{
+		name: "preparation-resume-abandons-check-runtime",
+		expect: /the interrupted check runtime was stopped, not abandoned/,
+		behavior: "a recovered preparation reruns its attempt without stopping the interrupted prepared-X check runtime",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: "if (prior && prior.executorEpoch !== this.#ledger!.status().executorEpoch) await this.#stopPreparationScope(prior);",
+				replace: "",
+			},
+		],
+		test: "test/target-preparation-crash.integration.ts",
+		pattern: "TP14 SIGKILL",
+	},
+	{
+		name: "preparation-discovery-row-qualifies",
+		// TP22's first assertion on the intended wrong behavior: X checked and waiting for Watchdog.
+		expect: /X must not be checked ready for Watchdog/,
+		behavior: "a required row that X's own verifier defines as discovery-only runs and qualifies X as checked",
+		edits: [
+			{ file: "src/engine/runtime.ts", find: "\t\t\tif (gap) throw new VerifierDefect(`Required row ${name}: ${gap}`);\n", replace: "" },
+		],
+		test: "test/implementation-engine.integration.ts",
+		pattern: "TP22",
+	},
 ];
 
 async function copy(): Promise<string> {

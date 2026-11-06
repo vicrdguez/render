@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
@@ -12,441 +13,110 @@ import type { IntakeManifest, Intakes } from "../src/kernel/intake.ts";
 import type { ImplementationPass, RoleAssignment } from "../src/kernel/roles.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
-import { catalog, catalogFixture, rows } from "./support/catalog.ts";
-import { admin, allowSameFamily, packet } from "./support/roles.ts";
+import { rows } from "./support/catalog.ts";
+import { accepted, captureFile, captureValue, fixture } from "./support/implementation-engine.ts";
+import { admin } from "./support/roles.ts";
 import { git } from "./support/source.ts";
 
-function accepted(reply: CommandReply) {
-	assert.equal(reply.status, "accepted", JSON.stringify(reply));
-	if (reply.status !== "accepted") throw new Error("unreachable");
-	return reply.result;
-}
-
-type Prompt = {
-	packet: { role: string; verification?: unknown };
-	auditInstructions?: string;
-	intakeReview?: Record<string, unknown>;
-	auditReview?: { passRef: string; audit: string; source: string; contract: string };
-	implementation?: { ordinal?: number; captureB?: string; audit?: { reports?: unknown; results?: { standards?: { report: string } } } };
-	inputs?: { ref: string; text: string }[];
+const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+const proposalRef = (workflow: string) => `refs/render/proposals/${sha(workflow)}`;
+// Written independently of the product's record type: these are the fields the Contract requires a reader to find.
+type Prepared = {
+	schema: 1;
+	passRef: string;
+	handoff: string;
+	source: string;
+	attempt: number;
+	target: { proposal: string; ref: string; commit: string };
+	outcome: "checked" | "check-failure" | "conflict" | "operational" | "verifier-defect";
+	reason: string | null;
+	preparation: null | {
+		kind: string;
+		algorithm: string;
+		profile: string;
+		git: string;
+		base: string;
+		source: string;
+		target: string;
+		result: string;
+		tree: string;
+		conflicts: string[];
+		stdout: string;
+	};
+	checks: null | {
+		verifierRevision: string;
+		results: { name: string; status: string; steps: { exitCode: number; platform: { os: string }; verifierRevision: string }[] }[];
+		verification: { status: string; inputCommit: string; resultTree: string };
+		failed: { name: string; exitCode: number }[];
+	};
+	/** The workflow policy the attempt qualified X against. */
+	policy: { binding: string; revision: string; minimumEvidenceRank: string | null };
 };
-type RetainedCapture = { source: { source: { entries: { path: string; content: string }[] } } };
-function captureFile(text: string, path: string): string {
-	const capture = JSON.parse(text) as RetainedCapture;
-	const entry = capture.source.source.entries.find((item) => item.path === path);
-	assert.ok(entry, `retained source includes ${path}`);
-	return Buffer.from(entry.content, "base64").toString();
+type Policy = {
+	defaultRevision: string;
+	revisions: Record<string, { minimumEvidenceRank: string | null }>;
+	bindings: Record<string, { revision: string; policy: string }>;
+};
+const policyOf = (t: { f: { ledger: { snapshot(context: typeof admin): unknown } } }) =>
+	(t.f.ledger.snapshot(admin) as { policy: Policy }).policy;
+/** Host-private Effects Git: the canonical proposal ref lives here, never in upstream or a forge. */
+function effectsStore(t: { f: { source: { root: string } } }) {
+	return join(t.f.source.root, "catalog-owned", "effects", sha("owned"), "source.git");
 }
-function captureValue(text: string): string {
-	return captureFile(text, "value");
+/** Simulates the later canonical-integration producer: a host commit on the canonical ref with replaced root files. */
+function advanceTarget(store: string, parent: string, files: Record<string, string>, expected: string | null): string {
+	let entries = git(store, ["ls-tree", parent]).toString();
+	for (const [name, text] of Object.entries(files)) {
+		const blob = git(store, ["hash-object", "-w", "--stdin"], text).toString().trim();
+		const line = `100644 blob ${blob}\t${name}`;
+		const pattern = new RegExp(`^100644 blob [0-9a-f]+\\t${name}$`, "m");
+		entries = pattern.test(entries) ? entries.replace(pattern, line) : `${entries}${line}\n`;
+	}
+	const tree = git(store, ["mktree"], entries).toString().trim();
+	const commit = git(store, ["commit-tree", tree, "-p", parent], "Canonical integration of another Slice\n").toString().trim();
+	git(store, ["update-ref", proposalRef("workflow:2"), commit, ...(expected ? [expected] : ["0".repeat(40)])]);
+	return commit;
 }
-
-// These scripted checks exercise lifecycle and literal bytes, not semantic adequacy.
-// Real acceptance, not a fabricated accepted Slice or a test-file import.
-async function fixture(
-	options: {
-		exclusions?: string[];
-		missingFamily?: boolean;
-		failFinal?: boolean;
-		hold?: "writer" | "contracts";
-		finding?: boolean;
-		bootstrap?: boolean;
-		staleFinal?: boolean;
-	} = {},
-) {
-	const f = await catalogFixture(true, { text: catalog().replaceAll("endpoint", "tests").replace("printf 'SUITE OK'", "sh verify-suite") });
-	const originalTree = git(f.source.repo, ["rev-parse", `${f.selection.commit}^{tree}`])
+/** Another Slice's integration that changes the selected verifier `.skl/verify.md` and the root suite script. */
+function advanceVerifier(store: string, parent: string, verifier: string, suite: string): string {
+	const blob = git(store, ["hash-object", "-w", "--stdin"], verifier).toString().trim();
+	const skl = git(store, ["ls-tree", `${parent}:.skl`])
 		.toString()
-		.trim();
-	const value = git(f.source.repo, ["hash-object", "-w", "--stdin"], "A\n").toString().trim();
-	let entries = git(f.source.repo, ["ls-tree", originalTree]).toString();
-	if (options.bootstrap) {
-		const journey = git(f.source.repo, ["ls-tree", `${f.selection.commit}:.skl`, "journey.md"]).toString();
-		const skl = git(f.source.repo, ["mktree"], journey).toString().trim();
-		entries = entries.replace(/^040000 tree [^\n]+\t\.skl$/m, `040000 tree ${skl}\t.skl`);
-	}
-	const suite = git(f.source.repo, ["hash-object", "-w", "--stdin"], "printf 'SUITE OK'\n").toString().trim();
-	const tree = git(f.source.repo, ["mktree"], `${entries}100644 blob ${value}\tvalue\n100644 blob ${suite}\tverify-suite\n`)
+		.replace(/^100644 blob [0-9a-f]+\tverify\.md$/m, `100644 blob ${blob}\tverify.md`);
+	const tree = git(store, ["mktree"], skl).toString().trim();
+	const withVerifier = git(store, ["ls-tree", parent])
 		.toString()
-		.trim();
-	const commit = git(f.source.repo, ["commit-tree", tree], "Initial implementation source\n").toString().trim();
-	f.selection.commit = commit;
-	f.config.checks["revision:3"].commit = commit;
-	if (options.bootstrap) {
-		assert.equal(git(f.source.repo, ["ls-tree", commit, ".skl/verify.md"]).toString(), "");
-		assert.notEqual(git(f.source.repo, ["ls-tree", commit, ".skl/journey.md"]).toString(), "");
-		assert.equal(git(f.source.repo, ["show", `${commit}:value`]).toString(), "A\n");
-		assert.equal(git(f.source.repo, ["show", `${commit}:verify-suite`]).toString(), "printf 'SUITE OK'\n");
+		.replace(/^040000 tree [0-9a-f]+\t\.skl$/m, `040000 tree ${tree}\t.skl`);
+	const root = git(store, ["mktree"], withVerifier).toString().trim();
+	const staged = git(store, ["commit-tree", root, "-p", parent], "Integrate verifier change\n").toString().trim();
+	git(store, ["update-ref", proposalRef("workflow:2"), staged, "0".repeat(40)]);
+	return advanceTarget(store, staged, { "verify-suite": suite }, staged);
+}
+/** In-process use of the host fault barrier: wait until the host is parked there, change the world, then release it. */
+// Other process listeners may exist: only the barrier's own added once-listener is ever invoked.
+let unparked = process.rawListeners("SIGUSR2");
+const barrierListeners = () => process.rawListeners("SIGUSR2").filter((l) => !unparked.includes(l));
+function holdAt(name: string, command: string) {
+	unparked = process.rawListeners("SIGUSR2");
+	process.env.RENDER_FAULT_BARRIER = name;
+	process.env.RENDER_FAULT_COMMAND = command;
+}
+async function parked(label: string) {
+	const deadline = Date.now() + 60000;
+	while (!barrierListeners().length) {
+		assert.ok(Date.now() < deadline, `${label}: host never reached the barrier`);
+		await setTimeout(20);
 	}
-	if (options.exclusions) f.config.checks["revision:3"].profile.exclusions = options.exclusions;
-	await allowSameFamily(f.ledger);
-	const gate = Promise.withResolvers<void>();
-	const prompts: Prompt[] = [];
-	let writerTurn = 0;
-	let successorTurn = 0;
-	let rawHandoffAttempted = false;
-	let checkedBeforeEdit: { B: string; report: string } | undefined;
-	let held = false;
-	let aborted = false;
-	const release = Promise.withResolvers<void>();
-	f.provider.setResponses(
-		Array.from(
-			{ length: 50 },
-			() =>
-				async (
-					transcript: { messages: { role: string; content: unknown; sections?: Record<string, string | null> }[] },
-					stream?: { signal?: AbortSignal },
-				) => {
-					const live = transcript.messages.findLast((m) => m.role === "system" && m.sections?.["role-packet"])?.sections?.["role-packet"];
-					const text = live
-						? live.slice(live.indexOf("{"), live.lastIndexOf("}") + 1)
-						: (transcript.messages.filter((m) => m.role === "user").at(-1)!.content as string);
-					const prompt = JSON.parse(text) as Prompt;
-					prompts.push(prompt);
-					if (
-						!held &&
-						((options.hold === "writer" && prompt.packet.role === "implementer" && writerTurn === 1) ||
-							(options.hold === "contracts" && prompt.packet.role === "audit-contracts"))
-					) {
-						held = true;
-						assert.ok(stream?.signal, "provider request carries abort signal");
-						await Promise.race([
-							release.promise,
-							new Promise<void>((resolve) => {
-								const stop = () => {
-									aborted = true;
-									resolve();
-								};
-								if (stream.signal!.aborted) stop();
-								else stream.signal!.addEventListener("abort", stop, { once: true });
-							}),
-						]);
-						if (aborted) return fauxAssistantMessage("aborted");
-					}
-					if (prompt.packet.role === "coordinator") {
-						await gate.promise;
-						return fauxAssistantMessage("paused");
-					}
-					if (prompt.intakeReview)
-						return fauxAssistantMessage(
-							fauxToolCall("submit_role_result", {
-								text: JSON.stringify({
-									schema: 1,
-									...prompt.intakeReview,
-									checks: {
-										omitted: "Compared",
-										weakened: "Compared",
-										strengthened: "Compared",
-										contradictory: "Compared",
-										invented: "Compared",
-									},
-									findings: [],
-								}),
-								supports: [],
-							}),
-							{ stopReason: "toolUse" },
-						);
-					if (prompt.auditReview) {
-						const reviewer = ((f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[]).find(
-							(a) => a.packet.role === prompt.packet.role && a.status === "running",
-						);
-						assert.ok(reviewer, "reviewer owns an active independent assignment");
-						const principal = mintContext({
-							kind: "assignment-agent",
-							assignment: reviewer.id,
-							generation: reviewer.generation,
-							attempt: reviewer.attempt,
-							role: reviewer.packet.role,
-						});
-						assert.ok(reviewer.packet.inputs.includes(prompt.auditReview.source), "reviewer input includes exact frozen A");
-						const source = await f.ledger.artifact(principal, { read: prompt.auditReview.source });
-						assert.ok("content" in source, "reviewer can read its actual bound source before reporting");
-						assert.equal(captureValue(source.content.toString()), prompt.auditReview.passRef.endsWith(":2") ? "T\n" : "A\n");
-						const retained = JSON.parse(source.content.toString()).verification;
-						assert.equal(retained.role, "implementer", "A's checks stay attributed to the implementer that ran them");
-						assert.equal(retained.catalog.selection.contract, prompt.auditReview.contract);
-						assert.ok(retained.catalog.text.length > 0 && retained.results.length > 0, "A retains its verifier and results");
-						assert.equal(prompt.packet.verification, undefined, "no separate pre-A verifier is frozen for a reviewer");
-						assert.match(prompt.auditInstructions ?? "", /verification.*implementer ran.*not checks you ran/);
-						return fauxAssistantMessage(
-							fauxToolCall("submit_role_result", {
-								text: JSON.stringify({
-									schema: 1,
-									...prompt.auditReview,
-									findings:
-										options.finding && prompt.packet.role === "audit-standards"
-											? [{ id: "F1", text: "Replace A with B", needsHuman: false }]
-											: [],
-								}),
-								supports: [],
-							}),
-							{ stopReason: "toolUse" },
-						);
-					}
-					assert.equal(prompt.packet.role, "implementer");
-					if (prompt.implementation?.ordinal === 2) {
-						const calls = [
-							["implementation_execute", { argv: ["sh", "-c", "test \"$(cat value)\" = T && printf 'writer saw T\\n'"] }],
-							["implementation_audit", {}],
-							["implementation_execute", { argv: ["sh", "-c", "printf 'C\\n' > value"] }],
-							[
-								"implementation_handoff",
-								{
-									text: "Reapplied onto the current target",
-									dispositions: [],
-									verification: { outcome: "pass", rank: "tests", reason: "Selected checks pass on final source" },
-								},
-							],
-						] as const;
-						const call = calls[successorTurn++];
-						assert.ok(call, "successor writer must not continue after its handoff");
-						return fauxAssistantMessage(fauxToolCall(call[0], call[1]), { stopReason: "toolUse" });
-					}
-					if (options.finding && writerTurn === 3) {
-						writerTurn++;
-						return fauxAssistantMessage(fauxToolCall("implementation_check", {}), { stopReason: "toolUse" });
-					}
-					if (options.staleFinal && writerTurn === 4) {
-						const B = prompt.implementation?.captureB;
-						const report = prompt.implementation?.audit?.results?.standards?.report;
-						assert.ok(B && report, "checked B and Audit report were presented before the later edit");
-						checkedBeforeEdit = { B, report };
-						writerTurn++;
-						return fauxAssistantMessage(
-							fauxToolCall("implementation_execute", {
-								argv: ["sh", "-c", "printf 'C\\n' > value && test \"$(cat value)\" = C && printf C_WRITTEN"],
-							}),
-							{
-								stopReason: "toolUse",
-							},
-						);
-					}
-					if (options.staleFinal && writerTurn === 5) {
-						assert.match(
-							JSON.stringify(transcript.messages.filter((m) => m.role === "tool" || m.role === "toolResult")),
-							/C_WRITTEN/,
-							"Linux command actually wrote C",
-						);
-						writerTurn++;
-						assert.ok(checkedBeforeEdit);
-						const { B, report } = checkedBeforeEdit;
-						rawHandoffAttempted = true;
-						return fauxAssistantMessage(
-							fauxToolCall("checkpoint", {
-								command: JSON.stringify({
-									type: "submitImplementationHandoff",
-									text: "Fixed A to B",
-									dispositions: [
-										{ report, finding: "F1", disposition: "fixed", reason: "Changed value to B", changes: [B], rechecks: ["full-suite"] },
-									],
-									verification: { outcome: "pass", rank: "tests", reason: "Selected checks pass on B" },
-								}),
-							}),
-							{ stopReason: "toolUse" },
-						);
-					}
-					if (options.staleFinal && writerTurn === 6) {
-						writerTurn++;
-						return fauxAssistantMessage("Stopped after raw handoff attempt.");
-					}
-					if (options.finding && writerTurn === 4) {
-						writerTurn++;
-						const B = prompt.implementation?.captureB;
-						const report = prompt.implementation?.audit?.results?.standards?.report;
-						assert.ok(B && report, "writer receives host-retained B and Audit report identities before handoff");
-						return fauxAssistantMessage(
-							fauxToolCall("implementation_handoff", {
-								text: "Fixed A to B",
-								dispositions: [
-									{ report, finding: "F1", disposition: "fixed", reason: "Changed value to B", changes: [B], rechecks: ["full-suite"] },
-								],
-								verification: { outcome: "pass", rank: "tests", reason: "Selected checks pass on B" },
-							}),
-							{ stopReason: "toolUse" },
-						);
-					}
-					const calls = [
-						[
-							"implementation_execute",
-							{
-								argv: [
-									"sh",
-									"-c",
-									options.bootstrap
-										? `test ! -e .skl/verify.md && test "$(cat value)" = A && printf '%s' '${Buffer.from(f.text).toString("base64")}' | base64 -d > .skl/verify.md`
-										: "test \"$(cat value)\" = A && printf 'writer saw A\\n'",
-								],
-							},
-						],
-						["implementation_audit", {}],
-						[
-							"implementation_execute",
-							{
-								argv: [
-									"sh",
-									"-c",
-									options.failFinal ? "printf 'B\\n' > value; printf 'exit 7\\n' > verify-suite" : "printf 'B\\n' > value",
-								],
-							},
-						],
-						[
-							"implementation_handoff",
-							{
-								text: "Implemented exact value",
-								dispositions: [],
-								verification: { outcome: "pass", rank: "tests", reason: "Selected checks pass on final source" },
-							},
-						],
-					] as const;
-					const call = calls[writerTurn++];
-					assert.ok(call, "writer must not continue after handoff");
-					return fauxAssistantMessage(fauxToolCall(call[0], call[1]), { stopReason: "toolUse" });
-				},
-		),
-	);
-	const save = async (document: string, text: string) =>
-		accepted(
-			await f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: f.ledger.status().authorityEpoch,
-					commandId: `save:${document}`,
-					workflow: "workflow:2",
-					expected: { document: null },
-					command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
-				},
-				admin,
-			),
-		).revision as string;
-	const source = await save("source", "Keep the existing value interface.");
-	const catalogRef = await save("catalog", f.text);
-	const ground = await save(
-		"ground",
-		JSON.stringify({
-			schema: 1,
-			shape: { value: "bug", origin: "human", confirmed: true },
-			goal: "Change value",
-			constraints: [],
-			clarifications: [],
-			donePredicate: "Value B",
-			approvedSources: [source],
-		}),
-	);
-	const manifest: IntakeManifest = {
-		schema: 1,
-		shape: "bug",
-		ground,
-		sources: [source],
-		decisions: [],
-		catalog: catalogRef,
-		breakdown: null,
-		slices: [
-			{
-				id: "value",
-				title: "Change value",
-				record: false,
-				delegated: [],
-				forbidden: [],
-				obligations: [{ id: "B1", kind: "behavior", text: "Change A to B", sources: [] }],
-			},
-		],
-		checks: [
-			{ id: "suite", row: "full-suite", kind: "executed", rank: "tests", new: false, run: "sh verify-suite", expectations: "SUITE OK" },
-		],
-		mapping: [{ slice: "value", obligation: "B1", checks: ["suite"] }],
-		dependencies: [],
-		responses: [],
-		unresolved: [],
-	};
-	const coordinator = accepted(
-		await f.command({
-			type: "assignTask",
-			slice: "design",
-			delivery: false,
-			packet: packet({
-				inputs: [ground, source, catalogRef],
-				requests: [{ key: "fidelity", packet: packet({ role: "challenger" }) }],
-				maxTurns: 20,
-			}),
-		}),
-	).assignment;
-	const assignments = () => (f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[];
-	const wait = async (predicate: () => boolean, label: string) => {
-		const deadline = Date.now() + 30000;
-		while (!predicate()) {
-			assert.ok(Date.now() < deadline, `${label}: ${JSON.stringify(assignments())}`);
-			await setTimeout(20);
-		}
-	};
-	await wait(() => assignments().find((a) => a.id === coordinator)?.status === "running", "coordinator");
-	const owner = assignments().find((a) => a.id === coordinator)!;
-	const actor = mintContext({
-		kind: "assignment-agent",
-		assignment: owner.id,
-		generation: owner.generation,
-		attempt: owner.attempt,
-		role: "coordinator",
-	});
-	const state = () => ((f.ledger.snapshot(admin) as Frame).workflows as { intakes: Intakes }[])[0]!.intakes;
-	const draft = accepted(await f.command({ type: "stageIntake", expected: null, text: "# Contract\nChange A to B.\n", manifest }, actor))
-		.intake as string;
-	const review = accepted(await f.command({ type: "requestIntakeReview", intake: draft, key: "fidelity" }, actor));
-	await wait(() => assignments().find((a) => a.id === review.assignment)?.status === "submitted", "fidelity");
-	const d = state().drafts.find((x) => x.id === draft)!;
-	accepted(
-		await f.command(
-			{
-				type: "acceptIntake",
-				intake: draft,
-				review: assignments().find((a) => a.id === review.assignment)!.report,
-				annotations: d.annotations,
-				policyBinding: d.policyBinding,
-				decisions: d.manifest.decisions,
-			},
-			admin,
-		),
-	);
-	const contract = state().slices[0]!.contract;
-	const selection = { ...f.selection, contract, rows, behavioralRows: ["behavior"] };
-	// Engine's owned-check configuration is keyed by the accepted exact contract.
-	(f.config.checks as Record<string, (typeof f.config.checks)["revision:3"]>)[contract] = f.config.checks["revision:3"];
-	const reviewer = (role: "audit-standards" | "audit-contracts") =>
-		packet({
-			role,
-			maxTurns: 20,
-			maxInputBytes: 1048576,
-			...(options.missingFamily ? { model: "missing-model", family: "missing", requiredFamily: "missing" } : {}),
-		});
-	const writer = packet({
-		role: "implementer",
-		execution: "linux-writer",
-		inputs: [contract],
-		verification: selection,
-		maxTurns: 30,
-		maxInputBytes: 1048576,
-		requests: [
-			{ key: "standards", packet: reviewer("audit-standards") },
-			{ key: "contracts", packet: reviewer("audit-contracts") },
-		],
-	});
-	return {
-		f,
-		gate,
-		prompts,
-		assignments,
-		wait,
-		writer,
-		contract,
-		rawHandoffAttempted: () => rawHandoffAttempted,
-		held: () => held,
-		aborted: () => aborted,
-		release: () => release.resolve(),
-		close: async () => {
-			release.resolve();
-			gate.resolve();
-			await f.close();
-		},
-	};
+}
+function releaseBarrier(next?: [string, string]) {
+	if (next) {
+		process.env.RENDER_FAULT_BARRIER = next[0];
+		process.env.RENDER_FAULT_COMMAND = next[1];
+	} else {
+		delete process.env.RENDER_FAULT_BARRIER;
+		delete process.env.RENDER_FAULT_COMMAND;
+	}
+	for (const listener of barrierListeners()) (listener as () => void)();
 }
 
 test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic preparation, then a real conflict opens P2 from T1 with its own fresh Audit, surviving export/reopen", async () => {
@@ -473,8 +143,6 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 		const pass = (frame.implementationPasses as ImplementationPass[]).find((p) => p.ref === opening.passRef);
 		assert.ok(pass?.handoff, "handoff and its preparation are committed on the pass");
 		assert.ok(pass.handoff.preparationTask, "preparation task is staged atomically with handoff");
-		assert.match(pass.handoff.blocker ?? "", /preparation.*unavailable/i);
-		assert.ok(!t.assignments().some((a) => a.packet.role === "watchdog" && a.status === "submitted"));
 		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of [opening.passRecord, pass.handoff.record, ...reviews.map((a) => a.report)])
@@ -498,49 +166,83 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 			return !!a && !a.executing && (a.status === "submitted" || (a.status === "blocked" && a.blocker !== "awaiting_role_results"));
 		};
 		const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
-		await t.wait(() => !!passes()[0]?.handoff?.blocker, "preparation blockage");
-		const first = structuredClone(passes()[0]!);
-		assert.equal(first.ordinal, 1);
 		const read = async (ref: string) => {
 			const value = await t.f.ledger.artifact(admin, { read: ref });
 			assert.ok("content" in value, `read ${ref}`);
 			return value.content.toString();
 		};
+		const prepared = async (ref: string) => JSON.parse(await read(ref)) as Prepared;
+		// TP21: production preparation after the real handoff. B already contains the newly bound canonical T0.
+		await t.wait(() => /^awaiting_watchdog/.test(passes()[0]?.handoff?.blocker ?? ""), "P1 prepared and checked");
+		const first = structuredClone(passes()[0]!);
+		assert.equal(first.ordinal, 1);
 		const receipt = (JSON.parse(await read(first.handoff!.source)) as ImplementationSource).source;
 		const base = t.writer.verification!.commit;
-		const repo = t.f.source.repo;
-		const T = git(repo, ["hash-object", "-w", "--stdin"], "T\n").toString().trim();
-		const entries = git(repo, ["ls-tree", base])
-			.toString()
-			.replace(/^100644 blob [0-9a-f]+\tvalue$/m, `100644 blob ${T}\tvalue`);
-		const tree = git(repo, ["mktree"], entries).toString().trim();
-		const T1 = git(repo, ["commit-tree", tree, "-p", base], "Concurrent target change\n").toString().trim();
-		const text = JSON.stringify({
+		const store = effectsStore(t);
+		assert.equal(
+			git(store, ["rev-parse", proposalRef("workflow:2")])
+				.toString()
+				.trim(),
+			base,
+			"canonical ref bound to T0",
+		);
+		assert.equal(first.handoff!.preparations?.length, 1);
+		const x1 = await prepared(first.handoff!.preparations![0]!);
+		assert.equal(x1.outcome, "checked");
+		assert.deepEqual(x1.target, { proposal: "workflow:2", ref: proposalRef("workflow:2"), commit: base });
+		assert.equal(x1.preparation?.kind, "clean");
+		assert.equal(x1.preparation?.base, base, "recorded assignment base, not the sealed capture parent");
+		assert.equal(x1.preparation?.source, receipt.source.commit);
+		assert.equal(x1.preparation?.result, receipt.source.commit, "validated fast path keeps B as X");
+		assert.equal(x1.preparation?.tree, receipt.source.tree);
+		assert.equal(x1.preparation?.algorithm, "git-merge-tree-write-tree-z/v1");
+		assert.match(x1.preparation?.profile ?? "", /^render-trusted-git\/v1/);
+		assert.equal(x1.checks?.verification.status, "passed");
+		assert.equal(x1.checks?.verification.inputCommit, receipt.source.commit);
+		assert.equal(x1.checks?.verification.resultTree, receipt.source.tree);
+		assert.ok(
+			x1.checks?.results.every((r) =>
+				r.steps.every((s) => s.platform.os === "linux" && s.verifierRevision === x1.checks?.verifierRevision),
+			),
+			"checks ran in Linux against X's own verifier",
+		);
+		assert.match(first.handoff!.blocker!, new RegExp(`prepared ${receipt.source.commit} checked on current target ${base}`));
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "no Watchdog is invented");
+		// Another Slice integrates a conflicting change; an explicit retry prepares the current target.
+		const T1 = advanceTarget(store, base, { value: "T\n" }, base);
+		const owner = t.assignments().find((a) => a.id === opening.assignment)!;
+		accepted(
+			await t.f.command({ type: "retryPreparation", assignment: owner.id, generation: owner.generation, attempt: owner.attempt }, admin),
+		);
+		await t.wait(() => passes().length === 2, "real conflict opens P2");
+		const returned = structuredClone(passes()[0]!);
+		const conflict = await prepared(returned.handoff!.preparations![1]!);
+		assert.equal(conflict.outcome, "conflict");
+		assert.equal(conflict.attempt, 2);
+		assert.equal(conflict.target.commit, T1);
+		assert.deepEqual(conflict.preparation?.conflicts, ["value"]);
+		assert.equal(conflict.checks, null, "conflicts are never checked or reviewed");
+		const opened = { assignment: passes()[1]!.assignment, observation: passes()[1]!.opening!.observation };
+		const text = await read(opened.observation);
+		assert.deepEqual(JSON.parse(text), {
 			schema: 1,
 			cause: "preparation-conflict",
 			repository: receipt.source.repository,
 			source: first.handoff!.source,
 			sourceCommit: receipt.source.commit,
-			baseCommit: receipt.base.commit,
+			baseCommit: base,
 			targetCommit: T1,
-			algorithm: "merge-tree-write-tree",
-			resultTree: tree,
+			algorithm: "git-merge-tree-write-tree-z/v1",
+			resultTree: conflict.preparation!.tree,
 			conflicts: ["value"],
 		});
-		const owner = t.assignments().find((a) => a.id === opening.assignment)!;
-		const opened = accepted(
-			await t.f.command(
-				{ type: "openSuccessorPass", assignment: owner.id, generation: owner.generation, attempt: owner.attempt, text },
-				mintContext({ kind: "host", scope: "effects" }),
-			),
-		);
-		assert.equal(opened.passOrdinal, 2);
+		assert.notEqual(receipt.base.commit, base, "B's capture parent A is not the recorded original base T0");
 		await t.wait(settled(opened.assignment), "second pass handoff");
 		const p2Writer = t.assignments().find((a) => a.id === opened.assignment)!;
 		assert.equal(p2Writer.status, "submitted", `expected second handoff, got ${p2Writer.blocker}`);
 		const [p1, p2] = passes();
 		assert.ok(p1 && p2);
-		assert.deepEqual({ ...p1 }, first, "P1 keeps its exact Audit, A, B and preparation outcome");
+		assert.deepEqual({ ...p1 }, returned, "P1 keeps its exact Audit, A, B and preparation outcomes");
 		assert.equal(p2.predecessor, p1.ref);
 		assert.equal(p2.opening?.base, T1);
 		assert.ok(p2.handoff);
@@ -571,8 +273,32 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 			successorPrompts[0]!.inputs?.some((input) => input.ref === opened.observation && input.text === text),
 			"the writer sees the exact conflict",
 		);
+		// TP24: Git's exact conflict output and the B/T0/T1 identities arrive as a scoped input, not just paths.
+		const conflictRef = returned.handoff!.preparations![1]!;
+		assert.ok(
+			successorPrompts[0]!.inputs?.some((input) => input.ref === conflictRef && input.text === JSON.stringify(conflict)),
+			"the writer receives the exact retained conflict record",
+		);
+		assert.match(
+			Buffer.from(conflict.preparation!.stdout, "base64").toString(),
+			/CONFLICT \(content\): Merge conflict in value/,
+			"the record keeps Git's exact conflict output bytes",
+		);
+		assert.deepEqual(
+			[conflict.preparation!.source, conflict.preparation!.base, conflict.preparation!.target],
+			[receipt.source.commit, base, T1],
+		);
+		// Read-only original B, T0 and T1 are mounted beside the writable T1 workspace.
+		assert.equal(t.originals(), "B\nA\nT\nORIGINALS_READ_ONLY\n", "the successor reads B, T0 and T1 but cannot change them");
 		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "conflict starts no Watchdog");
-		await t.wait(() => !!passes()[1]?.handoff?.blocker, "P2 preparation blockage");
+		await t.wait(() => /^awaiting_watchdog/.test(passes()[1]?.handoff?.blocker ?? ""), "P2 prepared and checked");
+		const x2 = await prepared(passes()[1]!.handoff!.preparations![0]!);
+		const b2 = (JSON.parse(await read(p2.handoff.source)) as ImplementationSource).source.source;
+		assert.equal(x2.outcome, "checked");
+		assert.equal(x2.preparation?.base, T1, "P2's recorded base is T1");
+		assert.equal(x2.target.commit, T1);
+		assert.equal(x2.preparation?.result, b2.commit, "B2 already includes T1");
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0);
 		const twoPass = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
 		assert.ok("manifest" in twoPass && twoPass.manifest.complete);
 		for (const ref of [
@@ -583,6 +309,8 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 			p2.captureA!,
 			p2.captureB!,
 			opened.observation as string,
+			...p1.handoff!.preparations!,
+			...passes()[1]!.handoff!.preparations!,
 		])
 			assert.ok(twoPass.content[ref], `export retains ${ref}`);
 		// A well-formed result whose base never resolves leaves visible blockage, not a silently stalled writer.
@@ -600,10 +328,10 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 						repository: sealedP2.source.repository,
 						source: p2.handoff.source,
 						sourceCommit: sealedP2.source.commit,
-						baseCommit: sealedP2.base.commit,
+						baseCommit: T1,
 						targetCommit: "f".repeat(40),
 						algorithm: "merge-tree-write-tree",
-						resultTree: tree,
+						resultTree: conflict.preparation!.tree,
 						conflicts: ["value"],
 					}),
 				},
@@ -631,6 +359,380 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 		for (const ref of [opening.passRecord, pass.handoff.record, ...reviews.map((a) => a.report), A, pass.captureB])
 			assert.equal(after.content[ref as string], exported.content[ref as string]);
 	} finally {
+		await t.close();
+	}
+});
+
+function clearBarrier() {
+	delete process.env.RENDER_FAULT_BARRIER;
+	delete process.env.RENDER_FAULT_COMMAND;
+	for (const listener of barrierListeners()) (listener as () => void)();
+}
+async function preparedHarness(t: Awaited<ReturnType<typeof fixture>>) {
+	const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
+	const read = async (ref: string) => {
+		const value = await t.f.ledger.artifact(admin, { read: ref });
+		assert.ok("content" in value, `read ${ref}`);
+		return value.content.toString();
+	};
+	const prepared = async (ref: string) => JSON.parse(await read(ref)) as Prepared;
+	const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
+	const P1 = opening.passRef as string;
+	// Park the host at its first canonical observation so another Slice's integration lands first.
+	holdAt("before-target-observe", `preparation-observe:${P1}:0`);
+	await parked("first canonical observation");
+	const B = (JSON.parse(await read(passes()[0]!.handoff!.source)) as ImplementationSource).source.source;
+	return { passes, read, prepared, opening, P1, B, base: t.writer.verification!.commit, store: effectsStore(t) };
+}
+
+test("TP01/TP11/TP13: clean merge, drift after combined checks and a failing X check return a new pass without Watchdog or Audit", async () => {
+	const t = await fixture({ successorStops: true });
+	try {
+		const h = await preparedHarness(t);
+		const T1 = advanceTarget(h.store, h.base, { target: "T1\n" }, null);
+		releaseBarrier(["before-target-observe", `preparation-observe:${h.P1}:1`]);
+		await parked("reobservation after X1 checks");
+		const x1 = await h.prepared(h.passes()[0]!.handoff!.preparations![0]!);
+		assert.equal(x1.outcome, "checked");
+		assert.equal(x1.target.commit, T1);
+		assert.equal(x1.preparation?.kind, "clean");
+		assert.notEqual(x1.preparation?.result, h.B.commit, "a real combined commit, not B");
+		assert.equal(git(h.store, ["show", `${x1.preparation!.result}:value`]).toString(), "B\n");
+		assert.equal(git(h.store, ["show", `${x1.preparation!.result}:target`]).toString(), "T1\n");
+		assert.equal(x1.checks?.verification.inputCommit, x1.preparation?.result, "checks name actual X");
+		const audited = t.assignments().filter((a) => a.auditReview).length;
+		assert.equal(audited, 2);
+		// T2 lands after X1/T1 checks and before any review launch. Combined with B it fails the required suite.
+		const T2 = advanceTarget(h.store, T1, { "verify-suite": 'test "$(cat value)" = A\n' }, T1);
+		releaseBarrier();
+		await t.wait(() => h.passes().length === 2, "failed combined check opens P2");
+		const [p1, p2] = h.passes();
+		assert.ok(p1?.handoff && p2);
+		assert.equal(p1.handoff.preparations?.length, 2, "drift re-prepared under the same handed-off pass");
+		const x2 = await h.prepared(p1.handoff.preparations![1]!);
+		assert.equal(x2.attempt, 2);
+		assert.equal(x2.outcome, "check-failure");
+		assert.equal(x2.target.commit, T2);
+		assert.equal(x2.preparation?.base, h.base);
+		assert.deepEqual(x2.checks?.failed, [{ name: "full-suite", exitCode: 1 }]);
+		assert.equal(x2.checks?.verification.status, "failed");
+		assert.equal(git(h.store, ["show", `${x2.preparation!.result}:value`]).toString(), "B\n");
+		assert.equal(p2.cause, "prepared-check-failure");
+		assert.equal(p2.predecessor, p1.ref);
+		assert.equal(p2.opening?.base, x2.preparation?.result, "repair starts from actual X2");
+		assert.equal(p2.opening?.target, T2);
+		assert.deepEqual(JSON.parse(await h.read(p2.opening!.observation)), {
+			schema: 1,
+			cause: "prepared-check-failure",
+			repository: "owned",
+			source: p1.handoff.source,
+			sourceCommit: h.B.commit,
+			baseCommit: h.base,
+			targetCommit: T2,
+			preparedCommit: x2.preparation!.result,
+			verifierRevision: x2.checks!.verifierRevision,
+			failed: [{ name: "full-suite", exitCode: 1 }],
+		});
+		assert.equal(t.assignments().filter((a) => a.auditReview).length, audited, "no Audit for drift or X");
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "no Watchdog launch or count");
+	} finally {
+		clearBarrier();
+		await t.close();
+	}
+});
+
+/** A target verifier defect on clean X: one non-pass record, then a verifier-repair pass from X with no check, Audit or Watchdog. */
+async function verifierDefect(verifier: (text: string) => string, defect: RegExp, suite = "exit 17\n") {
+	const t = await fixture({ successorStops: true });
+	try {
+		const h = await preparedHarness(t);
+		const suiteLine = /^\| full-suite \| Process \| executed \| `sh verify-suite` \| SUITE OK \| tests \|$/m;
+		assert.match(t.f.text, suiteLine, "fixture verifier defines an executable full-suite row");
+		// `suite` is X's actual suite: failing in TP22/TP23, so a defective row standing in for it must never let X pass.
+		const T1 = advanceVerifier(h.store, h.base, verifier(t.f.text), suite);
+		releaseBarrier();
+		const settled = () => h.passes().length === 2 || /^awaiting_watchdog/.test(h.passes()[0]?.handoff?.blocker ?? "");
+		await t.wait(settled, "preparation settles on X");
+		assert.doesNotMatch(h.passes()[0]?.handoff?.blocker ?? "", /^awaiting_watchdog/, "X must not be checked ready for Watchdog");
+		assert.equal(h.passes().length, 2, "verifier defect opens a repair pass");
+		const [p1, p2] = h.passes();
+		assert.ok(p1?.handoff && p2);
+		const records = await Promise.all(p1.handoff.preparations!.map((ref) => h.prepared(ref)));
+		assert.equal(records.length, 1, "one attempt, not a retry loop");
+		const x = records[0]!;
+		assert.equal(x.outcome, "verifier-defect");
+		assert.equal(x.target.commit, T1);
+		assert.equal(x.preparation?.kind, "clean");
+		assert.equal(x.checks, null, "no check result is fabricated for a definition defect");
+		assert.match(x.reason ?? "", defect);
+		assert.equal(git(h.store, ["show", `${x.preparation!.result}:verify-suite`]).toString(), suite);
+		assert.equal(p1.handoff.blocker, undefined, "a lawful return, not a stranded operational blocker");
+		assert.equal(p2.cause, "prepared-verifier-defect");
+		assert.equal(p2.predecessor, p1.ref);
+		assert.equal(p2.opening?.base, x.preparation?.result, "repair starts from actual X");
+		assert.equal(p2.opening?.target, T1);
+		assert.deepEqual(JSON.parse(await h.read(p2.opening!.observation)), {
+			schema: 1,
+			cause: "prepared-verifier-defect",
+			repository: "owned",
+			source: p1.handoff.source,
+			sourceCommit: h.B.commit,
+			baseCommit: h.base,
+			targetCommit: T1,
+			preparedCommit: x.preparation!.result,
+			defect: x.reason,
+		});
+		assert.equal(t.assignments().filter((a) => a.auditReview).length, 2, "the repair pass's Audit is its own, later");
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "no Watchdog launch or count");
+	} finally {
+		clearBarrier();
+		await t.close();
+	}
+}
+test("TP22: a target verifier that makes a required row discovery-only is a verifier defect, never a pass on X", () =>
+	verifierDefect(
+		(text) =>
+			text.replace(/^\| full-suite \|.*$/m, "| full-suite | Process | generated | `printf 'DISCOVERY ONLY'` | Discovery only | - |"),
+		/full-suite.*(generated|cannot prove)/,
+	));
+test("TP23: a target verifier that renames a required row opens a verifier-repair pass instead of stranding the handoff", () =>
+	verifierDefect((text) => text.replace(/^\| full-suite \|/m, "| suite-renamed |"), /Missing catalog row: full-suite/));
+
+test("TP27: a target verifier that lowers the behavioral journey below the policy minimum is a verifier defect, never a pass on X", () =>
+	verifierDefect(
+		(text) => {
+			const journey = "| behavior | Process | journey | `.skl/journey.md` | STEP OK and independent sanity |";
+			assert.ok(text.includes(`${journey} tests |`), "fixture behavioral journey starts at the workflow's minimum rank tests");
+			return text.replace(`${journey} tests |`, `${journey} static |`);
+		},
+		/behavior.*static.*below.*minimum.*tests/,
+		// Every check still succeeds: only the rank, not an execution failure, separates X from a pass.
+		"printf 'SUITE OK'\n",
+	));
+
+test("TP28: a policy adopted while X's checks run never leaves X qualified under the superseded binding", async () => {
+	const t = await fixture({ successorStops: true });
+	try {
+		const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
+		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
+		holdAt("before-prepared-check", `prepared-check:${opening.passRef}:1`);
+		await parked("X checks under the handoff-time binding");
+		const old = policyOf(t).bindings["workflow:2"]!;
+		assert.equal(policyOf(t).revisions[old.policy]!.minimumEvidenceRank, "tests", "X's checks started under minimum tests");
+		const published = accepted(
+			await t.f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: t.f.ledger.status().authorityEpoch,
+					commandId: "tp28-stricter-policy",
+					command: {
+						type: "changePolicy",
+						expectedRevision: policyOf(t).defaultRevision,
+						policy: { completedReviewLimit: 2, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "live" },
+					},
+				},
+				admin,
+			),
+		);
+		const adopted = accepted(await t.f.command({ type: "adoptPolicy", revision: published.policy, expectedBinding: old.revision }, admin));
+		releaseBarrier();
+		const blocker = () => passes()[0]?.handoff?.blocker ?? "";
+		await t.wait(() => passes().length === 2 || /^awaiting_watchdog/.test(blocker()), "preparation settles after adoption");
+		assert.doesNotMatch(blocker(), /^awaiting_watchdog/, "X must not be checked ready for Watchdog under a superseded policy");
+		const [p1, p2] = passes();
+		assert.ok(p1?.handoff && p2, "the stricter policy's verifier defect opens a repair pass");
+		const records = await Promise.all(
+			p1.handoff.preparations!.map(async (ref) => {
+				const value = await t.f.ledger.artifact(admin, { read: ref });
+				assert.ok("content" in value);
+				return JSON.parse(value.content.toString()) as Prepared;
+			}),
+		);
+		assert.equal(records.length, 1, "nothing qualified under the superseded binding is retained");
+		const x = records[0]!;
+		assert.deepEqual(x.policy, { binding: adopted.binding, revision: published.policy, minimumEvidenceRank: "live" });
+		assert.equal(x.outcome, "verifier-defect");
+		assert.equal(x.checks, null, "no check result is qualified for a definition below the adopted minimum");
+		assert.match(x.reason ?? "", /behavior.*tests.*below.*minimum.*live/);
+		assert.equal(p2.cause, "prepared-verifier-defect");
+		assert.equal(p2.opening?.base, x.preparation?.result, "repair starts from actual X");
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "no Watchdog launch or count");
+	} finally {
+		clearBarrier();
+		await t.close();
+	}
+});
+
+test("TP29: missing retained policy bytes block preparation instead of qualifying X with the cached policy; restored bytes and a retry check X", async () => {
+	const t = await fixture();
+	try {
+		const h = await preparedHarness(t);
+		const binding = policyOf(t).bindings["workflow:2"]!;
+		assert.equal(policyOf(t).revisions[binding.policy]!.minimumEvidenceRank, "tests", "the cached policy still says tests");
+		const db = new DatabaseSync(join(t.f.data, "render.db"));
+		const removed: Record<string, SQLInputValue>[] = [];
+		try {
+			for (const row of db.prepare("SELECT * FROM entries").all()) {
+				const entry = JSON.parse(String(row.record)) as { kind: string; data: { ref?: string } };
+				if (entry.kind !== "render.policy" || entry.data.ref !== binding.policy) continue;
+				removed.push(row as Record<string, SQLInputValue>);
+				db.prepare("DELETE FROM entries WHERE id = ?").run(row.id as number);
+			}
+		} finally {
+			db.close();
+		}
+		assert.equal(removed.length, 1, "the current immutable policy revision is actually removed");
+		const control = await t.f.command({ type: "adoptPolicy", revision: binding.policy, expectedBinding: binding.revision }, admin);
+		assert.ok(control.status === "refused" && control.code === "missing_content", "the store really lacks those policy bytes");
+		releaseBarrier();
+		await t.wait(() => !!h.passes()[0]?.handoff?.blocker, "preparation settles without its policy bytes");
+		const blocked = structuredClone(h.passes());
+		assert.doesNotMatch(blocked[0]!.handoff!.blocker!, /^awaiting_watchdog/, "X must not be checked ready for Watchdog on a cached policy");
+		assert.match(blocked[0]!.handoff!.blocker!, /missing_content.*policy/);
+		assert.equal(blocked[0]!.handoff!.preparations, undefined, "no record qualified on a cached policy is retained");
+		assert.equal(blocked.length, 1, "no successor pass");
+		const restore = new DatabaseSync(join(t.f.data, "render.db"));
+		try {
+			for (const row of removed) {
+				const columns = Object.keys(row);
+				restore
+					.prepare(`INSERT INTO entries (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`)
+					.run(...columns.map((c) => row[c]!));
+			}
+		} finally {
+			restore.close();
+		}
+		const owner = t.assignments().find((a) => a.id === h.opening.assignment)!;
+		accepted(
+			await t.f.command({ type: "retryPreparation", assignment: owner.id, generation: owner.generation, attempt: owner.attempt }, admin),
+		);
+		await t.wait(() => /^awaiting_watchdog/.test(h.passes()[0]?.handoff?.blocker ?? ""), "retried preparation checked");
+		const [p1, ...others] = h.passes();
+		assert.equal(others.length, 0, "the retry keeps the handed-off pass");
+		assert.deepEqual({ ...p1, handoff: undefined }, { ...blocked[0], handoff: undefined }, "same pass, B and Audit");
+		assert.equal(p1!.handoff!.preparations?.length, 1);
+		const x = await h.prepared(p1!.handoff!.preparations![0]!);
+		assert.equal(x.outcome, "checked");
+		assert.deepEqual(x.policy, { binding: binding.revision, revision: binding.policy, minimumEvidenceRank: "tests" });
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "no Watchdog launch or count");
+	} finally {
+		clearBarrier();
+		await t.close();
+	}
+});
+
+test("TP30: each explicit retry of a checked handoff settles visibly and stays retryable, even when its result repeats the last one", async () => {
+	const t = await fixture();
+	try {
+		const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
+		const blocker = () => passes()[0]?.handoff?.blocker ?? "";
+		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
+		await t.wait(() => /^awaiting_watchdog/.test(blocker()), "first preparation checked");
+		const first = blocker();
+		const old = policyOf(t).bindings["workflow:2"]!;
+		const current = policyOf(t).revisions[old.policy] as { minimumEvidenceRank: string | null } & Record<string, unknown>;
+		assert.equal(current.minimumEvidenceRank, "tests");
+		// A new binding that keeps minimum tests: X and T are unchanged, so the rechecked readiness reads exactly as before.
+		const published = accepted(
+			await t.f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: t.f.ledger.status().authorityEpoch,
+					commandId: "tp30-review-limit",
+					command: {
+						type: "changePolicy",
+						expectedRevision: policyOf(t).defaultRevision,
+						policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+					},
+				},
+				admin,
+			),
+		);
+		const adopted = accepted(await t.f.command({ type: "adoptPolicy", revision: published.policy, expectedBinding: old.revision }, admin));
+		const retry = async () => {
+			const owner = t.assignments().find((a) => a.id === opening.assignment)!;
+			return t.f.command({ type: "retryPreparation", assignment: owner.id, generation: owner.generation, attempt: owner.attempt }, admin);
+		};
+		accepted(await retry());
+		assert.equal(blocker(), "", "the retry clears the settled result");
+		await t.wait(() => passes()[0]?.handoff?.preparations?.length === 2, "retried preparation records X under the adopted binding");
+		await t.wait(() => blocker() !== "", "a settled retry must leave a visible result, not a cleared blocker");
+		assert.equal(blocker(), first, "same X on the same target: the readiness reads as before");
+		const [p1, ...others] = passes();
+		assert.equal(others.length, 0, "the retry keeps the handed-off pass");
+		const value = await t.f.ledger.artifact(admin, { read: p1!.handoff!.preparations![1]! });
+		assert.ok("content" in value);
+		const x = JSON.parse(value.content.toString()) as Prepared;
+		assert.equal(x.outcome, "checked");
+		assert.deepEqual(x.policy, { binding: adopted.binding, revision: published.policy, minimumEvidenceRank: "tests" });
+		// Nothing changed since: a further retry is still actionable and settles to the same visible result again.
+		accepted(await retry());
+		await t.wait(() => blocker() !== "", "a repeated retry must also leave a visible result");
+		assert.equal(blocker(), first);
+		assert.equal(passes().length, 1, "still the same handed-off pass");
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0, "no Watchdog launch or count");
+	} finally {
+		await t.close();
+	}
+});
+
+test("TP08/TP12/TP14: an aborted merge stays operational across restart until an explicit retry, which keeps the pass and Audit", async () => {
+	const t = await fixture();
+	const path = process.env.PATH;
+	try {
+		const h = await preparedHarness(t);
+		const T1 = advanceTarget(h.store, h.base, { target: "T1\n" }, null);
+		const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+		const bin = join(t.f.source.root, "bin");
+		await mkdir(bin);
+		await writeFile(
+			join(bin, "git"),
+			`#!/bin/sh\nfor arg do\n if [ "$arg" = merge-tree ]; then\n printf 'abort diagnostic' >&2; kill -ABRT $$\n fi\ndone\nexec '${realGit}' "$@"\n`,
+			{ mode: 0o700 },
+		);
+		process.env.PATH = `${bin}:${path}`;
+		releaseBarrier();
+		await t.wait(() => /SIGABRT/.test(h.passes()[0]?.handoff?.blocker ?? ""), "operational blockage");
+		process.env.PATH = path;
+		const blocked = structuredClone(h.passes());
+		assert.equal(blocked.length, 1, "no successor pass");
+		const operational = await h.prepared(blocked[0]!.handoff!.preparations![0]!);
+		assert.equal(operational.outcome, "operational");
+		assert.match(operational.reason ?? "", /SIGABRT.*abort diagnostic/s);
+		assert.equal(operational.target.commit, T1);
+		assert.equal(operational.checks, null);
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0);
+		t.gate.resolve(); // let the parked design coordinator settle so the store can close
+		await t.f.reopen(
+			new Engine({
+				ownedChecks: t.f.config,
+				provider: t.f.provider.provider,
+				apiKey: "fixture",
+				families: { "claude-sonnet-4-6": "claude" },
+			}),
+		);
+		await setTimeout(500);
+		assert.deepEqual(h.passes(), blocked, "restart neither retries nor duplicates an operational outcome");
+		const owner = t.assignments().find((a) => a.id === h.opening.assignment)!;
+		accepted(
+			await t.f.command({ type: "retryPreparation", assignment: owner.id, generation: owner.generation, attempt: owner.attempt }, admin),
+		);
+		await t.wait(() => /^awaiting_watchdog/.test(h.passes()[0]?.handoff?.blocker ?? ""), "retried preparation checked");
+		const [p1, ...others] = h.passes();
+		assert.equal(others.length, 0, "the retry keeps the handed-off pass");
+		assert.deepEqual({ ...p1, handoff: undefined }, { ...blocked[0], handoff: undefined }, "same pass, B and Audit");
+		assert.equal(p1!.handoff!.preparations?.length, 2);
+		const retried = await h.prepared(p1!.handoff!.preparations![1]!);
+		assert.equal(retried.outcome, "checked");
+		assert.equal(retried.target.commit, T1);
+		assert.equal(t.assignments().filter((a) => a.auditReview).length, 2, "no new Audit");
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0);
+		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		assert.ok("manifest" in exported && exported.manifest.complete);
+		for (const ref of p1!.handoff!.preparations!) assert.ok(exported.content[ref], `export retains ${ref}`);
+	} finally {
+		process.env.PATH = path;
+		clearBarrier();
 		await t.close();
 	}
 });

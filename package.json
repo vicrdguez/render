@@ -14,7 +14,7 @@
 		"test:full": "npm test && npm run test:integration && npm run test:performance",
 		"test:extended": "npm run test:extended:host && npm run test:extended:containers",
 		"test:extended:host": "npm run verify:sqlite-command-atomicity && npm run verify:history-command-load && RENDER_V3_REPETITIONS=100 npm run verify:command-crash-recovery && RENDER_V3_REPETITIONS=100 npm run verify:durable-tool-replay && RENDER_V3_REPETITIONS=100 npm run verify:scoped-web-research && RENDER_V3_REPETITIONS=100 npm run verify:investigation-crash && RENDER_V3_REPETITIONS=100 npm run verify:implementation-crash",
-		"test:extended:containers": "RENDER_V3_REPETITIONS=100 npm run verify:source-root-crash && RENDER_V3_REPETITIONS=100 node --test test/owned-check-cancellation.integration.ts && RENDER_V3_REPETITIONS=100 npm run verify:experiment-crash",
+		"test:extended:containers": "RENDER_V3_REPETITIONS=100 npm run verify:source-root-crash && RENDER_V3_REPETITIONS=100 node --test test/owned-check-cancellation.integration.ts && RENDER_V3_REPETITIONS=100 npm run verify:experiment-crash && RENDER_V3_REPETITIONS=100 npm run verify:preparation-crash",
 		"verify:gate": "npm run typecheck && npm run lint && npm run test:full",
 		"verify:complete": "npm run verify:gate && npm run test:extended && npm run verify:unsafe-controls",
 		"typecheck": "tsc --noEmit -p .",
@@ -54,6 +54,8 @@
 		"verify:whole-container-quiescence": "node --test test/whole-container-quiescence.integration.ts test/owned-source-recovery.integration.ts test/owned-check-cancellation.integration.ts",
 		"verify:source-root-crash": "node --test test/source-root-crash.integration.ts test/owned-check-crash.integration.ts",
 		"verify:local-verification-prompt": "node --test --test-concurrency=1 test/local-verification-prompt.test.ts test/intake-retention.test.ts test/verification-catalog.integration.ts",
+		"verify:target-preparation": "node --test --test-concurrency=1 test/target-preparation.test.ts test/target-preparation-record.test.ts test/implementation-successor.test.ts test/implementation-engine.integration.ts test/target-preparation-crash.integration.ts",
+		"verify:preparation-crash": "node --test test/target-preparation-crash.integration.ts",
 		"verify:verification-catalog": "node --test --test-concurrency=1 test/verification-catalog.test.ts test/verification-catalog.integration.ts",
 		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts"
 	},

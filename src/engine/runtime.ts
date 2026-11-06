@@ -25,11 +25,34 @@ import {
 	type ToolExecutionApi,
 	type Tx,
 } from "@earendil-works/pi-durable";
-import { Effects, type Source, type SourceReceipt } from "../effects/source.ts";
+import { Effects, type PreparationReceipt, type Source, type SourceReceipt, type TargetObservation, treeOid } from "../effects/source.ts";
 import { experimentInputs } from "../kernel/experiments.ts";
-import { auditReviewerPacket } from "../kernel/implementation.ts";
-import { currentChildren, type ImplementationPass, packetRefs, type RoleAssignment, type RoleIntent, sameAgent } from "../kernel/roles.ts";
-import { type CatalogEvidence, type CatalogResult, requiredCatalogRows, type SelectedCatalog } from "../kernel/verification.ts";
+import {
+	auditReviewerPacket,
+	PREPARATION_REASON_BYTES,
+	type PreparationRecord,
+	type PreparedChecks,
+	preparationBase,
+} from "../kernel/implementation.ts";
+import { type PolicyBasis, type PolicyState, policyBasis } from "../kernel/policy.ts";
+import {
+	currentChildren,
+	type ImplementationPass,
+	latestPass,
+	packetRefs,
+	type RoleAssignment,
+	type RoleIntent,
+	sameAgent,
+} from "../kernel/roles.ts";
+import {
+	type CatalogEvidence,
+	type CatalogResult,
+	requiredCatalogRows,
+	rowDefinitionGap,
+	rowExecuted,
+	type SelectedCatalog,
+} from "../kernel/verification.ts";
+import { faultBarrier } from "../ledger/barrier.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
 import { Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
@@ -81,6 +104,14 @@ export type OwnedChecks = {
 		>
 	>;
 };
+type PreparationJob = {
+	owner: RoleAssignment;
+	pass: ImplementationPass;
+	check: OwnedChecks["checks"][string];
+	save: (scope: ExecutionScope) => Promise<unknown>;
+};
+/** X's own verifier bytes cannot define its required checks; deterministic, so repair needs a new pass, not a retry. */
+class VerifierDefect extends Error {}
 type EngineConfig = {
 	apiKey?: string;
 	families?: Readonly<Record<string, string>>;
@@ -107,7 +138,10 @@ export class Engine {
 	readonly #workspaces = new Map<string, { handle: SandboxHandle; source: Source; sealed: boolean }>();
 	readonly #implementationActive = new Set<string>();
 	readonly #implementationAdmitted = new Set<string>();
+	/** Exact Sandboxes scopes of in-flight host checks of prepared X; they confer no role or writer authority. */
+	readonly #preparing = new Set<string>();
 	readonly #preparation;
+	readonly #priorPreparation;
 	readonly #roles;
 	readonly #run;
 	readonly #notify;
@@ -128,6 +162,8 @@ export class Engine {
 				root: `${config.ownedChecks.root}/sandboxes`,
 				authorize: (scope) => {
 					const a = this.#assignment(scope.assignment);
+					if (this.#preparing.has(JSON.stringify(scope)))
+						return !!a && a.status === "submitted" && scope.executorEpoch === this.#ledger?.status().executorEpoch;
 					return (
 						!!a &&
 						a.executing &&
@@ -782,7 +818,9 @@ export class Engine {
 					context,
 				),
 		});
-		this.#preparation = defineTask<{ assignment: string }, { phase: "blocked" }, null>({
+		// The prior release's task keeps its exact meaning to drain work it admitted (spec §10 version policy); a human
+		// retry of the blocked handoff then stages actual preparation. New handoffs never stage it.
+		this.#priorPreparation = defineTask<{ assignment: string }, { phase: "blocked" }, null>({
 			name: "render.implementation-preparation",
 			version: 1,
 			initial: () => ({ phase: "blocked" }),
@@ -795,6 +833,21 @@ export class Engine {
 						reason: "preparation_capability_unavailable; Watchdog has not run",
 					});
 					if (reply.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${reply.code}`);
+					return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
+				},
+			},
+			abort: (_task, runtime, context) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
+		});
+		// Deterministic host work, not a role: Ledger state says which attempts exist, so a resumed task continues them.
+		this.#preparation = defineTask<{ assignment: string; from?: number }, { phase: "prepare"; scope?: ExecutionScope }, null>({
+			name: "render.target-preparation",
+			version: 1,
+			initial: () => ({ phase: "prepare" }),
+			phases: {
+				prepare: async (task, runtime, context) => {
+					await this.#prepareHandoff(task.id, task.input.assignment, task.input.from ?? 0, task.state.checkpoint.scope, (scope) =>
+						runtime.commit(() => ({ status: "running", checkpoint: { phase: "prepare", scope } }), context),
+					);
 					return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
 				},
 			},
@@ -821,7 +874,9 @@ export class Engine {
 	options(onReport: (error: unknown, info: ReportInfo) => void): RenderRuntimeOptions {
 		const registry = createRegistry();
 		registry.install(this.#roles);
-		registry.install(defineExtension({ name: "render.tasks", tasks: [this.#run, this.#notify, this.#preparation] }));
+		registry.install(
+			defineExtension({ name: "render.tasks", tasks: [this.#run, this.#notify, this.#preparation, this.#priorPreparation] }),
+		);
 		return {
 			models: this.#models,
 			registry,
@@ -922,7 +977,7 @@ export class Engine {
 					if (intent.kind === "prepare-pass")
 						return tx.createTask(
 							this.#preparation,
-							{ assignment: a.id },
+							{ assignment: a.id, from: intent.from ?? 0 },
 							{ conversationId: workflow.conversation as ConversationId, ownership: { kind: "conversation" } },
 						);
 					if (intent.kind === "notify-role") {
@@ -1071,7 +1126,7 @@ export class Engine {
 							audit: implementation.audit ? { ...implementation.audit, reports: results } : undefined,
 						},
 						implementationInstructions:
-							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately. When implementation.opening is present this is a new pass after a retained handoff: the workspace starts from opening.base, the observation in inputs says why, predecessor source and reports are read-only references, and this pass needs its own Audit before its own handoff.",
+							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately. When implementation.opening is present this is a new pass after a retained handoff: the workspace starts from opening.base, the observation in inputs says why, predecessor source and reports are read-only references, and this pass needs its own Audit before its own handoff. After a preparation conflict, the retained preparation record in inputs holds Git's exact conflict output, and read-only originals are mounted at /candidates/implementation (B), /candidates/base (recorded base T0) and /candidates/target (T1); reapply and resolve in the writable workspace, never guess.",
 					}
 				: {}),
 			...(a.packet.experiment
@@ -1255,9 +1310,9 @@ export class Engine {
 		const check = this.#config.ownedChecks!.checks[a.packet.profile]!;
 		const previous = this.#workspaces.get(a.id);
 		if (previous && !previous.sealed) return previous;
+		const pass = this.#implementationPass(a);
 		let source = previous?.source;
 		if (!source) {
-			const pass = this.#implementationPass(a);
 			if (pass.workspace) {
 				const read = await this.#ledger!.artifact(scheduling, { read: pass.workspace });
 				if (!("content" in read)) throw new Error(`Restore exact workspace source ${pass.workspace}`);
@@ -1271,10 +1326,16 @@ export class Engine {
 					commit: pass.opening?.base ?? check.commit,
 				});
 		}
+		const readOnly = await this.#conflictOriginals(pass, check.repository);
+		const inputs = readOnly ? { ...source, readOnly } : source;
 		this.#implementationAdmitted.add(a.id);
 		let handle: SandboxHandle;
 		try {
-			handle = await this.#sandboxes!.prepare(this.#scope(a), check.profile, previous ? { source, after: previous.handle } : source);
+			handle = await this.#sandboxes!.prepare(
+				this.#scope(a),
+				check.profile,
+				previous ? { source: inputs, after: previous.handle } : inputs,
+			);
 		} catch (error) {
 			if (error instanceof SandboxInputRefusal && !previous) this.#implementationAdmitted.delete(a.id);
 			throw error;
@@ -1357,7 +1418,8 @@ export class Engine {
 		};
 		return this.#recordImplementationSource(a, kind, checked, verification);
 	}
-	async #catalogResults(a: RoleAssignment, catalog: SelectedCatalog, run: (argv: string[]) => Promise<ExecutionResult>) {
+	/** `a` null: host checks of prepared X, whose results are retained whole in the preparation record instead. */
+	async #catalogResults(a: RoleAssignment | null, catalog: SelectedCatalog, run: (argv: string[]) => Promise<ExecutionResult>) {
 		const results: CatalogResult[] = [];
 		for (const row of catalog.rows) {
 			const result: CatalogResult = { name: row.name, status: row.kind === "human" ? "advisory" : "completed", steps: [] };
@@ -1370,11 +1432,12 @@ export class Engine {
 			}
 			results.push(result);
 		}
-		await this.#retainDiagnostic(
-			a.workflow,
-			this.#scope(a),
-			JSON.stringify({ schema: 1, kind: "catalog-results", catalog, results, cleanup: "pending", verification: "unaccepted" }),
-		);
+		if (a)
+			await this.#retainDiagnostic(
+				a.workflow,
+				this.#scope(a),
+				JSON.stringify({ schema: 1, kind: "catalog-results", catalog, results, cleanup: "pending", verification: "unaccepted" }),
+			);
 		const cleanup: CatalogEvidence["cleanup"] = { status: "complete", results: [] };
 		for (const command of catalog.cleanup) cleanup.results.push(await run(["sh", "-c", command]));
 		if (cleanup.results.some((r) => r.exitCode !== 0 || r.timedOut)) cleanup.status = "pending";
@@ -1615,6 +1678,328 @@ export class Engine {
 			await this.#command(a, { type: "recordBlocker", reason: `experiment_quarantined_stop_unconfirmed: ${error}`.slice(0, 1900) });
 		}
 	}
+	/**
+	 * Prepare and check current-target source for a handed-off pass (spec §9.4). Each attempt observes the canonical T,
+	 * prepares X in Effects and checks actual X in Linux; Ledger retains one record per attempt before anything follows.
+	 * Every exit leaves a visible result: a successor pass, an operational blocker or awaiting Watchdog.
+	 */
+	async #prepareHandoff(
+		taskId: number,
+		assignmentId: string,
+		from: number,
+		prior: ExecutionScope | undefined,
+		save: (scope: ExecutionScope) => Promise<unknown>,
+	) {
+		const owner = this.#assignment(assignmentId);
+		if (!owner?.passRef) throw new Error("Missing sealed handoff owner");
+		// Each preparation task settles once; a later retry's identical result is a new settlement, not a replay of this one.
+		const block = async (reason: string) => {
+			const command = { type: "recordPreparationBlocker", reason: reason.slice(0, 1900) };
+			const reply = await this.#command(this.#assignment(assignmentId)!, command, `preparation-task:${taskId}`);
+			if (reply.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${reply.code}`);
+		};
+		const check = this.#config.ownedChecks?.checks[owner.packet.profile];
+		if (!check || !this.#effects || !this.#sandboxes)
+			return block("preparation_capability_unavailable: owned Effects/Sandboxes are not configured; Watchdog has not run");
+		try {
+			// An interrupted earlier execution may have left a check runtime; it must stop before any new attempt runs.
+			if (prior && prior.executorEpoch !== this.#ledger!.status().executorEpoch) await this.#stopPreparationScope(prior);
+			for (;;) {
+				const pass = this.#implementationPass(owner);
+				const refs = pass.handoff?.preparations ?? [];
+				const ref = refs.length > from ? refs.at(-1) : undefined;
+				const latest = ref ? await this.#preparationRecord(ref) : undefined;
+				if (latest?.outcome === "operational") return;
+				if (latest && ["conflict", "check-failure", "verifier-defect"].includes(latest.outcome))
+					return this.#returnToImplementation(owner, pass, latest, block);
+				await faultBarrier("before-target-observe", `preparation-observe:${pass.ref}:${refs.length}`);
+				const observed = await this.#effects.perform({
+					type: "observe",
+					repository: check.repository,
+					proposal: owner.workflow,
+					initial: check.commit,
+				});
+				const basis = this.#policyBasis(owner.workflow);
+				// Debt: Watchdog launch and its final pre-launch reobservation are not wired yet, so a checked pass waits here
+				// as a visible blocker; a target or policy binding that moves after this needs an explicit retry to be prepared again.
+				// Debt: this readiness settlement trusts the cached policy basis read above. A policy adopted after that read, or
+				// the bound policy's retained bytes going missing after the record committed, can still settle `awaiting_watchdog`
+				// on a stale or unverifiable basis. No review runs from it today; before Watchdog launch consumes this readiness,
+				// its launch-time reobservation must recheck the current, verified policy basis.
+				if (latest && latest.target.commit === observed.target.commit && latest.policy.binding === basis.binding)
+					return block(
+						`awaiting_watchdog: prepared ${latest.preparation!.result} checked on current target ${observed.target.commit}; Watchdog capability unavailable`,
+					);
+				const record = await this.#preparationAttempt({ owner, pass, check, save }, refs.length + 1, observed, basis);
+				const reply = await this.#ledger!.command(
+					{
+						version: 1,
+						authorityEpoch: this.#ledger!.status().authorityEpoch,
+						commandId: `preparation:${pass.ref}:${record.attempt}`,
+						workflow: owner.workflow,
+						command: {
+							type: "recordPreparation",
+							assignment: owner.id,
+							generation: owner.generation,
+							attempt: owner.attempt,
+							text: JSON.stringify(record),
+						},
+					},
+					mintContext({ kind: "host", scope: "effects" }),
+				);
+				// A policy adopted while this attempt ran supersedes its qualification: nothing was retained, so prepare again.
+				// Each rerun needs another human adoption first, so the loop is paced by human policy changes.
+				if (
+					reply.status === "refused" &&
+					reply.code === "stale_basis" &&
+					record.policy.binding !== this.#policyBasis(owner.workflow).binding
+				)
+					continue;
+				if (reply.status !== "accepted") throw new Error(`Preparation record refused: ${reply.code}: ${reply.reason}`);
+			}
+		} catch (error) {
+			return block(`preparation_operational_error: ${error instanceof Error ? error.message : error}`);
+		}
+	}
+	/** The workflow's current policy basis; Ledger verifies its exact retained bytes when a record names it. */
+	#policyBasis(workflow: string): PolicyBasis {
+		const frame = this.#ledger!.snapshot(scheduling);
+		const basis = "policy" in frame ? policyBasis(frame.policy as PolicyState, workflow) : undefined;
+		if (!basis) throw new Error("Current policy is unavailable.");
+		return basis;
+	}
+	async #preparationRecord(ref: string): Promise<PreparationRecord> {
+		const read = await this.#ledger!.artifact(scheduling, { read: ref });
+		if (!("content" in read)) throw new Error(`Restore exact preparation record ${ref}`);
+		return JSON.parse(read.content.toString()) as PreparationRecord;
+	}
+	async #handoffSource(pass: ImplementationPass): Promise<SourceReceipt> {
+		const read = await this.#ledger!.artifact(scheduling, { read: pass.handoff!.source });
+		if (!("content" in read)) throw new Error(`Restore exact sealed handoff source ${pass.handoff!.source}`);
+		return (JSON.parse(read.content.toString()) as { source: SourceReceipt }).source;
+	}
+	/** One attempt against one observed target. Expected outcomes are records; only unrecordable failures throw. */
+	async #preparationAttempt(
+		job: PreparationJob,
+		attempt: number,
+		observed: TargetObservation,
+		basis: PolicyBasis,
+	): Promise<PreparationRecord> {
+		const { pass } = job;
+		const record: PreparationRecord = {
+			schema: 1,
+			passRef: pass.ref,
+			handoff: pass.handoff!.record,
+			source: pass.handoff!.source,
+			attempt,
+			target: { proposal: observed.proposal, ref: observed.ref, commit: observed.target.commit },
+			outcome: "operational",
+			reason: null,
+			preparation: null,
+			checks: null,
+			policy: basis,
+		};
+		let receipt: PreparationReceipt;
+		try {
+			const sealed = await this.#handoffSource(pass);
+			const base = await this.#effects!.perform({ type: "resolve", repository: sealed.source.repository, commit: preparationBase(pass) });
+			receipt = await this.#effects!.perform({ type: "prepare", base, source: sealed.source, target: observed.target });
+		} catch (error) {
+			return {
+				...record,
+				reason: `preparation_operational_error: ${error instanceof Error ? error.message : error}`.slice(0, PREPARATION_REASON_BYTES),
+			};
+		}
+		record.preparation = {
+			kind: receipt.kind,
+			algorithm: receipt.algorithm,
+			profile: receipt.profile,
+			git: receipt.git,
+			identity: receipt.identity,
+			base: receipt.base.commit,
+			source: receipt.source.commit,
+			target: receipt.target.commit,
+			result: receipt.result.commit,
+			tree: receipt.result.tree,
+			conflicts: receipt.conflicts,
+			exitCode: receipt.exitCode,
+			stdout: receipt.stdout,
+			stderr: receipt.stderr,
+		};
+		if (receipt.kind === "conflict") return { ...record, outcome: "conflict" };
+		try {
+			record.checks = await this.#checkPrepared(job, attempt, receipt.result, record.policy.minimumEvidenceRank);
+		} catch (error) {
+			if (error instanceof VerifierDefect)
+				return {
+					...record,
+					outcome: "verifier-defect",
+					reason: `prepared_verifier_defect: ${error.message}`.slice(0, PREPARATION_REASON_BYTES),
+				};
+			return {
+				...record,
+				reason: `prepared_check_operational_error: ${error instanceof Error ? error.message : error}`.slice(0, PREPARATION_REASON_BYTES),
+			};
+		}
+		const status = record.checks.verification.status;
+		if (status === "passed") return { ...record, outcome: "checked" };
+		if (status === "failed") return { ...record, outcome: "check-failure" };
+		return { ...record, reason: `prepared_check_non_pass: ${status}` };
+	}
+	/** The pass's frozen selection, read from X's own verifier bytes, run against X in a fresh Linux workspace. */
+	async #checkPrepared(
+		{ owner, pass, check, save }: PreparationJob,
+		attempt: number,
+		x: Source,
+		minimum: string | null,
+	): Promise<PreparedChecks> {
+		const selected = pass.configuration.verification;
+		const entry = x.entries.find((e) => e.path === selected.path && e.mode !== "120000");
+		if (!entry) throw new VerifierDefect(`Prepared source has no selected verifier ${selected.path}`);
+		const digest = createHash("sha256").update(Buffer.from(entry.content, "base64")).digest("hex");
+		// Everything here is read from X's own bytes before anything runs, so a refusal is a definition to repair, not an outage.
+		let catalog: SelectedCatalog;
+		try {
+			catalog = selectCatalog(x, { ...selected, commit: x.commit, digest, receipts: [] });
+		} catch (error) {
+			throw new VerifierDefect(error instanceof Error ? error.message : String(error));
+		}
+		const required = requiredCatalogRows(catalog.selection);
+		// X's behavioral evidence must reach the minimum rank of the policy this attempt records; Kernel accepts only the current one.
+		for (const name of required) {
+			const gap = rowDefinitionGap(
+				catalog.rows.find((r) => r.name === name),
+				catalog.ranks,
+				catalog.selection.behavioralRows.includes(name) ? minimum : undefined,
+			);
+			if (gap) throw new VerifierDefect(`Required row ${name}: ${gap}`);
+		}
+		const scope: ExecutionScope = {
+			assignment: owner.id,
+			generation: owner.generation,
+			// A refused record retains nothing and its attempt number runs again; each try gets its own fresh runtime.
+			attempt: `${owner.attempt}:preparation:${attempt}:${this.#ledger!.status().sequence}`,
+			executorEpoch: this.#ledger!.status().executorEpoch,
+		};
+		await save(scope);
+		const key = JSON.stringify(scope);
+		this.#preparing.add(key);
+		try {
+			const handle = await this.#sandboxes!.prepare(scope, check.profile, x);
+			try {
+				await faultBarrier("before-prepared-check", `prepared-check:${pass.ref}:${attempt}`);
+				const run = (argv: string[]) =>
+					this.#sandboxes!.execute(handle, { scope, argv, timeoutMs: check.timeoutMs, verifierRevision: digest });
+				const { results, cleanup } = await this.#catalogResults(null, catalog, run);
+				const capture = await this.#sandboxes!.seal(handle);
+				const resultTree = treeOid(capture.entries, x.objectFormat);
+				const rows = results.filter((r) => required.includes(r.name));
+				const runs = (r: CatalogResult) => [...r.steps, ...(r.sanity ? [r.sanity] : [])];
+				const failed = rows
+					.filter((r) => r.status === "failed")
+					.map((r) => ({ name: r.name, exitCode: runs(r).find((s) => s.exitCode !== 0)?.exitCode as number }));
+				// A timeout, unrun row or incomplete cleanup is operational, never evidence that X needs repair.
+				let status: PreparedChecks["verification"]["status"] = "passed";
+				if (resultTree !== x.tree) status = "source_changed";
+				else if (cleanup.status !== "complete" || rows.some((r) => r.status === "unrun" || runs(r).some((s) => s.timedOut)))
+					status = "non-pass";
+				else if (failed.length) status = "failed";
+				else if (
+					!catalog.rows
+						.filter((row) => required.includes(row.name))
+						.every((row) =>
+							rowExecuted(
+								row,
+								results.find((r) => r.name === row.name),
+								digest,
+							),
+						)
+				)
+					status = "non-pass";
+				return {
+					verifierRevision: digest,
+					scope,
+					catalog,
+					results,
+					cleanup,
+					verification: { status, inputCommit: x.commit, inputTree: x.tree, resultTree },
+					failed: status === "failed" ? failed : [],
+				};
+			} catch (error) {
+				await this.#stopPreparationScope(scope);
+				throw error;
+			}
+		} finally {
+			this.#preparing.delete(key);
+		}
+	}
+	async #stopPreparationScope(scope: ExecutionScope): Promise<void> {
+		try {
+			await this.#sandboxes!.stop({ scope });
+		} catch (error) {
+			// No journal means create was never admitted for this scope; anything else is unconfirmed quiescence.
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+				throw new Error(`prepared_check_quiescence_unconfirmed: ${error instanceof Error ? error.message : error}`);
+		}
+	}
+	/** Only a recorded validated conflict or real X check failure authorizes the return; Kernel applies cap and authority. */
+	async #returnToImplementation(
+		owner: RoleAssignment,
+		pass: ImplementationPass,
+		record: PreparationRecord,
+		block: (reason: string) => Promise<void>,
+	) {
+		const sealed = await this.#handoffSource(pass);
+		const prepared = record.preparation!;
+		// The recorded base is the pass's target-lineage T0 that Kernel bound when it accepted this record.
+		const lineage = {
+			repository: sealed.source.repository,
+			source: pass.handoff!.source,
+			sourceCommit: sealed.source.commit,
+			baseCommit: prepared.base,
+			targetCommit: record.target.commit,
+		};
+		let observation: Record<string, unknown>;
+		if (record.outcome === "conflict")
+			observation = {
+				cause: "preparation-conflict",
+				...lineage,
+				algorithm: prepared.algorithm,
+				resultTree: prepared.tree,
+				conflicts: prepared.conflicts,
+			};
+		else if (record.outcome === "verifier-defect")
+			observation = { cause: "prepared-verifier-defect", ...lineage, preparedCommit: prepared.result, defect: record.reason };
+		else
+			observation = {
+				cause: "prepared-check-failure",
+				...lineage,
+				preparedCommit: prepared.result,
+				verifierRevision: record.checks!.verifierRevision,
+				failed: record.checks!.failed,
+			};
+		const text = JSON.stringify({ schema: 1, ...observation });
+		const reply = await this.#ledger!.command(
+			{
+				version: 1,
+				authorityEpoch: this.#ledger!.status().authorityEpoch,
+				commandId: `preparation-return:${pass.ref}:${record.attempt}`,
+				workflow: owner.workflow,
+				command: { type: "openSuccessorPass", assignment: owner.id, generation: owner.generation, attempt: owner.attempt, text },
+			},
+			mintContext({ kind: "host", scope: "effects" }),
+		);
+		if (reply.status !== "accepted") {
+			const current = this.#implementationPass(owner);
+			// A later pass means this return already committed; anything else stays visible on this pass.
+			if (!latestPass(this.#passes(), current)) return;
+			await block(`preparation_return_refused: ${reply.code}: ${reply.reason}`);
+		}
+	}
+	#passes(): ImplementationPass[] {
+		const frame = this.#ledger!.snapshot(scheduling);
+		return "implementationPasses" in frame ? (frame.implementationPasses as ImplementationPass[]) : [];
+	}
 	/** A return commits before its base is materialized; an unresolvable base blocks visibly before any writer turn. */
 	async #openingBlocker(a: RoleAssignment): Promise<string | undefined> {
 		if (!a.passRef || a.packet.role !== "implementer") return undefined;
@@ -1623,10 +2008,25 @@ export class Engine {
 		const repository = this.#config.ownedChecks!.checks[a.packet.profile]!.repository;
 		try {
 			await this.#effects!.perform({ type: "resolve", repository, commit: pass.opening.base });
+			await this.#conflictOriginals(pass, repository);
 			return undefined;
 		} catch (error) {
 			return `implementation_opening_source_unavailable: ${pass.opening.base}: ${error}`.slice(0, 1900);
 		}
+	}
+	/** A conflict pass's read-only original B, T0 and T1 (spec §9.4), mounted beside its writable T1 workspace. */
+	async #conflictOriginals(pass: ImplementationPass, repository: string): Promise<Record<string, Source> | undefined> {
+		if (pass.cause !== "preparation-conflict" || !pass.opening) return undefined;
+		const read = async (ref: string) => {
+			const value = await this.#ledger!.artifact(scheduling, { read: ref });
+			if (!("content" in value)) throw new Error(`Restore exact conflict input ${ref}`);
+			return JSON.parse(value.content.toString());
+		};
+		const observation = (await read(pass.opening.observation)) as { source: string; baseCommit: string; targetCommit: string };
+		const sealed = ((await read(observation.source)) as { source: SourceReceipt }).source;
+		await this.#effects!.reconcile(sealed);
+		const resolve = (commit: string) => this.#effects!.perform({ type: "resolve", repository, commit });
+		return { implementation: sealed.source, base: await resolve(observation.baseCommit), target: await resolve(observation.targetCommit) };
 	}
 	#configurationBlocker(a: RoleAssignment): string | undefined {
 		if (a.packet.experiment && !this.#experiments) return "experiment_capability_unavailable";
@@ -1657,12 +2057,13 @@ export class Engine {
 		}
 		return undefined;
 	}
-	async #command(a: RoleAssignment, command: Record<string, unknown>) {
+	/** `occurrence` distinguishes a command that may legitimately repeat with identical text in a later settlement. */
+	async #command(a: RoleAssignment, command: Record<string, unknown>, occurrence?: string) {
 		const reply = await this.#ledger!.command(
 			{
 				version: 1,
 				authorityEpoch: this.#ledger!.status().authorityEpoch,
-				commandId: `engine:${a.id}:${a.generation}:${a.executionOrdinal}:${a.status}:${command.type}:${createHash("sha256").update(JSON.stringify(command)).digest("hex").slice(0, 24)}`,
+				commandId: `engine:${a.id}:${a.generation}:${a.executionOrdinal}:${a.status}:${command.type}:${createHash("sha256").update(JSON.stringify(command)).digest("hex").slice(0, 24)}${occurrence ? `:${occurrence}` : ""}`,
 				workflow: a.workflow,
 				command: { assignment: a.id, generation: a.generation, attempt: a.attempt, ...command },
 			},

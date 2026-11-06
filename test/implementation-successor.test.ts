@@ -248,6 +248,42 @@ test("prepared-check failure opens from X only for real check exits, never for o
 	}
 });
 
+const verifierDefect = (B: string, over: Record<string, unknown> = {}) =>
+	JSON.stringify({
+		...lineage(B, "prepared-verifier-defect"),
+		preparedCommit: X,
+		defect: "prepared_verifier_defect: Missing catalog row: read",
+		...over,
+	});
+test("TP23 a prepared verifier defect opens a repair pass from X; it needs a closed result, never a fabricated exit", async () => {
+	const { t, B } = await handedOff();
+	try {
+		const before = structuredClone(passes(t));
+		for (const [label, over] of [
+			["no defect", { defect: "" }],
+			["oversized defect", { defect: "d".repeat(4097) }],
+			["malformed X", { preparedCommit: "not-a-commit" }],
+			["fabricated failed rows", { failed: [{ name: "read", exitCode: 1 }] }],
+		] as const)
+			refusedWithoutWrites(t, await openFrom(t, t.id, verifierDefect(B, over)), "invalid_content", before, label);
+		refusedWithoutWrites(
+			t,
+			await openFrom(t, t.id, verifierDefect(B, { baseCommit: "f".repeat(40) })),
+			"stale_basis",
+			before,
+			"other recorded base",
+		);
+		const opened = accepted(await openFrom(t, t.id, verifierDefect(B)));
+		assert.equal(opened.passOrdinal, 2);
+		assert.equal(pass(t, P2).cause, "prepared-verifier-defect");
+		assert.equal(pass(t, P2).opening?.base, X);
+		assert.equal(pass(t, P2).opening?.target, T1);
+		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0);
+	} finally {
+		await t.close();
+	}
+});
+
 test("arbitrary reasons, wrong lineage and untrusted principals open nothing", async () => {
 	const { t, B } = await handedOff();
 	try {
@@ -560,11 +596,12 @@ test("Watchdog rework needs a bound retained verdict and obeys the completed-rev
 		const second = await completePass(j.t, id, X);
 		const again = await review(j.t, P2, "rework");
 		const stopped = structuredClone(passes(j.t));
-		const atX = { sourceCommit: X, baseCommit: X };
+		// P2's recorded target-lineage base is the target its rework opened against, not its own capture.
+		const atX = { sourceCommit: X, baseCommit: T1 };
 		refusedWithoutWrites(j.t, await openFrom(j.t, id, rework(second.B, again, atX)), "human_direction_required", stopped, "cap reached");
 		refusedWithoutWrites(
 			j.t,
-			await openFrom(j.t, id, conflict(second.B, atX)),
+			await openFrom(j.t, id, conflict(second.B, { ...atX, targetCommit: "b".repeat(40) })),
 			"human_direction_required",
 			stopped,
 			"cap applies to every cause",

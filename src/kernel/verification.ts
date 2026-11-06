@@ -57,6 +57,29 @@ export function selectionRowsComplete(selection: VerificationSelection): boolean
 	);
 }
 
+/**
+ * Why a selected row cannot prove required behavior by its own definition, before anything runs. A behavioral row
+ * also passes the policy's `minimum` rank (null: any ladder rank); omit `minimum` for full-suite/typecheck/lint.
+ */
+export function rowDefinitionGap(row: CatalogRow | undefined, ranks: readonly string[], minimum?: string | null): string | undefined {
+	if (!row || !["executed", "journey"].includes(row.kind)) return "Discovery/human/missing rows cannot prove behavior.";
+	if (!ranks.includes(row.rank ?? "")) return "Row rank is not in the selected project ladder.";
+	if (!minimum) return undefined;
+	if (!ranks.includes(minimum)) return `Project minimum rank ${minimum} is not in the selected project ladder.`;
+	if (ranks.indexOf(row.rank ?? "") > ranks.indexOf(minimum)) return `Row rank ${row.rank} is below the project minimum ${minimum}.`;
+	return undefined;
+}
+/** One successful independent execution of a row against exactly this verifier revision. */
+export function rowExecuted(row: CatalogRow, result: CatalogResult | undefined, digest: string): boolean {
+	const ok = (r: ExecutionResult | undefined) => !!r && r.exitCode === 0 && !r.timedOut && r.verifierRevision === digest;
+	return (
+		!!result &&
+		result.status === "completed" &&
+		result.steps.length > 0 &&
+		result.steps.every(ok) &&
+		(row.kind !== "journey" || ok(result.sanity))
+	);
+}
 export function completionGap(
 	selection: VerificationSelection,
 	role: string,
@@ -92,15 +115,7 @@ export function completionGap(
 		const result = receipt.results.find((r) => r.name === name);
 		if (!row || !result || !["executed", "journey"].includes(row.kind)) return "Discovery/human/missing rows cannot prove behavior.";
 		const rank = ranks.indexOf(row.rank ?? "");
-		if (
-			rank < 0 ||
-			result.status !== "completed" ||
-			!result.steps.length ||
-			result.steps.some((r) => r.exitCode !== 0 || r.timedOut || r.verifierRevision !== selection.digest) ||
-			(row.kind === "journey" &&
-				(!result.sanity || result.sanity.exitCode !== 0 || result.sanity.timedOut || result.sanity.verifierRevision !== selection.digest))
-		)
-			return `Required row ${name} has no successful independent execution.`;
+		if (rank < 0 || !rowExecuted(row, result, selection.digest)) return `Required row ${name} has no successful independent execution.`;
 		if (selection.behavioralRows.includes(name)) weakest = Math.max(weakest, rank);
 	}
 	if (claimed < weakest || claimed > min || weakest > min) return "Passing rank exceeds required evidence or is below the project minimum.";

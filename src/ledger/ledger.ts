@@ -349,6 +349,7 @@ export class Ledger {
 				"recordImplementationSource",
 				"recordImplementationExecution",
 				"openSuccessorPass",
+				"recordPreparation",
 				...CHECKPOINT_COMMANDS,
 				...INTAKE_COMMANDS,
 			].includes(command.type)
@@ -503,6 +504,8 @@ export class Ledger {
 			"recordImplementationExecution",
 			"submitRoleResult",
 			"openSuccessorPass",
+			"recordPreparation",
+			"retryPreparation",
 		].includes(command.type);
 		if (implementationPass && implementationPreflight) {
 			requiredInputs.push(
@@ -629,7 +632,7 @@ export class Ledger {
 					? implementationPass?.captureB
 					: command.type === "rebindAttempt"
 						? implementationPass?.workspace
-						: command.type === "openSuccessorPass"
+						: command.type === "openSuccessorPass" || command.type === "recordPreparation"
 							? implementationPass?.handoff?.source
 							: undefined;
 		if (command.type === "recordImplementationSource" || sourceRef) {
@@ -1070,6 +1073,20 @@ export class Ledger {
 								task: pass.handoff!.preparationTask,
 								reason: c.reason,
 							}),
+							c,
+						);
+					}
+					if (command.type === "recordPreparation") {
+						const c = command as Extract<import("../kernel/roles.ts").RoleCommand, { type: "recordPreparation" }>;
+						const pass = roles.passes!.find((p) => p.assignment === c.assignment)!;
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							decision.result.preparation as string,
+							`implementation-preparation/${pass.ref}/${pass.handoff!.preparations!.length}`,
+							c.text,
 							c,
 						);
 					}
@@ -1552,6 +1569,7 @@ export class Ledger {
 				p.audit?.record,
 				p.handoff?.record,
 				p.handoff?.preparationResult,
+				...(p.handoff?.preparations ?? []),
 				p.opening?.observation,
 				...Object.values(p.audit?.results ?? {}).map((r) => r?.report),
 			);
