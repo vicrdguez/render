@@ -1265,6 +1265,7 @@ export class Engine {
 						try {
 							environment = await this.#stopPreparationScope(this.#scope(a, true));
 						} catch (error) {
+							// Debt: no fault injection makes a Docker stop fail here; this held-slot branch is verified by inspection only.
 							const reason = `watchdog_check_quiescence_unconfirmed: ${error}`.slice(0, 1900);
 							if (a.blocker !== reason) await this.#command(a, { type: "recordBlocker", reason });
 							continue;
@@ -1771,7 +1772,7 @@ export class Engine {
 				const counted = () =>
 					`${completedReviews(this.#assignments(), owner.workflow, owner.slice).length} completed reviews, limit ${this.#reviewLimit(owner.workflow)}`;
 				// A human direction on this stopped round returns it; otherwise only a rework verdict asks to.
-				const direction = done && pass.handoff?.direction?.review === done.id ? pass.handoff.direction.text : undefined;
+				const direction = done && pass.handoff?.direction?.review === done.id ? pass.handoff.direction.revision : undefined;
 				if (done && (direction || verdict?.verdict === "rework"))
 					return this.#returnToImplementation(owner, pass, latest!, block, done, direction);
 				if (done && verdict?.verdict !== "pass")

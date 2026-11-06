@@ -94,7 +94,7 @@ export type ImplementationPass = {
 		/** Every host preparation attempt of this handoff, in order; retries and drift append, never replace. */
 		preparations?: string[];
 		/** The one human direction resolving a stopped round of this handoff: Needs Human or the review limit. */
-		direction?: { review: string; text: string };
+		direction?: { review: string; revision: string };
 	};
 	ref: string;
 	ordinal: number;
@@ -828,7 +828,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		const directed =
 			observation.cause === "human-direction" &&
 			pass.handoff.direction?.review === observation.review &&
-			pass.handoff.direction.text === observation.direction;
+			pass.handoff.direction.revision === observation.direction;
 		if (!directed && verdicts.some((v) => v.verdict === "needs-human" || (v.verdict === "rework" && reviews.length >= limit)))
 			return refusal(
 				"human_direction_required",
@@ -1135,7 +1135,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				if (!c.text?.trim() || Buffer.byteLength(c.text) > 1024 * 1024)
 					return refusal("invalid_content", "Direction must contain at most 1 MiB of nonblank UTF-8 text.");
 				// Direction is implementer input within the frozen Contract, not a waiver; the count and reports stay.
-				pass.handoff.direction = { review: round.id, text: facts.ids.revision! };
+				pass.handoff.direction = { review: round.id, revision: facts.ids.revision! };
 				delete pass.handoff.blocker;
 				a.blocker = null;
 				intents.push({ kind: "prepare-pass", assignment: a.id, from: pass.handoff.preparations!.length - 1 });

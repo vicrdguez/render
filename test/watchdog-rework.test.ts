@@ -686,6 +686,11 @@ test("WR26 only an authenticated human direction on the exact stopped round reso
 			assert.ok("content" in (await t.f.ledger.artifact(successorActor, { read: ref })), `successor reads ${ref}`);
 		}
 		refused(await t.f.command(t.handoff, successorActor), "missing_content", "P1's Audit cannot satisfy P2");
+		await t.f.reopen(new LedgerOnlyEngine());
+		assert.deepEqual(pass(t).handoff?.direction, { review: w.id, revision: direction }, "the direction survives reopen");
+		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
+		assert.ok("manifest" in exported && exported.manifest.complete);
+		for (const ref of [direction, r.report, pass(t, P2).opening!.observation]) assert.ok(exported.content[ref], `export retains ${ref}`);
 	} finally {
 		await t.close();
 	}

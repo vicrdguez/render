@@ -1135,6 +1135,7 @@ export class Ledger {
 							decision.result.direction as string,
 							`watchdog-direction/${c.review}`,
 							c.text,
+							c,
 						);
 					}
 					if (command.type === "recordReviewChecks") {

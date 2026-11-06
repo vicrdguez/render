@@ -300,7 +300,7 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/roles.ts",
-				find: '\t\t\tobservation.cause === "human-direction" &&\n\t\t\tpass.handoff.direction?.review === observation.review &&\n\t\t\tpass.handoff.direction.text === observation.direction;',
+				find: '\t\t\tobservation.cause === "human-direction" &&\n\t\t\tpass.handoff.direction?.review === observation.review &&\n\t\t\tpass.handoff.direction.revision === observation.direction;',
 				replace: '\t\t\tobservation.cause === "human-direction";',
 			},
 		],
