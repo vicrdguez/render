@@ -26,7 +26,15 @@ import {
 } from "./support/integration.ts";
 import { admin, scheduler } from "./support/roles.ts";
 
-type Item = { id: string; state: "open" | "closed" | "merged"; draft: boolean; head: string | null; marker: string | null; actor: boolean };
+type Item = {
+	id: string;
+	state: "open" | "closed" | "merged";
+	draft: boolean;
+	head: string | null;
+	marker: string | null;
+	actor: boolean;
+	merge: { main: boolean; commit: string } | null;
+};
 type Op = { operation: string; kind: string; status: string; canonical: string; attempts: { id: string }[] };
 type Readiness = {
 	eligible: boolean;
@@ -64,7 +72,16 @@ function observe(t: Lifecycle, over: Record<string, unknown> = {}): Promise<Comm
 }
 const dispatch = (t: Lifecycle, operation: string, attempt: string, outcome: string, over: Record<string, unknown> = {}) =>
 	observe(t, { operation, attempt, mode: "dispatch", outcome, ...over });
-const pr = (over: Partial<Item> = {}): Item => ({ id: PR, state: "open", draft: true, head: R2, marker: null, actor: true, ...over });
+const pr = (over: Partial<Item> = {}): Item => ({
+	id: PR,
+	state: "open",
+	draft: true,
+	head: R2,
+	marker: null,
+	actor: true,
+	merge: null,
+	...over,
+});
 const listing = (items: Item[], complete = true) => ({ proposals: { complete, items } });
 async function read(t: Lifecycle, ref: string) {
 	const value = await t.f.ledger.artifact(admin, { read: ref });
@@ -343,7 +360,16 @@ const pass = (id: string, target: string, result: string, sequence: number) => (
 		],
 	},
 });
-const kItem = (over: Partial<Item>): Item => ({ id: KPR, state: "open", draft: true, head: R1, marker: null, actor: true, ...over });
+const kItem = (over: Partial<Item>): Item => ({
+	id: KPR,
+	state: "open",
+	draft: true,
+	head: R1,
+	marker: null,
+	actor: true,
+	merge: null,
+	...over,
+});
 const kObservation = (over: Record<string, unknown>) =>
 	JSON.stringify({
 		schema: 1,
