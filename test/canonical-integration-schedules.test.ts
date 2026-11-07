@@ -68,6 +68,7 @@ const accepted = (slice: { id: string; contract: string }) => ({
 	intake: "intake:1",
 	acceptance: "acceptance:1",
 	everAssigned: false,
+	review: "review:fixture",
 	status: "accepted" as const,
 	record: false,
 	predecessors: [],

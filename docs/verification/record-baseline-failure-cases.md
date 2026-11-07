@@ -31,7 +31,7 @@ them too. Delivery is the ordinary pass: no new command, grant, publisher or ref
 | RB08 | Record handoff reply lost: the same envelope replayed; then a Watchdog rework round and its successor | replay returns the identical receipt and one handoff; successor P2 opens; P2's Audit is a new Audit on A2, P1's Audit unchanged; completed reviews stay 1; reopen keeps two passes | B3 | Ledger |
 | RB09 | Record Slices `record-a` (qualified) and `record-b` (not) both required by `fix`; supersede `record-b` | without a disposition `dependent_disposition_required`; with `fix → record-b2` accepted, `fix` still `dependency_blocked` (now on `record-b2`), `record-a` still qualified and its pass retained, `record-b` superseded with its dispositions in the retained acceptance record | B4 | Kernel |
 | RB10 | Supersede the qualified `record-a` by `record-a2` | `record-a` is superseded, no longer counted as qualified, its pass retained; `fix` blocked on `record-a2` | B4 | Kernel |
-| RB11 | The Record fidelity review bytes are corrupt or missing, and a human saved a newer document with the same text | Record assignment refuses `content_corrupt` / `missing_content` naming the exact review ref | B4/A2 | Ledger |
+| RB11 | The Record fidelity review bytes are corrupt or missing, and a human saved a newer document with the same text | Record assignment refuses naming the exact review ref (first run: both cases report `content_corrupt`, the existing role-input classification, not `missing_content`) | B4/A2 | Ledger |
 | RB12 | Reopen and export after RB07 | export complete; contains the Record Contract, the fidelity review and the integration observation; the consumer stays assignable after reopen | A2 | Ledger |
 
 ## Unsafe controls (must fail on their own assertion)

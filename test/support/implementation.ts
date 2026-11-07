@@ -365,7 +365,7 @@ export async function acceptedImplementation(engine?: Engine, second?: SecondSli
 			},
 			reviewer,
 		),
-	).report;
+	).report as string;
 	const state = () => ((f.ledger.snapshot(admin) as Frame).workflows as { intakes: Intakes }[])[0]!.intakes;
 	const draft = state().drafts[0]!;
 	accepted(

@@ -524,6 +524,7 @@ test("D1/D3 candidate assignment retains accepted Contract scope and permanent c
 					intake: "intake:1",
 					acceptance: "acceptance:1",
 					everAssigned: false,
+					review: "review:fixture",
 					status: "accepted",
 					record: false,
 					predecessors: [],

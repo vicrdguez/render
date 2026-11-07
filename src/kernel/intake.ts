@@ -16,6 +16,12 @@ export const INTAKE_COMMANDS = [
 	"amendDependencies",
 ];
 export type Dependency = { slice: string; requires: string; kind: "integration" | "record" };
+type Source = { ref: string; node: string | null };
+/** A Record Slice holds only `record` obligations: explicit ADR, approved principle change or requested design outputs. */
+export type Obligation = { id: string; text: string; sources: Source[] } & (
+	| { kind: "behavior" | "architecture" | "manual" }
+	| { kind: "record"; output: "adr" | "principle" | "design" }
+);
 export type IntakeManifest = {
 	schema: 1;
 	shape: "design" | "bug" | "performance" | "change";
@@ -30,12 +36,7 @@ export type IntakeManifest = {
 		record: boolean;
 		delegated: string[];
 		forbidden: string[];
-		obligations: {
-			id: string;
-			kind: "behavior" | "architecture" | "manual";
-			text: string;
-			sources: { ref: string; node: string | null }[];
-		}[];
+		obligations: Obligation[];
 	}[];
 	checks: {
 		id: string;
@@ -68,6 +69,8 @@ export type AcceptedSlice = {
 	acceptance: string;
 	everAssigned: boolean;
 	status: "accepted" | "superseded";
+	/** The fidelity review the human acceptance bound. */
+	review: string;
 	record: boolean;
 	predecessors: string[];
 };
@@ -150,7 +153,8 @@ export function validIntakeShape(v: unknown): v is IntakeManifest {
 					(o) =>
 						object(o) &&
 						id(o.id) &&
-						["behavior", "architecture", "manual"].includes(String(o.kind)) &&
+						(["behavior", "architecture", "manual"].includes(String(o.kind)) ||
+							(o.kind === "record" && ["adr", "principle", "design"].includes(String(o.output)))) &&
 						text(o.text) &&
 						Array.isArray(o.sources) &&
 						o.sources.every((r) => object(r) && text(r.ref) && (r.node === null || id(r.node))),
@@ -338,7 +342,7 @@ function lint(state: KernelState, m: IntakeManifest, inputs: Record<string, Chec
 			)
 				return "Behavior requires executable/journey rows at the required project rank, not generated/human evidence.";
 			if (
-				o.kind === "architecture" &&
+				(o.kind === "architecture" || o.kind === "record") &&
 				(!o.sources.length ||
 					o.sources.some((source) => {
 						if (source.node === null)
@@ -352,8 +356,10 @@ function lint(state: KernelState, m: IntakeManifest, inputs: Record<string, Chec
 						);
 					}))
 			)
-				return "Architecture must cite actual approved nodes or approved existing-seam sources.";
+				return `${o.kind === "record" ? "Record outputs" : "Architecture"} must cite actual approved nodes or approved existing-seam sources.`;
 		}
+	if (m.slices.some((s) => s.obligations.some((o) => (o.kind === "record") !== s.record)))
+		return "A Record Slice holds only Record outputs, and only a Record Slice holds them.";
 	if (m.mapping.some((x) => !m.slices.some((s) => s.id === x.slice && s.obligations.some((o) => o.id === x.obligation))))
 		return "Mapping cites an unknown obligation.";
 	const slices = [...(state.intakes?.slices ?? []).filter((s) => !m.slices.some((n) => n.id === s.id)), ...m.slices];
@@ -379,7 +385,32 @@ export function intakeAssignmentGap(state: KernelState, slice: string, packet: R
 	const dependency = state.intakes!.dependencies.find((e) => e.slice === slice && !qualified.includes(e.requires));
 	if (dependency)
 		return refused("dependency_blocked", `Required ${dependency.kind} of ${dependency.requires} has no recorded qualifying integration.`);
+	const missing = recordBasis(state, slice).filter((ref) => !packet.inputs.includes(ref));
+	if (missing.length) return refused("stale_basis", `Record work must carry its exact fidelity basis: ${missing.join(", ")}.`);
 	return undefined;
+}
+/**
+ * A Record Slice's fidelity basis: the review its acceptance bound and every approved source its outputs cite, with a
+ * cited decision node's manifest and evidence. Empty for other Slices.
+ */
+export function recordBasis(state: KernelState, slice: string): string[] {
+	const s = state.intakes?.slices.find((s) => s.id === slice);
+	const outputs = s?.record
+		? state.intakes!.drafts.find((d) => d.id === s.intake)?.manifest.slices.find((x) => x.id === slice)?.obligations
+		: undefined;
+	if (!s || !outputs) return [];
+	return [
+		...new Set([
+			s.review,
+			...outputs.flatMap((o) =>
+				o.sources.flatMap(({ ref, node }) => {
+					const r = node === null ? undefined : state.checkpoints?.requests.find((r) => r.approved === ref);
+					const evidence = r?.manifestValue?.nodes.find((n) => n.id === node)?.evidence ?? [];
+					return [ref, ...(r?.manifest ? [r.manifest] : []), ...evidence];
+				}),
+			),
+		]),
+	];
 }
 export function consumeIntake(state: KernelState, slice: string, assignment: string, sequence: number): IntakeWrite | undefined {
 	if (!state.intakes?.slices.some((s) => s.id === slice)) return;
@@ -644,6 +675,7 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 					everAssigned: false,
 					status: "accepted",
 					record: slice.record,
+					review: c.review,
 					predecessors: prior ? [prior.contract] : target ? [target.contract] : [],
 				};
 				if (prior) work.slices[work.slices.indexOf(prior)] = accepted;

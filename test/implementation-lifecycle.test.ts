@@ -45,6 +45,7 @@ function pure(overrides: Partial<RolePacket> = {}) {
 					intake: "intake:1",
 					acceptance: "acceptance:1",
 					everAssigned: false,
+					review: "review:fixture",
 					status: "accepted",
 					record: false,
 					predecessors: [],

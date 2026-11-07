@@ -198,7 +198,8 @@ for (const failure of ["content_corrupt", "missing_content"] as const)
 			await t.f.reopen(new LedgerOnlyEngine());
 			await saveDocument(t, "fidelity-copy", text.content.toString());
 			const reply = await t.f.command({ type: "assignTask", slice: "read-fix", delivery: true, packet: t.writer(watched(t.contract)) });
-			assert.equal(reply.status === "refused" && reply.code, failure);
+			// Role-input preflight classifies a deleted entry behind a retained location as corrupt.
+			assert.equal(reply.status === "refused" && reply.code, "content_corrupt");
 			assert.equal(reply.status === "refused" && reply.refs?.restore, t.fidelity, "names the exact ref");
 			assert.equal(intakes(t).slices[0]!.everAssigned, false);
 		} finally {
