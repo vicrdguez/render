@@ -84,7 +84,11 @@ const MATRIX: Record<string, { admits: PrincipalClass[]; available: boolean }> =
 	openSuccessorPass: { admits: ["host-effects"], available: true },
 	recordRunnerObservation: { admits: ["host-effects"], available: true },
 	recordRunnerDiagnostic: { admits: ["host-effects"], available: true },
-	recordForgeObservation: { admits: ["host-effects"], available: false },
+	stageForgeOperation: { admits: ["host-effects"], available: true },
+	admitForgeOperation: { admits: ["host-effects"], available: true },
+	recordForgeObservation: { admits: ["host-effects"], available: true },
+	authorizeForgeReissue: { admits: ["human"], available: true },
+	resolveForgeRisk: { admits: ["human"], available: true },
 	recordRecoveryState: { admits: ["host-recovery"], available: true },
 };
 const UNKNOWN = ["dropTables", "runSql", "setPrincipal", "approve", ""];
@@ -312,6 +316,15 @@ function expectedDecision(m: Model, principal: Principal, step: Step, command: R
 			if (device === undefined) return "not_found";
 			return device.revoked ? "already_revoked" : "accepted";
 		}
+		// Generated without a kind, operation or observation: no qualified integration or staged operation exists here.
+		case "stageForgeOperation":
+		case "admitForgeOperation":
+		case "authorizeForgeReissue":
+		case "resolveForgeRisk":
+			if (!inScope(principal, workflow)) return "forbidden_scope";
+			return exists ? "stale_basis" : "not_found";
+		case "recordForgeObservation":
+			return exists ? "invalid_content" : "not_found";
 		default:
 			return exists ? (BARE_ROLE_REFUSAL[type] as string) : "not_found";
 	}
