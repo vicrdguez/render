@@ -448,3 +448,25 @@ test("HM07 the merge mapping survives reopen and export; a fresh client reads th
 		await t.close();
 	}
 });
+
+test("HM08 once the human merge is observed, a deleted branch stages and admits no further forge operation", async () => {
+	const t = await associated();
+	try {
+		const summary = accepted(await t.f.command({ type: "stageForgeOperation", kind: "update-summary" }, effects)).operation as string;
+		accepted(await observe(t, { head: { commit: null }, ...listing([mergedItem()]) }));
+		assert.equal(pub(t).main?.source, R1);
+		for (const kind of ["publish-source", "update-summary"])
+			refused(
+				await t.f.command({ type: "stageForgeOperation", kind }, effects),
+				"stale_basis",
+				`${kind}: a delivered proposal publishes nothing more`,
+			);
+		refused(
+			await t.f.command({ type: "admitForgeOperation", operation: summary }, effects),
+			"stale_basis",
+			"a planned operation is never admitted after the merge",
+		);
+	} finally {
+		await t.close();
+	}
+});

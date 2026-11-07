@@ -144,8 +144,13 @@ test("GP-E1 one draft PR across a lost create reply; a forge outage blocks neith
 		assert.match(gh.pulls[0]!.body, new RegExp(`Canonical source: ${R2}`));
 
 		assert.equal(publication(t).main, null);
+		const operations = publication(t).operations.length;
 		const main = gh.merge(1);
+		git(gh.repo, ["update-ref", "-d", `refs/heads/${branch}`]);
 		await until(() => publication(t).main !== null, "HM-E1 the human merge is observed");
+		await delay(1500);
+		assert.equal(gh.branch(branch), null, "HM08 a delivered proposal's deleted branch is never recreated");
+		assert.equal(publication(t).operations.length, operations, "HM08 no forge operation after the merge");
 		assert.deepEqual([publication(t).main!.source, publication(t).main!.commit], [R2, main]);
 		assert.ok(!gh.requests.some((r) => r.path.endsWith("/merge")), "Render never sends a merge");
 		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
