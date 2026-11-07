@@ -313,6 +313,7 @@ const slice = (id: string) => ({
 	acceptance: "intake-record:1",
 	everAssigned: true,
 	status: "accepted" as const,
+	review: "report:1",
 	record: false,
 	predecessors: [],
 });
@@ -359,7 +360,8 @@ const kObservation = (over: Record<string, unknown>) =>
 		...over,
 	});
 
-test("AR08 an old ready flag never certifies new scope or source; the existing summary states the ineligibility", () => {
+/** One integrated Slice `a` at R1, published, with an associated open draft PR: eligible, driven through pure Kernel. */
+function kernelProposal() {
 	let state = {
 		workflow: { id: KW, messageCount: 0, title: "Ready" },
 		document: null,
@@ -391,6 +393,19 @@ test("AR08 an old ready flag never certifies new scope or source; the existing s
 	const r = () =>
 		publicationView(state.publication, state.roleWork, KW, state.intakes).readiness as unknown as Readiness & { promotion: unknown };
 	const kop = (operation: string) => state.publication!.operations.find((o) => o.operation === operation)!;
+	const view = () =>
+		publicationView(state.publication, state.roleWork, KW, state.intakes) as unknown as View & {
+			canonical: string | null;
+			summaryStale: boolean;
+		};
+	const update = (next: Partial<KernelState>) => {
+		state = { ...state, ...next } as KernelState;
+	};
+	return { run, r, kop, view, update, state: () => state };
+}
+
+test("AR08 an old ready flag never certifies new scope or source; the existing summary states the ineligibility", () => {
+	const { run, r, kop, update, state } = kernelProposal();
 
 	assert.deepEqual([r().eligible, r().gaps], [true, []]);
 	const old = run({ type: "stageForgeOperation", kind: "mark-ready" }).result.operation!;
@@ -398,9 +413,9 @@ test("AR08 an old ready flag never certifies new scope or source; the existing s
 	const attempt = run({ type: "admitForgeOperation", operation: old }).result.forgeAttempt!;
 	assert.match(attempt, /^forge-attempt:/);
 
-	state = { ...state, intakes: { ...state.intakes!, slices: [slice("a"), slice("b")] } };
+	update({ intakes: { ...state().intakes!, slices: [slice("a"), slice("b")] } });
 	assert.deepEqual([r().eligible, r().gaps], [false, ["b: not yet integrated"]], "a scope change recomputes eligibility");
-	state = { ...state, roleWork: { assignments: [], passes: [pass("a", T0, R1, 1), pass("b", R1, R2, 2)] as never } };
+	update({ roleWork: { assignments: [], passes: [pass("a", T0, R1, 1), pass("b", R1, R2, 2)] as never } });
 	assert.deepEqual(r().gaps, [`awaiting publication: ${R2}`], "new source needs its own publication");
 
 	assert.equal(
@@ -428,4 +443,17 @@ test("AR08 an old ready flag never certifies new scope or source; the existing s
 	assert.deepEqual([kop(current).status, kop(current).attempts.length], ["satisfied", 0], "observed satisfaction, no dispatch");
 	assert.equal(kop(old).canonical, R1);
 	assert.deepEqual(FORGE_KINDS, ["publish-source", "create-proposal", "update-summary", "mark-ready"], "no redraft or close request");
+});
+
+test("AR09 a scope-only change on an unchanged head makes the stated summary stale until it is restaged", () => {
+	const { run, view, update, state } = kernelProposal();
+	assert.equal(view().summaryStale, true, "no summary states eligibility yet");
+	assert.ok(JSON.parse(run({ type: "stageForgeOperation", kind: "update-summary" }).text).summary.includes("- Ready promotion: eligible;"));
+	assert.equal(view().summaryStale, false, "the staged summary states the current eligibility");
+	update({ intakes: { ...state().intakes!, slices: [slice("a"), slice("b")] } });
+	assert.equal(view().canonical, R1, "the head is unchanged");
+	assert.equal(view().summaryStale, true, "a scope change the summary does not state makes it stale");
+	const restaged = JSON.parse(run({ type: "stageForgeOperation", kind: "update-summary" }).text).summary as string;
+	assert.ok(restaged.includes("- Ready promotion: not eligible: b: not yet integrated"), "the summary states the new ineligibility");
+	assert.equal(view().summaryStale, false);
 });

@@ -9,7 +9,9 @@ Chronology, kept as it happened: AR01–AR08 and AF01–AF03 were written, commi
 kind, no `readiness` view, no `markReady` operation) before the product change. AR-E1 was committed with them but not run
 before the Engine change; it could not pass without the `mark-ready` kind. GF01 and GP16 change only their literal
 `markProposalReady` capability, because the GitHub adapter now offers it. After implementation one test-only correction
-followed: AR03's first assertion gained its own message so `readiness-ignores-record` is detected by it.
+followed: AR03's first assertion gained its own message so `readiness-ignores-record` is detected by it. A Contract audit then found
+that summary freshness compared only heads, so a scope-only change never refreshed the stated ineligibility; AR09 was
+written and committed failing (`summaryStale` absent) before the fix. AR08's setup moved into a shared helper for it.
 
 ## Interface these cases name (new in this Slice)
 
@@ -37,6 +39,9 @@ followed: AR03's first assertion gained its own message so `readiness-ignores-re
   the latest listing of the associated PR; `package` maps each integrated Slice to its pass, Audit A and record,
   handoff B, preparation, prepared tree, Watchdog round and report, integration and R; `uncertain` lists unknown or
   admitted forge operations.
+- Workflow view `publication.summaryStale`: true while the PR is associated and the latest summary does not state the
+  current canonical, published head and readiness gaps. Engine restages the summary then, on its publication pass and on
+  every reconcile.
 - The host-owned summary gains `- Ready promotion: eligible; the forge ready state is observed separately` or
   `- Ready promotion: not eligible: <gaps joined by "; ">`.
 
@@ -52,6 +57,7 @@ followed: AR03's first assertion gained its own message so `readiness-ignores-re
 | AR06 | B3 | admitted promotion; dispatch `unknown`; then a listing with the PR ready on R2 | op `unknown`, status `uncertain`, `uncertain` lists it; then op `satisfied`, `observed:"ready"`, one attempt. Separately: ready on head R1, incomplete listing without the PR, and the PR closed each keep `unknown`; closed adds gap `associated PR github:pr:7:n is closed` | Ledger/Kernel |
 | AR07 | B4 | admitted promotion; reopen (new epoch); old dispatch report; readmit; incomplete listing still draft; stage again; complete listing still draft; stage; admit | `stale_executor`; `stale_basis`; op stays `unknown`; `ownership_conflict`; op `unapplied`; new op `planned`; admit `stale_basis` until reobserved; first op has one attempt; one create op; reopen keeps the view; export holds the intents and observations | Ledger |
 | AR08 | B5 | pure Kernel: one Slice at R1, promotion admitted; Slice b accepted; b integrates R2; old dispatch `applied`; summary; R2 published and listed ready; stage | gaps `["b: not yet integrated"]`, then `["awaiting publication: R2"]`; old op `applied` with canonical R1 and `observed:"ready"` while ineligible; stage `stale_basis`; summary line `- Ready promotion: not eligible: awaiting publication: R2`; after publication the new op becomes `satisfied` with zero attempts; forge kinds stay `publish-source, create-proposal, update-summary, mark-ready` | Kernel |
+| AR09 | B5 | pure Kernel: eligible, no summary; stage summary; Slice b accepted on the unchanged head R1; stage summary | `summaryStale:true`; summary `- Ready promotion: eligible;...`, `summaryStale:false`; `summaryStale:true` with canonical still R1; summary `- Ready promotion: not eligible: b: not yet integrated`, `summaryStale:false` | Kernel |
 | AF01 | B2/A1 | GitHub adapter: capabilities; markReady on a created draft; same attempt again | `markProposalReady:true`; one POST `/graphql` naming `markPullRequestReadyForReview` with `variables {id:"PR_node1"}` and the Bearer token; `{outcome:"applied", reason:null, created:null, head:null}`; listing `draft:false`; second dispatch throws `already consumed`; no result carries the token | Effects |
 | AF02 | B3 | fake applies ready then drops the reply | `unknown`; listing `draft:false`; one GraphQL POST | Effects |
 | AF03 | B3 | ready on a closed PR | `rejected` reason `graphql: UNPROCESSABLE`; the PR stays closed and draft | Effects |
