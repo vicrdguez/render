@@ -6,8 +6,8 @@ import type { ImplementationPass, RoleAssignment } from "../src/kernel/roles.ts"
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import {
-	acceptedImplementation,
 	accepted,
+	acceptedImplementation,
 	capture,
 	EXPECTED,
 	implementationLifecycle,
@@ -305,7 +305,7 @@ test("BJ14 a returned bug pass needs its own fresh Audit; the retained reproduct
 					effects,
 				),
 			);
-		accepted(await retain("audit"));
+		await retain("audit");
 		refused(
 			await t.f.command(t.handoff, actor),
 			"missing_content",
