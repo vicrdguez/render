@@ -107,7 +107,7 @@ Disaster recovery is deferred after v1. Normal restart/history/export does not i
 ## Verification and limits
 
 `npm run verify:ground-investigation` runs the direct Kernel/real SQLite/Git/scripted-Durable journeys and
-before/after-result-commit SIGKILL tests. `RENDER_V3_REPETITIONS=100 npm run verify:investigation-crash` is the
+before/after-result-commit SIGKILL tests. `RENDER_V3_REPETITIONS=2 npm run verify:investigation-crash` is the
 separate extended fault job. The existing Full Gate and unsafe-control runner include the new scenarios.
 Preimplementation expectations are in `verification/ground-investigation-failure-cases.md`.
 

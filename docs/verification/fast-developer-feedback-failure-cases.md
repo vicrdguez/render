@@ -10,7 +10,7 @@ Written before remediation (AGENTS.md rules, T1). The historical test audit is a
 - S4: a fast pass is reported as the full gate. Expected: the catalog, README and guidance state that `npm test` is not cumulative, and the gate commands are distinct.
 - S5: a failure in a broader check is hidden by the chain or a cached result. Expected: the gate exits nonzero when any selected check fails, and the failed name is visible. Checked by making a real selected check fail in a temporary copy.
 - S6: a missing prerequisite reads as a pass. Expected: Docker-backed checks still fail visibly without Docker or the image; the disk-full case still reports `skipped`, never pass.
-- S7: extended counts are replaced by smoke. Expected: V1 10,000, initial V2 256 and two-process ownership, and V3 100 repetitions per named critical point remain selectable; `test:extended` requests them explicitly.
+- S7: extended counts are replaced by smoke. Expected: V1 10,000, initial V2 256 and two-process ownership, and V3 2 repetitions per named critical point (operator decision, replacing the spec target of 100) remain selectable; `test:extended` requests them explicitly.
 
 ## Harness and setup (B2, B3)
 
