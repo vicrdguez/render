@@ -437,13 +437,9 @@ test("I10/I11 required Record stays blocked and supersession requires explicit d
 	m.shape = "change";
 	m.breakdown = "Record, consumer, independent";
 	f.inputs["ground:1"]!.text = f.inputs["ground:1"]!.text.replace('"bug"', '"change"');
-	for (const [id, record] of [
-		["record", true],
-		["independent", false],
-	] as const) {
-		m.slices.push({ ...structuredClone(m.slices[0]!), id, record });
-		m.mapping.push(...structuredClone(m.mapping.filter((x) => x.slice === "fix")).map((x) => ({ ...x, slice: id })));
-	}
+	addRecord(m, "record");
+	m.slices.push({ ...structuredClone(m.slices[0]!), id: "independent" });
+	m.mapping.push(...structuredClone(m.mapping.filter((x) => x.slice === "fix")).map((x) => ({ ...x, slice: "independent" })));
 	m.dependencies = [{ slice: "fix", requires: "record", kind: "record" }];
 	const intake = f.stage(m);
 	f.accepted({ type: "acceptIntake", ...f.basis(intake, f.review(intake)) }, human);
@@ -472,15 +468,7 @@ test("I10/I11 required Record stays blocked and supersession requires explicit d
 		),
 		"accepted",
 	);
-	const n = intakeManifest();
-	n.shape = "change";
-	n.breakdown = "Replace Record";
-	n.slices[0]!.id = "record-next";
-	n.slices[0]!.record = true;
-	n.mapping.forEach((x) => {
-		x.slice = "record-next";
-	});
-	const draft = f.stage(n);
+	const draft = f.stage(recordOnly("record-next"));
 	const basis = f.basis(draft, f.review(draft));
 	const command = {
 		type: "supersedeContract",
@@ -783,4 +771,158 @@ test("V1 both acceptance/assignment/amendment orderings preserve permanent consu
 		assert.equal(code(first), "accepted");
 		assert.equal(code(second), assignmentFirst ? "contract_frozen" : "stale_basis");
 	}
+});
+
+/** A bounded Record Slice: one explicit ADR output citing the human-approved existing-seam source. */
+function addRecord(m: IntakeManifest, id: string) {
+	m.slices.push({
+		id,
+		title: `Record ${id}`,
+		record: true,
+		delegated: [],
+		forbidden: [],
+		obligations: [
+			{
+				id: "R1",
+				kind: "record",
+				output: "adr",
+				text: "Record the retained read seam decision",
+				sources: [{ ref: "source:1", node: null }],
+			},
+		],
+	});
+	m.mapping.push({ slice: id, obligation: "R1", checks: ["new-read"] });
+}
+/** A change intake holding only the named Record Slices. */
+function recordOnly(...ids: string[]) {
+	const m = intakeManifest();
+	m.shape = "change";
+	m.breakdown = `Record ${ids.join(", ")}`;
+	m.slices = [];
+	m.mapping = [];
+	for (const id of ids) addRecord(m, id);
+	return m;
+}
+function changeFixture() {
+	const f = fixture();
+	f.inputs["ground:1"]!.text = f.inputs["ground:1"]!.text.replace('"bug"', '"change"');
+	return f;
+}
+
+test("RB01 a Record Slice holds only explicit, approved-basis ADR/principle/design obligations", () => {
+	assert.ok(changeFixture().stage(recordOnly("record")), "the bounded Record Slice itself stages");
+	const mutations: [string, (m: IntakeManifest) => void][] = [
+		[
+			"Record Slice with a behavior obligation",
+			(m) => m.slices[0]!.obligations.push({ id: "B9", kind: "behavior", text: "Code", sources: [] }),
+		],
+		[
+			"record obligation outside a Record Slice",
+			(m) => {
+				m.slices[0]!.record = false;
+			},
+		],
+		[
+			"unbounded output kind",
+			(m) => {
+				(m.slices[0]!.obligations[0] as { output: string }).output = "readme";
+			},
+		],
+		[
+			"no fidelity basis",
+			(m) => {
+				m.slices[0]!.obligations[0]!.sources = [];
+			},
+		],
+		[
+			"unapproved basis",
+			(m) => {
+				m.slices[0]!.obligations[0]!.sources = [{ ref: "catalog:1", node: null }];
+			},
+		],
+	];
+	for (const [label, mutate] of mutations) {
+		const f = changeFixture();
+		const m = recordOnly("record");
+		m.mapping[0]!.checks = ["new-read"];
+		if (label === "Record Slice with a behavior obligation") m.mapping.push({ slice: "record", obligation: "B9", checks: ["new-read"] });
+		mutate(m);
+		assert.equal(code(f.command({ type: "stageIntake", expected: null, text: "Contract", manifest: m })), "invalid_content", label);
+		assert.equal(f.state.intakes?.drafts.length ?? 0, 0, `${label}: no draft`);
+	}
+});
+
+test("RB02/RB05 human acceptance binds the Record outputs and their fidelity review; agents cannot accept or humans assign", () => {
+	const f = changeFixture();
+	const intake = f.stage(recordOnly("record"));
+	const review = f.review(intake);
+	assert.equal(code(f.command({ type: "acceptIntake", ...f.basis(intake, review) }, agent)), "forbidden_principal");
+	f.accepted({ type: "acceptIntake", ...f.basis(intake, review) }, human);
+	const slice = f.state.intakes!.slices[0]!;
+	assert.equal((slice as { review?: string }).review, review, "the accepted Slice names its fidelity review");
+	const contract = JSON.parse(f.inputs[slice.contract]!.text);
+	assert.equal(contract.review, review);
+	assert.deepEqual(contract.obligations.obligations, [
+		{ id: "R1", kind: "record", output: "adr", text: "Record the retained read seam decision", sources: [{ ref: "source:1", node: null }] },
+	]);
+	assert.equal(
+		code(
+			f.command(
+				{
+					type: "assignTask",
+					slice: "record",
+					delivery: true,
+					packet: passOwner(slice.contract, { inputs: [slice.contract, review, "source:1"] }),
+				},
+				human,
+			),
+		),
+		"forbidden_principal",
+	);
+});
+
+test("RB09/RB10 retiring Record work keeps partial delivery visible and never silently clears its consumer", () => {
+	const f = changeFixture();
+	const m = recordOnly("record-a", "record-b");
+	m.slices.unshift(structuredClone(intakeManifest().slices[0]!));
+	m.mapping.unshift(...intakeManifest().mapping);
+	m.dependencies = [
+		{ slice: "fix", requires: "record-a", kind: "record" },
+		{ slice: "fix", requires: "record-b", kind: "record" },
+	];
+	const intake = f.stage(m);
+	f.accepted({ type: "acceptIntake", ...f.basis(intake, f.review(intake)) }, human);
+	const contractOf = (id: string) => f.state.intakes!.slices.find((s) => s.id === id)!.contract;
+	const a = contractOf("record-a");
+	const qualifiedPass = {
+		ref: `pass:${workflow}:record-a:1`,
+		workflow,
+		slice: "record-a",
+		contract: a,
+		handoff: { record: "implementation-handoff:1", source: "source:a", integrations: [{ status: "qualified" }] },
+	};
+	f.state = { ...f.state, roleWork: { ...f.state.roleWork!, passes: [qualifiedPass] as never } };
+	const assignFix = () => {
+		const d = f.command({ type: "assignTask", slice: "fix", delivery: true, packet: passOwner(contractOf("fix")) }, host);
+		return d.outcome === "refused" ? `${d.code}: ${d.reason}` : d.outcome;
+	};
+	assert.match(assignFix(), /^dependency_blocked: Required record of record-b /, "only some Record obligations qualified");
+	const retire = (slice: string, replacement: string, dispositions: { slice: string; replacement: string }[]) => {
+		const draft = f.stage(recordOnly(replacement));
+		return f.command(
+			{ type: "supersedeContract", slice, expected: contractOf(slice), ...f.basis(draft, f.review(draft)), dispositions },
+			human,
+		);
+	};
+	assert.equal(code(retire("record-b", "record-b2", [])), "dependent_disposition_required");
+	const accepted = retire("record-b", "record-b2", [{ slice: "fix", replacement: "record-b2" }]);
+	assert.equal(code(accepted), "accepted");
+	assert.equal(f.state.intakes!.slices.find((s) => s.id === "record-b")!.status, "superseded");
+	assert.match(assignFix(), /^dependency_blocked: Required record of record-b2 /, "outstanding consumer stays blocked");
+	const acceptance = accepted.outcome === "accepted" ? String(accepted.result.acceptance) : "";
+	assert.deepEqual(JSON.parse(f.inputs[acceptance]!.text).command.dispositions, [{ slice: "fix", replacement: "record-b2" }]);
+	assert.equal(code(retire("record-a", "record-a2", [{ slice: "fix", replacement: "record-a2" }])), "accepted");
+	assert.equal(f.state.intakes!.slices.find((s) => s.id === "record-a")!.status, "superseded", "retired, not completed");
+	assert.deepEqual(f.state.roleWork!.passes, [qualifiedPass], "the partial delivery stays retained");
+	assert.match(assignFix(), /^dependency_blocked: Required record of record-a2 /, "a retired qualification does not clear the replacement");
 });
