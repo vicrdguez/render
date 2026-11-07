@@ -29,7 +29,7 @@ import {
 	type WatchdogBinding,
 	watchdogVerdict,
 } from "./implementation.ts";
-import { consumeIntake, type IntakeReview, intakeAssignmentGap } from "./intake.ts";
+import { consumeIntake, type IntakeReview, intakeAssignmentGap, recordBasis } from "./intake.ts";
 import {
 	cancelHandoff,
 	changeIntegration,
@@ -656,7 +656,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			const reviewer = pass.configuration.reviewers[axis];
 			const packet = auditReviewerPacket(reviewer);
 			const child = create(
-				{ ...packet, inputs: [...new Set([...packet.inputs, pass.contract, pass.captureA])] },
+				{ ...packet, inputs: [...new Set([...packet.inputs, pass.contract, ...recordBasis(state, a.slice), pass.captureA])] },
 				a.slice,
 				false,
 				a.id,
@@ -796,6 +796,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		const packet = auditReviewerPacket(reviewer);
 		const required = [
 			pass.contract,
+			...recordBasis(state, a.slice),
 			pass.record,
 			pass.handoff.record,
 			pass.handoff.source,
