@@ -1,23 +1,48 @@
-// CI20 at real process cuts (V3): the host is SIGKILLed after an integration admission but before its CAS, and after
-// the CAS but before its SQL observation. A fresh executor epoch must never adopt the old permit: it reconciles the
-// canonical ref read-only, and records exactly one qualification.
+// CI20 at real process cuts (V3): the host is SIGKILLed before and after admission, before and after the CAS, after
+// the durable readback, and after the SQL observation that qualifies. after-integration-cas is also the cut before the
+// readback, and after-integration-readback the cut before SQL qualification: nothing runs between them. A fresh executor
+// epoch never adopts the old permit: it reconciles the canonical ref after a durability barrier and records exactly one
+// qualification.
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { readdir, readFile, rm } from "node:fs/promises";
+import { access, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
 import { Engine, type OwnedChecks } from "../src/engine/runtime.ts";
 import type { ImplementationPass } from "../src/kernel/roles.ts";
+import type { faultBarrier } from "../src/ledger/barrier.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import { openLedger } from "../src/ledger/startup.ts";
 import { proposalRef, sha } from "./support/implementation-engine.ts";
 import { admin } from "./support/roles.ts";
 import { git } from "./support/source.ts";
 
-async function cut(barrier: "before-integration-cas" | "after-integration-cas") {
-	const child = spawn(process.execPath, [new URL("./support/integration-crash-worker.ts", import.meta.url).pathname, barrier], {
+type Cut = {
+	barrier: Parameters<typeof faultBarrier>[0];
+	/** Engine cuts are keyed by the pass, Effects cuts by the proposal. */
+	key: string;
+	/** Whether the canonical ref already reads R when the host dies. */
+	moved: boolean;
+	/** How recovery reaches the one qualification. */
+	recovery: "fresh-admission" | "reconcile-then-fresh" | "reconcile" | "already-qualified";
+	/** The killed host's Git also left a canonical-ref lock behind. */
+	staleLock?: true;
+};
+const PASS = "integration:pass:workflow:2:value:1";
+const PROPOSAL = "integration:workflow:2";
+const CUTS: Cut[] = [
+	{ barrier: "before-integration-admission", key: PASS, moved: false, recovery: "fresh-admission" },
+	{ barrier: "after-integration-admission", key: PASS, moved: false, recovery: "reconcile-then-fresh", staleLock: true },
+	{ barrier: "before-integration-cas", key: PASS, moved: false, recovery: "reconcile-then-fresh" },
+	{ barrier: "after-integration-cas", key: PROPOSAL, moved: true, recovery: "reconcile" },
+	{ barrier: "after-integration-readback", key: PROPOSAL, moved: true, recovery: "reconcile" },
+	{ barrier: "after-integration-qualification", key: PASS, moved: true, recovery: "already-qualified" },
+];
+
+async function cut({ barrier, key, moved, recovery, staleLock }: Cut) {
+	const child = spawn(process.execPath, [new URL("./support/integration-crash-worker.ts", import.meta.url).pathname, barrier, key], {
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	let output = "";
@@ -47,6 +72,8 @@ async function cut(barrier: "before-integration-cas" | "after-integration-cas") 
 		const died = new Promise<void>((resolve) => child.once("exit", () => resolve()));
 		child.kill("SIGKILL");
 		await died;
+		const lock = join(store, `${proposalRef("workflow:2")}.lock`);
+		if (staleLock) await writeFile(lock, `${before}\n`);
 		const provider = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
 		// The fixture's paused coordinator may resume; no delivery or review role may run again.
 		const roles: string[] = [];
@@ -85,24 +112,35 @@ async function cut(barrier: "before-integration-cas" | "after-integration-cas") 
 			assert.ok("content" in read);
 			return JSON.parse(read.content.toString()) as { mode: string; observed: { commit: string } };
 		};
-		if (barrier === "before-integration-cas") {
-			assert.notEqual(before, R, "the host died before any canonical-ref change");
-			const [old, fresh, ...more] = operation!.attempts;
+		assert.equal(before === R, moved, moved ? "the CAS committed before the host died" : "the host died before any canonical-ref change");
+		const attempts = operation!.attempts;
+		const seen = async (attempt: (typeof attempts)[number]) => (await observation(attempt.observations[0]!)).mode;
+		if (recovery === "fresh-admission" || recovery === "reconcile-then-fresh") {
+			const [old, fresh, ...more] = recovery === "fresh-admission" ? [undefined, ...attempts] : attempts;
 			assert.equal(more.length, 0);
-			assert.notEqual(old!.executorEpoch, epoch, "the first permit belonged to the dead executor");
-			assert.equal(old!.outcome, "unapplied", "the old permit was reconciled from T, never adopted or dispatched");
-			assert.equal((await observation(old!.observations[0]!)).mode, "reconcile");
+			if (old) {
+				assert.notEqual(old.executorEpoch, epoch, "the first permit belonged to the dead executor");
+				assert.equal(old.outcome, "unapplied", "the old permit was reconciled from T, never adopted or dispatched");
+				assert.equal(await seen(old), "reconcile");
+			}
 			assert.equal(fresh!.executorEpoch, epoch, "a fresh current admission under the recovering epoch");
 			assert.equal(fresh!.outcome, "applied");
-			assert.equal((await observation(fresh!.observations[0]!)).mode, "dispatch");
+			assert.equal(await seen(fresh!), "dispatch");
 		} else {
-			assert.equal(before, R, "the CAS committed before the host died");
-			assert.equal(operation!.attempts.length, 1, "no second admission or CAS");
-			assert.equal(operation!.attempts[0]!.outcome, "applied");
-			const seen = await observation(operation!.qualification!);
-			assert.equal(seen.mode, "reconcile", "qualified from read-only reconciliation, never inferred");
-			assert.equal(seen.observed.commit, R);
+			assert.equal(attempts.length, 1, "no second admission or CAS");
+			assert.notEqual(attempts[0]!.executorEpoch, epoch);
+			assert.equal(attempts[0]!.outcome, "applied");
+			const qualified = await observation(operation!.qualification!);
+			assert.equal(qualified.observed.commit, R);
+			assert.equal(
+				qualified.mode,
+				recovery === "reconcile" ? "reconcile" : "dispatch",
+				recovery === "reconcile"
+					? "qualified from reconciliation after a durability barrier, never inferred"
+					: "qualified before the host died",
+			);
 		}
+		if (staleLock) await assert.rejects(access(lock), "the dead host's ref lock was removed before classification");
 		assert.deepEqual(
 			roles.filter((role) => role !== "coordinator"),
 			[],
@@ -127,7 +165,7 @@ async function cut(barrier: "before-integration-cas" | "after-integration-cas") 
 	}
 }
 
-for (const barrier of ["before-integration-cas", "after-integration-cas"] as const)
-	test(`CI20 SIGKILL ${barrier}: recovery reconciles the canonical ref and qualifies exactly once`, async () => {
-		for (let iteration = 0; iteration < Number(process.env.RENDER_V3_REPETITIONS ?? 1); iteration++) await cut(barrier);
+for (const c of CUTS)
+	test(`CI20 SIGKILL ${c.barrier}${c.staleLock ? " leaving a ref lock" : ""}: recovery qualifies exactly once`, async () => {
+		for (let iteration = 0; iteration < Number(process.env.RENDER_V3_REPETITIONS ?? 1); iteration++) await cut(c);
 	});

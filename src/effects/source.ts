@@ -287,7 +287,10 @@ export class Effects {
 		this.#consumed.add(attempt);
 		const ref = canonicalRef(proposal);
 		const dispatch = await this.#transaction(store.path, store.cwd, `start\nupdate ${ref} ${result.commit} ${expected}\nprepare\n`);
-		return { ...(await this.#canonical(repository, proposal)), dispatch };
+		await faultBarrier("after-integration-cas", `integration:${proposal}`);
+		const observed = await this.#canonical(repository, proposal);
+		await faultBarrier("after-integration-readback", `integration:${proposal}`);
+		return { ...observed, dispatch };
 	}
 	/** Every observation, dispatch readback or reconciliation, follows a durability barrier: a failed fsync reports nothing. */
 	async #canonical(repository: string, proposal: string): Promise<CanonicalObservation> {

@@ -1994,11 +1994,14 @@ export class Engine {
 			});
 			return staged.status === "accepted" ? "again" : refused(staged);
 		}
+		await faultBarrier("before-integration-admission", `integration:${pass.ref}`);
 		const admitted = await command(`integration-admit:${operation.operation}:${operation.attempts.length + 1}`, {
 			type: "admitEffect",
 			operation: operation.operation,
 		});
-		return admitted.status === "accepted" ? "again" : refused(admitted);
+		if (admitted.status !== "accepted") return refused(admitted);
+		await faultBarrier("after-integration-admission", `integration:${pass.ref}`);
+		return "again";
 	}
 	/**
 	 * Settles an admitted or divergent operation (spec §§9.1, 9.3). Only the executor epoch that holds the permit
@@ -2034,7 +2037,6 @@ export class Engine {
 					result,
 					attempt: attempt.id,
 				});
-				await faultBarrier("after-integration-cas", `integration:${pass.ref}`);
 				const { dispatch, ...observed } = dispatched;
 				seen = { mode: "dispatch", dispatch, ...observed };
 				if (dispatch === "refused") failure = "canonical CAS refused";
@@ -2069,6 +2071,7 @@ export class Engine {
 			await block(`integration_observation_refused: ${reply.code}: ${reply.reason}`);
 			return "blocked";
 		}
+		await faultBarrier("after-integration-qualification", `integration:${pass.ref}`);
 		const outcome = reply.result.outcome as IntegrationOutcome;
 		// This executor's own dispatch left T unchanged: a visible operational blocker, never an automatic hot retry.
 		if (outcome === "unapplied" && failure) {
