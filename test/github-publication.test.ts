@@ -288,7 +288,7 @@ test("GP09/GP10 an unknown create is never readmitted and negative or incomplete
 			listing([item("github:pr:3:c", "render-proposal:other")]),
 		]) {
 			accepted(await observe(t, { operation: create, ...seen }));
-			assert.equal(op(t, create).status, "unknown");
+			assert.equal(op(t, create).status, "unknown", "a negative or incomplete listing is not absence");
 			assert.equal(view(t).association, null);
 		}
 		assert.deepEqual(

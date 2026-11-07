@@ -5,8 +5,8 @@ import { mkdir, open, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { validatePath } from "../kernel/source-path.ts";
 import { faultBarrier } from "../ledger/barrier.ts";
-import { type ForgeConfig, type ForgeDispatch, type ForgeSnapshot, GitHubForge } from "./forge.ts";
 import type { Capture } from "../sandboxes/sandboxes.ts";
+import { type ForgeConfig, type ForgeDispatch, type ForgeSnapshot, GitHubForge } from "./forge.ts";
 
 export type LiteralEntry = { path: string; mode: "100644" | "100755" | "120000"; oid: string; content: string };
 export type Source = {
