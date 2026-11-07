@@ -6,6 +6,7 @@ import { CHECKPOINT_COMMANDS, type CheckpointCommand } from "../kernel/checkpoin
 import { validAssessment, validDispositions } from "../kernel/implementation.ts";
 import { INTAKE_COMMANDS, type IntakeCommand, validDependencies } from "../kernel/intake.ts";
 import { type Command, isAvailableCommand, type MediaType, type Persistence } from "../kernel/kernel.ts";
+import { FORGE_KINDS, type ForgeKind, PUBLICATION_COMMANDS } from "../kernel/publication.ts";
 
 import { ROLE_COMMANDS, ROLES, type RoleCommand, type RolePacket } from "../kernel/roles.ts";
 
@@ -96,6 +97,7 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 		type === "saveDocument" ||
 		type === "postCoordinatorMessage" ||
 		ROLE_COMMANDS.includes(type) ||
+		PUBLICATION_COMMANDS.includes(type) ||
 		CHECKPOINT_COMMANDS.includes(type) ||
 		INTAKE_COMMANDS.includes(type);
 	if (needsWorkflow && workflow === null) malformed(`${type} requires a workflow`);
@@ -105,6 +107,28 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 	if (CHECKPOINT_COMMANDS.includes(type)) return { command: checkpointCommand(type, c, workflow as string) };
 	if (ROLE_COMMANDS.includes(type)) return { command: roleCommand(type, c, workflow as string) };
 	switch (type) {
+		case "stageForgeOperation":
+			only(c, ["type", "kind"], "command");
+			if (!FORGE_KINDS.includes(c.kind as ForgeKind)) malformed("kind is publish-source, create-proposal or update-summary");
+			return { command: { type, workflow: workflow as string, kind: c.kind as ForgeKind } };
+		case "admitForgeOperation":
+		case "authorizeForgeReissue":
+			only(c, ["type", "operation"], "command");
+			return { command: { type, workflow: workflow as string, operation: text(c.operation, "operation", 128) } };
+		case "recordForgeObservation":
+			only(c, ["type", "text"], "command");
+			return { command: { type, workflow: workflow as string, text: text(c.text, "text", 4 * 1024 * 1024) } };
+		case "resolveForgeRisk":
+			only(c, ["type", "operation", "pr", "text"], "command");
+			return {
+				command: {
+					type,
+					workflow: workflow as string,
+					operation: text(c.operation, "operation", 128),
+					pr: text(c.pr, "pr", 512),
+					text: text(c.text, "text", 65_536),
+				},
+			};
 		case "requestLocalVerificationPrompt":
 			only(c, ["type", "source", "expectedSequence"], "command");
 			if (!Number.isSafeInteger(c.expectedSequence) || Number(c.expectedSequence) < 0)

@@ -126,7 +126,11 @@ test("GP01 only host Effects stages, admits and records forge work; only a human
 			["host Effects", effects],
 			["implementer agent", t.actor],
 		] as const) {
-			refused(await t.f.command({ type: "authorizeForgeReissue", operation: "revision:1" }, context), "forbidden_principal", `${label} reissue`);
+			refused(
+				await t.f.command({ type: "authorizeForgeReissue", operation: "revision:1" }, context),
+				"forbidden_principal",
+				`${label} reissue`,
+			);
 			refused(
 				await t.f.command({ type: "resolveForgeRisk", operation: "revision:1", pr: "github:pr:1:x", text: "keep" }, context),
 				"forbidden_principal",
@@ -273,13 +277,25 @@ test("GP09/GP10 an unknown create is never readmitted and negative or incomplete
 		assert.equal(op(t, create).status, "unknown");
 		refused(await admitF(t, create), "stale_basis", "no automatic recreation");
 		await t.f.reopen(new LedgerOnlyEngine());
-		refused(await dispatch(t, create, attempt, "applied", { created: "github:pr:1:a" }), "stale_executor", "another epoch reports no dispatch");
-		for (const seen of [listing([]), listing([item("github:pr:1:a", marker(create))], false), listing([item("github:pr:3:c", "render-proposal:other")])]) {
+		refused(
+			await dispatch(t, create, attempt, "applied", { created: "github:pr:1:a" }),
+			"stale_executor",
+			"another epoch reports no dispatch",
+		);
+		for (const seen of [
+			listing([]),
+			listing([item("github:pr:1:a", marker(create))], false),
+			listing([item("github:pr:3:c", "render-proposal:other")]),
+		]) {
 			accepted(await observe(t, { operation: create, ...seen }));
 			assert.equal(op(t, create).status, "unknown");
 			assert.equal(view(t).association, null);
 		}
-		assert.deepEqual(op(t, create).attempts.map((a) => a.id), [attempt], "one attempt");
+		assert.deepEqual(
+			op(t, create).attempts.map((a) => a.id),
+			[attempt],
+			"one attempt",
+		);
 		assert.deepEqual(view(t).choices, ["inspect", "recheck", "authorizeForgeReissue"]);
 		assert.equal(view(t).status, "uncertain");
 	} finally {
@@ -325,7 +341,9 @@ test("GP13/GP14 a human reissue makes risk sticky across attempts until an expli
 			"stale_basis",
 			"an unseen PR cannot be associated",
 		);
-		accepted(await observe(t, { operation: create, ...listing([item("github:pr:1:a", marker(create)), item("github:pr:2:b", marker(create))]) }));
+		accepted(
+			await observe(t, { operation: create, ...listing([item("github:pr:1:a", marker(create)), item("github:pr:2:b", marker(create))]) }),
+		);
 		const resolved = accepted(
 			await t.f.command(
 				{ type: "resolveForgeRisk", operation: create, pr: "github:pr:2:b", text: "Keep #2; I close #1 on GitHub." },
@@ -334,7 +352,10 @@ test("GP13/GP14 a human reissue makes risk sticky across attempts until an expli
 		);
 		assert.deepEqual(view(t).association, { pr: "github:pr:2:b", by: "resolved", draft: true, state: "open" });
 		assert.deepEqual(view(t).duplicates, ["github:pr:1:a"]);
-		assert.deepEqual(view(t).risk, { attempts: [attempt, second], resolved: { statement: resolved.statement, attempts: [attempt, second] } });
+		assert.deepEqual(view(t).risk, {
+			attempts: [attempt, second],
+			resolved: { statement: resolved.statement, attempts: [attempt, second] },
+		});
 		assert.equal(await read(t, resolved.statement as string), "Keep #2; I close #1 on GitHub.");
 		accepted(await stageF(t, "update-summary"));
 	} finally {
@@ -396,7 +417,9 @@ test("G5 an unresolved forge operation never blocks qualifying integration or th
 	try {
 		accepted(await observe(t, { head: { commit: null } }));
 		const publish = accepted(await stageF(t, "publish-source")).operation as string;
-		accepted(await dispatch(t, publish, accepted(await admitF(t, publish)).forgeAttempt as string, "unknown", { reason: "forge unreachable" }));
+		accepted(
+			await dispatch(t, publish, accepted(await admitF(t, publish)).forgeAttempt as string, "unknown", { reason: "forge unreachable" }),
+		);
 		assert.equal(op(t, publish).status, "unknown");
 		assert.equal(view(t).published, null);
 		await integrateNext(t);
