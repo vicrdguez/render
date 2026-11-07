@@ -44,6 +44,7 @@ import {
 	type IntegrationObservation,
 	type IntegrationOutcome,
 	integrated,
+	serializing,
 	unresolved,
 } from "../kernel/integration.ts";
 import { bindingFor, initialPolicy, type PolicyBasis, type PolicyState, policyBasis } from "../kernel/policy.ts";
@@ -873,8 +874,13 @@ export class Engine {
 			initial: () => ({ phase: "prepare" }),
 			phases: {
 				prepare: async (task, runtime, context) => {
-					await this.#prepareHandoff(task.id, task.input.assignment, task.input.from ?? 0, task.state.checkpoint.scope, (scope) =>
-						runtime.commit(() => ({ status: "running", checkpoint: { phase: "prepare", scope } }), context),
+					await this.#prepareHandoff(
+						task.id,
+						task.input.assignment,
+						task.input.from ?? 0,
+						task.state.checkpoint.scope,
+						(scope) => runtime.commit(() => ({ status: "running", checkpoint: { phase: "prepare", scope } }), context),
+						runtime.signal,
 					);
 					return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
 				},
@@ -1761,6 +1767,7 @@ export class Engine {
 		from: number,
 		prior: ExecutionScope | undefined,
 		save: (scope: ExecutionScope) => Promise<unknown>,
+		signal: AbortSignal,
 	) {
 		const owner = this.#assignment(assignmentId);
 		if (!owner?.passRef) throw new Error("Missing sealed handoff owner");
@@ -1815,6 +1822,14 @@ export class Engine {
 						: undefined;
 				if (reviewed === "settled") return;
 				if (reviewed === "again") continue;
+				if (reviewed === "wait") {
+					await this.#waitUntil(signal, () => {
+						const frame = this.#frame()!;
+						const passes = "implementationPasses" in frame ? (frame.implementationPasses as ImplementationPass[]) : [];
+						return !serializing(passes, owner.workflow);
+					});
+					continue;
+				}
 				const observed =
 					reviewed ??
 					(await this.#effects.perform({ type: "observe", repository: check.repository, proposal: owner.workflow, initial: check.commit }));
@@ -1892,7 +1907,8 @@ export class Engine {
 	/**
 	 * A completed passing review on current X/T stages its exact intent, takes current admission and leaves the dispatch
 	 * to `#settleIntegration` (spec §9.3). No human grant or setting is consulted. A stale review returns the observed
-	 * target so the same pass prepares again; the completed review stays counted.
+	 * target so the same pass prepares again; the completed review stays counted. While another integration of the
+	 * proposal is unresolved this one waits for it, never blocks on it.
 	 */
 	async #integrateReviewed(
 		owner: RoleAssignment,
@@ -1902,7 +1918,7 @@ export class Engine {
 		review: RoleAssignment,
 		check: OwnedChecks["checks"][string],
 		block: (reason: string) => Promise<void>,
-	): Promise<"settled" | "again" | TargetObservation> {
+	): Promise<"settled" | "again" | "wait" | TargetObservation> {
 		const observed = await this.#effects!.perform({
 			type: "observe",
 			repository: check.repository,
@@ -1926,6 +1942,11 @@ export class Engine {
 				},
 				mintContext({ kind: "host", scope: "effects" }),
 			);
+		const refused = async (reply: { code: string; reason: string }) => {
+			if (reply.code === "ownership_conflict") return "wait" as const;
+			await block(`integration_refused: ${reply.code}: ${reply.reason}`);
+			return "settled" as const;
+		};
 		if (operation?.preparation !== preparation) {
 			const X = record.preparation!;
 			const T = observed.target;
@@ -1967,21 +1988,13 @@ export class Engine {
 				type: "stageOperation",
 				text: JSON.stringify(intent),
 			});
-			if (staged.status !== "accepted") {
-				await block(`integration_refused: ${staged.code}: ${staged.reason}`);
-				return "settled";
-			}
-			return "again";
+			return staged.status === "accepted" ? "again" : refused(staged);
 		}
 		const admitted = await command(`integration-admit:${operation.operation}:${operation.attempts.length + 1}`, {
 			type: "admitEffect",
 			operation: operation.operation,
 		});
-		if (admitted.status !== "accepted") {
-			await block(`integration_refused: ${admitted.code}: ${admitted.reason}`);
-			return "settled";
-		}
-		return "again";
+		return admitted.status === "accepted" ? "again" : refused(admitted);
 	}
 	/**
 	 * Settles an admitted or divergent operation (spec §§9.1, 9.3). Only the executor epoch that holds the permit

@@ -177,6 +177,13 @@ export function integrationOutcome(o: IntegrationObservation, intent: Integratio
 export function unresolved(i: Integration | undefined): boolean {
 	return i?.status === "admitted" || i?.status === "divergent";
 }
+/** The proposal's unresolved operation, other than `except`, that every other staging and admission waits behind. */
+export function serializing(passes: readonly ImplementationPass[], workflow: string, except?: string): Integration | undefined {
+	return passes
+		.filter((p) => p.workflow === workflow)
+		.flatMap((p) => p.handoff?.integrations ?? [])
+		.find((i) => unresolved(i) && i.operation !== except);
+}
 export function integrated(pass: ImplementationPass): boolean {
 	return !!pass.handoff?.integrations?.some((i) => i.status === "qualified");
 }
@@ -269,10 +276,7 @@ function eligibility(
 		return refusal("stale_basis", "Intent names other prepared X or canonical ref than the reviewed record.");
 	if (intent.result.tree !== intent.tree || intent.result.parent !== intent.target)
 		return refusal("invalid_content", "R must carry exactly prepared X's tree on parent T; nothing is recomputed after review.");
-	const blocking = (work.passes ?? [])
-		.filter((p) => p.workflow === a.workflow)
-		.flatMap((p) => p.handoff?.integrations ?? [])
-		.find((i) => unresolved(i) && i.operation !== except);
+	const blocking = serializing(work.passes ?? [], a.workflow, except);
 	if (blocking)
 		return refusal("ownership_conflict", `Proposal integration is serialized: ${blocking.operation} is unresolved; reconcile it first.`);
 	return undefined;
