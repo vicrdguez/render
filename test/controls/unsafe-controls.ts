@@ -189,8 +189,9 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/implementation.ts",
-				find: "!LAUNCH_FAILURES.includes(Number(f.exitCode))",
-				replace: "LAUNCH_FAILURES.length > 0",
+				// The record parser shares the predicate; anchor on the return-observation parser this control targets.
+				find: "!LAUNCH_FAILURES.includes(Number(f.exitCode)),\n\t\t\t)\n\t\t\t? (v as ReturnObservation)",
+				replace: "LAUNCH_FAILURES.length > 0,\n\t\t\t)\n\t\t\t? (v as ReturnObservation)",
 			},
 		],
 		test: "test/implementation-successor.test.ts",
@@ -211,6 +212,142 @@ const CONTROLS: Control[] = [
 		edits: [{ file: "src/kernel/roles.ts", find: "reviews.length >= limit", replace: "reviews.length < 0" }],
 		test: "test/implementation-successor.test.ts",
 		pattern: "Watchdog rework needs",
+	},
+	{
+		name: "watchdog-count-resets-per-pass",
+		expect: /cap reached/,
+		behavior: "count only the current pass's completed Watchdog reviews, so a successor pass resets the rework budget",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: "const reviews = completedReviews(work.assignments, c.workflow, a.slice);",
+				replace:
+					"const reviews = completedReviews(work.assignments, c.workflow, a.slice).filter((r) => !r.watchdogReview || r.watchdogReview.passRef === pass.ref);",
+			},
+		],
+		test: "test/implementation-successor.test.ts",
+		pattern: "Watchdog rework needs",
+	},
+	{
+		name: "watchdog-drift-exempt",
+		expect: /moved target never qualifies/,
+		behavior: "let a completed passing review qualify after the canonical target moved",
+		edits: [
+			{
+				file: "src/kernel/implementation.ts",
+				find: "\tif (record.target.commit !== target)\n",
+				replace: "\tif (false)\n",
+			},
+		],
+		test: "test/watchdog-rework.test.ts",
+		pattern: "WR12/WR15/WR16",
+	},
+	{
+		name: "watchdog-changed-source-passes",
+		expect: /pass over source_changed/,
+		behavior: "accept a Watchdog pass over its own checks whose scratch run changed the reviewed tree",
+		edits: [
+			{ file: "src/kernel/verification.ts", find: '\t\treceipt.verification.status !== "needs_assessment" ||\n', replace: "" },
+			{
+				file: "src/kernel/verification.ts",
+				find: " ||\n\t\treceipt.verification.inputTree !== receipt.verification.resultTree\n",
+				replace: "\n",
+			},
+		],
+		test: "test/watchdog-rework.test.ts",
+		pattern: "WR06/WR07/WR08/WR09",
+	},
+	{
+		name: "watchdog-resume-abandons-check-runtime",
+		expect: /the interrupted check runtime was stopped, not abandoned/,
+		behavior: "resume an interrupted Watchdog round without stopping its own in-flight check runtime",
+		edits: [{ file: "src/engine/runtime.ts", find: "\t\t\t\t\t\t\tawait this.#stopPreparationScope(this.#scope(a));\n", replace: "" }],
+		test: "test/watchdog-crash.integration.ts",
+		pattern: "WR17 SIGKILL",
+	},
+	{
+		name: "watchdog-source-edit",
+		expect: /no source-writing tool/,
+		behavior: "give a Watchdog round the implementation tools that capture and hand off source",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: '(a.passRef || !tool.name.startsWith("implementation_"))',
+				replace: '(a.passRef || a.watchdogReview || !tool.name.startsWith("implementation_"))',
+			},
+		],
+		test: "test/watchdog-rework.integration.ts",
+		pattern: "WR19",
+	},
+	{
+		name: "watchdog-successor-blind",
+		expect: /the cited report is a required successor input/,
+		behavior: "open a rework successor without the cited Watchdog report among its inputs, so it cannot read its findings",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: '\t\t\tobservation.cause === "watchdog-rework"\n\t\t\t\t? [observation.report]\n',
+				replace: '\t\t\tobservation.cause === "watchdog-rework"\n\t\t\t\t? []\n',
+			},
+		],
+		test: "test/watchdog-rework.test.ts",
+		pattern: "WR25",
+	},
+	{
+		name: "watchdog-direction-bypass",
+		expect: /no recorded human direction/,
+		behavior: "admit a human-direction return through a Needs Human stop without a recorded human direction",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: '\t\t\tobservation.cause === "human-direction" &&\n\t\t\tpass.handoff.direction?.review === observation.review &&\n\t\t\tpass.handoff.direction.revision === observation.direction;',
+				replace: '\t\t\tobservation.cause === "human-direction";',
+			},
+		],
+		test: "test/watchdog-rework.test.ts",
+		pattern: "WR26 only an authenticated",
+	},
+	{
+		name: "watchdog-direction-unbound",
+		expect: /the report is no human direction/,
+		behavior: "admit a human-direction return below the cap without the direction recorded for its exact round",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: '\t\tif (observation.cause === "human-direction" && !directed)\n\t\t\treturn refusal("human_direction_required", "A human-directed return must cite the direction recorded for its exact round.");\n',
+				replace: "",
+			},
+		],
+		test: "test/watchdog-rework.test.ts",
+		pattern: "WR28",
+	},
+	{
+		name: "watchdog-reviewer-direction-blind",
+		expect: /the next Watchdog's prior context names the human direction/,
+		behavior: "launch the next Watchdog round without the human direction that resolved the stopped round",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: "[p.opening?.observation, p.handoff?.direction?.revision]",
+				replace: "[p.opening?.observation]",
+			},
+		],
+		test: "test/watchdog-rework.integration.ts",
+		pattern: "WR29",
+	},
+	{
+		name: "watchdog-cancel-abandons-check-runtime",
+		expect: /quiescence is recorded only after the check runtime stopped/,
+		behavior: "record a canceled Watchdog quiescent while its own check runtime still runs",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: "environment = await this.#stopPreparationScope(this.#scope(a, true));",
+				replace: 'environment = "absent";',
+			},
+		],
+		test: "test/watchdog-rework.integration.ts",
+		pattern: "WR27",
 	},
 	{
 		name: "implementation-stop-original-only",
@@ -248,7 +385,7 @@ const CONTROLS: Control[] = [
 		name: "design-candidate-replacement",
 		expect: /Candidate replacement retains exact question/,
 		behavior: "replace a design candidate with changed question, conditions or role",
-		edits: [{ file: "src/kernel/roles.ts", find: "if (!isDeepStrictEqual(oldPacket, newPacket))", replace: "if (false)" }],
+		edits: [{ file: "src/kernel/roles.ts", find: "\t\t\tif (!samePacket(a.packet, c.packet))\n", replace: "\t\t\tif (false)\n" }],
 		test: "test/experiment-design-candidates.test.ts",
 		pattern: "E18",
 	},

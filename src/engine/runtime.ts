@@ -29,12 +29,16 @@ import { Effects, type PreparationReceipt, type Source, type SourceReceipt, type
 import { experimentInputs } from "../kernel/experiments.ts";
 import {
 	auditReviewerPacket,
+	completedReviews,
 	PREPARATION_REASON_BYTES,
 	type PreparationRecord,
 	type PreparedChecks,
 	preparationBase,
+	reviewQualification,
+	reviewSelection,
+	watchdogVerdict,
 } from "../kernel/implementation.ts";
-import { type PolicyBasis, type PolicyState, policyBasis } from "../kernel/policy.ts";
+import { bindingFor, initialPolicy, type PolicyBasis, type PolicyState, policyBasis } from "../kernel/policy.ts";
 import {
 	currentChildren,
 	type ImplementationPass,
@@ -691,6 +695,20 @@ export class Engine {
 								continue;
 							}
 						}
+						const review = this.#assignment(a.id);
+						if (review?.watchdogReview && !review.watchdogReview.checks) {
+							const unavailable = await this.#reviewChecks(review);
+							if (!unavailable) prompt = await this.render(this.#assignment(a.id)!);
+							if (unavailable || Buffer.byteLength(prompt) > a.packet.maxInputBytes) {
+								await this.#command(this.#assignment(a.id)!, {
+									type: "recordBlocker",
+									reason: unavailable ?? "required_inputs_do_not_fit",
+								});
+								return runtime
+									.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context)
+									.then(() => this.reconcile());
+							}
+						}
 						if (a.packet.experiment) {
 							try {
 								await this.#experiments!.prepare(this.#assignment(a.id)!);
@@ -960,15 +978,24 @@ export class Engine {
 						await this.#command(a, { type: "recordBlocker", reason: "owned_check_quarantined_stop_unconfirmed" });
 					}
 				}
-				for (const a of this.#assignments())
-					if (a.executing && a.status === "running" && a.packet.execution === "read-only")
-						await this.#command(a, {
-							type: "rebindAttempt",
-							providerIdle: true,
-							environment: "absent",
-							effects: "reconciled",
-							executorEpoch: this.#ledger!.status().executorEpoch,
-						});
+				for (const a of this.#assignments()) {
+					if (!a.executing || a.status !== "running" || a.packet.execution !== "read-only") continue;
+					// An interrupted round may have left its own check runtime; it stops before the same review resumes.
+					if (a.watchdogReview && !a.watchdogReview.checks && this.#sandboxes)
+						try {
+							await this.#stopPreparationScope(this.#scope(a));
+						} catch (error) {
+							await this.#command(a, { type: "recordBlocker", reason: `watchdog_check_quiescence_unconfirmed: ${error}`.slice(0, 1900) });
+							continue;
+						}
+					await this.#command(a, {
+						type: "rebindAttempt",
+						providerIdle: true,
+						environment: "absent",
+						effects: "reconciled",
+						executorEpoch: this.#ledger!.status().executorEpoch,
+					});
+				}
 			},
 			roleTasks: {
 				stage: async (tx, intent, a) => {
@@ -1040,10 +1067,17 @@ export class Engine {
 			...experimentInputs(this.#assignments(), a.packet),
 			...(current.experimentSource ? [current.experimentSource] : []),
 			...(current.investigationSource ? [current.investigationSource] : []),
+			...(current.watchdogReview?.checks ? [current.watchdogReview.checks] : []),
 		]) {
 			const value = await this.#ledger.artifact(context, { read: ref });
 			if (!("content" in value)) throw new Error(`Required exact input ${ref}: ${value.code}`);
 			inputs.push({ ref, text: value.content.toString("utf8") });
+		}
+		// Earlier rounds are context, not required inputs: an unavailable one means a full review, never a reset count.
+		const prior: { ref: string; text?: string; unavailable?: string }[] = [];
+		for (const ref of current.watchdogReview?.prior ?? []) {
+			const value = await this.#ledger.artifact(context, { read: ref });
+			prior.push("content" in value ? { ref, text: value.content.toString("utf8") } : { ref, unavailable: value.code });
 		}
 		const results = currentChildren(this.#assignments(), a.id)
 			.filter((child) => child.status === "submitted")
@@ -1119,6 +1153,13 @@ export class Engine {
 							"Inspect only this immutable A and accepted obligations, not later B/X. A's retained record carries its verification: the selected verifier and the results the implementer ran on A, not checks you ran. Submit schema:1 plus exact auditReview fields and findings:[{id,text,needsHuman}]. Report all violations; unresolved product/Contract choices need human direction. Own scope only; no inherited implementer conversation or other-axis context.",
 					}
 				: {}),
+			...(current.watchdogReview
+				? {
+						watchdogReview: { ...current.watchdogReview, prior },
+						watchdogInstructions:
+							"Fresh independent Watchdog round on exact prepared X/T. Inputs hold the accepted Contract, pass record, handoff (B, dispositions and completion table), sealed B, pre-fix Audit source A with both Audit reports, the preparation record for X/T and, once retained, your own checks: literal X plus the results the host ran for you on exact X in Linux with X's own verifier. Audit examined A, never B/X: independently judge actual X, its fixes and integration effects with T. Add no obligations and waive no scope; you cannot edit source or Debt Markers. prior holds earlier rounds' reports, return observations and any human direction that resolved a stopped round; judge fixes against that direction, which waives no Contract scope. When any prior item is unavailable, perform a full review of X rather than a delta. Submit JSON {schema:1,verdict:'pass'|'rework'|'needs-human',passRef,handoff,source,prepared,target} copied exactly from watchdogReview, plus findings:[{id,text}] and directions:[] for rework, with verification {outcome,rank,reason} assessing your own checks. A pass needs your own passing checks; unresolved product/Contract choices are needs-human.",
+					}
+				: {}),
 			...(implementation
 				? {
 						implementation: {
@@ -1126,7 +1167,7 @@ export class Engine {
 							audit: implementation.audit ? { ...implementation.audit, reports: results } : undefined,
 						},
 						implementationInstructions:
-							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately. When implementation.opening is present this is a new pass after a retained handoff: the workspace starts from opening.base, the observation in inputs says why, predecessor source and reports are read-only references, and this pass needs its own Audit before its own handoff. After a preparation conflict, the retained preparation record in inputs holds Git's exact conflict output, and read-only originals are mounted at /candidates/implementation (B), /candidates/base (recorded base T0) and /candidates/target (T1); reapply and resolve in the writable workspace, never guess.",
+							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately. When implementation.opening is present this is a new pass after a retained handoff: the workspace starts from opening.base, the observation in inputs says why (after Watchdog rework, the cited Watchdog report with its findings and directions is also in inputs, and after a human-directed return so is the human's direction: address them), predecessor source and reports are read-only references, and this pass needs its own Audit before its own handoff. After a preparation conflict, the retained preparation record in inputs holds Git's exact conflict output, and read-only originals are mounted at /candidates/implementation (B), /candidates/base (recorded base T0) and /candidates/target (T1); reapply and resolve in the writable workspace, never guess.",
 					}
 				: {}),
 			...(a.packet.experiment
@@ -1218,13 +1259,24 @@ export class Engine {
 							await this.#command(a, { type: "recordBlocker", reason: "whole_environment_stop_unavailable" });
 						continue;
 					}
+					// A read-only Watchdog round may own a check environment: stop it whole before releasing the slot.
+					let environment: "absent" | "stopped" = "absent";
+					if (a.watchdogReview && !a.watchdogReview.checks && a.executing && this.#sandboxes)
+						try {
+							environment = await this.#stopPreparationScope(this.#scope(a, true));
+						} catch (error) {
+							// Debt: no fault injection makes a Docker stop fail here; this held-slot branch is verified by inspection only.
+							const reason = `watchdog_check_quiescence_unconfirmed: ${error}`.slice(0, 1900);
+							if (a.blocker !== reason) await this.#command(a, { type: "recordBlocker", reason });
+							continue;
+						}
 					const c = await this.#harness.conversation(a.conversation as ConversationId, ctx);
 					if (!c) {
 						await this.#command(a, { type: "recordBlocker", reason: "missing_execution_conversation" });
 						continue;
 					}
 					await c.abort(ctx);
-					await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "absent", effects: "reconciled" });
+					await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment, effects: "reconciled" });
 				}
 			}
 		} finally {
@@ -1712,6 +1764,21 @@ export class Engine {
 				if (latest?.outcome === "operational") return;
 				if (latest && ["conflict", "check-failure", "verifier-defect"].includes(latest.outcome))
 					return this.#returnToImplementation(owner, pass, latest, block);
+				// One Watchdog round per checked X: an open one settles this task again when it submits.
+				const rounds = this.#assignments().filter((r) => !!ref && r.watchdogReview?.preparation === ref && r.status !== "canceled");
+				if (rounds.some((r) => r.status !== "submitted")) return;
+				const done = rounds[0];
+				const verdict = done ? watchdogVerdict(await this.#reportText(done)) : undefined;
+				const counted = () =>
+					`${completedReviews(this.#assignments(), owner.workflow, owner.slice).length} completed reviews, limit ${this.#reviewLimit(owner.workflow)}`;
+				// A human direction on this stopped round returns it; otherwise only a rework verdict asks to.
+				const direction = done && pass.handoff?.direction?.review === done.id ? pass.handoff.direction.revision : undefined;
+				if (done && (direction || verdict?.verdict === "rework"))
+					return this.#returnToImplementation(owner, pass, latest!, block, done, direction);
+				if (done && verdict?.verdict !== "pass")
+					return block(
+						`needs_human: Watchdog ${done.id} ${verdict ? "requires human direction" : "submitted no bound verdict"} on prepared ${latest!.preparation!.result}; ${counted()}`,
+					);
 				await faultBarrier("before-target-observe", `preparation-observe:${pass.ref}:${refs.length}`);
 				const observed = await this.#effects.perform({
 					type: "observe",
@@ -1720,16 +1787,48 @@ export class Engine {
 					initial: check.commit,
 				});
 				const basis = this.#policyBasis(owner.workflow);
-				// Debt: Watchdog launch and its final pre-launch reobservation are not wired yet, so a checked pass waits here
-				// as a visible blocker; a target or policy binding that moves after this needs an explicit retry to be prepared again.
-				// Debt: this readiness settlement trusts the cached policy basis read above. A policy adopted after that read, or
-				// the bound policy's retained bytes going missing after the record committed, can still settle `awaiting_watchdog`
-				// on a stale or unverifiable basis. No review runs from it today; before Watchdog launch consumes this readiness,
-				// its launch-time reobservation must recheck the current, verified policy basis.
-				if (latest && latest.target.commit === observed.target.commit && latest.policy.binding === basis.binding)
-					return block(
-						`awaiting_watchdog: prepared ${latest.preparation!.result} checked on current target ${observed.target.commit}; Watchdog capability unavailable`,
+				if (latest && done) {
+					// A completed pass stays counted; on a moved target or policy it no longer qualifies, so prepare again.
+					const stale = reviewQualification({
+						pass,
+						preparation: ref!,
+						record: latest,
+						review: done,
+						verdict,
+						target: observed.target.commit,
+						basis,
+					});
+					if (!stale)
+						return block(
+							`awaiting_integration: Watchdog ${done.id} passed prepared ${latest.preparation!.result} on current target ${observed.target.commit}; ${counted()}; canonical integration capability unavailable`,
+						);
+				} else if (latest && latest.target.commit === observed.target.commit && latest.policy.binding === basis.binding) {
+					if (!pass.configuration.watchdog)
+						return block(
+							`awaiting_watchdog: prepared ${latest.preparation!.result} checked on current target ${observed.target.commit}; Watchdog capability unavailable: no Watchdog reviewer configured`,
+						);
+					// The launch carries this final pre-launch observation; Kernel binds the round to exactly this X/T and policy.
+					const launched = await this.#ledger!.command(
+						{
+							version: 1,
+							authorityEpoch: this.#ledger!.status().authorityEpoch,
+							commandId: `watchdog-launch:${pass.ref}:${ref}`,
+							workflow: owner.workflow,
+							command: {
+								type: "requestWatchdogReview",
+								assignment: owner.id,
+								generation: owner.generation,
+								attempt: owner.attempt,
+								preparation: ref,
+								target: observed.target.commit,
+							},
+						},
+						mintContext({ kind: "host", scope: "effects" }),
 					);
+					if (launched.status === "accepted") return;
+					if (launched.code !== "stale_basis" || this.#policyBasis(owner.workflow).binding === basis.binding)
+						return block(`watchdog_launch_refused: ${launched.code}: ${launched.reason}`);
+				}
 				const record = await this.#preparationAttempt({ owner, pass, check, save }, refs.length + 1, observed, basis);
 				const reply = await this.#ledger!.command(
 					{
@@ -1933,13 +2032,15 @@ export class Engine {
 			this.#preparing.delete(key);
 		}
 	}
-	async #stopPreparationScope(scope: ExecutionScope): Promise<void> {
+	async #stopPreparationScope(scope: ExecutionScope): Promise<"absent" | "stopped"> {
 		try {
 			await this.#sandboxes!.stop({ scope });
+			return "stopped";
 		} catch (error) {
 			// No journal means create was never admitted for this scope; anything else is unconfirmed quiescence.
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT")
 				throw new Error(`prepared_check_quiescence_unconfirmed: ${error instanceof Error ? error.message : error}`);
+			return "absent";
 		}
 	}
 	/** Only a recorded validated conflict or real X check failure authorizes the return; Kernel applies cap and authority. */
@@ -1948,6 +2049,8 @@ export class Engine {
 		pass: ImplementationPass,
 		record: PreparationRecord,
 		block: (reason: string) => Promise<void>,
+		review?: RoleAssignment,
+		direction?: string,
 	) {
 		const sealed = await this.#handoffSource(pass);
 		const prepared = record.preparation!;
@@ -1960,7 +2063,16 @@ export class Engine {
 			targetCommit: record.target.commit,
 		};
 		let observation: Record<string, unknown>;
-		if (record.outcome === "conflict")
+		if (review)
+			observation = {
+				cause: direction ? "human-direction" : "watchdog-rework",
+				...lineage,
+				preparedCommit: prepared.result,
+				review: review.id,
+				report: review.report,
+				...(direction ? { direction } : {}),
+			};
+		else if (record.outcome === "conflict")
 			observation = {
 				cause: "preparation-conflict",
 				...lineage,
@@ -1983,7 +2095,7 @@ export class Engine {
 			{
 				version: 1,
 				authorityEpoch: this.#ledger!.status().authorityEpoch,
-				commandId: `preparation-return:${pass.ref}:${record.attempt}`,
+				commandId: `preparation-return:${pass.ref}:${record.attempt}${review ? `:${review.id}` : ""}${direction ? ":directed" : ""}`,
 				workflow: owner.workflow,
 				command: { type: "openSuccessorPass", assignment: owner.id, generation: owner.generation, attempt: owner.attempt, text },
 			},
@@ -1994,6 +2106,82 @@ export class Engine {
 			// A later pass means this return already committed; anything else stays visible on this pass.
 			if (!latestPass(this.#passes(), current)) return;
 			await block(`preparation_return_refused: ${reply.code}: ${reply.reason}`);
+		}
+	}
+	async #reportText(a: RoleAssignment): Promise<string> {
+		const read = await this.#ledger!.artifact(scheduling, { read: a.report! });
+		if (!("content" in read)) throw new Error(`Restore exact Watchdog report ${a.report}`);
+		return read.content.toString();
+	}
+	#reviewLimit(workflow: string): number {
+		const frame = this.#ledger!.snapshot(scheduling);
+		const policy = "policy" in frame ? (frame.policy as PolicyState) : initialPolicy();
+		return policy.revisions[bindingFor(policy, workflow).policy]!.completedReviewLimit;
+	}
+	/**
+	 * The Watchdog's own run of X's selected rows in a fresh Linux scratch copy of exact X (spec §6.2). Nothing it does
+	 * reaches retained source; a changed tree is recorded as `source_changed`, never passing evidence.
+	 */
+	async #reviewChecks(a: RoleAssignment): Promise<string | undefined> {
+		const binding = a.watchdogReview!;
+		const pass = this.#passes().find((p) => p.ref === binding.passRef);
+		const owner = pass && this.#assignment(pass.assignment);
+		const check = owner && this.#config.ownedChecks?.checks[owner.packet.profile];
+		if (!pass || !check || !this.#effects || !this.#sandboxes)
+			return "watchdog_check_capability_unavailable: owned Effects/Sandboxes are not configured";
+		const scope = this.#scope(a);
+		try {
+			const x = await this.#effects.perform({ type: "read", repository: check.repository, commit: binding.prepared });
+			if (x.tree !== binding.tree) throw new Error("Prepared X differs from the reviewed tree");
+			const catalog = selectCatalog(x, reviewSelection(pass, binding));
+			const handle = await this.#sandboxes.prepare(scope, check.profile, x);
+			let evidence: CatalogEvidence & { scope: ExecutionScope };
+			try {
+				await faultBarrier("before-review-check", `review-check:${binding.passRef}`);
+				const run = (argv: string[]) =>
+					this.#sandboxes!.execute(handle, { scope, argv, timeoutMs: check.timeoutMs, verifierRevision: binding.verifier });
+				const { results, cleanup } = await this.#catalogResults(a, catalog, run);
+				const capture = await this.#sandboxes.seal(handle);
+				const resultTree = treeOid(capture.entries, x.objectFormat);
+				const required = requiredCatalogRows(catalog.selection);
+				const rows = results.filter((r) => required.includes(r.name));
+				let status = "needs_assessment";
+				if (resultTree !== x.tree) status = "source_changed";
+				else if (cleanup.status !== "complete" || rows.some((r) => r.status === "unrun")) status = "non-pass";
+				else if (rows.some((r) => r.status === "failed")) status = "failed";
+				evidence = {
+					kind: "catalog-check",
+					role: "watchdog",
+					scope,
+					catalog,
+					results,
+					verification: { status, inputCommit: x.commit, inputTree: x.tree, resultTree },
+					cleanup,
+				};
+			} catch (error) {
+				await this.#stopPreparationScope(scope);
+				throw error;
+			}
+			const reply = await this.#ledger!.command(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId: `watchdog-checks:${a.id}:${a.attempt}:${a.executionOrdinal}`,
+					workflow: a.workflow,
+					command: {
+						type: "recordReviewChecks",
+						assignment: a.id,
+						generation: a.generation,
+						attempt: a.attempt,
+						text: JSON.stringify({ schema: 1, source: x, evidence }),
+					},
+				},
+				mintContext({ kind: "host", scope: "effects" }),
+			);
+			if (reply.status !== "accepted") throw new Error(`Review checks refused: ${reply.code}: ${reply.reason}`);
+			return undefined;
+		} catch (error) {
+			return `watchdog_checks_unavailable: ${error instanceof Error ? error.message : error}`.slice(0, 1900);
 		}
 	}
 	#passes(): ImplementationPass[] {
@@ -2041,6 +2229,8 @@ export class Engine {
 		}
 		if (a.packet.investigation && !this.#investigationEffects && !a.investigationSource)
 			return "investigation_source_capability_unavailable";
+		if (a.watchdogReview && !a.watchdogReview.checks && (!this.#sandboxes || !this.#effects))
+			return "watchdog_check_capability_unavailable";
 		if (a.packet.execution === "linux-writer" && !a.passRef && !a.packet.experiment && this.#config.ownedChecks)
 			return Object.hasOwn(this.#config.ownedChecks.checks, a.packet.profile) ? undefined : "owned_check_profile_unavailable";
 		if (!this.#config.apiKey) return "native_provider_configuration_missing";
@@ -2048,7 +2238,12 @@ export class Engine {
 		if (this.#config.provider && this.#config.provider.id !== "anthropic") return "native_provider_required";
 		const packets = [
 			a.packet,
-			...(a.passRef ? Object.values(this.#implementationPass(a).configuration.reviewers).map(auditReviewerPacket) : []),
+			...(a.passRef
+				? [
+						...Object.values(this.#implementationPass(a).configuration.reviewers),
+						...(this.#implementationPass(a).configuration.watchdog ? [this.#implementationPass(a).configuration.watchdog!] : []),
+					].map(auditReviewerPacket)
+				: []),
 		];
 		for (const packet of packets) {
 			if (this.#config.families?.[packet.model] !== packet.family || packet.requiredFamily !== packet.family)

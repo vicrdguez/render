@@ -169,14 +169,14 @@ export function damageImplementation(data: string, ref: string, failure: "missin
 	}
 }
 
-export async function implementationLifecycle(engine?: Engine) {
+export async function implementationLifecycle(engine?: Engine, overrides: (contract: string) => Partial<RolePacket> = () => ({})) {
 	const t = await acceptedImplementation(engine);
 	const id = accepted(
 		await t.f.command({
 			type: "assignTask",
 			slice: "read-fix",
 			delivery: true,
-			packet: t.writer({ verification: selection(t.contract) }),
+			packet: t.writer({ verification: selection(t.contract), ...overrides(t.contract) }),
 		}),
 	).assignment as string;
 	const actor = await t.start(id);

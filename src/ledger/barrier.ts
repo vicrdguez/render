@@ -8,7 +8,8 @@ export async function faultBarrier(
 		| "after-source-root"
 		| "after-sandbox-stop"
 		| "before-target-observe"
-		| "before-prepared-check",
+		| "before-prepared-check"
+		| "before-review-check",
 	commandId: string,
 ): Promise<void> {
 	if (process.env.RENDER_FAULT_BARRIER !== name || process.env.RENDER_FAULT_COMMAND !== commandId) return;

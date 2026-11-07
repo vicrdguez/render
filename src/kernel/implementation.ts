@@ -25,7 +25,8 @@ export type FindingDisposition = {
 export type AuditAxis = "standards" | "contracts";
 export type AuditResult = { assignment: string; report: string; findings: AuditFinding[] };
 type AuditRole = "audit-standards" | "audit-contracts";
-type AuditReviewer<R extends AuditRole> = {
+type ReviewRole = AuditRole | "watchdog";
+type AuditReviewer<R extends ReviewRole> = {
 	key: string;
 	/** Runs in its one family: `requiredFamily` is derived, so it cannot differ. */
 	packet: Omit<RolePacket, "role" | "execution" | "requests" | "experiment" | "investigation" | "verification" | "requiredFamily"> & {
@@ -36,11 +37,30 @@ type AuditReviewer<R extends AuditRole> = {
 };
 /** The fresh read-only reviewers an accepted pass runs its one Audit with. */
 export type AuditReviewers = { standards: AuditReviewer<"audit-standards">; contracts: AuditReviewer<"audit-contracts"> };
+/** The read-only reviewer each Watchdog round of this pass's Slice starts fresh from. */
+export type WatchdogReviewer = AuditReviewer<"watchdog">;
 /**
  * What an accepted pass executes with, frozen when it opens: only `passConfiguration` builds one, for a Linux-writer implementer.
  * The selected file may not exist yet, since bootstrapping it is accepted source work. Owner packets stay as retained input.
+ * Without `watchdog` a checked pass waits visibly: no review is invented.
  */
-export type PassConfiguration = { verification: VerificationSelection; reviewers: AuditReviewers };
+export type PassConfiguration = { verification: VerificationSelection; reviewers: AuditReviewers; watchdog?: WatchdogReviewer };
+/** What one Watchdog round judges: exact handed-off B, prepared X/T and X's own verifier; `checks` is its own receipt. */
+export type WatchdogBinding = {
+	passRef: string;
+	handoff: string;
+	source: string;
+	preparation: string;
+	prepared: string;
+	tree: string;
+	target: string;
+	verifier: string;
+	/** Earlier rounds' reports and return observations: context, never required, so missing ones mean a full review. */
+	prior: string[];
+	checks?: string;
+};
+/** The Watchdog's own checks of exact X: literal X as reviewed plus its scoped Linux catalog receipt. */
+export type ReviewChecks = { schema: 1; source: SourceReceipt["source"]; evidence: CatalogEvidence & { scope: Record<string, unknown> } };
 /** `baseCommit` is the pass's recorded target-lineage base T0 that preparation merged against, not B's capture parent. */
 type ReturnLineage = {
 	schema: 1;
@@ -61,7 +81,9 @@ export type ReturnObservation =
 	  })
 	/** X's own verifier cannot define a required check: repair needs a source edit, and nothing ran or failed. */
 	| (ReturnLineage & { cause: "prepared-verifier-defect"; preparedCommit: string; defect: string })
-	| (ReturnLineage & { cause: "watchdog-rework"; preparedCommit: string; review: string; report: string });
+	| (ReturnLineage & { cause: "watchdog-rework"; preparedCommit: string; review: string; report: string })
+	/** A human's recorded direction on a stopped round (Needs Human or the review limit), never automatic. */
+	| (ReturnLineage & { cause: "human-direction"; preparedCommit: string; review: string; report: string; direction: string });
 export type WatchdogVerdict = {
 	schema: 1;
 	verdict: "pass" | "rework" | "needs-human";
@@ -88,7 +110,7 @@ export function usableReviewer(p: RolePacket): boolean {
 		p.family === p.requiredFamily
 	);
 }
-function auditReviewer<R extends AuditRole>(owner: RolePacket, role: R): AuditReviewer<R> | undefined {
+function auditReviewer<R extends ReviewRole>(owner: RolePacket, role: R): AuditReviewer<R> | undefined {
 	const [request, ...others] = owner.requests.filter((r) => r.packet.role === role);
 	if (!request || others.length || !usableReviewer(request.packet)) return;
 	const { requiredFamily, experiment, investigation, verification, ...packet } = request.packet;
@@ -105,13 +127,16 @@ function usableSelection(selection: VerificationSelection | undefined, contract:
 }
 /** Immutable structure only: catalog contents, check results, model availability and policy can still change after acceptance. */
 export function passConfiguration(owner: RolePacket, contract: string): PassConfiguration | undefined {
-	if (owner.role !== "implementer" || owner.execution !== "linux-writer" || owner.requests.length !== 2) return;
+	const watched = owner.requests.some((r) => r.packet.role === "watchdog");
+	if (owner.role !== "implementer" || owner.execution !== "linux-writer" || owner.requests.length !== (watched ? 3 : 2)) return;
 	if (!usableSelection(owner.verification, contract)) return;
 	const standards = auditReviewer(owner, "audit-standards");
 	const contracts = auditReviewer(owner, "audit-contracts");
-	return standards && contracts ? { verification: owner.verification, reviewers: { standards, contracts } } : undefined;
+	const watchdog = watched ? auditReviewer(owner, "watchdog") : undefined;
+	if (!standards || !contracts || (watched && !watchdog)) return;
+	return { verification: owner.verification, reviewers: { standards, contracts }, ...(watchdog ? { watchdog } : {}) };
 }
-export function auditReviewerPacket(reviewer: AuditReviewers[AuditAxis]): RolePacket {
+export function auditReviewerPacket(reviewer: AuditReviewers[AuditAxis] | WatchdogReviewer): RolePacket {
 	return { ...reviewer.packet, requiredFamily: reviewer.packet.family };
 }
 export function validDispositions(v: unknown): v is FindingDisposition[] {
@@ -155,6 +180,7 @@ const RETURN_FIELDS = {
 	"prepared-check-failure": ["preparedCommit", "verifierRevision", "failed"],
 	"prepared-verifier-defect": ["preparedCommit", "defect"],
 	"watchdog-rework": ["preparedCommit", "review", "report"],
+	"human-direction": ["preparedCommit", "review", "report", "direction"],
 } as const;
 const LAUNCH_FAILURES = [126, 127];
 /** Bound on a recorded preparation reason; a verifier defect returns that reason verbatim, so both share it. */
@@ -176,7 +202,10 @@ export function returnObservation(value: string, source: ImplementationSource): 
 				? (v as ReturnObservation)
 				: undefined;
 		if (!id(v.preparedCommit)) return;
-		if (v.cause === "watchdog-rework") return text(v.review) && text(v.report) ? (v as ReturnObservation) : undefined;
+		if (v.cause === "watchdog-rework" || v.cause === "human-direction")
+			return text(v.review) && text(v.report) && (v.cause === "watchdog-rework" || text(v.direction))
+				? (v as ReturnObservation)
+				: undefined;
 		if (v.cause === "prepared-verifier-defect")
 			return text(v.defect) && v.defect.length <= PREPARATION_REASON_BYTES ? (v as ReturnObservation) : undefined;
 		const rows = source.verification?.catalog.rows.map((row) => row.name) ?? [];
@@ -301,6 +330,71 @@ export function preparationRecord(value: string, format: "sha1" | "sha256"): Pre
 	} catch {
 		return;
 	}
+}
+/** A round's verdict exactly as bound: its pass, handoff, B, X and T, never restated by the reviewer. */
+export function boundVerdict(value: string, binding: WatchdogBinding): WatchdogVerdict | undefined {
+	const v = watchdogVerdict(value);
+	return v &&
+		v.passRef === binding.passRef &&
+		v.handoff === binding.handoff &&
+		v.source === binding.source &&
+		v.prepared === binding.prepared &&
+		v.target === binding.target
+		? v
+		: undefined;
+}
+/** Closed shape; literal X identity is the Ledger's, the binding the caller's. */
+export function reviewChecks(value: string): ReviewChecks | undefined {
+	try {
+		const v: unknown = JSON.parse(value);
+		if (!object(v) || v.schema !== 1 || !closed(v, ["schema", "source", "evidence"]) || !object(v.source) || !object(v.evidence)) return;
+		const e = v.evidence;
+		const scope = e.scope;
+		if (e.kind !== "catalog-check" || !text(e.role) || !object(scope) || !object(e.catalog) || !object(e.catalog.selection)) return;
+		if (!["assignment", "attempt", "executorEpoch"].every((k) => text(scope[k])) || !Number.isSafeInteger(scope.generation)) return;
+		const r = e.verification;
+		if (!object(r) || !["status", "inputCommit", "inputTree", "resultTree"].every((k) => text(r[k]))) return;
+		if (!Array.isArray(e.results) || !Array.isArray(e.catalog.rows) || !Array.isArray(e.catalog.ranks) || !object(e.cleanup)) return;
+		return v as ReviewChecks;
+	} catch {
+		return;
+	}
+}
+/** The selection a Watchdog's own receipt must match: the pass's frozen rows, read from exact X's own verifier. */
+export function reviewSelection(pass: ImplementationPass, binding: WatchdogBinding): VerificationSelection {
+	return { ...pass.configuration.verification, commit: binding.prepared, digest: binding.verifier, receipts: [] };
+}
+/** Completed Watchdog reviews of a Slice: every submitted launched round counts once, whatever its pass, verdict or drift. */
+export function completedReviews(assignments: readonly RoleAssignment[], workflow: string, slice: string): RoleAssignment[] {
+	return assignments.filter((a) => !!a.watchdogReview && a.workflow === workflow && a.slice === slice && a.status === "submitted");
+}
+/**
+ * Whether a completed review still qualifies its pass for integration on the current basis (spec §9.4 step 6). The
+ * completed-review count never enters: a valid current pass is admissible at or above the cap. Pure; callers supply
+ * exact retained bytes and the current target observation.
+ */
+export function reviewQualification(input: {
+	pass: ImplementationPass;
+	preparation: string;
+	record: PreparationRecord;
+	review: RoleAssignment;
+	verdict: WatchdogVerdict | undefined;
+	target: string;
+	basis: PolicyBasis;
+}): { code: string; reason: string } | undefined {
+	const { pass, preparation, record, review, verdict, target, basis } = input;
+	const binding = review.watchdogReview;
+	if (!pass.handoff || pass.handoff.preparations?.at(-1) !== preparation || binding?.preparation !== preparation)
+		return { code: "stale_basis", reason: "The review is not of this handoff's latest prepared source." };
+	if (record.outcome !== "checked" || record.preparation?.result !== binding.prepared || review.status !== "submitted")
+		return { code: "missing_content", reason: "Only a completed review of checked prepared X can qualify." };
+	if (!verdict || verdict.verdict !== "pass" || verdict.prepared !== binding.prepared || verdict.target !== binding.target)
+		return { code: "forbidden_scope", reason: "Only a bound passing verdict qualifies; rework and Needs Human never do." };
+	if (record.target.commit !== target)
+		return { code: "stale_basis", reason: `Reviewed target ${record.target.commit} is not current target ${target}; prepare again.` };
+	if (record.policy.binding !== basis.binding || record.policy.revision !== basis.revision)
+		return { code: "stale_basis", reason: "X was qualified under a superseded policy binding; prepare again." };
+	return undefined;
 }
 /** A retained report without this exact shape is a counted review, never an authorizing verdict. */
 export function watchdogVerdict(value: string | undefined): WatchdogVerdict | undefined {
