@@ -151,7 +151,7 @@ export async function performanceFixture() {
 			.assignment as string;
 		await start(id);
 		const a = own(id);
-		return accepted(
+		const report = accepted(
 			await f.command(
 				{
 					type: "recordRunnerObservation",
@@ -163,6 +163,8 @@ export async function performanceFixture() {
 				effects,
 			),
 		).report as string;
+		await quiesce(id);
+		return report;
 	};
 	const baseline = await measure();
 	const performance = (over: Partial<Performance> = {}): Performance => ({

@@ -558,6 +558,9 @@ export class Ledger {
 						requiredInputs.push(a.report);
 			}
 		}
+		// A Watchdog round of a performance Slice compares against the exact accepted Contract.
+		const watched = implementationOwner?.watchdogReview && roles.passes?.find((p) => p.ref === implementationOwner.watchdogReview!.passRef);
+		if (command.type === "submitRoleResult" && watched) requiredInputs.push(watched.contract);
 		for (const ref of requiredInputs) {
 			const location = await tx.doc(RevisionLocation, ref, null);
 			if (!location.exists || location.workflow !== env.workflow)
