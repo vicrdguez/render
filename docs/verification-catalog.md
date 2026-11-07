@@ -1,6 +1,6 @@
 # Selected project verification catalogs
 
-Catalog use composes the existing Engine, Ledger, Kernel, Effects and Sandboxes interfaces. It is not a new runtime stage or a verify-create/maintain service. The existing trusted composition root authorizes execution; the ordinary CLI does not provision workers or enable arbitrary repository execution.
+Catalog use composes the existing Engine, Ledger, Kernel, Effects and Sandboxes interfaces. It is not a new runtime stage or a verify-create service; verify-maintain (below) reuses it. The existing trusted composition root authorizes execution; the ordinary CLI does not provision workers or enable arbitrary repository execution.
 
 ## Selecting one asset
 
@@ -57,6 +57,16 @@ A separate read-only role assignment cites the same selection and exact runner r
 `non-pass` with a reason and null rank is available for honest gaps. Kernel admits pass only with a trusted same-role runner receipt matching exact source, Contract and verifier, all required rows executed successfully, unchanged sealed source and completed cleanup. It rejects generated/human substitution, stronger-than-weakest required behavioral rank and below-minimum behavioral evidence. Human policy may name a project rank; membership is checked against the selected ladder, not hardcoded at policy ingress. Implementer evidence cannot satisfy Watchdog: Watchdog runs its own owned assignment on its exact source and makes its own assessment. No model quality is inferred from scripted fixtures or exit status.
 
 This uses the existing assignment/report boundary. It does not implement later accepted-intake, per-pass preparation, Watchdog scheduling or qualifying-integration transitions. Those unavailable capabilities remain explicit; no report here independently grants later readiness/integration authority.
+
+## Verify-maintain
+
+Maintenance is bounded work over the same selected asset, requested directly or under an accepted change; there is no scheduler. Add `"maintenance": {"basis": null}` to the selection, list every catalog row in `rows` and leave `behavioralRows` empty.
+
+- A `linux-writer` packet with it is the owned runner. It runs every executed row, each journey's steps and sanity, and generated discovery. A row whose command cell or journey path no longer resolves is retained as that row's `invalid` result instead of refusing the asset.
+- A `read-only` packet with it cites runner receipts and submits `{"schema":1,"maintenance":{"<row>":{"status":"clean|changed|blocked","reason":"...","cause":"product|prerequisite","compared":["<row>"]}}}`. Every non-human row is classified once; `clean` needs a successful execution; `changed` is proven harness drift; `blocked` names a product regression (a finding for separate accepted work) or a missing prerequisite; discovery names the dependent rows it was compared with. Human rows stay advisory.
+- After corrections land as ordinary accepted implementation work, a second read-only classification sets `basis` to the pre-edit classification's assignment and cites both runs. It refuses product-code changes (anything but the asset and its journeys), changed definitions of rows not classified `changed`, changed kind/expectations/rank of drifted rows, `changed` claims without a successful re-execution, and outcomes on the unedited commit. A correction that still cannot run stays `blocked`.
+
+Classifications are ordinary role reports, retained per row on the assignment and in history/export. Cases: [verification-maintenance-failure-cases.md](verification/verification-maintenance-failure-cases.md); `npm run verify:verification-maintenance`.
 
 ## Retention and recovery
 
