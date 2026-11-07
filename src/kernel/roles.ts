@@ -386,6 +386,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			"requestImplementationAudit",
 			"submitImplementationHandoff",
 			"openSuccessorPass",
+			"stageOperation",
+			"admitEffect",
 		].includes(c.type) &&
 		blockedBySeams(state.checkpoints, affectedPacket, c.type === "assignTask" ? c.delivery : (a?.delivery ?? false), state.intakes)
 	)
