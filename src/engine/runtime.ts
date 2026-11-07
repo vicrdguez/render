@@ -38,6 +38,14 @@ import {
 	reviewSelection,
 	watchdogVerdict,
 } from "../kernel/implementation.ts";
+import {
+	type Integration,
+	type IntegrationIntent,
+	type IntegrationObservation,
+	type IntegrationOutcome,
+	integrated,
+	unresolved,
+} from "../kernel/integration.ts";
 import { bindingFor, initialPolicy, type PolicyBasis, type PolicyState, policyBasis } from "../kernel/policy.ts";
 import {
 	currentChildren,
@@ -144,6 +152,8 @@ export class Engine {
 	readonly #implementationAdmitted = new Set<string>();
 	/** Exact Sandboxes scopes of in-flight host checks of prepared X; they confer no role or writer authority. */
 	readonly #preparing = new Set<string>();
+	/** In-process serialization of each proposal's canonical integration. */
+	readonly #integrating = new Map<string, Promise<void>>();
 	readonly #preparation;
 	readonly #priorPreparation;
 	readonly #roles;
@@ -1758,6 +1768,14 @@ export class Engine {
 			if (prior && prior.executorEpoch !== this.#ledger!.status().executorEpoch) await this.#stopPreparationScope(prior);
 			for (;;) {
 				const pass = this.#implementationPass(owner);
+				const operation = pass.handoff?.integrations?.at(-1);
+				if (integrated(pass) || (pass.handoff?.canceled && !unresolved(operation))) return;
+				// An admitted or divergent operation is settled before anything else on this handoff (spec §9.3).
+				if (unresolved(operation)) {
+					const outcome = await this.#serialized(owner.workflow, () => this.#settleIntegration(owner, pass, operation!, check, block));
+					if (outcome === "divergent" || outcome === "blocked") return;
+					continue;
+				}
 				const refs = pass.handoff?.preparations ?? [];
 				const ref = refs.length > from ? refs.at(-1) : undefined;
 				const latest = ref ? await this.#preparationRecord(ref) : undefined;
@@ -1780,29 +1798,18 @@ export class Engine {
 						`needs_human: Watchdog ${done.id} ${verdict ? "requires human direction" : "submitted no bound verdict"} on prepared ${latest!.preparation!.result}; ${counted()}`,
 					);
 				await faultBarrier("before-target-observe", `preparation-observe:${pass.ref}:${refs.length}`);
-				const observed = await this.#effects.perform({
-					type: "observe",
-					repository: check.repository,
-					proposal: owner.workflow,
-					initial: check.commit,
-				});
+				// A passing review integrates automatically when still current; otherwise it returns the observed target to prepare.
+				const reviewed =
+					latest && done
+						? await this.#serialized(owner.workflow, () => this.#integrateReviewed(owner, pass, ref!, latest, done, check, block))
+						: undefined;
+				if (reviewed === "settled") return;
+				if (reviewed === "again") continue;
+				const observed =
+					reviewed ??
+					(await this.#effects.perform({ type: "observe", repository: check.repository, proposal: owner.workflow, initial: check.commit }));
 				const basis = this.#policyBasis(owner.workflow);
-				if (latest && done) {
-					// A completed pass stays counted; on a moved target or policy it no longer qualifies, so prepare again.
-					const stale = reviewQualification({
-						pass,
-						preparation: ref!,
-						record: latest,
-						review: done,
-						verdict,
-						target: observed.target.commit,
-						basis,
-					});
-					if (!stale)
-						return block(
-							`awaiting_integration: Watchdog ${done.id} passed prepared ${latest.preparation!.result} on current target ${observed.target.commit}; ${counted()}; canonical integration capability unavailable`,
-						);
-				} else if (latest && latest.target.commit === observed.target.commit && latest.policy.binding === basis.binding) {
+				if (!done && latest && latest.target.commit === observed.target.commit && latest.policy.binding === basis.binding) {
 					if (!pass.configuration.watchdog)
 						return block(
 							`awaiting_watchdog: prepared ${latest.preparation!.result} checked on current target ${observed.target.commit}; Watchdog capability unavailable: no Watchdog reviewer configured`,
@@ -1859,6 +1866,189 @@ export class Engine {
 		} catch (error) {
 			return block(`preparation_operational_error: ${error instanceof Error ? error.message : error}`);
 		}
+	}
+	/** One proposal integrates at a time in this executor; Kernel independently refuses an unserialized admission. */
+	#serialized<T>(workflow: string, run: () => Promise<T>): Promise<T> {
+		const next = (this.#integrating.get(workflow) ?? Promise.resolve()).then(run, run);
+		this.#integrating.set(
+			workflow,
+			next.then(
+				() => {},
+				() => {},
+			),
+		);
+		return next;
+	}
+	/**
+	 * A completed passing review on current X/T stages its exact intent, takes current admission and leaves the dispatch
+	 * to `#settleIntegration` (spec §9.3). No human grant or setting is consulted. A stale review returns the observed
+	 * target so the same pass prepares again; the completed review stays counted.
+	 */
+	async #integrateReviewed(
+		owner: RoleAssignment,
+		pass: ImplementationPass,
+		preparation: string,
+		record: PreparationRecord,
+		review: RoleAssignment,
+		check: OwnedChecks["checks"][string],
+		block: (reason: string) => Promise<void>,
+	): Promise<"settled" | "again" | TargetObservation> {
+		const observed = await this.#effects!.perform({
+			type: "observe",
+			repository: check.repository,
+			proposal: owner.workflow,
+			initial: check.commit,
+		});
+		const basis = this.#policyBasis(owner.workflow);
+		const verdict = watchdogVerdict(await this.#reportText(review));
+		const stale = reviewQualification({ pass, preparation, record, review, verdict, target: observed.target.commit, basis });
+		const operation = pass.handoff!.integrations?.at(-1);
+		if (stale || (operation?.preparation === preparation && operation.status === "stale")) return observed;
+		const current = this.#assignment(owner.id)!;
+		const command = async (commandId: string, body: Record<string, unknown>) =>
+			this.#ledger!.command(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId,
+					workflow: owner.workflow,
+					command: { assignment: current.id, generation: current.generation, attempt: current.attempt, ...body },
+				},
+				mintContext({ kind: "host", scope: "effects" }),
+			);
+		if (operation?.preparation !== preparation) {
+			const X = record.preparation!;
+			const T = observed.target;
+			const message = `Render proposal integration\n\nproposal ${owner.workflow}\npass ${pass.ref}\nprepared ${X.result}\ntarget ${T.commit}\nreview ${review.id}\n`;
+			const R = await this.#effects!.perform({
+				type: "squash",
+				prepared: await this.#effects!.perform({ type: "read", repository: check.repository, commit: X.result }),
+				target: T,
+				message,
+			});
+			const audit = pass.audit!;
+			const intent = {
+				schema: 1,
+				kind: "proposal-integration",
+				proposal: owner.workflow,
+				ref: observed.ref,
+				slice: pass.slice,
+				contract: pass.contract,
+				passRef: pass.ref,
+				handoff: pass.handoff!.record,
+				source: pass.handoff!.source,
+				captureA: pass.captureA,
+				audit: audit.record,
+				reports: [audit.results.standards!.report, audit.results.contracts!.report],
+				preparation,
+				prepared: X.result,
+				tree: X.tree,
+				target: T.commit,
+				review: review.id,
+				report: review.report,
+				result: { commit: R.commit, tree: R.tree, parent: T.commit, message },
+				policy: basis,
+				assignment: current.id,
+				generation: current.generation,
+				attempt: current.attempt,
+				unresolved: [],
+			};
+			const staged = await command(`integration-stage:${pass.ref}:${preparation}`, {
+				type: "stageOperation",
+				text: JSON.stringify(intent),
+			});
+			if (staged.status !== "accepted") {
+				await block(`integration_refused: ${staged.code}: ${staged.reason}`);
+				return "settled";
+			}
+			return "again";
+		}
+		const admitted = await command(`integration-admit:${operation.operation}:${operation.attempts.length + 1}`, {
+			type: "admitEffect",
+			operation: operation.operation,
+		});
+		if (admitted.status !== "accepted") {
+			await block(`integration_refused: ${admitted.code}: ${admitted.reason}`);
+			return "settled";
+		}
+		return "again";
+	}
+	/**
+	 * Settles an admitted or divergent operation (spec §§9.1, 9.3). Only the executor epoch that holds the permit
+	 * dispatches it, once; any other executor, or an uncertain dispatch, reconciles the canonical ref read-only and
+	 * records what it saw. Kernel derives the outcome; nothing is replayed or rolled back here.
+	 */
+	async #settleIntegration(
+		owner: RoleAssignment,
+		pass: ImplementationPass,
+		operation: Integration,
+		check: OwnedChecks["checks"][string],
+		block: (reason: string) => Promise<void>,
+	): Promise<IntegrationOutcome | "blocked"> {
+		const attempt = operation.attempts.at(-1)!;
+		const read = await this.#ledger!.artifact(scheduling, { read: operation.operation });
+		if (!("content" in read)) {
+			await block(`integration_operational_error: restore exact integration intent ${operation.operation}`);
+			return "blocked";
+		}
+		const intent = JSON.parse(read.content.toString()) as IntegrationIntent;
+		const epoch = this.#ledger!.status().executorEpoch;
+		let seen: Omit<IntegrationObservation, "schema" | "operation" | "attempt">;
+		let failure: string | undefined;
+		if (operation.status === "admitted" && attempt.executorEpoch === epoch) {
+			try {
+				await faultBarrier("before-integration-cas", `integration:${pass.ref}`);
+				const result = await this.#effects!.perform({ type: "read", repository: check.repository, commit: intent.result.commit });
+				const dispatched = await this.#effects!.perform({
+					type: "integrate",
+					repository: check.repository,
+					proposal: owner.workflow,
+					expected: intent.target,
+					result,
+					attempt: attempt.id,
+				});
+				await faultBarrier("after-integration-cas", `integration:${pass.ref}`);
+				const { dispatch, ...observed } = dispatched;
+				seen = { mode: "dispatch", dispatch, ...observed };
+				if (dispatch === "refused") failure = "canonical CAS refused";
+			} catch (error) {
+				failure = error instanceof Error ? error.message : String(error);
+			}
+		}
+		seen ??= {
+			mode: "reconcile",
+			dispatch: null,
+			...(await this.#effects!.reconcile({ type: "integration", repository: check.repository, proposal: owner.workflow })),
+		};
+		const current = this.#assignment(owner.id)!;
+		const reply = await this.#ledger!.command(
+			{
+				version: 1,
+				authorityEpoch: this.#ledger!.status().authorityEpoch,
+				commandId: `integration-observe:${attempt.id}:${attempt.observations.length}:${seen.mode}:${epoch}`,
+				workflow: owner.workflow,
+				command: {
+					type: "recordIntegration",
+					assignment: current.id,
+					generation: current.generation,
+					attempt: current.attempt,
+					operation: operation.operation,
+					text: JSON.stringify({ schema: 1, operation: operation.operation, attempt: attempt.id, ...seen }),
+				},
+			},
+			mintContext({ kind: "host", scope: "effects" }),
+		);
+		if (reply.status !== "accepted") {
+			await block(`integration_observation_refused: ${reply.code}: ${reply.reason}`);
+			return "blocked";
+		}
+		const outcome = reply.result.outcome as IntegrationOutcome;
+		// This executor's own dispatch left T unchanged: a visible operational blocker, never an automatic hot retry.
+		if (outcome === "unapplied" && failure) {
+			await block(`integration_operational_error: ${failure}`.slice(0, 1900));
+			return "blocked";
+		}
+		return outcome;
 	}
 	/** The workflow's current policy basis; Ledger verifies its exact retained bytes when a record names it. */
 	#policyBasis(workflow: string): PolicyBasis {
