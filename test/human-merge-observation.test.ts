@@ -32,7 +32,14 @@ type Main = { pr: string; source: string; commit: string; observation: string; c
 type View = {
 	workflow: string;
 	intakes: { revision: string; slices: { id: string; contract: string }[]; dependencies: unknown[] };
-	publication: { main: Main | null; mainUnknown: string | null; choices: string[]; association: { pr: string } | null };
+	publication: {
+		main: Main | null;
+		mainUnknown: string | null;
+		choices: string[];
+		association: { pr: string } | null;
+		divergence: { head: string } | null;
+		summaryStale: boolean;
+	};
 	blocker: { code: string; reason: string } | null;
 	commitment: { status: string };
 	owner: { status: string; assignments: { slice: string }[] };
@@ -471,5 +478,24 @@ test("HM08 once the human merge is observed, a deleted branch stages and admits 
 		);
 	} finally {
 		await t.close();
+	}
+});
+
+test("HM09 an observed human merge or a recorded divergence never leaves the summary stale, so reconciles stop rescheduling forge reads", async () => {
+	const t = await associated();
+	try {
+		accepted(await observe(t, listing([mergedItem()])));
+		assert.equal(pub(t).main?.source, R1);
+		assert.equal(pub(t).summaryStale, false, "the merged PR's summary is final: no further update or read is scheduled");
+	} finally {
+		await t.close();
+	}
+	const d = await associated();
+	try {
+		accepted(await observe(d, { head: { commit: FOREIGN } }));
+		assert.equal(pub(d).divergence?.head, FOREIGN);
+		assert.equal(pub(d).summaryStale, false, "a divergent head blocks the summary: no reconcile reschedules publication");
+	} finally {
+		await d.close();
 	}
 });
