@@ -505,6 +505,34 @@ export function implementationSource(value: unknown): ImplementationSource | und
 	}
 	return value as ImplementationSource;
 }
+/**
+ * Whether a pre-fix catalog run is red-on-the-bug proof: a regression row fails and its own output shows the observed
+ * wrong behavior. A launch failure, a passing row or a failure without that output is a reported gap, never a correction.
+ */
+export function reproductionOutcome(
+	evidence: CatalogEvidence,
+	rows: readonly string[],
+	observed: string,
+): { red: boolean; reason: string } {
+	const gaps: string[] = [];
+	for (const name of rows) {
+		const result = evidence.results.find((r) => r.name === name);
+		const steps = result ? [...result.steps, ...(result.sanity ? [result.sanity] : [])] : [];
+		const launch = steps.find((s) => LAUNCH_FAILURES.includes(Number(s.exitCode)));
+		if (!result || !steps.length) gaps.push(`Regression row ${name} was not run by the selected verifier.`);
+		else if (launch)
+			gaps.push(`Regression row ${name} did not run (exit ${launch.exitCode}): a missing prerequisite is not red-on-the-bug proof.`);
+		else if (steps.every((s) => s.exitCode === 0 && !s.timedOut))
+			gaps.push(`Regression row ${name} passed: the reported wrong behavior was not reproduced.`);
+		else if (steps.some((s) => s.exitCode !== 0 && !s.timedOut && `${s.stdout}${s.stderr}`.includes(observed)))
+			return { red: true, reason: `Regression row ${name} failed showing the reported wrong behavior.` };
+		else
+			gaps.push(
+				`Regression row ${name} failed without showing the reported wrong behavior (${observed}): a setup failure is not red-on-the-bug proof.`,
+			);
+	}
+	return { red: false, reason: gaps[0] ?? "No regression row maps the reproduction." };
+}
 export function sourceScopeMatches(source: ImplementationSource | undefined, a: RoleAssignment): boolean {
 	const scope = source?.source.freeze.scope;
 	return (

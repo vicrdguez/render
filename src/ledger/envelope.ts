@@ -448,8 +448,10 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 	if (type === "recordRuntimeHistory") return { ...common, type, key: text(c.key, "key", 128) };
 	if (type === "recordBlocker" || type === "recordPreparationBlocker") return { ...common, type, reason: text(c.reason, "reason", 2048) };
 	if (type === "recordImplementationSource") {
-		if (c.kind !== "audit" && c.kind !== "final" && c.kind !== "checkpoint") malformed("Source kind is audit, final or checkpoint");
-		return { ...common, type, kind: c.kind, text: text(c.text, "text", 16 * 1024 * 1024) };
+		const kind = c.kind as "audit" | "final" | "checkpoint" | "reproduction";
+		if (!["audit", "final", "checkpoint", "reproduction"].includes(kind))
+			malformed("Source kind is audit, final, checkpoint or reproduction");
+		return { ...common, type, kind, text: text(c.text, "text", 16 * 1024 * 1024) };
 	}
 	if (
 		type === "recordRecoveryState" ||
