@@ -13,7 +13,9 @@ const LANES = 4;
 const SNAPSHOT_EVERY = 10;
 type Status = { executing: string[]; active: number; turns: Record<string, number>; sequence: number };
 
-test("V9 full workload: 100 active Slices, two clients, four streaming Durable attempts at FULL/fullfsync", { timeout: 600_000 }, async () => {
+test("V9 full workload: 100 active Slices, two clients, four streaming Durable attempts at FULL/fullfsync", {
+	timeout: 600_000,
+}, async () => {
 	const dir = await tempDir("v9-full");
 	const child = track(
 		spawn(process.execPath, [new URL("./support/v9-host-worker.ts", import.meta.url).pathname, dir.path], {
@@ -51,7 +53,10 @@ test("V9 full workload: 100 active Slices, two clients, four streaming Durable a
 		const workflows = ready!.workflows as string[];
 		const clients = [await enroll(host, "v9-a"), await enroll(host, "v9-b")];
 		// The four streams are running and have committed turns before measurement starts.
-		await until(() => (status?.executing.length ?? 0) === 4 && Object.values(status!.turns).filter((t) => t >= 3).length === 4, "four streams");
+		await until(
+			() => (status?.executing.length ?? 0) === 4 && Object.values(status!.turns).filter((t) => t >= 3).length === 4,
+			"four streams",
+		);
 		const start = { ...status! };
 		const current = new Map<string, string | null>();
 		const acks: number[] = [];

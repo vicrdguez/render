@@ -30,8 +30,12 @@ const provider = fauxProvider({
 // commits an assistant message, a Durable tool task and its tool result, and a runtime-history capture.
 const stream = (transcript: { messages: { role: string; sections?: Record<string, string | null> }[] }) => {
 	const live = transcript.messages.findLast((m) => m.role === "system" && m.sections?.["role-packet"])?.sections?.["role-packet"];
-	const prompt = JSON.parse(live!.slice(live!.indexOf("{"), live!.lastIndexOf("}") + 1)) as { assignment: string; packet: { inputs: string[] } };
-	const n = (turns[prompt.assignment] = (turns[prompt.assignment] ?? 0) + 1);
+	const prompt = JSON.parse(live!.slice(live!.indexOf("{"), live!.lastIndexOf("}") + 1)) as {
+		assignment: string;
+		packet: { inputs: string[] };
+	};
+	const n = (turns[prompt.assignment] ?? 0) + 1;
+	turns[prompt.assignment] = n;
 	return fauxAssistantMessage(
 		[
 			fauxText(`Turn ${n}: re-reading the retained input to continue the delegated analysis. `.repeat(4)),
@@ -50,7 +54,14 @@ const adminListener = await adminServer(opened.ledger, socket);
 let n = 0;
 const command = async (workflow: string | undefined, command: Record<string, unknown>, context = admin, extra = {}) => {
 	const reply = await opened.ledger.command(
-		{ version: 1, authorityEpoch: opened.authorityEpoch, commandId: `v9-setup:${++n}`, ...(workflow ? { workflow } : {}), command, ...extra },
+		{
+			version: 1,
+			authorityEpoch: opened.authorityEpoch,
+			commandId: `v9-setup:${++n}`,
+			...(workflow ? { workflow } : {}),
+			command,
+			...extra,
+		},
 		context,
 	);
 	if (reply.status !== "accepted") throw new Error(`V9 setup refused: ${JSON.stringify(reply)}`);
@@ -61,12 +72,19 @@ const inputs: Record<string, string> = {};
 for (let w = 0; w < WORKFLOWS; w++) {
 	const workflow = (await command(undefined, { type: "createWorkflow", title: `V9 proposal ${w}` })).workflow as string;
 	workflows.push(workflow);
-	inputs[workflow] = (await command(
-		workflow,
-		{ type: "saveDocument", document: "input", mediaType: "text/plain", content: Buffer.from("x".repeat(INPUT_BYTES)).toString("base64") },
-		admin,
-		{ expected: { document: null } },
-	)).revision as string;
+	inputs[workflow] = (
+		await command(
+			workflow,
+			{
+				type: "saveDocument",
+				document: "input",
+				mediaType: "text/plain",
+				content: Buffer.from("x".repeat(INPUT_BYTES)).toString("base64"),
+			},
+			admin,
+			{ expected: { document: null } },
+		)
+	).revision as string;
 }
 // 100 active Slices, each with one delivery owner; capacity admits four executing attempts, the rest stay queued.
 for (let i = 0; i < SLICES; i++) {
@@ -100,8 +118,9 @@ const status = () => {
 	const assignments = ("assignments" in frame ? frame.assignments : []) as RoleAssignment[];
 	return {
 		executing: assignments.filter((a) => a.executing).map((a) => a.id),
-		active: new Set(assignments.filter((a) => a.delivery && a.status !== "submitted" && a.status !== "canceled").map((a) => a.slice + a.workflow))
-			.size,
+		active: new Set(
+			assignments.filter((a) => a.delivery && a.status !== "submitted" && a.status !== "canceled").map((a) => a.slice + a.workflow),
+		).size,
 		turns: { ...turns },
 		sequence: opened.ledger.status().sequence,
 	};

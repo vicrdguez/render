@@ -57,7 +57,13 @@ for (const selection of SELECTIONS) {
 	const passed = run.status === 0;
 	const within = ms < selection.budgetMs;
 	if (!passed || !within) failed = true;
-	if (!passed) process.stderr.write(run.stdout.split("\n").filter((l) => /✖|Error|not ok/.test(l)).join("\n"));
+	if (!passed)
+		process.stderr.write(
+			run.stdout
+				.split("\n")
+				.filter((l) => /✖|Error|not ok/.test(l))
+				.join("\n"),
+		);
 	process.stdout.write(
 		`${JSON.stringify({
 			measure: `v9_budget_${selection.name}`,
