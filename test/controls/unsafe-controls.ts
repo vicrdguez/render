@@ -1453,8 +1453,8 @@ const CONTROLS: Control[] = [
 		expect: /HOME-only hostile default attributes changed a real conflict/,
 		behavior: "trusted preparation Git reads default attributes through the caller's HOME",
 		edits: [
-			{ file: "src/effects/source.ts", find: '\t\t\t\t\t"-c",\n\t\t\t\t\t"core.attributesFile=/dev/null",\n', replace: "" },
-			{ file: "src/effects/source.ts", find: "\t\t\t\t\t\tHOME: cwd,\n", replace: "\t\t\t\t\t\tHOME: process.env.HOME,\n" },
+			{ file: "src/effects/source.ts", find: '\t\t\t"-c",\n\t\t\t"core.attributesFile=/dev/null",\n', replace: "" },
+			{ file: "src/effects/source.ts", find: "\t\tHOME: cwd,\n", replace: "\t\tHOME: process.env.HOME,\n" },
 		],
 		test: "test/target-preparation.test.ts",
 		pattern: "HOME-only hostile",
@@ -1464,11 +1464,11 @@ const CONTROLS: Control[] = [
 		expect: /XDG_CONFIG_HOME-only hostile default attributes changed a real conflict/,
 		behavior: "trusted preparation Git reads default attributes through the caller's XDG_CONFIG_HOME",
 		edits: [
-			{ file: "src/effects/source.ts", find: '\t\t\t\t\t"-c",\n\t\t\t\t\t"core.attributesFile=/dev/null",\n', replace: "" },
+			{ file: "src/effects/source.ts", find: '\t\t\t"-c",\n\t\t\t"core.attributesFile=/dev/null",\n', replace: "" },
 			{
 				file: "src/effects/source.ts",
-				find: "\t\t\t\t\t\tHOME: cwd,\n",
-				replace: "\t\t\t\t\t\tHOME: cwd,\n\t\t\t\t\t\tXDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,\n",
+				find: "\t\tHOME: cwd,\n",
+				replace: "\t\tHOME: cwd,\n\t\tXDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,\n",
 			},
 		],
 		test: "test/target-preparation.test.ts",
@@ -1516,7 +1516,9 @@ const CONTROLS: Control[] = [
 	},
 	{
 		name: "integration-ignores-cancellation",
-		expect: /admission after cancellation/,
+		expect: /admission after cancellation: \{"status":"accepted"/,
+		// Cancellation fences admission twice: the canceled guard, and the generation bump that makes the staged intent's
+		// pinned owner generation stale. Removing only the guard still refuses, so both go.
 		behavior: "admission ignores a human cancellation committed before it",
 		edits: [
 			{
@@ -1524,6 +1526,7 @@ const CONTROLS: Control[] = [
 				find: '\t\tif (h.canceled) return refusal("assignment_closed", "Cancellation fenced this handoff before admission.");\n',
 				replace: "",
 			},
+			{ file: "src/kernel/integration.ts", find: "\t\tintent.generation !== a.generation ||\n", replace: "" },
 		],
 		test: "test/canonical-integration.test.ts",
 		pattern: "CI04",
