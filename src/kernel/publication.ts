@@ -235,6 +235,7 @@ export function changePublication(
 	const find = (operation: string) => p.operations.find((o) => o.operation === operation);
 	switch (command.type) {
 		case "stageForgeOperation": {
+			if (p.main) return refusal("stale_basis", "The human merged this proposal to main; it publishes nothing more.");
 			if (!head) return refusal("stale_basis", "Nothing publishes before the proposal's first recorded qualifying integration.");
 			const published = p.remote?.head ?? null;
 			let intent: Record<string, unknown>;
@@ -291,6 +292,7 @@ export function changePublication(
 		case "admitForgeOperation": {
 			const op = find(command.operation);
 			if (!op) return refusal("stale_basis", "Name a staged forge operation.");
+			if (p.main) return refusal("stale_basis", "The human merged this proposal to main; it publishes nothing more.");
 			if (!facts.executorEpoch) return refusal("capability_unavailable", "No current executor epoch can consume a permit.");
 			const reissue = op.kind === "create-proposal" && op.reissue;
 			if (op.status !== "planned" && !reissue)

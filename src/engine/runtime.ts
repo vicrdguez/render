@@ -2189,7 +2189,7 @@ export class Engine {
 		await observe(null);
 		for (let step = 0; step < 16; step++) {
 			const p = current();
-			if (!p || p.divergence) return false;
+			if (!p || p.divergence || p.main) return false;
 			const recovered = p.operations.find((o) => o.status === "admitted");
 			if (recovered) {
 				await observe(recovered.operation);
@@ -2226,7 +2226,7 @@ export class Engine {
 			else if (!summary || summary.canonical !== p.canonical || summary.published !== p.published)
 				await send({ type: "stageForgeOperation", kind: "update-summary" });
 			// Only the human merges main; keep reading the associated PR until that merge is observed.
-			else return !p.main;
+			else return true;
 		}
 		return false;
 	}
