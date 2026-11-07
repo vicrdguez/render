@@ -1,6 +1,7 @@
 // Exact technical checkpoint legality. All bytes/provenance are supplied by Ledger; no I/O.
 import { candidateEvidence, candidatePlan, validCandidateAnswer } from "./candidates.ts";
 import { initialCheckpointSettings } from "./checkpoint-settings.ts";
+import type { Intakes } from "./intake.ts";
 import { readGround, shapeConfirmed } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
@@ -183,7 +184,12 @@ export function checkpointRefs(work: Checkpoints, c: CheckpointCommand): string[
 	}
 	return [...new Set(refs.filter((r): r is string => !!r))];
 }
-export function blockedBySeams(work: Checkpoints | undefined, packet: RolePacket | undefined, delivery: boolean): boolean {
+export function blockedBySeams(
+	work: Checkpoints | undefined,
+	packet: RolePacket | undefined,
+	delivery: boolean,
+	intakes?: Intakes,
+): boolean {
 	if (!work || !packet) return false;
 	if (!delivery && packet.experiment && ["experiment-candidate", "experiment-parent"].includes(packet.role)) return false;
 	// Historical evidence is input to revised design, not a dependency authorizing delivery.
@@ -195,7 +201,17 @@ export function blockedBySeams(work: Checkpoints | undefined, packet: RolePacket
 		return false;
 	const inputs = packet.inputs;
 	const pending = work.requests.some((r) => r.stage === "seams" && r.status === "pending");
-	const latest = work.requests.findLast((r) => r.stage === "seams" && r.status === "approved")?.approved;
+	const latestRequest = work.requests.findLast((r) => r.stage === "seams" && r.status === "approved");
+	const latest = latestRequest?.approved;
+	// A Contract accepted without the current Seams (an existing-seam change included) is affected by their revision.
+	const contracts = (intakes?.slices ?? []).filter((s) => inputs.includes(s.contract));
+	if (
+		contracts.some((s) => {
+			const decisions = intakes!.drafts.find((d) => d.id === s.intake)?.manifest.decisions ?? [];
+			return pending || (!!latestRequest?.decision && !decisions.includes(latestRequest.decision));
+		})
+	)
+		return true;
 	return work.requests.some(
 		(r) =>
 			r.approved &&
@@ -292,7 +308,7 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 				if (
 					dependent.workflow === c.workflow &&
 					!["submitted", "canceled", "canceling"].includes(dependent.status) &&
-					blockedBySeams(work, dependent.packet, dependent.delivery)
+					blockedBySeams(work, dependent.packet, dependent.delivery, state.intakes)
 				) {
 					dependent.status = "blocked";
 					dependent.blocker = "seams_decision_required";
