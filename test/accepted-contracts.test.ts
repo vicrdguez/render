@@ -211,6 +211,16 @@ test("I01/I12 compact intake names future executable evidence without requiring 
 		const m = intakeManifest();
 		m.shape = shape;
 		m.breakdown = shape === "change" ? "One bounded read seam, no new interface" : null;
+		if (shape === "performance") {
+			// Performance Ground retains its measured commitment; an unknown baseline/target stays an explicit question.
+			const ground = JSON.parse(f.inputs["ground:1"]!.text);
+			ground.performance = {
+				...{ scenario: "Read", row: "read", metric: "ms", better: "lower", method: "Timed read" },
+				...{ controls: ["Same host"], limitations: [], uncertainty: [], baseline: null, target: null },
+			};
+			f.inputs["ground:1"]!.text = JSON.stringify(ground);
+			m.unresolved = [{ kind: "product", question: "What read latency is acceptable?" }];
+		}
 		assert.ok(f.stage(m));
 	}
 });

@@ -1633,6 +1633,36 @@ const CONTROLS: Control[] = [
 		test: "test/canonical-integration-effects.test.ts",
 		pattern: "CI25",
 	},
+	{
+		name: "performance-target-invented",
+		expect: /missing target without unresolved question/,
+		behavior: "stage a performance intake whose human Ground has no target without surfacing it as a question",
+		edits: [
+			{
+				file: "src/kernel/intake.ts",
+				find: 'if (p === null && !m.unresolved.some((u) => u.kind === "product"))',
+				replace: "if (false)",
+			},
+		],
+		test: "test/performance-journey.test.ts",
+		pattern: "PJ03",
+	},
+	{
+		name: "performance-mismatch-passes",
+		expect: /a different workload cannot pass/,
+		behavior: "admit a passing Watchdog verdict whose faster measurement used another workload",
+		edits: [{ file: "src/kernel/roles.ts", find: 'comparison.outcome !== "met" && ', replace: 'comparison.outcome === "regressed" && ' }],
+		test: "test/performance-journey.test.ts",
+		pattern: "PJ09",
+	},
+	{
+		name: "performance-regression-ignored",
+		expect: /a silently weakened full suite cannot pass/,
+		behavior: "compare the measured row only, ignoring baseline checks that were weakened since the baseline",
+		edits: [{ file: "src/kernel/performance.ts", find: "Object.entries(c.baseline.rows)", replace: "Object.entries({})" }],
+		test: "test/performance-journey.test.ts",
+		pattern: "PJ11",
+	},
 ];
 
 async function copy(): Promise<string> {
