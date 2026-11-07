@@ -41,7 +41,6 @@ export type TargetObservation = { proposal: string; ref: string; target: Source 
 export type Squash = { type: "squash"; prepared: Source; target: Source; message: string };
 /** One admitted attempt's expected-old CAS of the canonical proposal ref from `expected` (T) to `result` (R). */
 export type Integrate = { type: "integrate"; repository: string; proposal: string; expected: string; result: Source; attempt: string };
-/** Read-only reconciliation of the canonical proposal ref. */
 export type ReconcileIntegration = { type: "integration"; repository: string; proposal: string };
 export type CanonicalObservation = {
 	ref: string;

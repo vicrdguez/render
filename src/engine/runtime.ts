@@ -153,7 +153,6 @@ export class Engine {
 	/** Exact Sandboxes scopes of in-flight host checks of prepared X; they confer no role or writer authority. */
 	readonly #preparing = new Set<string>();
 	#cached: { sequence: number; frame: ReturnType<Ledger["snapshot"]> } | undefined;
-	/** In-process serialization of each proposal's canonical integration. */
 	readonly #integrating = new Map<string, Promise<void>>();
 	readonly #preparation;
 	readonly #priorPreparation;
