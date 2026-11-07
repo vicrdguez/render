@@ -422,7 +422,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			"openSuccessorPass",
 		].includes(c.type)
 	) {
-		const gap = intakeAssignmentGap(state, slice, affectedPacket);
+		const gap = intakeAssignmentGap(state, slice, affectedPacket, facts.mainDeliveries ?? []);
 		if (gap) return gap;
 	}
 	if (proposedPacket?.investigation) {

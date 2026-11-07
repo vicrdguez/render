@@ -1856,6 +1856,76 @@ const CONTROLS: Control[] = [
 		test: "test/performance-journey.test.ts",
 		pattern: "PJ11",
 	},
+	{
+		name: "merge-label-integrates",
+		expect: /an incomplete listing or a merge outside main is not main integration/,
+		behavior: "a merged label in an incomplete or non-main observation records the main merge",
+		edits: [
+			{
+				file: "src/kernel/publication.ts",
+				find: "if (!gap) p.main = { pr: current.id, source: current.head!, commit: current.merge!.commit, observation: revision };",
+				replace: 'p.main = { pr: current.id, source: current.head ?? "", commit: current.merge?.commit ?? "", observation: revision };',
+			},
+		],
+		test: "test/human-merge-observation.test.ts",
+		pattern: "HM03",
+	},
+	{
+		name: "main-edge-clears-on-private-ref",
+		expect: /a prerequisite's private ref and passing review clear no cross-proposal edge/,
+		behavior: "a cross-proposal edge clears on the prerequisite's recorded qualifying integration instead of an observed main merge",
+		edits: [
+			{
+				file: "src/ledger/ledger.ts",
+				find: "mainCoverage(w.publication, roles, w.intakes, id).covered.map(",
+				replace: "qualifiedSlices(roles.passes ?? [], id, w.intakes?.slices ?? []).map(",
+			},
+		],
+		test: "test/human-merge-observation.test.ts",
+		pattern: "HM05",
+	},
+	{
+		name: "merge-older-source-relabels",
+		expect: /older merged source leaves its later Slices uncovered/,
+		behavior: "an older or foreign merged source is credited with every qualified Slice",
+		edits: [
+			{
+				file: "src/kernel/publication.ts",
+				find: "const merged = lineage.slice(0, lineage.findIndex(({ i }) => i.result === p?.main?.source) + 1);",
+				replace: "const merged = lineage;",
+			},
+		],
+		test: "test/human-merge-observation.test.ts",
+		pattern: "HM04",
+	},
+	{
+		name: "merge-observation-overwrites",
+		expect: /the first accepted mapping is kept/,
+		behavior: "a later merge observation replaces the recorded main mapping",
+		edits: [
+			{
+				file: "src/kernel/publication.ts",
+				find: 'if (current?.state === "merged" && !p.main) {',
+				replace: 'if (current?.state === "merged") {',
+			},
+		],
+		test: "test/human-merge-observation.test.ts",
+		pattern: "HM06",
+	},
+	{
+		name: "forge-closed-is-merged",
+		expect: /a closed unmerged PR is not merged/,
+		behavior: "the GitHub adapter reports a closed unmerged PR as a merge",
+		edits: [
+			{
+				file: "src/effects/forge.ts",
+				find: "merge: p.merged_at && p.merge_commit_sha ? { main: p.base.ref === this.#repo.base, commit: p.merge_commit_sha } : null,",
+				replace: 'merge: p.state === "closed" ? { main: p.base.ref === this.#repo.base, commit: p.merge_commit_sha ?? p.head.sha } : null,',
+			},
+		],
+		test: "test/human-merge-observation-forge.test.ts",
+		pattern: "HF01",
+	},
 ];
 
 async function copy(): Promise<string> {

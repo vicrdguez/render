@@ -63,6 +63,7 @@
 		"verify:canonical-integration": "node --test --test-concurrency=1 test/canonical-integration.test.ts test/canonical-integration-effects.test.ts test/canonical-integration-schedules.test.ts test/canonical-integration.integration.ts test/canonical-integration-crash.integration.ts test/watchdog-rework.integration.ts",
 		"verify:integration-crash": "node --test test/canonical-integration-crash.integration.ts",
 		"verify:github-publication": "node --test --test-concurrency=1 test/github-publication.test.ts test/github-publication-forge.test.ts test/github-publication.integration.ts",
+		"verify:human-merge-observation": "node --test --test-concurrency=1 test/human-merge-observation.test.ts test/human-merge-observation-forge.test.ts test/github-publication.test.ts test/github-publication-forge.test.ts test/accepted-contracts.test.ts test/github-publication.integration.ts",
 		"verify:v9-workload": "node --test test/v9-workload.performance.ts",
 		"verify:v9-budgets": "node test/v9-budgets.ts",
 		"verify:performance-journey": "node --test --test-concurrency=1 test/performance-journey.test.ts test/accepted-contracts.test.ts test/watchdog-rework.test.ts",

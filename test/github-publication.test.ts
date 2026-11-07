@@ -23,7 +23,15 @@ import {
 } from "./support/integration.ts";
 import { admin, recovery, scheduler } from "./support/roles.ts";
 
-type Item = { id: string; state: "open" | "closed" | "merged"; draft: boolean; head: string | null; marker: string | null; actor: boolean };
+type Item = {
+	id: string;
+	state: "open" | "closed" | "merged";
+	draft: boolean;
+	head: string | null;
+	marker: string | null;
+	actor: boolean;
+	merge: { main: boolean; commit: string } | null;
+};
 type Op = { operation: string; kind: string; status: string; attempts: { id: string; executorEpoch: string }[] };
 type Publication = {
 	status: string;
@@ -70,6 +78,7 @@ const item = (id: string, marker: string | null, over: Partial<Item> = {}): Item
 	head: R1,
 	marker,
 	actor: true,
+	merge: null,
 	...over,
 });
 const listing = (items: Item[], complete = true) => ({ proposals: { complete, items } });

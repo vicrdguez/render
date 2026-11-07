@@ -247,7 +247,7 @@ function intakeCommand(type: string, c: Fields, workflow: string): IntakeCommand
 		if (!Array.isArray(c.decisions) || !c.decisions.every((v) => typeof v === "string" && v.length > 0))
 			malformed("decisions must be exact refs");
 	}
-	if (type === "amendDependencies" && !validDependencies(c.dependencies)) malformed("invalid dependencies");
+	if (type === "amendDependencies" && !validDependencies(c.dependencies, true)) malformed("invalid dependencies");
 	if (type === "supersedeContract") {
 		if (!Array.isArray(c.dispositions)) malformed("dispositions must be an array");
 		for (const value of c.dispositions as unknown[]) {

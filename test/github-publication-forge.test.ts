@@ -51,7 +51,7 @@ test("GF01 capabilities are literal provider facts; a fresh repository observes 
 			guardedSourceUpdate: true,
 			createIdempotency: false,
 			stableObjectIdentity: true,
-			mergeObservation: false,
+			mergeObservation: true,
 			observationCompleteness: true,
 		});
 		assert.deepEqual(seen.head, { commit: null });
@@ -164,6 +164,7 @@ test("GF04 an applied create whose reply is lost is unknown; lagging listing is 
 				head: f.gh.branch(BRANCH),
 				marker: "render-proposal:workflow:2:revision:9",
 				actor: true,
+				merge: null,
 			},
 		);
 		assert.match(items[0]!.id, /^github:pr:1:/);
