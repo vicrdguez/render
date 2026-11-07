@@ -2225,7 +2225,8 @@ export class Engine {
 			if (summary?.status === "planned") await dispatch(summary);
 			else if (!summary || summary.canonical !== p.canonical || summary.published !== p.published)
 				await send({ type: "stageForgeOperation", kind: "update-summary" });
-			else return false;
+			// Only the human merges main; keep reading the associated PR until that merge is observed.
+			else return !p.main;
 		}
 		return false;
 	}
