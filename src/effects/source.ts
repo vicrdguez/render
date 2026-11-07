@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { validatePath } from "../kernel/source-path.ts";
 import { faultBarrier } from "../ledger/barrier.ts";
 import type { Capture } from "../sandboxes/sandboxes.ts";
+import { type ForgeConfig, type ForgeDispatch, type ForgeSnapshot, GitHubForge } from "./forge.ts";
 
 export type LiteralEntry = { path: string; mode: "100644" | "100755" | "120000"; oid: string; content: string };
 export type Source = {
@@ -42,6 +43,11 @@ export type Squash = { type: "squash"; prepared: Source; target: Source; message
 /** One admitted attempt's expected-old CAS of the canonical proposal ref from `expected` (T) to `result` (R). */
 export type Integrate = { type: "integrate"; repository: string; proposal: string; expected: string; result: Source; attempt: string };
 export type ReconcileIntegration = { type: "integration"; repository: string; proposal: string };
+/** One admitted forge attempt: Effects consumes its permit once and sends the request through the internal Forge. */
+export type Publish = { type: "publish"; repository: string; proposal: string; commit: string; expected: string | null; attempt: string };
+export type CreateProposal = { type: "createProposal"; repository: string; proposal: string; title: string; body: string; attempt: string };
+export type UpdateSummary = { type: "updateSummary"; repository: string; proposal: string; pr: string; summary: string; attempt: string };
+export type ReconcilePublication = { type: "publication"; repository: string; proposal: string };
 export type CanonicalObservation = {
 	ref: string;
 	observed: { commit: string; tree: string; parents: string[] } | null;
@@ -139,9 +145,11 @@ export class Effects {
 	/** Integration permits this executor already dispatched: each admitted attempt is consumed at most once. */
 	readonly #consumed = new Set<string>();
 	readonly #started = Date.now();
-	constructor(options: { root: string; repositories: Readonly<Record<string, string>> }) {
+	readonly #forge: ForgeConfig | undefined;
+	constructor(options: { root: string; repositories: Readonly<Record<string, string>>; forge?: ForgeConfig }) {
 		this.#root = options.root;
 		this.#repositories = options.repositories;
+		this.#forge = options.forge;
 	}
 	perform(operation: Resolve | Read): Promise<Source>;
 	perform(operation: Retain): Promise<SourceReceipt>;
@@ -149,10 +157,13 @@ export class Effects {
 	perform(operation: Prepare): Promise<PreparationReceipt>;
 	perform(operation: Observe): Promise<TargetObservation>;
 	perform(operation: Squash): Promise<Source>;
+	perform(operation: Publish | CreateProposal | UpdateSummary): Promise<ForgeDispatch>;
 	perform(operation: Integrate): Promise<IntegrationDispatch>;
 	async perform(
-		operation: Resolve | Read | Retain | Diff | Prepare | Observe | Squash | Integrate,
-	): Promise<Source | SourceReceipt | string | PreparationReceipt | TargetObservation | IntegrationDispatch> {
+		operation: Resolve | Read | Retain | Diff | Prepare | Observe | Squash | Integrate | Publish | CreateProposal | UpdateSummary,
+	): Promise<Source | SourceReceipt | string | PreparationReceipt | TargetObservation | IntegrationDispatch | ForgeDispatch> {
+		if (operation.type === "publish" || operation.type === "createProposal" || operation.type === "updateSummary")
+			return this.#dispatchForge(operation);
 		if (operation.type === "prepare") return this.#prepare(operation);
 		if (operation.type === "squash") return this.#squash(operation);
 		if (operation.type === "integrate") return this.#integrate(operation);
@@ -240,9 +251,11 @@ export class Effects {
 	reconcile(receipt: SourceReceipt): Promise<SourceReceipt>;
 	reconcile(receipt: PreparationReceipt): Promise<PreparationReceipt>;
 	reconcile(operation: ReconcileIntegration): Promise<CanonicalObservation>;
+	reconcile(operation: ReconcilePublication): Promise<ForgeSnapshot>;
 	async reconcile(
-		receipt: SourceReceipt | PreparationReceipt | ReconcileIntegration,
-	): Promise<SourceReceipt | PreparationReceipt | CanonicalObservation> {
+		receipt: SourceReceipt | PreparationReceipt | ReconcileIntegration | ReconcilePublication,
+	): Promise<SourceReceipt | PreparationReceipt | CanonicalObservation | ForgeSnapshot> {
+		if ("type" in receipt && receipt.type === "publication") return (await this.#forgeFor(receipt.repository)).observe(receipt.proposal);
 		if ("type" in receipt) return this.#canonical(receipt.repository, receipt.proposal);
 		await this.#verifySource(receipt.base);
 		await this.#verifySource(receipt.source);
@@ -253,6 +266,36 @@ export class Effects {
 			if (JSON.stringify(actual) !== JSON.stringify(receipt)) throw new Error("Preparation receipt mismatch.");
 		}
 		return receipt;
+	}
+	async #forgeFor(repository: string): Promise<GitHubForge> {
+		if (!this.#forge) throw new Error("forge_capability_unavailable: no trusted forge configuration");
+		const store = await this.#store(repository);
+		return new GitHubForge(this.#forge, repository, async (args, env) => {
+			const result = await this.#gitResult(store.path, store.cwd, args, undefined, env);
+			return { stdout: result.stdout.toString("utf8"), exitCode: result.signal ? null : result.exitCode };
+		});
+	}
+	async #dispatchForge(operation: Publish | CreateProposal | UpdateSummary): Promise<ForgeDispatch> {
+		const forge = await this.#forgeFor(operation.repository);
+		if (operation.type === "publish") {
+			const store = await this.#store(operation.repository);
+			this.#checkOid(operation.commit, store.format);
+			// Only host-sealed source is published: the commit must already be rooted in the private store.
+			const root = await this.#gitResult(store.path, store.cwd, [
+				"rev-parse",
+				"--verify",
+				"--quiet",
+				`refs/render/sources/${operation.commit}`,
+			]);
+			if (root.stdout.toString().trim() !== operation.commit) throw new Error("Publish only rooted host source.");
+		}
+		if (this.#consumed.has(operation.attempt)) throw new Error(`Forge permit ${operation.attempt} was already consumed.`);
+		this.#consumed.add(operation.attempt);
+		if (operation.type === "publish")
+			return forge.apply({ type: "publishSource", proposal: operation.proposal, commit: operation.commit, expected: operation.expected });
+		if (operation.type === "createProposal")
+			return forge.apply({ type: "createDraftProposal", proposal: operation.proposal, title: operation.title, body: operation.body });
+		return forge.apply({ type: "updateProposalSummary", proposal: operation.proposal, pr: operation.pr, summary: operation.summary });
 	}
 	async #squash({ prepared, target, message }: Squash): Promise<Source> {
 		if (prepared.repository !== target.repository) throw new Error("Integration repository mismatch.");
@@ -559,12 +602,12 @@ export class Effects {
 			"protocol.file.allow=always",
 		];
 	}
-	#gitResult(path: string, cwd: string, args: string[], input?: Buffer): Promise<GitResult> {
+	#gitResult(path: string, cwd: string, args: string[], input?: Buffer, env: Record<string, string> = {}): Promise<GitResult> {
 		return new Promise((resolve, reject) => {
 			const child = execFile(
 				"git",
 				[...this.#gitArgs(path), ...args],
-				{ cwd, maxBuffer: MAX_BYTES + 1024 * 1024, encoding: "buffer", timeout: 60000, env: GIT_ENV(cwd) },
+				{ cwd, maxBuffer: MAX_BYTES + 1024 * 1024, encoding: "buffer", timeout: 60000, env: { ...GIT_ENV(cwd), ...env } },
 				(error, stdout, stderr) => {
 					if (error && typeof error.code !== "number" && !error.signal) {
 						reject(new Error(`Trusted source Git ${args[0]} failed: ${error.message}; ${stderr.toString()}`));

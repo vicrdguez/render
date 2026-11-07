@@ -14,6 +14,14 @@ import {
 import { changeIntake, emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, type Intakes, type IntakeWrite } from "./intake.ts";
 import type { Ground } from "./investigation.ts";
 import { changePolicy, initialPolicy, type PolicyCommand, type PolicyState } from "./policy.ts";
+import {
+	changePublication,
+	PUBLICATION_COMMANDS,
+	type Publication,
+	type PublicationCommand,
+	type PublicationView,
+	type PublicationWrite,
+} from "./publication.ts";
 import { changeRole, ROLE_COMMANDS, type RoleAssignment, type RoleCommand, type RoleIntent, type RoleWorkState } from "./roles.ts";
 
 export type DeviceScope = { readonly workflows: "all" | readonly string[] };
@@ -49,6 +57,7 @@ export type Command =
 	| IntakeCommand
 	| CheckpointCommand
 	| RoleCommand
+	| PublicationCommand
 	| PolicyCommand
 	| SettingsCommand
 	| {
@@ -77,8 +86,9 @@ export type KernelState = {
 	readonly checkpoints?: Checkpoints;
 	readonly roleWork?: RoleWorkState;
 	readonly policy?: PolicyState;
+	readonly publication?: Publication;
 	/** The envelope's workflow, when it exists. */
-	readonly workflow: { readonly id: string; readonly messageCount: number } | null;
+	readonly workflow: { readonly id: string; readonly messageCount: number; readonly title?: string } | null;
 	/** The named document's current revision and the integrity of its retained bytes, when it exists. */
 	readonly document: { readonly name: string; readonly current: string; readonly integrity: "intact" | "corrupt" | "missing" } | null;
 	/** The target device of revokeDevice, when it exists. */
@@ -113,6 +123,7 @@ export type DomainWrite =
 	| { readonly type: "local-prompt.retain"; readonly revision: string }
 	| IntakeWrite
 	| CheckpointWrite
+	| PublicationWrite
 	| { readonly type: "checkpoint-settings.replace"; readonly state: CheckpointSettings }
 	| { readonly type: "policy.replace"; readonly state: PolicyState }
 	| { readonly type: "roles.replace"; readonly state: RoleWorkState; readonly intents: readonly RoleIntent[] }
@@ -251,7 +262,11 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	recordSourceObservation: { family: "source-effect", available: true },
 	recordRunnerObservation: { family: "source-effect", available: true },
 	recordRunnerDiagnostic: { family: "source-effect", available: true },
-	recordForgeObservation: { family: "source-effect", available: false },
+	stageForgeOperation: { family: "source-effect", available: true },
+	admitForgeOperation: { family: "source-effect", available: true },
+	recordForgeObservation: { family: "source-effect", available: true },
+	authorizeForgeReissue: { family: "human-decision", available: true },
+	resolveForgeRisk: { family: "human-decision", available: true },
 	recordStartup: { family: "recovery-maintenance", available: true },
 	recordRecoveryState: { family: "recovery-maintenance", available: true },
 };
@@ -304,6 +319,11 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 	if (INTAKE_COMMANDS.includes(command.type)) return changeIntake(state, command as IntakeCommand, facts);
 	if (CHECKPOINT_COMMANDS.includes(command.type)) return changeCheckpoint(state, command as CheckpointCommand, facts);
 	if (ROLE_COMMANDS.includes(command.type)) return changeRole(state, command as RoleCommand, facts);
+	if (PUBLICATION_COMMANDS.includes(command.type)) {
+		const c = command as PublicationCommand;
+		if (!inScope(facts.principal, c.workflow)) return refuse("forbidden_scope", `${c.workflow} is outside this device's scope.`);
+		return changePublication(state, c, facts);
+	}
 
 	const c = command as Extract<
 		Command,
@@ -482,6 +502,7 @@ export type WorkflowState = {
 	readonly assignments?: readonly RoleAssignment[];
 	/** Slices whose current Contract has recorded qualifying integration. */
 	readonly integrated?: readonly string[];
+	readonly publication?: PublicationView;
 	readonly id: string;
 	readonly title: string;
 	readonly documents: readonly DocumentSummary[];
@@ -494,6 +515,7 @@ export const UNAVAILABLE = ["coordinator-replies", "assignments", "evidence-rece
 export type WorkflowView = {
 	readonly intakes: Intakes;
 	readonly checkpoints: Checkpoints;
+	readonly publication: PublicationView | null;
 	readonly workflow: string;
 	readonly title: string;
 	readonly ground: DocumentSummary | null;
@@ -546,6 +568,7 @@ function workflowView(w: WorkflowState): WorkflowView {
 	return {
 		intakes,
 		checkpoints,
+		publication: w.publication ?? null,
 		workflow: w.id,
 		title: w.title,
 		ground,

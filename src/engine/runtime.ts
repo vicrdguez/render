@@ -25,6 +25,7 @@ import {
 	type ToolExecutionApi,
 	type Tx,
 } from "@earendil-works/pi-durable";
+import type { ForgeConfig, ForgeDispatch } from "../effects/forge.ts";
 import { Effects, type PreparationReceipt, type Source, type SourceReceipt, type TargetObservation, treeOid } from "../effects/source.ts";
 import { experimentInputs } from "../kernel/experiments.ts";
 import {
@@ -48,6 +49,7 @@ import {
 	unresolved,
 } from "../kernel/integration.ts";
 import { bindingFor, initialPolicy, type PolicyBasis, type PolicyState, policyBasis } from "../kernel/policy.ts";
+import type { ForgeObservation, ForgeOperation, PublicationView } from "../kernel/publication.ts";
 import {
 	currentChildren,
 	type ImplementationPass,
@@ -132,6 +134,8 @@ type EngineConfig = {
 	ownedChecks?: OwnedChecks;
 	experiments?: ExperimentConfig;
 	investigations?: { root: string; repositories: Readonly<Record<string, string>> };
+	/** Trusted forge configuration, passed only to Effects; no packet, record or Sandboxes input carries it. */
+	forge?: ForgeConfig;
 	web?: WebConfig;
 };
 
@@ -155,6 +159,9 @@ export class Engine {
 	readonly #preparing = new Set<string>();
 	#cached: { sequence: number; frame: ReturnType<Ledger["snapshot"]> } | undefined;
 	readonly #integrating = new Map<string, Promise<void>>();
+	/** Proposals with a publication run in flight, and those asked to run again once it ends. */
+	readonly #publishing = new Set<string>();
+	readonly #publishAgain = new Set<string>();
 	readonly #preparation;
 	readonly #priorPreparation;
 	readonly #roles;
@@ -172,7 +179,11 @@ export class Engine {
 			);
 		if (config.investigations) this.#investigationEffects = new Effects(config.investigations);
 		if (config.ownedChecks) {
-			this.#effects = new Effects({ root: `${config.ownedChecks.root}/effects`, repositories: config.ownedChecks.repositories });
+			this.#effects = new Effects({
+				root: `${config.ownedChecks.root}/effects`,
+				repositories: config.ownedChecks.repositories,
+				...(config.forge ? { forge: config.forge } : {}),
+			});
 			this.#sandboxes = new Sandboxes({
 				root: `${config.ownedChecks.root}/sandboxes`,
 				authorize: (scope) => {
@@ -931,6 +942,7 @@ export class Engine {
 			afterResume: () => {
 				this.#ready = true;
 				void this.reconcile().catch(() => {});
+				for (const w of this.#publications()) this.#schedulePublication(w.workflow);
 			},
 			beforeResume: async () => {
 				for (const a of this.#assignments()) {
@@ -2073,12 +2085,142 @@ export class Engine {
 		}
 		await faultBarrier("after-integration-qualification", `integration:${pass.ref}`);
 		const outcome = reply.result.outcome as IntegrationOutcome;
+		if (outcome === "applied") this.#schedulePublication(owner.workflow);
 		// This executor's own dispatch left T unchanged: a visible operational blocker, never an automatic hot retry.
 		if (outcome === "unapplied" && failure) {
 			await block(`integration_operational_error: ${failure}`.slice(0, 1900));
 			return "blocked";
 		}
 		return outcome;
+	}
+	#publications(): { workflow: string; publication: PublicationView }[] {
+		const frame = this.#frame();
+		const workflows = frame && "workflows" in frame ? (frame.workflows as { workflow: string; publication: PublicationView | null }[]) : [];
+		return workflows.filter((w): w is { workflow: string; publication: PublicationView } => !!w.publication?.canonical);
+	}
+	/**
+	 * Proposal publication runs beside local work, never in front of it (spec §§9.2–9.3): integration and dependents
+	 * never wait on it, and an unreachable forge or an unknown outcome only schedules another read-only pass later.
+	 */
+	#schedulePublication(workflow: string): void {
+		if (!this.#config.forge || !this.#effects) return;
+		if (this.#publishing.has(workflow)) {
+			this.#publishAgain.add(workflow);
+			return;
+		}
+		this.#publishing.add(workflow);
+		const ledger = this.#ledger;
+		void this.#publish(workflow)
+			.catch(() => true)
+			.then((retry) => {
+				this.#publishing.delete(workflow);
+				if (ledger !== this.#ledger || ledger?.status().hostMode !== "active") return;
+				if (this.#publishAgain.delete(workflow)) this.#schedulePublication(workflow);
+				else if (retry) setTimeout(() => this.#schedulePublication(workflow), this.#config.forge!.retryMs ?? 30000).unref();
+			});
+	}
+	/** Each step reads current Ledger state; Kernel derives payloads and decides what every observation means. Returns whether to retry. */
+	async #publish(workflow: string): Promise<boolean> {
+		const owner = this.#assignments().find((a) =>
+			(this.#frame() as { implementationPasses?: ImplementationPass[] }).implementationPasses?.some(
+				(p) => p.workflow === workflow && p.assignment === a.id && integrated(p),
+			),
+		);
+		const repository = owner && this.#config.ownedChecks?.checks[owner.packet.profile]?.repository;
+		if (!repository) return false;
+		const effects = mintContext({ kind: "host", scope: "effects" });
+		const send = async (command: Record<string, unknown>) => {
+			const ledger = this.#ledger!;
+			const reply = await ledger.command(
+				{
+					version: 1,
+					authorityEpoch: ledger.status().authorityEpoch,
+					commandId: `forge:${workflow}:${ledger.status().sequence}:${command.type}`,
+					workflow,
+					command,
+				},
+				effects,
+			);
+			if (reply.status !== "accepted") throw new Error(`publication_refused: ${reply.code}: ${reply.reason}`);
+			return reply.result;
+		};
+		const record = (o: Omit<ForgeObservation, "schema">) =>
+			send({ type: "recordForgeObservation", text: JSON.stringify({ schema: 1, ...o }) });
+		const observe = async (operation: string | null) => {
+			const seen = await this.#effects!.reconcile({ type: "publication", repository, proposal: workflow });
+			await record({ operation, attempt: null, mode: "reconcile", outcome: null, reason: null, created: null, ...seen });
+		};
+		const dispatch = async (op: ForgeOperation) => {
+			const attempt = (await send({ type: "admitForgeOperation", operation: op.operation })).forgeAttempt as string;
+			const read = await this.#ledger!.artifact(scheduling, { read: op.operation });
+			if (!("content" in read)) throw new Error(`Restore exact forge intent ${op.operation}`);
+			const intent = JSON.parse(read.content.toString()) as Record<string, string>;
+			const common = { repository, proposal: workflow, attempt };
+			let result: ForgeDispatch;
+			try {
+				result = await this.#effects!.perform(
+					op.kind === "publish-source"
+						? { type: "publish", ...common, commit: intent.canonical!, expected: intent.expected ?? null }
+						: op.kind === "create-proposal"
+							? { type: "createProposal", ...common, title: intent.title!, body: intent.body! }
+							: { type: "updateSummary", ...common, pr: intent.pr!, summary: intent.summary! },
+				);
+			} catch (error) {
+				result = { outcome: "unknown", reason: String(error).slice(0, 500), created: null, head: null };
+			}
+			await record({
+				operation: op.operation,
+				attempt,
+				mode: "dispatch",
+				proposals: null,
+				capabilities: null,
+				observedAt: new Date().toISOString(),
+				...result,
+			});
+		};
+		const current = () => this.#publications().find((w) => w.workflow === workflow)?.publication;
+		await observe(null);
+		for (let step = 0; step < 16; step++) {
+			const p = current();
+			if (!p || p.divergence) return false;
+			const recovered = p.operations.find((o) => o.status === "admitted");
+			if (recovered) {
+				await observe(recovered.operation);
+				continue;
+			}
+			const publish = p.operations.findLast((o) => o.kind === "publish-source");
+			if (publish?.status === "unknown") {
+				await observe(publish.operation);
+				if (current()?.operations.find((o) => o.operation === publish.operation)?.status === "unknown") return true;
+				continue;
+			}
+			if (p.published !== p.canonical) {
+				if (p.unsupported.includes("guardedSourceUpdate")) return false;
+				if (publish?.status === "planned") await dispatch(publish);
+				else await send({ type: "stageForgeOperation", kind: "publish-source" });
+				continue;
+			}
+			const create = p.operations.find((o) => o.kind === "create-proposal");
+			if (!p.association) {
+				if (!create) {
+					if (p.unsupported.includes("draftProposalPR")) return false;
+					await send({ type: "stageForgeOperation", kind: "create-proposal" });
+				} else if (create.reissue || (create.status === "planned" && create.checked)) await dispatch(create);
+				else if (create.status === "planned" || create.status === "unknown") {
+					// Under sticky risk this only refreshes the listed candidates the human resolves from; Kernel never associates.
+					await observe(create.operation);
+					if (!current()?.association) return true;
+				} else return false;
+				continue;
+			}
+			if (p.risk && !p.risk.resolved) return false;
+			const summary = p.operations.findLast((o) => o.kind === "update-summary" && o.status !== "superseded");
+			if (summary?.status === "planned") await dispatch(summary);
+			else if (!summary || summary.canonical !== p.canonical || summary.published !== p.published)
+				await send({ type: "stageForgeOperation", kind: "update-summary" });
+			else return false;
+		}
+		return false;
 	}
 	/** The workflow's current policy basis; Ledger verifies its exact retained bytes when a record names it. */
 	#policyBasis(workflow: string): PolicyBasis {

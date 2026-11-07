@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import type { ForgeConfig } from "../../src/effects/forge.ts";
 import { Engine } from "../../src/engine/runtime.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import type { CommandReply } from "../../src/ledger/ledger.ts";
@@ -47,7 +48,10 @@ export const journey = (sanity = "exit 0") => `# Independent journey
 \`${sanity}\`
 `;
 export const rows = ["behavior", "full-suite", "typecheck", "lint"];
-export async function catalogFixture(linux = false, options: { sanity?: string; cleanup?: string; text?: string } = {}) {
+export async function catalogFixture(
+	linux = false,
+	options: { sanity?: string; cleanup?: string; text?: string; forge?: ForgeConfig } = {},
+) {
 	const text = options.text ?? catalog(options.sanity, options.cleanup);
 	const files = { "verify.md": { text }, "journey.md": { text: journey(options.sanity) } };
 	const source = linux ? await sourceFixture(files) : await gitSourceFixture(files);
@@ -92,6 +96,7 @@ export async function catalogFixture(linux = false, options: { sanity?: string; 
 		provider: provider.provider,
 		apiKey: "fixture",
 		families: { "claude-sonnet-4-6": "claude" },
+		...(options.forge ? { forge: options.forge } : {}),
 	});
 	const f = await roleFixture(engine);
 	return {

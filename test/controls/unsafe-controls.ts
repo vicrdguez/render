@@ -1700,6 +1700,88 @@ const CONTROLS: Control[] = [
 		test: "test/record-baseline.test.ts",
 		pattern: "RB06",
 	},
+	{
+		name: "publication-retries-unknown-create",
+		expect: /no automatic recreation/,
+		behavior: "admission accepts another attempt of a draft PR create whose outcome is unknown",
+		edits: [
+			{
+				file: "src/kernel/publication.ts",
+				find: 'if (op.status !== "planned" && !reissue)',
+				replace: 'if (op.status !== "planned" && op.status !== "unknown" && !reissue)',
+			},
+		],
+		test: "test/github-publication.test.ts",
+		pattern: "GP09/GP10",
+	},
+	{
+		name: "publication-negative-listing-absent",
+		expect: /a negative or incomplete listing is not absence/,
+		behavior: "a complete empty listing re-plans an unknown draft PR create as if it was never sent",
+		edits: [
+			{
+				file: "src/kernel/publication.ts",
+				find: '\tif (op.status === "admitted") op.status = "unknown";\n',
+				replace:
+					'\tif (op.status === "admitted") op.status = "unknown";\n\tif (op.status === "unknown" && o.proposals?.complete && !o.proposals.items.length) op.status = "planned";\n',
+			},
+		],
+		test: "test/github-publication.test.ts",
+		pattern: "GP09/GP10",
+	},
+	{
+		name: "publication-transient-listing-clears-risk",
+		expect: /a transient unique listing does not clear risk/,
+		behavior: "one verified listing associates the PR although a human-authorized reissue left sticky duplicate risk",
+		edits: [
+			{ file: "src/kernel/publication.ts", find: "if (verified.length === 1 && !riskOpen(p)) {", replace: "if (verified.length === 1) {" },
+		],
+		test: "test/github-publication.test.ts",
+		pattern: "GP13/GP14",
+	},
+	{
+		name: "publication-overwrites-divergence",
+		expect: /divergent remote/,
+		behavior: "source publication stages over a published head outside canonical lineage",
+		edits: [
+			{
+				file: "src/kernel/publication.ts",
+				find: '\t\t\t\tif (p.divergence) return refusal("stale_basis", `The published head ${p.divergence} diverged from canonical lineage.`);\n',
+				replace: "",
+			},
+		],
+		test: "test/github-publication.test.ts",
+		pattern: "GP04",
+	},
+	{
+		name: "publication-blind-push",
+		expect: /a moved remote refuses the guarded push/,
+		behavior: "the source push omits its expected-old lease",
+		edits: [
+			{
+				file: "src/effects/forge.ts",
+				find: '`--force-with-lease=refs/heads/${branch}:${request.expected ?? ""}`,',
+				replace: '"--force",',
+			},
+		],
+		test: "test/github-publication-forge.test.ts",
+		pattern: "GF02",
+	},
+	{
+		name: "publication-non-draft-fallback",
+		expect: /draft unsupported is a capability rejection/,
+		behavior: "a forge without draft support gets a non-draft PR instead of a visible capability refusal",
+		edits: [
+			{
+				file: "src/effects/forge.ts",
+				find: 'return result("rejected", "draft-unsupported");',
+				replace:
+					'return (await this.#request("POST", `${this.#base()}/pulls`, { title: request.title, head: branch, base: this.#repo.base, body: request.body })).status === 201 ? result("applied", null, "github:pr:fallback") : result("rejected", "draft-unsupported");',
+			},
+		],
+		test: "test/github-publication-forge.test.ts",
+		pattern: "GF03",
+	},
 ];
 
 async function copy(): Promise<string> {
