@@ -161,6 +161,7 @@ async function consumer(t: Lifecycle) {
 			constraints: [],
 			clarifications: [],
 			donePredicate: "Literal bytes",
+			facts: [],
 			approvedSources: [source],
 		}),
 	);
