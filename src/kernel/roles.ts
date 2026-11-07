@@ -768,9 +768,10 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			policy.revisions[bindingFor(policy, a.workflow).policy]?.reviewerDiversity !== "human-directed-same-family"
 		)
 			return refusal("capability_unavailable", "Same-family independent review needs recorded human policy direction; no family fallback.");
+		// Return observations and the human directions that resolved stopped rounds, oldest first.
 		const lineage: string[] = [];
 		for (let p: ImplementationPass | undefined = pass; p; p = work.passes!.find((x) => x.ref === p!.predecessor))
-			if (p.opening) lineage.unshift(p.opening.observation);
+			lineage.unshift(...[p.opening?.observation, p.handoff?.direction?.revision].filter((ref) => ref !== undefined));
 		const prior = [...completedReviews(work.assignments, c.workflow, a.slice).map((r) => r.report!), ...lineage];
 		const packet = auditReviewerPacket(reviewer);
 		const required = [
@@ -829,6 +830,9 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			observation.cause === "human-direction" &&
 			pass.handoff.direction?.review === observation.review &&
 			pass.handoff.direction.revision === observation.direction;
+		// A return is human-directed only by that recorded direction, whatever automatic budget remains.
+		if (observation.cause === "human-direction" && !directed)
+			return refusal("human_direction_required", "A human-directed return must cite the direction recorded for its exact round.");
 		if (!directed && verdicts.some((v) => v.verdict === "needs-human" || (v.verdict === "rework" && reviews.length >= limit)))
 			return refusal(
 				"human_direction_required",

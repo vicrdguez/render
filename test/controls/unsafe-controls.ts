@@ -308,6 +308,34 @@ const CONTROLS: Control[] = [
 		pattern: "WR26 only an authenticated",
 	},
 	{
+		name: "watchdog-direction-unbound",
+		expect: /the report is no human direction/,
+		behavior: "admit a human-direction return below the cap without the direction recorded for its exact round",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: '\t\tif (observation.cause === "human-direction" && !directed)\n\t\t\treturn refusal("human_direction_required", "A human-directed return must cite the direction recorded for its exact round.");\n',
+				replace: "",
+			},
+		],
+		test: "test/watchdog-rework.test.ts",
+		pattern: "WR28",
+	},
+	{
+		name: "watchdog-reviewer-direction-blind",
+		expect: /the next Watchdog's prior context names the human direction/,
+		behavior: "launch the next Watchdog round without the human direction that resolved the stopped round",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: "[p.opening?.observation, p.handoff?.direction?.revision]",
+				replace: "[p.opening?.observation]",
+			},
+		],
+		test: "test/watchdog-rework.integration.ts",
+		pattern: "WR29",
+	},
+	{
 		name: "watchdog-cancel-abandons-check-runtime",
 		expect: /quiescence is recorded only after the check runtime stopped/,
 		behavior: "record a canceled Watchdog quiescent while its own check runtime still runs",
