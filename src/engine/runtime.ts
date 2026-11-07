@@ -2005,8 +2005,8 @@ export class Engine {
 	}
 	/**
 	 * Settles an admitted or divergent operation (spec §§9.1, 9.3). Only the executor epoch that holds the permit
-	 * dispatches it, once; any other executor, or an uncertain dispatch, reconciles the canonical ref read-only and
-	 * records what it saw. Kernel derives the outcome; nothing is replayed or rolled back here.
+	 * dispatches it, once; any other executor, or an uncertain dispatch, reconciles the canonical ref without rewriting
+	 * it and records what it saw. Kernel derives the outcome; nothing is replayed or rolled back here.
 	 */
 	async #settleIntegration(
 		owner: RoleAssignment,

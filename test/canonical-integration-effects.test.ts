@@ -1,5 +1,5 @@
-// CI08–CI10 and the Effects half of CI13/CI14 on real private Git: squash construction, expected-old CAS, readback and
-// read-only reconciliation. No Ledger here; the Kernel classification of these observations is canonical-integration.test.ts.
+// CI08–CI10, CI23, CI25 and the Effects half of CI13/CI14 on real private Git: squash construction, expected-old CAS,
+// durable readback and reconciliation that never rewrites the ref. No Ledger here; the Kernel classification of these observations is canonical-integration.test.ts.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import fs, { access, writeFile } from "node:fs/promises";

@@ -36,7 +36,7 @@ export type IntegrationIntent = {
 	unresolved: [];
 };
 export type CanonicalState = { commit: string; tree: string; parents: string[] } | null;
-/** What Effects saw: its own dispatch result, or a read-only reconciliation, plus the ref and any held ref lock. */
+/** What Effects saw after a durability barrier: its own dispatch result or a reconciliation, plus the ref and any held lock. */
 export type IntegrationObservation = {
 	schema: 1;
 	operation: string;
