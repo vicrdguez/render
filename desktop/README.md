@@ -39,6 +39,14 @@ Default local state is under `desktop/.state/demo/` or `desktop/.state/live/`, i
 
 The bundled `assets/design/keymap.toml` is the command catalogue. Unavailable commands retain a reason; a visible demo receipt is not a real host receipt.
 
+### Reviewing and saving notes
+
+1. Open **Review Modules r2** from the Brief. Use `{` / `}` between paragraphs and `[n` / `]n` between document nodes. The highlighted block shows the reader position.
+2. Press **Space → m → n** to note the current paragraph or Visual selection. Alternatively, `c` starts an operator: **`cip`** notes the paragraph, while `c{motion}` selects another exact source range. `c` alone waits for a motion; it does not immediately open an editor.
+3. Type the note. **Esc, then Esc** returns to reading and keeps the local draft. Move and repeat to add another note.
+4. Use **`:w` + Enter** or **Space → m → s** to save the annotation set. Leaving Insert does not save it. Saving requires a writable connection and a presented target; headless screenshots alone do not establish that presentation boundary.
+5. **Space → a → r** requests rework; **Space → a → a** requests approval. These are separate from saving notes. If drafts remain, resolve the save-first prompt; then inspect the fresh readback and explicitly confirm. Saving never automatically approves or requests rework.
+
 ## Verification and native captures
 
 ```sh

@@ -335,6 +335,14 @@ impl AppState {
         self.reveal_cursor(tx);
     }
     pub fn reveal_cursor(&self, tx: &mut Tx) {
+        if self.screen() == Screen::Review {
+            if let Some(index) = self.with_document(&self.source_text(), |doc| {
+                crate::views::review::block_at(doc, self.tab().reader.cursor())
+            }) {
+                tx.scroll_into_view(format!("review.block.{index}"));
+            }
+            return;
+        }
         let unit = if self.screen() == Screen::Brief {
             92.0
         } else if self.screen().work() {
@@ -540,6 +548,15 @@ impl AppState {
         self.hint_prefix.clear();
     }
     pub fn render_document(&self, text: &str, width: f32) -> rune::El {
+        self.with_document(text, |doc| doc.render(self.theme, width))
+    }
+
+    /// Share the parsed source and scoped references without exposing cache ownership.
+    pub(crate) fn with_document<R>(
+        &self,
+        text: &str,
+        render: impl FnOnce(&render_content::Document) -> R,
+    ) -> R {
         let refs = self
             .current_object()
             .and_then(|o| self.core.host.object_scope.get(&o.id))
@@ -564,7 +581,7 @@ impl AppState {
                 (refs.clone(), render_content::Document::parse(text, &refs)),
             );
         }
-        documents.get(text).unwrap().1.render(self.theme, width)
+        render(&documents.get(text).unwrap().1)
     }
     pub fn moment(&self) -> Moment {
         Moment {

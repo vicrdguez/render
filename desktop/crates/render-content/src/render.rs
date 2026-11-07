@@ -98,6 +98,24 @@ impl Document {
         self.render_with_options(theme, width, RenderOptions::default())
     }
 
+    /// Render one parsed top-level block without losing document-wide context.
+    /// The caller owns spacing, selection grouping, scrolling and omission notices.
+    /// Returns an empty element for an out-of-range index.
+    pub fn render_block_with_options(
+        &self,
+        index: usize,
+        theme: Theme,
+        width: f32,
+        options: RenderOptions,
+    ) -> El {
+        let Some((source, metadata)) = self.blocks.get(index).zip(self.source_blocks().get(index))
+        else {
+            return el();
+        };
+        block(source, theme, valid_width(width), 0, options)
+            .key(format!("md.block.{}", metadata.source.start))
+    }
+
     pub fn render_with_options(&self, theme: Theme, width: f32, options: RenderOptions) -> El {
         let width = valid_width(width);
         with_omitted(

@@ -63,7 +63,41 @@ Both navigation types are exported from `render_content`. Targets are inert valu
 - Footnote references cover the original `[^label]` invocation; their payload identifies the definition. Definitions themselves are not navigation targets.
 - Mermaid targets cover the parser-reported fenced block (opening/closing fences included; the closing fence's trailing newline is excluded). Their payload retains original body bytes, including CRLF, source escapes and controls, without display sanitization or style stripping. Markdown container prefixes are not part of the diagram body. Unterminated fences retain their available body.
 
-Candidates come from the same bounded offset-event stream used for rendering, before recursive tree construction. The 64-tag depth-limit literal fallback has **no targets**, and omitted lines beyond the display cap have none. Original source is always retained in full. No top-level block-range or exact glyph mapping API is provided: rendered footnotes are reordered and display text can expand or contract. The host owns hit testing, destination confirmation, reference resolution actions, and footnote/diagram navigation.
+Candidates come from the same bounded offset-event stream used for rendering, before recursive tree construction. The 64-tag depth-limit literal fallback has **no targets**, and omitted lines beyond the display cap have none. Original source is always retained in full. Top-level block ranges follow rendering order (see below); no exact glyph mapping API is provided because display text can expand or contract. The host owns hit testing, destination confirmation, reference resolution actions, and footnote/diagram navigation.
+
+## Source-aligned block rendering
+
+`SourceBlock { pub source: std::ops::Range<usize> }` is exported with
+`Clone`, `Debug`, `PartialEq`, and `Eq`. `Document::source_blocks() -> &[SourceBlock]`
+returns one entry per top-level `Document::blocks` item, in rendering order.
+Ranges come directly from the parser's original UTF-8 offsets, including block
+syntax. Footnote definitions carry their ranges when reordered to the end.
+Repeated identical paragraphs remain distinct. No display-string matching or
+substring reparsing is used. The depth-limit literal fallback has one range
+`0..shown.len()`; omitted lines and reference definitions create no active blocks.
+Metadata describes the parsed document: callers must not mutate or reorder the
+public `blocks` when using it.
+
+```rust
+use render_content::{Document, RenderOptions, Theme};
+let document = Document::parse("First.\n\nSecond.", &[]);
+for (index, metadata) in document.source_blocks().iter().enumerate() {
+    let original = &document.source()[metadata.source.clone()];
+    let block = document.render_block_with_options(
+        index, Theme::Ember, 600.0, RenderOptions::default(),
+    );
+    // Put this native block and its source-anchored notes into one shared row.
+}
+```
+
+`render_block_with_options(index: usize, theme: Theme, width: f32, options: RenderOptions) -> rune::El`
+uses the existing renderer and parsed block, preserving global references,
+footnote numbering, nested list context, theme, and presentation options. Its
+root key is `md.block.<source.start>`. Invalid indices return an empty element.
+The caller owns inter-block spacing (the whole-document renderer uses 12 px),
+selection grouping, scrolling, and a notice for `truncated_lines`. The existing
+whole-document renderer and defaults are unchanged. These ranges identify whole
+blocks, not glyph locations or selections within a block.
 
 ## Per-render presentation
 

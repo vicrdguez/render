@@ -17,7 +17,19 @@ pub fn on_key(s: &mut AppState, event: &KeyEvent, tx: &mut Tx) -> bool {
     }
     // Editor input must not pass through the reader's leader/keymap grammar.
     if s.composer.is_some() && s.modal.is_none() && s.hints.is_none() {
-        return composer_key(s, event, tx);
+        let reader_command = s.composer.as_ref().is_some_and(|c| {
+            c.kind == ComposeKind::Note
+                && c.editor.mode() == render_editor::Mode::Normal
+                && c.editor.pending_operator().is_none()
+        }) && !event.mods.ctrl
+            && !event.mods.cmd
+            && !event.mods.alt
+            && matches!(&event.key, Key::Text(text) if text == " " || text == ":");
+        if reader_command {
+            s.finish_composer();
+        } else {
+            return composer_key(s, event, tx);
+        }
     }
     let key = key_name(event);
     if matches!(s.modal, Some(Modal::Readback)) {

@@ -190,6 +190,8 @@ pub fn view(s: &AppState, width: f32, height: f32) -> El {
             .child(
                 row()
                     .gap(10.0)
+                    .w(list_width - 16.0)
+                    .center_y()
                     .child(
                         mono(if needs { "◆" } else { "·" }, t).color(t.token(if solid {
                             "surface.read"
@@ -202,8 +204,10 @@ pub fn view(s: &AppState, width: f32, height: f32) -> El {
                     .child(
                         label(first, t)
                             .color(t.token(if solid { "surface.read" } else { "fg.default" }))
-                            .truncate(),
-                    ),
+                            .truncate()
+                            .grow(1.0),
+                    )
+                    .children((focused && needs).then(|| on_solid_chip("⏎", t, !s.chrome_inert()))),
             );
         entry = entry.child(
             small(second, t)

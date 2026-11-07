@@ -1,5 +1,8 @@
 mod brief;
+mod chat;
+mod editor;
 mod lists;
+pub(crate) mod review;
 mod work;
 
 use crate::{AppState, Screen, layout::Axis, ui::*};
@@ -70,26 +73,35 @@ pub fn next_label(next: Option<&Next>) -> String {
 }
 
 pub fn track_text(track: Option<&Track>) -> String {
+    track_labels(track, false)
+}
+
+pub fn compact_track_text(track: Option<&Track>) -> String {
+    track_labels(track, true)
+}
+
+fn track_labels(track: Option<&Track>, compact: bool) -> String {
     track
         .map(|track| {
             track
                 .stages
                 .iter()
                 .map(|stage| {
-                    format!(
-                        "{} {}",
-                        match stage.state {
-                            StageState::Done => "✓",
-                            StageState::NeedsYou => "◆",
-                            StageState::Delegated => "◇",
-                            StageState::Running => "▸",
-                            StageState::Rework => "↺",
-                            StageState::Failed => "×",
-                            StageState::Unknown => "?",
-                            StageState::Pending => "○",
-                        },
-                        stage.label
-                    )
+                    let mark = match stage.state {
+                        StageState::Done => "✓",
+                        StageState::NeedsYou => "◆",
+                        StageState::Delegated => "◇",
+                        StageState::Running => "▸",
+                        StageState::Rework => "↺",
+                        StageState::Failed => "×",
+                        StageState::Unknown => "?",
+                        StageState::Pending => "○",
+                    };
+                    if compact && matches!(stage.state, StageState::Done | StageState::Pending) {
+                        mark.to_owned()
+                    } else {
+                        format!("{mark} {}", stage.label)
+                    }
                 })
                 .collect::<Vec<_>>()
                 .join("   ")
@@ -204,88 +216,70 @@ pub fn document(s: &AppState, source: &str, width: f32) -> El {
 }
 
 pub fn document_at(s: &AppState, source: &str, width: f32, offset: Option<usize>) -> El {
-    let refs = s
-        .current_object()
-        .and_then(|o| s.core.host.object_scope.get(&o.id))
-        .and_then(|scope| s.core.host.references.get(scope))
-        .map(|rs| {
-            rs.iter()
-                .map(|r| render_content::Reference {
-                    label: r.label.clone(),
-                    target: r.target.clone(),
-                    reason: r.reason.as_ref().map(|t| t.as_str().to_owned()),
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let mut documents = s.documents.borrow_mut();
-    if documents
-        .get(source)
-        .is_none_or(|(cached, _)| cached != &refs)
-    {
-        documents.insert(
-            source.to_owned(),
-            (refs.clone(), render_content::Document::parse(source, &refs)),
-        );
-    }
-    let doc = &documents.get(source).unwrap().1;
-    let mut rendered = col().w(width).child(doc.render_with_options(
-        s.theme,
-        width,
-        render_content::RenderOptions {
-            mono_prose: s.mono_prose,
-            prose_measure: Some(if s.wide { width } else { 600.0 }),
-            mermaid_source: s.mermaid_source,
-        },
-    ));
-    if let Some(offset) = offset {
-        for target in doc.targets() {
-            let start = offset + target.source.start;
-            let end = offset + target.source.end;
-            let (label, command) = match &target.kind {
-                render_content::NavigationKind::Diagram { .. } => (
-                    "Full diagram · pan horizontally for overflow",
-                    "diagram.zoom",
-                ),
-                render_content::NavigationKind::Reference(_) => {
-                    ("Open reference", "goto.definition")
-                }
-                render_content::NavigationKind::Link(_) => {
-                    ("Open link · confirms URL", "link.external")
-                }
-                render_content::NavigationKind::Footnote { .. } => {
-                    ("Go to footnote", "goto.definition")
-                }
-            };
-            let expected = source.get(target.source.clone()).unwrap_or("").to_owned();
-            let snippet = expected.lines().next().unwrap_or("");
-            rendered = rendered.child(
-                rune::row()
-                    .gap(8.0)
-                    .w(width)
-                    .key(format!("target.{start}"))
-                    .child(hint_overlay(s, &format!("byte:{start}")))
-                    .child(
-                        small(label, s.theme).color(s.theme.token(if s.chrome_inert() {
-                            "fg.muted"
-                        } else {
-                            "kind.literal"
-                        })),
-                    )
-                    .child(small(snippet, s.theme).truncate().shrink())
-                    .on_press_tx(move |s: &mut AppState, tx| {
-                        if !s.chrome_inert()
-                            && s.source_text().get(start..end) == Some(expected.as_str())
-                            && s.reader_seek(start)
-                        {
-                            s.command(command, tx);
-                            tx.instant();
-                        }
-                    }),
-            );
+    s.with_document(source, |doc| {
+        let mut rendered = col().w(width).child(doc.render_with_options(
+            s.theme,
+            width,
+            render_content::RenderOptions {
+                mono_prose: s.mono_prose,
+                prose_measure: Some(if s.wide { width } else { 600.0 }),
+                mermaid_source: s.mermaid_source,
+            },
+        ));
+        if let Some(offset) = offset {
+            for target in doc.targets() {
+                rendered = rendered.child(navigation_row(s, source, target, offset, width));
+            }
         }
-    }
-    rendered
+        rendered
+    })
+}
+
+fn navigation_row(
+    s: &AppState,
+    source: &str,
+    target: &render_content::NavigationTarget,
+    offset: usize,
+    width: f32,
+) -> El {
+    let start = offset + target.source.start;
+    let end = offset + target.source.end;
+    let (label, command) = match &target.kind {
+        render_content::NavigationKind::Diagram { .. } => (
+            "Full diagram · pan horizontally for overflow",
+            "diagram.zoom",
+        ),
+        render_content::NavigationKind::Reference(_) => ("Open reference", "goto.definition"),
+        render_content::NavigationKind::Link(_) => ("Open link · confirms URL", "link.external"),
+        render_content::NavigationKind::Footnote { .. } => ("Go to footnote", "goto.definition"),
+    };
+    let expected = source.get(target.source.clone()).unwrap_or("").to_owned();
+    rune::row()
+        .gap(8.0)
+        .w(width)
+        .key(format!("target.{start}"))
+        .child(hint_overlay(s, &format!("byte:{start}")))
+        .child(
+            small(label, s.theme).color(s.theme.token(if s.chrome_inert() {
+                "fg.muted"
+            } else {
+                "kind.literal"
+            })),
+        )
+        .child(
+            small(expected.lines().next().unwrap_or(""), s.theme)
+                .truncate()
+                .shrink(),
+        )
+        .on_press_tx(move |s: &mut AppState, tx| {
+            if !s.chrome_inert()
+                && s.source_text().get(start..end) == Some(expected.as_str())
+                && s.reader_seek(start)
+            {
+                s.command(command, tx);
+                tx.instant();
+            }
+        })
 }
 
 /// A frozen hint is presentation, never a command or authority action.

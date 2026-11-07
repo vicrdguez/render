@@ -25,6 +25,91 @@ fn runtime(width: f32, modal: bool) -> Runtime<AppState> {
     rt
 }
 
+fn contrast(a: rune::Color, b: rune::Color) -> f32 {
+    let (a, b) = (a.luminance(), b.luminance());
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+#[test]
+fn selected_enter_chip_is_readable_and_retains_geometry_under_modal() {
+    for theme in [
+        render_content::Theme::Ember,
+        render_content::Theme::EmberSoft,
+        render_content::Theme::EmberLight,
+    ] {
+        let mut rt = runtime(1512.0, false);
+        rt.update(|s, tx| {
+            s.theme = theme;
+            tx.instant();
+        });
+        rt.frame(0.02);
+        let elements = rt.elements();
+        let chip = elements
+            .iter()
+            .find(|e| e.text.as_deref() == Some("⏎") && e.rect[1] < 200.0)
+            .unwrap();
+        assert!(
+            contrast(chip.text_color.unwrap(), chip.fill) >= 4.5,
+            "{theme:?}: chip contrast"
+        );
+        let rect = chip.rect;
+        rt.key(rune::Key::Text("K".into()).into());
+        rt.frame(1.0);
+        let elements = rt.elements();
+        let chip = elements
+            .iter()
+            .find(|e| e.text.as_deref() == Some("⏎") && e.rect == rect)
+            .expect("modal retains chip geometry");
+        assert_eq!(chip.text_color, Some(theme.token("fg.muted")));
+    }
+}
+
+#[test]
+fn waiting_has_common_reason_and_age_columns_without_content_bars() {
+    for (width, reason_x) in [(1512.0, 522.0), (1200.0, 522.0), (800.0, 378.0)] {
+        let rt = runtime(width, false);
+        let elements = rt.elements();
+        let mut age_right = None;
+        for r in rt
+            .state
+            .core
+            .host
+            .attention
+            .rows
+            .iter()
+            .filter(|r| r.group == AttentionGroup::Waiting)
+        {
+            let head = elements
+                .iter()
+                .find(|e| e.key.as_deref() == Some(&format!("brief.head.{}", r.id)))
+                .unwrap();
+            let inside = |rect: [f32; 4]| {
+                rect[1] >= head.rect[1] && rect[1] + rect[3] <= head.rect[1] + head.rect[3]
+            };
+            let reason = elements
+                .iter()
+                .filter(|e| inside(e.rect))
+                .find(|e| e.text.as_deref() == r.reason.as_ref().map(|r| r.as_str()))
+                .unwrap();
+            assert_eq!(reason.rect[0], reason_x, "{} at {width}", r.id);
+            let age = elements
+                .iter()
+                .filter(|e| inside(e.rect))
+                .find(|e| e.text.as_deref() == Some(rt.state.age(r.since).as_str()))
+                .unwrap();
+            let right = age.rect[0] + age.rect[2];
+            assert_eq!(*age_right.get_or_insert(right), right);
+            assert!(
+                !elements
+                    .iter()
+                    .filter(|e| inside(e.rect))
+                    .any(|e| e.rect[2] == 2.0 && e.fill == rt.state.theme.token("border.strong")),
+                "waiting has no content bar"
+            );
+        }
+    }
+}
+
 #[test]
 fn brief_bands_preserve_content_axis_and_fit_all_supported_widths() {
     for (width, x, band_width) in [

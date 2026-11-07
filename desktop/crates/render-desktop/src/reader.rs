@@ -73,6 +73,45 @@ impl AppState {
     pub fn reader_motion(&mut self, keys: &[String]) -> bool {
         let source = self.source_text();
         self.tab_mut().reader.sync(&source);
+        // Paragraph motions are reader navigation; the shared editor does not
+        // implement brace motions. Resolve source paragraph boundaries, never glyphs.
+        if self.tab().reader.mode() == Mode::Normal
+            && keys.last().is_some_and(|k| matches!(k.as_str(), "{" | "}"))
+            && keys[..keys.len() - 1]
+                .iter()
+                .all(|k| k.chars().all(|c| c.is_ascii_digit()))
+        {
+            let forward = keys.last().unwrap() == "}";
+            let count = keys[..keys.len() - 1]
+                .concat()
+                .parse::<usize>()
+                .unwrap_or(1)
+                .min(10000);
+            let mut starts = vec![0];
+            let mut offset = 0;
+            let mut blank = false;
+            for line in source.split_inclusive('\n') {
+                if !line.trim().is_empty() && blank {
+                    starts.push(offset);
+                }
+                blank = line.trim().is_empty();
+                offset += line.len();
+            }
+            let mut byte = self.tab().reader.cursor();
+            for _ in 0..count {
+                byte = if forward {
+                    starts.iter().copied().find(|&b| b > byte).unwrap_or(byte)
+                } else {
+                    starts
+                        .iter()
+                        .copied()
+                        .rev()
+                        .find(|&b| b < byte)
+                        .unwrap_or(0)
+                };
+            }
+            return self.reader_seek(byte);
+        }
         let mut e = self.tab().reader.editor.clone();
         let mut operand = false;
         for key in keys {

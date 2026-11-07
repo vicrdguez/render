@@ -109,11 +109,19 @@ pub enum NavigationKind {
     Diagram { source: String },
 }
 
+/// A top-level rendered block's half-open range in original UTF-8 source bytes.
+/// Metadata follows rendering order, including relocated footnote definitions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceBlock {
+    pub source: Range<usize>,
+}
+
 /// Parsed content with no authority or transport types. Source bytes remain available for yank.
 #[derive(Clone, Debug)]
 pub struct Document {
     source: String,
     targets: Vec<NavigationTarget>,
+    source_blocks: Vec<SourceBlock>,
     pub blocks: Vec<Block>,
     pub truncated_lines: usize,
 }
@@ -140,6 +148,9 @@ impl Document {
                         return Self {
                             source: source.into(),
                             targets: Vec::new(),
+                            source_blocks: vec![SourceBlock {
+                                source: 0..shown.len(),
+                            }],
                             blocks: vec![Block::Code {
                                 language: String::new(),
                                 source: shown.into(),
@@ -162,24 +173,20 @@ impl Document {
             notes,
             source: shown,
         };
-        let mut blocks = parser.blocks(&tree);
-        let mut footnotes = Vec::new();
-        blocks.retain(|block| {
-            if matches!(block, Block::Footnote { .. }) {
-                footnotes.push(block.clone());
-                false
-            } else {
-                true
-            }
-        });
-        footnotes.sort_by_key(|b| match b {
+        let (mut blocks, mut footnotes): (Vec<_>, Vec<_>) = parser
+            .source_blocks(&tree)
+            .into_iter()
+            .partition(|(block, _)| !matches!(block, Block::Footnote { .. }));
+        footnotes.sort_by_key(|(block, _)| match block {
             Block::Footnote { number, .. } => *number,
             _ => 0,
         });
         blocks.extend(footnotes);
+        let (blocks, source_blocks) = blocks.into_iter().unzip();
         Self {
             source: source.into(),
             targets,
+            source_blocks,
             blocks,
             truncated_lines,
         }
@@ -187,6 +194,13 @@ impl Document {
 
     pub fn source(&self) -> &str {
         &self.source
+    }
+
+    /// Parser ranges aligned with `blocks` as parsed, not glyph or display offsets.
+    /// Callers using this metadata must not reorder or replace the public `blocks`.
+    /// Omitted lines have no blocks; the depth-limit fallback covers all shown bytes.
+    pub fn source_blocks(&self) -> &[SourceBlock] {
+        &self.source_blocks
     }
 
     /// Inert candidates ordered by original source position, with half-open byte ranges.
@@ -349,15 +363,23 @@ fn navigation_targets(
 
 #[derive(Debug)]
 enum Node {
-    Group(Tag<'static>, Vec<Node>),
+    Group(Tag<'static>, Vec<Node>, Range<usize>),
     Leaf(Event<'static>, Range<usize>),
+}
+
+impl Node {
+    fn source(&self) -> Range<usize> {
+        match self {
+            Self::Group(_, _, range) | Self::Leaf(_, range) => range.clone(),
+        }
+    }
 }
 
 fn nodes(events: &mut impl Iterator<Item = (Event<'static>, Range<usize>)>) -> Vec<Node> {
     let mut result = Vec::new();
     while let Some((event, range)) = events.next() {
         match event {
-            Event::Start(tag) => result.push(Node::Group(tag, nodes(events))),
+            Event::Start(tag) => result.push(Node::Group(tag, nodes(events), range)),
             Event::End(_) => break,
             leaf => result.push(Node::Leaf(leaf, range)),
         }
@@ -372,7 +394,7 @@ fn number_notes(nodes: &[Node], notes: &mut HashMap<String, usize>) {
                 let n = notes.len() + 1;
                 notes.entry(label.to_string()).or_insert(n);
             }
-            Node::Group(_, children) => number_notes(children, notes),
+            Node::Group(_, children, _) => number_notes(children, notes),
             _ => {}
         }
     }
@@ -387,7 +409,7 @@ fn raw(nodes: &[Node]) -> String {
                 _,
             ) => out.push_str(t),
             Node::Leaf(Event::SoftBreak | Event::HardBreak, _) => out.push('\n'),
-            Node::Group(_, children) => out.push_str(&raw(children)),
+            Node::Group(_, children, _) => out.push_str(&raw(children)),
             _ => {}
         }
     }
@@ -402,18 +424,25 @@ struct Content<'a> {
 
 impl Content<'_> {
     fn blocks(&self, nodes: &[Node]) -> Vec<Block> {
+        self.source_blocks(nodes)
+            .into_iter()
+            .map(|(block, _)| block)
+            .collect()
+    }
+
+    fn source_blocks(&self, nodes: &[Node]) -> Vec<(Block, SourceBlock)> {
         let mut result = Vec::new();
         let mut loose = Vec::new();
         for node in nodes {
             let block = match node {
-                Node::Group(Tag::Paragraph, children) => {
+                Node::Group(Tag::Paragraph, children, _) => {
                     Some(Block::Paragraph(self.inline(children)))
                 }
-                Node::Group(Tag::Heading { level, .. }, children) => Some(Block::Heading {
+                Node::Group(Tag::Heading { level, .. }, children, _) => Some(Block::Heading {
                     level: *level as u8,
                     content: self.inline(children),
                 }),
-                Node::Group(Tag::CodeBlock(kind), children) => {
+                Node::Group(Tag::CodeBlock(kind), children, _) => {
                     let language = match kind {
                         CodeBlockKind::Fenced(info) => info.split_whitespace().next().unwrap_or(""),
                         _ => "",
@@ -423,16 +452,16 @@ impl Content<'_> {
                         source: raw(children),
                     })
                 }
-                Node::Group(Tag::BlockQuote(kind), children) => Some(Block::Quote {
+                Node::Group(Tag::BlockQuote(kind), children, _) => Some(Block::Quote {
                     alert: kind.map(|k| format!("{k:?}").to_uppercase()),
                     blocks: self.blocks(children),
                 }),
-                Node::Group(Tag::List(start), children) => Some(Block::List {
+                Node::Group(Tag::List(start), children, _) => Some(Block::List {
                     start: *start,
                     items: children
                         .iter()
                         .filter_map(|node| match node {
-                            Node::Group(Tag::Item, children) => Some(ListItem {
+                            Node::Group(Tag::Item, children, _) => Some(ListItem {
                                 checked: task(children),
                                 blocks: self.blocks(children),
                             }),
@@ -440,16 +469,16 @@ impl Content<'_> {
                         })
                         .collect(),
                 }),
-                Node::Group(Tag::Table(alignments), children) => Some(Block::Table {
+                Node::Group(Tag::Table(alignments), children, _) => Some(Block::Table {
                     alignments: alignments.clone(),
                     rows: children
                         .iter()
                         .filter_map(|node| match node {
-                            Node::Group(Tag::TableHead | Tag::TableRow, cells) => Some(
+                            Node::Group(Tag::TableHead | Tag::TableRow, cells, _) => Some(
                                 cells
                                     .iter()
                                     .filter_map(|cell| match cell {
-                                        Node::Group(Tag::TableCell, text) => {
+                                        Node::Group(Tag::TableCell, text, _) => {
                                             Some(self.inline(text))
                                         }
                                         _ => None,
@@ -460,7 +489,7 @@ impl Content<'_> {
                         })
                         .collect(),
                 }),
-                Node::Group(Tag::MetadataBlock(_), children) => {
+                Node::Group(Tag::MetadataBlock(_), children, _) => {
                     let source = raw(children);
                     let fields = source
                         .lines()
@@ -472,12 +501,12 @@ impl Content<'_> {
                         .count();
                     Some(Block::Frontmatter { source, fields })
                 }
-                Node::Group(Tag::FootnoteDefinition(label), children) => Some(Block::Footnote {
+                Node::Group(Tag::FootnoteDefinition(label), children, _) => Some(Block::Footnote {
                     label: label.to_string(),
                     number: self.notes.get(label.as_ref()).copied().unwrap_or(0),
                     blocks: self.blocks(children),
                 }),
-                Node::Group(Tag::HtmlBlock, children) => Some(Block::Paragraph(InlineText {
+                Node::Group(Tag::HtmlBlock, children, _) => Some(Block::Paragraph(InlineText {
                     text: safe_text(&raw(children)),
                     marks: Vec::new(),
                 })),
@@ -489,17 +518,31 @@ impl Content<'_> {
                 }
             };
             if !loose.is_empty() {
-                result.push(Block::Paragraph(self.inline_refs(&loose)));
+                result.push(self.loose_block(&loose));
                 loose.clear();
             }
             if let Some(block) = block {
-                result.push(block);
+                result.push((
+                    block,
+                    SourceBlock {
+                        source: node.source(),
+                    },
+                ));
             }
         }
         if !loose.is_empty() {
-            result.push(Block::Paragraph(self.inline_refs(&loose)));
+            result.push(self.loose_block(&loose));
         }
         result
+    }
+
+    fn loose_block(&self, nodes: &[&Node]) -> (Block, SourceBlock) {
+        (
+            Block::Paragraph(self.inline_refs(nodes)),
+            SourceBlock {
+                source: nodes.first().unwrap().source().start..nodes.last().unwrap().source().end,
+            },
+        )
     }
 
     fn inline(&self, nodes: &[Node]) -> InlineText {
@@ -572,7 +615,7 @@ impl Content<'_> {
                     number,
                 })
             }
-            Node::Group(Tag::Image { dest_url, .. }, children) => {
+            Node::Group(Tag::Image { dest_url, .. }, children, _) => {
                 out.text.push_str(&format!(
                     "image · {} · {}",
                     safe_text(&raw(children)),
@@ -582,7 +625,7 @@ impl Content<'_> {
                     url: dest_url.to_string(),
                 })
             }
-            Node::Group(tag, children) => {
+            Node::Group(tag, children, _) => {
                 for child in children {
                     self.append(child, out, eligible);
                 }
@@ -727,7 +770,7 @@ pub(crate) fn word_ranges(text: &str) -> Vec<(usize, &str)> {
 fn task(nodes: &[Node]) -> Option<bool> {
     nodes.iter().find_map(|node| match node {
         Node::Leaf(Event::TaskListMarker(value), _) => Some(*value),
-        Node::Group(Tag::Paragraph, children) => task(children),
+        Node::Group(Tag::Paragraph, children, _) => task(children),
         _ => None,
     })
 }

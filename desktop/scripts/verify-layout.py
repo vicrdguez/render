@@ -30,7 +30,11 @@ def check(path):
     tracks = [item for item in elements if item.get("key") == "frame.track"]
     if tracks:
         box("frame.track", [0, 36, width, 40])
-    columns = [item for item in elements if item.get("key") == "content.main"]
+    # Review notes and Chat speaker gutters share the scroll container. Its outer
+    # bounds are not the text measure; check each actual prose/message column.
+    reading_blocks = [item for item in elements
+                      if (item.get("key") or "").startswith(("review.block.", "message."))]
+    columns = reading_blocks or [item for item in elements if item.get("key") == "content.main"]
     if tracks and columns:
         if width >= 1264:
             text_x = math.floor(0.6 * (width - 1224)) + 264

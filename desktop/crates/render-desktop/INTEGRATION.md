@@ -37,7 +37,7 @@ Default stores are `desktop/.state/live` and `desktop/.state/demo`. `--store PAT
 
 The binary registers actual post-draw, IME, focus and close callbacks. Public seams include `AppState`, `app_spec`, `view`, `on_key`, `poll`, `initialize`, `on_frame_drawn`, `on_ime`, `on_focus`, `on_close` and `Screen`.
 
-## Evidence at this checkpoint
+## Original checkpoint evidence
 
 Focused parent-run checks passed after integration:
 
@@ -54,10 +54,22 @@ The cumulative workspace test, strict-clippy, formatting and boundary gate has p
 
 Current native captures cover sixteen scenes at four widths in all three themes (192 images/trees), with geometry checks. Representative Brief, Review and Readback images were inspected, not every pixel of every image. Actual window creation was observed at 1482×962 in `desktop/.audit/window-current/`; Accessibility and Screen Recording preflights remain false. The process logged a display-link warning and slow debug startup, and integration tests emitted occasional main-thread IO timing warnings. No latency or performance acceptance is claimed.
 
+## Usability follow-up
+
+The subsequent mockup pass fixes Brief Enter-chip contrast in all three themes, removes Waiting reason bars while aligning reason/age columns, and puts Chat speaker icons in the gutter with a bounded page-foot composer. Narrow Track rows retain current-stage/context text; the Decision action names its target.
+
+Review now renders one cached parsed document with exact top-level source ranges. Current-block feedback, paragraph movement, source-position clicks, scroll reveal, and anchored note/composer rows share that source mapping. At narrow widths notes follow their associated block; intermediate widths use the actual shrunken note margin. The first-note hint retains both `c` (operator) and the paragraph alias. Pending `c` explains the required motion. Normal note editing exposes saving and returning to the reader; see the README's Review walkthrough.
+
+Rune-specific installable skills were not found. Cleanup followed the pinned framework's agent/API guidance: separate Review, Chat and editor view modules; shared parsed-document/reference caching and navigation-row rendering; native flow layout; live-only scroll callbacks. No framework upgrade, new dependency or host protocol was introduced.
+
+Follow-up verification: 272 workspace tests, strict workspace/all-target Clippy, formatting, seven-crate boundary check and binary build. Behavioral regressions preceded fixes for chip contrast, Waiting alignment, paragraph hint movement, composer affordances, Chat footer position, offscreen reader focus, intermediate note width, multiline navigation previews and retaining notes/editors in the comparison lens. Existing real-store/demo-adapter tests cover save/authority continuation and explicit new-draw requirements. Logs and refreshed native evidence are under `desktop/.audit/usability-pass/`.
+
+The native capture matrix contains 112 images/trees: all 16 scenes at four widths in Ember; Brief, Review, Chat, Decision, readback and Slices at four widths in both other themes. Geometry checks inspect actual prose/message columns, not the enlarged shared scroll container. Representative images were inspected. Synthetic note-entry captures demonstrate repeat annotation; a headless save without a presented target correctly refuses and retains drafts. These are not physical-input or production-host acceptance.
+
 ## Still required
 
 1. Re-audit the 115-command catalogue against behavior. Known follow-ups include richer draft undo/counts, per-object lowercase marks and automatic marks, Design creation submission, accepted-basis/finding evidence/footnote landing, shipped scope/filter behavior, structural hint coverage, and unsupported adoption/recovery arguments. Do not count generic unavailable responses as feature completion.
-2. Exact rendered Markdown glyph selection and inline hint placement remain incomplete; current selection includes an exact-byte source preview. Computed-diff/new-side reader anchors also require further work.
+2. Exact rendered Markdown glyph selection, wrapped-visual-line `j`/`k`, and inline navigation hints remain incomplete; current selection includes an exact-byte source preview. Computed-diff/new-side reader anchors also require further work. Wide notes currently use row-height flow, which can stretch prose beside tall notes; collision packing and drift-based note collapse remain incomplete. Chat's streaming tail is not attached to the final glyph line.
 3. Complete visual and interaction acceptance, including full affordance/accessibility inspection and readable basis metadata. Geometry checks and selected screenshots do not establish full specification parity.
 4. Physical timing, pointer/keyboard usability, screen sleep/lock transitions, real IME and accessibility usability remain uncertified. Native window creation and synthetic input are narrower evidence.
 5. Large-document virtualization, incremental parsing, synchronous persistence costs and resource/performance acceptance remain unresolved. Preserve the required source-specific gate after subsequent fixes.

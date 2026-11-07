@@ -41,7 +41,18 @@ pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
                 .fill(t.token("surface.side"))
                 .px(16.0)
                 .center_y()
-                .child(small(s.echo(), t).truncate().w((width - 32.0).max(1.0))),
+                .child(
+                    small(
+                        if matches!(s.operator.as_deref(), Some("c" | "gc")) {
+                            "Note · choose a motion: ip paragraph · Esc cancel"
+                        } else {
+                            s.echo()
+                        },
+                        t,
+                    )
+                    .truncate()
+                    .w((width - 32.0).max(1.0)),
+                ),
         );
     if s.screen().work() {
         root = root.child(track(s, width).absolute(0.0, 36.0));
@@ -249,15 +260,18 @@ fn track(s: &AppState, width: f32) -> El {
     let axis = crate::layout::Axis::new(width);
     let start = axis.left.map_or(24.0, |r| r.0);
     let end = axis.notes.map_or(width - 16.0, |r| r.0 + r.1);
+    let track_text = if width < 1180.0 {
+        crate::views::compact_track_text(s.current_object().and_then(|o| o.track.as_ref()))
+    } else {
+        s.track_text()
+    };
     let mut line = row()
         .gap(16.0)
         .center_y()
         .w((end - start).max(1.0))
         .h(40.0)
-        .child(small(s.track_text(), t).truncate().shrink());
-    if width >= 1180.0 {
-        line = line.child(small(s.abnormal_fact(), t).truncate().shrink());
-    }
+        .child(small(track_text, t).truncate().shrink())
+        .child(small(s.abnormal_fact(), t).truncate().shrink());
     let mut actions = row().gap(8.0).grow(1.0).justify_end().center_y();
     let entries: &[(&str, &str, &str)] = match s.screen() {
         Screen::Review | Screen::Diff => &[
@@ -275,14 +289,34 @@ fn track(s: &AppState, width: f32) -> El {
     for &(key, title, command) in entries {
         let available = s.command_reason(command).is_none();
         let active = available && !s.chrome_inert();
+        let primary = command == "auth.decide";
+        let title = if primary {
+            s.current_object()
+                .and_then(|o| match &o.body {
+                    render_core::ObjectBody::Decision(d) => Some(format!("Answer {}", d.label)),
+                    _ => None,
+                })
+                .unwrap_or_else(|| title.to_owned())
+        } else {
+            title.to_owned()
+        };
         let mut action = row()
             .gap(6.0)
             .px(8.0)
             .h(26.0)
             .center_y()
             .border(1.0, t.token("border.strong"));
+        if primary && active {
+            action = action
+                .fill(t.token("state.attn"))
+                .border(1.0, t.token("state.attn"));
+        }
         if available {
-            action = action.child(chip(key, t, active));
+            action = action.child(if primary {
+                on_solid_chip(key, t, active)
+            } else {
+                chip(key, t, active)
+            });
         }
         action = action.child(
             label(
@@ -293,7 +327,13 @@ fn track(s: &AppState, width: f32) -> El {
                 },
                 t,
             )
-            .color(t.token(if active { "fg.default" } else { "fg.muted" })),
+            .color(t.token(if primary && active {
+                "surface.read"
+            } else if active {
+                "fg.default"
+            } else {
+                "fg.muted"
+            })),
         );
         if !available {
             action = action.border_dash(4.0, 3.0);

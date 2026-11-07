@@ -64,6 +64,17 @@ pub fn chip(value: &str, theme: Theme, active: bool) -> El {
         .color(theme.token(if active { "kind.literal" } else { "fg.muted" }))
         .fill(theme.token("surface.bar"))
 }
+/// A key on a solid attention head needs both its ink and surface knocked out.
+/// Inert heads retain the same chip metrics, using the ordinary muted treatment.
+pub fn on_solid_chip(value: &str, theme: Theme, active: bool) -> El {
+    let key = chip(value, theme, active);
+    if active {
+        key.color(theme.token("surface.read"))
+            .fill(theme.token("state.attn").mix(Color::BLACK, 0.12))
+    } else {
+        key
+    }
+}
 pub fn command_chip(s: &crate::AppState, label: &str, command: &'static str) -> El {
     let allowed = move |s: &crate::AppState| {
         !s.chrome_inert()

@@ -141,7 +141,7 @@ pub fn view(s: &AppState, width: f32, height: f32) -> El {
             );
         }
         for (index, r) in rows.into_iter().enumerate() {
-            left = left.child(entry(s, r, left_width, index > 0).ml(-28.0));
+            left = left.child(entry(s, r, left_width, index > 0, stacked).ml(-28.0));
         }
     }
     let running = s
@@ -209,7 +209,7 @@ pub fn view(s: &AppState, width: f32, height: f32) -> El {
                 .child(small(slots, t)),
         );
         for (index, r) in running.into_iter().enumerate() {
-            right = right.child(entry(s, r, right_width, index > 0));
+            right = right.child(entry(s, r, right_width, index > 0, stacked));
         }
     }
     let done = s
@@ -237,7 +237,7 @@ pub fn view(s: &AppState, width: f32, height: f32) -> El {
                     Some(RowMark::Failed | RowMark::Unknown | RowMark::Stale)
                 )
             {
-                right = right.child(entry(s, r, right_width, true));
+                right = right.child(entry(s, r, right_width, true, stacked));
             }
         }
     }
@@ -259,7 +259,7 @@ pub fn view(s: &AppState, width: f32, height: f32) -> El {
     )
 }
 
-fn entry(s: &AppState, r: &AttentionRow, width: f32, separator: bool) -> El {
+fn entry(s: &AppState, r: &AttentionRow, width: f32, separator: bool, stacked: bool) -> El {
     let t = s.theme;
     let band = matches!(
         r.group,
@@ -284,7 +284,17 @@ fn entry(s: &AppState, r: &AttentionRow, width: f32, separator: bool) -> El {
     let needs = r.group == AttentionGroup::NeedsYou;
     let active = !s.chrome_inert();
     let solid = selected && needs && active;
-    let fg = if solid { "surface.read" } else { "fg.default" };
+    let waiting = r.group == AttentionGroup::Waiting;
+    let fg = if solid {
+        "surface.read"
+    } else if waiting && r.mark != Some(RowMark::Unknown) {
+        "fg.alt"
+    } else {
+        "fg.default"
+    };
+    // SC-02 has a dense reason lane, not the content bars used by asks/activity.
+    // Keep its start stable across provenance and text length, including missing reasons.
+    let title_width = if stacked { 300.0 } else { 440.0 };
     let mark = match r.mark {
         Some(RowMark::NeedsYou) => "◆",
         Some(RowMark::Failed) => "×",
@@ -298,6 +308,19 @@ fn entry(s: &AppState, r: &AttentionRow, width: f32, separator: bool) -> El {
         next_label(r.next.as_ref())
     } else {
         r.title.clone().unwrap_or_else(|| r.id.clone())
+    };
+    let title = label(title, t)
+        .font(style(
+            if waiting { 13.0 } else { 14.0 },
+            20.0,
+            if needs { 600.0 } else { 400.0 },
+        ))
+        .color(t.token(fg))
+        .truncate();
+    let title = if waiting {
+        title.w(title_width).min_w(title_width)
+    } else {
+        title.grow(1.0)
     };
     let mut head = row()
         .key(format!("brief.head.{}", r.id))
@@ -322,39 +345,39 @@ fn entry(s: &AppState, r: &AttentionRow, width: f32, separator: bool) -> El {
         } else {
             "fg.muted"
         })))
-        .child(
-            label(title, t)
-                .font(style(14.0, 20.0, if needs { 600.0 } else { 400.0 }))
-                .color(t.token(fg))
-                .truncate()
-                .grow(1.0),
-        );
+        .child(title);
     if r.group == AttentionGroup::Waiting {
-        if let Some(reason) = &r.reason {
-            let reason_width = (width * 0.38).min(280.0);
-            head = head.child(if reason.is_content() {
-                content_bar(reason.as_str(), t, reason_width, 1)
-            } else {
-                small(reason.as_str(), t)
-                    .color(t.token("fg.muted"))
-                    .w(reason_width)
-                    .truncate()
-            });
-        }
+        let reason_width = (width - title_width - 138.0).max(0.0);
+        let reason = r.reason.as_ref();
+        head = head.child(
+            small(reason.map(Text::as_str).unwrap_or(""), t)
+                .font(if reason.is_some_and(Text::is_content) {
+                    style(13.0, 19.0, 400.0)
+                } else {
+                    style(12.0, 16.0, 400.0)
+                })
+                .color(t.token("fg.muted"))
+                .w(reason_width)
+                .min_w(reason_width)
+                .truncate(),
+        );
     } else if r.group == AttentionGroup::Running
         && let Some(project) = &r.project
     {
         head = head.child(small(&project.name, t).color(t.token("kind.worker")));
     }
-    head = head.child(mono(s.age(r.since), t).color(t.token(if solid {
-        "surface.read"
+    let age =
+        mono(s.age(r.since), t).color(t.token(if solid { "surface.read" } else { "fg.muted" }));
+    head = head.child(if waiting {
+        row().w(54.0).min_w(54.0).justify_end().child(age)
     } else {
-        "fg.muted"
-    })));
+        age
+    });
     if solid {
-        head = head
-            .fill(t.token("state.attn"))
-            .child(chip("⏎", t, true).color(t.token("surface.read")));
+        head = head.fill(t.token("state.attn"));
+    }
+    if selected && needs {
+        head = head.child(on_solid_chip("⏎", t, active));
     }
     let mut body = col().w(width).gap(4.0).child(head);
     if matches!(r.group, AttentionGroup::NeedsYou | AttentionGroup::OnHost) {
