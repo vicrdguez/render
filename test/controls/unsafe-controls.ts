@@ -1595,6 +1595,44 @@ const CONTROLS: Control[] = [
 		test: "test/canonical-integration-crash.integration.ts",
 		pattern: "before-integration-cas",
 	},
+	{
+		name: "integration-observes-without-durability",
+		expect: /the dispatch reports no applied R it could not make durable/,
+		behavior: "a canonical-ref observation that can qualify is reported without a successful fsync of the store",
+		edits: [
+			{
+				file: "src/effects/source.ts",
+				find: "\t\tawait syncTree(store.path);\n\t\tconst current = await this.#gitResult(",
+				replace: "\t\tconst current = await this.#gitResult(",
+			},
+		],
+		test: "test/canonical-integration-effects.test.ts",
+		pattern: "CI23",
+	},
+	{
+		name: "integration-blocks-behind-serialization",
+		expect: /integration_refused: ownership_conflict/,
+		behavior: "a passing Slice blocks for good behind another unresolved integration of its proposal",
+		edits: [
+			{ file: "src/engine/runtime.ts", find: '\t\t\tif (reply.code === "ownership_conflict") return "wait" as const;\n', replace: "" },
+		],
+		test: "test/canonical-integration.integration.ts",
+		pattern: "CI24",
+	},
+	{
+		name: "integration-removes-live-lock",
+		expect: /a lock written since this executor began may be live/,
+		behavior: "reconciliation removes a canonical-ref lock that a live writer may hold",
+		edits: [
+			{
+				file: "src/effects/source.ts",
+				find: "if (held && held.mtimeMs < this.#started) await rm(path);",
+				replace: "if (held) await rm(path);",
+			},
+		],
+		test: "test/canonical-integration-effects.test.ts",
+		pattern: "CI25",
+	},
 ];
 
 async function copy(): Promise<string> {
