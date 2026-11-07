@@ -62,6 +62,8 @@ export async function fixture(
 		successorStops?: boolean;
 		/** Scripted verdicts, one per Watchdog round in launch order; also freezes a Watchdog reviewer on the writer. */
 		watchdog?: ("pass" | "rework" | "needs-human")[];
+		/** Accept a second Slice `next` that requires `value`'s recorded qualifying integration. */
+		dependent?: boolean;
 	} = {},
 ) {
 	const f = await catalogFixture(true, { text: catalog().replaceAll("endpoint", "tests").replace("printf 'SUITE OK'", "sh verify-suite") });
@@ -414,7 +416,7 @@ export async function fixture(
 		"ground",
 		JSON.stringify({
 			schema: 1,
-			shape: { value: "bug", origin: "human", confirmed: true },
+			shape: { value: options.dependent ? "change" : "bug", origin: "human", confirmed: true },
 			goal: "Change value",
 			constraints: [],
 			clarifications: [],
@@ -424,12 +426,12 @@ export async function fixture(
 	);
 	const manifest: IntakeManifest = {
 		schema: 1,
-		shape: "bug",
+		shape: options.dependent ? "change" : "bug",
 		ground,
 		sources: [source],
 		decisions: [],
 		catalog: catalogRef,
-		breakdown: null,
+		breakdown: options.dependent ? "Change value, then build on it." : null,
 		slices: [
 			{
 				id: "value",
@@ -439,12 +441,27 @@ export async function fixture(
 				forbidden: [],
 				obligations: [{ id: "B1", kind: "behavior", text: "Change A to B", sources: [] }],
 			},
+			...(options.dependent
+				? [
+						{
+							id: "next",
+							title: "Build on value",
+							record: false,
+							delegated: [],
+							forbidden: [],
+							obligations: [{ id: "B1", kind: "behavior" as const, text: "Use the changed value", sources: [] }],
+						},
+					]
+				: []),
 		],
 		checks: [
 			{ id: "suite", row: "full-suite", kind: "executed", rank: "tests", new: false, run: "sh verify-suite", expectations: "SUITE OK" },
 		],
-		mapping: [{ slice: "value", obligation: "B1", checks: ["suite"] }],
-		dependencies: [],
+		mapping: [
+			{ slice: "value", obligation: "B1", checks: ["suite"] },
+			...(options.dependent ? [{ slice: "next", obligation: "B1", checks: ["suite"] }] : []),
+		],
+		dependencies: options.dependent ? [{ slice: "next", requires: "value", kind: "integration" as const }] : [],
 		responses: [],
 		unresolved: [],
 	};
@@ -497,6 +514,7 @@ export async function fixture(
 		),
 	);
 	const contract = state().slices[0]!.contract;
+	const nextContract = state().slices[1]?.contract;
 	const selection = { ...f.selection, contract, rows, behavioralRows: ["behavior"] };
 	// Engine's owned-check configuration is keyed by the accepted exact contract.
 	(f.config.checks as Record<string, (typeof f.config.checks)["revision:3"]>)[contract] = f.config.checks["revision:3"];
@@ -529,6 +547,7 @@ export async function fixture(
 		wait,
 		writer,
 		contract,
+		nextContract,
 		rawHandoffAttempted: () => rawHandoffAttempted,
 		/** What the conflict successor's first Linux command printed about its read-only originals. */
 		originals: () => originals,

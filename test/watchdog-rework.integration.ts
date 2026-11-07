@@ -177,12 +177,18 @@ test("WR20/WR15/CI19: no stale review launches after drift; a target moving befo
 			],
 			"the refused CAS stays in history; no old verdict authorizes new bytes",
 		);
-		const R = git(store, ["rev-parse", proposalRef("workflow:2")]).toString().trim();
+		const R = git(store, ["rev-parse", proposalRef("workflow:2")])
+			.toString()
+			.trim();
 		assert.equal(R, operations[1]!.result);
 		assert.equal(git(store, ["rev-list", "--parents", "-n", "1", R]).toString().trim(), `${R} ${T2}`, "R sits exactly on T2");
 		assert.equal(
-			git(store, ["rev-parse", `${R}^{tree}`]).toString().trim(),
-			git(store, ["rev-parse", `${w2!.watchdogReview!.prepared}^{tree}`]).toString().trim(),
+			git(store, ["rev-parse", `${R}^{tree}`])
+				.toString()
+				.trim(),
+			git(store, ["rev-parse", `${w2!.watchdogReview!.prepared}^{tree}`])
+				.toString()
+				.trim(),
 			"R's tree is exactly the reviewed X2's tree",
 		);
 		assert.equal(passes(t).length, 1, "drift opens no pass and no Audit");
@@ -213,7 +219,10 @@ test("WR17: an interrupted Watchdog round resumes its own Assignment and retaine
 		assert.equal(watchdogs(t).filter((a) => a.status === "submitted").length, 0, "interruption is not a completed review");
 		t.release();
 		const blocker = () => passes(t)[0]?.handoff?.blocker ?? "";
-		await t.wait(() => qualified(passes(t)[0]) || /^(awaiting_|needs_human|watchdog_|integration_)/.test(blocker()), "resumed review settles");
+		await t.wait(
+			() => qualified(passes(t)[0]) || /^(awaiting_|needs_human|watchdog_|integration_)/.test(blocker()),
+			"resumed review settles",
+		);
 		assert.ok(qualified(passes(t)[0]), blocker());
 		assert.equal(completed(t), 1);
 		const after = watchdogs(t);
