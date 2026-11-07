@@ -13,7 +13,7 @@ import {
 	implementationLifecycle,
 	LedgerOnlyEngine,
 } from "./support/implementation.ts";
-import { admitted, handedOff, observation, passedRound, passOf, record, refused, W } from "./support/integration.ts";
+import { admit, admitted, handedOff, intent, observation, passedRound, passOf, record, refused, stage, W } from "./support/integration.ts";
 import { admin, packet, selection } from "./support/roles.ts";
 
 type View = {
@@ -197,7 +197,7 @@ test("ES05 a fresh device reconstructs the five handover answers with partial de
 		assert.ok(pass.handoff?.source, "exact handed-off source");
 		assert.ok(pass.handoff?.integrations?.[0]?.qualification, "recorded qualification");
 		assert.ok(v.evidence.items.includes(round.report), "Watchdog report is evidence");
-		assert.notEqual(v.blocker?.code, "dependency_blocked", "the Record edge no longer blocks read-next");
+		assert.equal(v.blocker, null, "no blocker exists once read-fix qualified");
 		assert.equal(v.nextHumanAction.type, "none", "next human action");
 		const contract = await t.f.ledger.artifact(fresh, { read: t.contract });
 		assert.ok("content" in contract && contract.content.toString().includes("Fix read"), "exact Contract bytes");
@@ -209,6 +209,66 @@ test("ES05 a fresh device reconstructs the five handover answers with partial de
 		assert.ok("code" in read && read.code === "content_corrupt", "corrupt Contract refuses rather than substitutes");
 		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
 		assert.ok("manifest" in exported && !exported.manifest.complete && !(t.nextContract! in exported.content));
+	} finally {
+		await t.close();
+	}
+});
+
+test("ES06 a pending Seams revision refuses new integration staging and admission for affected work; admitted operations still reconcile", async () => {
+	const t = await handedOff();
+	try {
+		const ground = accepted(
+			await t.f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: t.f.ledger.status().authorityEpoch,
+					commandId: "revised-ground",
+					workflow: W,
+					expected: { document: t.ground },
+					command: {
+						type: "saveDocument",
+						document: "ground",
+						mediaType: "text/plain",
+						content: Buffer.from(
+							JSON.stringify({
+								schema: 1,
+								shape: { value: "design", origin: "human", confirmed: true },
+								goal: "Revise the read seam",
+								constraints: [],
+								facts: ["The accepted read seam must change."],
+								donePredicate: "An approved revised read seam",
+							}),
+						).toString("base64"),
+					},
+				},
+				admin,
+			),
+		).revision as string;
+		const coordinator = accepted(
+			await t.f.command({ type: "assignTask", slice: "redesign", delivery: false, packet: packet({ inputs: [ground, t.source] }) }),
+		).assignment as string;
+		const actor = await t.start(coordinator);
+		const revise = async () =>
+			accepted(
+				await t.f.command(
+					{ type: "requestCheckpoint", stage: "seams", scope: ground, required: { candidates: false, experiment: false } },
+					actor,
+				),
+			).request as string;
+		const settle = async (request: string) =>
+			accepted(await t.f.command({ type: "cancelCheckpoint", request, expectedEmission: null, reason: "Seam stays." }, admin));
+		const text = intent(t, t.id, await passedRound(t));
+		let request = await revise();
+		refused(await stage(t, t.id, text), "seams_required", "staging affected integration while the Seams decision is pending");
+		await settle(request);
+		const operation = accepted(await stage(t, t.id, text)).operation as string;
+		request = await revise();
+		refused(await admit(t, t.id, operation), "seams_required", "admitting affected integration while the Seams decision is pending");
+		await settle(request);
+		const attempt = accepted(await admit(t, t.id, operation)).integrationAttempt as string;
+		await revise();
+		accepted(await record(t, t.id, operation, observation(operation, attempt)));
+		assert.deepEqual(view(t.f.ledger.snapshot(admin)).integrated, ["read-fix"], "an admitted effect is still reconciled");
 	} finally {
 		await t.close();
 	}

@@ -533,5 +533,5 @@ test("literal: the workflow view reports handover fields and absent capabilities
 	assert.equal(w?.unavailable.includes("historical-export"), false);
 	assert.equal(w?.unavailable.includes("recovery-packages"), false);
 	assert.equal(w?.unavailable.includes("off-host-protection"), false);
-	assert.equal(w?.blocker?.code, "capability_unavailable");
+	assert.equal(w?.blocker, null, "absent capabilities are listed as unavailable, not as a blocker");
 });
