@@ -61,7 +61,7 @@ can retain fenced late results with `recordRecoveryState`; they are quarantined 
 command fields. See [role operations](operations.md#durable-role-work).
 
 Other command families named in spec §4 remain known and refuse with `capability_unavailable`, or with
-`forbidden_principal` when the principal is wrong. This includes forge/source publication work. The human advisory local-verification prompt is delivered through the existing artifact interface, with no execution or completion gate. Editable technical checkpoints, persistent routing settings and human-only Contract intake are delivered; only local-admin may import settings; see `checkpoints.md` and `intake.md` for exact command schemas and basis rules. The opt-in owned-check
+`forbidden_principal` when the principal is wrong. Proposal integration, publication, ready promotion and human main merge observation are delivered; see their sections below. The human advisory local-verification prompt is delivered through the existing artifact interface, with no execution or completion gate. Editable technical checkpoints, persistent routing settings and human-only Contract intake are delivered; only local-admin may import settings; see `checkpoints.md` and `intake.md` for exact command schemas and basis rules. The opt-in owned-check
 path admits `recordRunnerObservation` only from the trusted Effects host scope, with current assignment/generation/Attempt
 and complete receipt text; it is not a worker/device/admin capability. It retains an immutable `owned-check` document,
 not a general effect/publication protocol. See [owned checks and limits](owned-checks.md). Unknown types refuse with `unknown_command`.
