@@ -32,6 +32,8 @@ export type Faults = {
 	draftUnsupported?: boolean;
 	/** Listing page that answers 500. */
 	failPage?: number;
+	/** Apply the ready mutation, then drop the connection. */
+	dropReadyReply?: boolean;
 };
 
 export async function fakeGitHub(options: { owner?: string; name?: string; actor?: string } = {}) {
@@ -84,7 +86,9 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 			const per = Number(url.searchParams.get("per_page") ?? "30");
 			if (faults.failPage === page) return json(res, 500, { message: "Server Error" });
 			const all = pulls.filter((p) => !hidden.has(p.number) && (!head || `${owner}:${p.head.ref}` === head));
-			const items = all.slice((page - 1) * per, page * per);
+			const items = all
+				.slice((page - 1) * per, page * per)
+				.map((p) => ({ ...p, head: { ...p.head, sha: branchHead(p.head.ref) ?? p.head.sha } }));
 			const next: Record<string, string> =
 				page * per < all.length
 					? {
@@ -120,6 +124,19 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 			if (faults.lagListing) hidden.add(number);
 			if (faults.dropCreateReply) return req.socket.destroy();
 			return json(res, 201, pull);
+		}
+		if (url.pathname === "/graphql" && req.method === "POST") {
+			const input = JSON.parse(body.toString()) as { query: string; variables?: { id?: string } };
+			const target = /markPullRequestReadyForReview/.test(input.query) ? pulls.find((p) => p.node_id === input.variables?.id) : undefined;
+			if (!target) return json(res, 200, { data: null, errors: [{ type: "NOT_FOUND", message: "Could not resolve to a node" }] });
+			if (target.state !== "open")
+				return json(res, 200, {
+					data: { markPullRequestReadyForReview: null },
+					errors: [{ type: "UNPROCESSABLE", message: "Pull request is closed" }],
+				});
+			target.draft = false;
+			if (faults.dropReadyReply) return req.socket.destroy();
+			return json(res, 200, { data: { markPullRequestReadyForReview: { pullRequest: { isDraft: false } } } });
 		}
 		const one = new RegExp(`^${pullsPath}/(\\d+)$`).exec(url.pathname);
 		const pull = one ? pulls.find((p) => p.number === Number(one[1])) : undefined;
@@ -198,6 +215,7 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 			repositories: {} as Record<string, { owner: string; name: string; base: string }>,
 		},
 		posts: () => requests.filter((r) => r.method === "POST" && r.path === pullsPath).length,
+		readyRequests: () => requests.filter((r) => r.method === "POST" && r.path === "/graphql"),
 		branch: branchHead,
 		reveal() {
 			hidden.clear();

@@ -398,7 +398,7 @@ test("GP16 missing draft support refuses the create visibly; a draft-unsupported
 	try {
 		const caps = (draft: boolean) => ({
 			draftProposalPR: draft,
-			markProposalReady: false,
+			markProposalReady: true,
 			guardedSourceUpdate: true,
 			createIdempotency: false,
 			stableObjectIdentity: true,
