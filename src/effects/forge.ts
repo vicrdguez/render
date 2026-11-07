@@ -40,6 +40,8 @@ type Pull = {
 	state: string;
 	draft: boolean;
 	merged_at: string | null;
+	merge_commit_sha: string | null;
+	base: { ref: string };
 	body: string | null;
 	head: { ref: string; sha: string; repo: { full_name: string } | null };
 	user: { login: string } | null;
@@ -67,7 +69,7 @@ export class GitHubForge {
 			guardedSourceUpdate: true,
 			createIdempotency: false,
 			stableObjectIdentity: true,
-			mergeObservation: false,
+			mergeObservation: true,
 			observationCompleteness: true,
 		};
 	}
@@ -96,6 +98,7 @@ export class GitHubForge {
 					head: p.head.sha,
 					marker: MARKER.exec(p.body ?? "")?.[1] ?? null,
 					actor: p.user?.login === this.#config.actor,
+					merge: p.merged_at && p.merge_commit_sha ? { main: p.base.ref === this.#repo.base, commit: p.merge_commit_sha } : null,
 				});
 			}
 			url = /<([^>]+)>;\s*rel="next"/.exec(response.headers.get("link") ?? "")?.[1] ?? null;

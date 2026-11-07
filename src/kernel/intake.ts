@@ -16,7 +16,15 @@ export const INTAKE_COMMANDS = [
 	"supersedeContract",
 	"amendDependencies",
 ];
-export type Dependency = { slice: string; requires: string; kind: "integration" | "record" };
+/**
+ * Same-intake edges clear on recorded qualifying integration. A `main` edge, declared only by human amendment, clears
+ * only when an observed human main merge of `workflow` (this proposal or another) contains `requires`.
+ */
+export type Dependency =
+	| { slice: string; requires: string; kind: "integration" | "record" }
+	| { slice: string; requires: string; kind: "main"; workflow: string };
+/** Separately authorized/reviewed inclusion is not built (design gap G1); amendments naming it are refused. */
+type InclusionRequest = { slice: string; requires: string; kind: "inclusion"; workflow: string };
 type Source = { ref: string; node: string | null };
 /** A Record Slice holds only `record` obligations: explicit ADR, approved principle change or requested design outputs. */
 export type Obligation = { id: string; text: string; sources: Source[] } & (
@@ -96,7 +104,7 @@ export type IntakeCommand = { workflow: string } & (
 			expected: string;
 			dispositions: { slice: string; replacement: string }[];
 	  } & AcceptanceBasis)
-	| { type: "amendDependencies"; expected: string; dependencies: Dependency[]; reason: string }
+	| { type: "amendDependencies"; expected: string; dependencies: (Dependency | InclusionRequest)[]; reason: string }
 );
 export type IntakeWrite = { type: "intakes.replace"; state: Intakes; documents: { ref: string; text: string; markdown?: boolean }[] };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -111,12 +119,26 @@ function parse(value: string | undefined): unknown {
 		return null;
 	}
 }
-export function validDependencies(v: unknown): v is Dependency[] {
+const edgeKey = (e: Dependency | InclusionRequest) => `${e.slice}/${"workflow" in e ? `${e.workflow}/` : ""}${e.requires}`;
+/** Intake manifests carry same-intake edges; a human amendment may also name external `main` (or refused inclusion) edges. */
+export function validDependencies(v: unknown, amendment = false): v is (Dependency | InclusionRequest)[] {
 	return (
 		Array.isArray(v) &&
-		v.every((e) => object(e) && id(e.slice) && id(e.requires) && ["integration", "record"].includes(String(e.kind))) &&
-		unique(v.map((e) => `${e.slice}/${e.requires}`))
+		v.every(
+			(e) =>
+				object(e) &&
+				id(e.slice) &&
+				id(e.requires) &&
+				(["integration", "record"].includes(String(e.kind))
+					? !("workflow" in e)
+					: amendment && ["main", "inclusion"].includes(String(e.kind)) && /^workflow:\d+$/.test(String(e.workflow))),
+		) &&
+		unique(v.map(edgeKey))
 	);
+}
+/** Whether an edge's prerequisite qualifies: same-intake by recorded integration, `main` by an observed main merge. */
+export function cleared(e: Dependency, integrated: readonly string[], delivered: readonly string[]): boolean {
+	return e.kind === "main" ? delivered.includes(`${e.workflow}/${e.requires}`) : integrated.includes(e.requires);
 }
 export function validIntakeShape(v: unknown): v is IntakeManifest {
 	if (
@@ -237,8 +259,12 @@ export function intakeRefs(work: Intakes, c: IntakeCommand, checkpoints?: Checkp
 	}
 	return [...new Set(refs)];
 }
-function graphValid(slices: readonly { id: string; record: boolean; status?: string }[], dependencies: Dependency[]): boolean {
-	if (!validDependencies(dependencies)) return false;
+function graphValid(slices: readonly { id: string; record: boolean; status?: string }[], all: Dependency[], workflow: string): boolean {
+	if (!validDependencies(all, true)) return false;
+	if (all.some((e) => e.kind === "main" && e.workflow !== workflow && !slices.some((s) => s.id === e.slice && s.status !== "superseded")))
+		return false;
+	// Another proposal's Slices are not this graph's nodes; its edges order nothing here.
+	const dependencies = all.filter((e) => e.kind !== "main" || e.workflow === workflow);
 	if (
 		dependencies.some(
 			(e) =>
@@ -373,7 +399,7 @@ function lint(state: KernelState, m: IntakeManifest, inputs: Record<string, Chec
 	if (m.mapping.some((x) => !m.slices.some((s) => s.id === x.slice && s.obligations.some((o) => o.id === x.obligation))))
 		return "Mapping cites an unknown obligation.";
 	const slices = [...(state.intakes?.slices ?? []).filter((s) => !m.slices.some((n) => n.id === s.id)), ...m.slices];
-	if (!graphValid(slices, m.dependencies) || m.dependencies.some((e) => !m.slices.some((s) => s.id === e.slice)))
+	if (!graphValid(slices, m.dependencies, state.workflow!.id) || m.dependencies.some((e) => !m.slices.some((s) => s.id === e.slice)))
 		return "Dependencies must name eligible Slices, required Record and an acyclic graph.";
 	return undefined;
 }
@@ -385,14 +411,24 @@ function claimed(state: KernelState, slice: string): boolean {
 		(a) => a.workflow === state.workflow?.id && a.slice === slice && (a.executing || !["submitted", "canceled"].includes(a.status)),
 	);
 }
-export function intakeAssignmentGap(state: KernelState, slice: string, packet: RolePacket): Decision | undefined {
+export function intakeAssignmentGap(
+	state: KernelState,
+	slice: string,
+	packet: RolePacket,
+	delivered: readonly string[],
+): Decision | undefined {
 	const s = state.intakes?.slices.find((s) => s.id === slice);
 	if (!s) return state.intakes?.slices.length ? refused("not_found", "Delivery must name an accepted Slice in this workflow.") : undefined;
 	if (s.status !== "accepted") return refused("contract_superseded", "Superseded work is not completed or assignable.");
 	if (!packet.inputs.includes(s.contract)) return refused("stale_basis", "Assignment must bind the current immutable Contract revision.");
-	// Same-proposal edges clear only on recorded qualifying integration, never on a pass, report or publication.
+	// Never a pass, report, publication or private ref: main edges need an observed human main merge.
 	const qualified = qualifiedSlices(state.roleWork?.passes ?? [], state.workflow!.id, state.intakes!.slices);
-	const dependency = state.intakes!.dependencies.find((e) => e.slice === slice && !qualified.includes(e.requires));
+	const dependency = state.intakes!.dependencies.find((e) => e.slice === slice && !cleared(e, qualified, delivered));
+	if (dependency?.kind === "main")
+		return refused(
+			"dependency_blocked",
+			`Required main delivery of ${dependency.workflow}/${dependency.requires} has no observed human main merge.`,
+		);
 	if (dependency)
 		return refused("dependency_blocked", `Required ${dependency.kind} of ${dependency.requires} has no recorded qualifying integration.`);
 	const missing = recordBasis(state, slice).filter((ref) => !packet.inputs.includes(ref));
@@ -500,19 +536,32 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 		Object.assign(result, { intake: id, manifest: manifestRef });
 	} else if (c.type === "amendDependencies") {
 		if (c.expected !== work.revision) return refused("stale_basis", "Dependency basis changed.");
-		if (!text(c.reason) || !graphValid(work.slices, c.dependencies))
+		if (c.dependencies.some((e) => e.kind === "inclusion"))
+			return refused(
+				"capability_unavailable",
+				"Separately authorized/reviewed inclusion is not available; a cross-proposal edge clears only on an observed human main merge.",
+			);
+		const edges = c.dependencies as Dependency[];
+		if (
+			p.kind === "human" &&
+			p.route === "device" &&
+			p.workflows !== "all" &&
+			edges.some((e) => e.kind === "main" && !p.workflows.includes(e.workflow))
+		)
+			return refused("forbidden_scope", "A main edge names a proposal outside device scope.");
+		if (!text(c.reason) || !graphValid(work.slices, edges, c.workflow))
 			return refused("invalid_content", "Human dependency amendments require a reason and an acyclic eligible graph.");
 		const affected = new Set(
-			[...work.dependencies, ...c.dependencies]
+			[...work.dependencies, ...edges]
 				.filter(
 					(e) =>
 						!work.dependencies.some((old) => JSON.stringify(old) === JSON.stringify(e)) ||
-						!c.dependencies.some((next) => JSON.stringify(next) === JSON.stringify(e)),
+						!edges.some((next) => JSON.stringify(next) === JSON.stringify(e)),
 				)
 				.map((e) => e.slice),
 		);
 		if ([...affected].some((id) => claimed(state, id))) return refused("ownership_conflict", "Cannot alter dependencies of claimed work.");
-		work.dependencies = structuredClone(c.dependencies);
+		work.dependencies = structuredClone(edges);
 	} else {
 		if (!d) return refused("not_found", "No such immutable intake.");
 		if (c.type === "saveIntakeConcern") {
@@ -648,7 +697,7 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 				);
 			if (c.type === "supersedeContract") {
 				if (claimed(state, c.slice)) return refused("ownership_conflict", "Fence and release work before supersession.");
-				const dependents = work.dependencies.filter((e) => e.requires === c.slice);
+				const dependents = work.dependencies.filter((e) => e.requires === c.slice && (e.kind !== "main" || e.workflow === c.workflow));
 				if (
 					!unique(c.dispositions.map((d) => d.slice)) ||
 					c.dispositions.length !== dependents.length ||
@@ -709,7 +758,7 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 					}),
 				});
 			}
-			if (!graphValid(work.slices, work.dependencies))
+			if (!graphValid(work.slices, work.dependencies, c.workflow))
 				return refused("invalid_content", "Replacement/dependency dispositions introduce an invalid or cyclic graph.");
 			d.acceptance = record;
 			result.acceptance = record;

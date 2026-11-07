@@ -18,7 +18,15 @@ import {
 } from "../kernel/checkpoints.ts";
 import { type ExperimentProtocol, experimentInputs, readExperimentProtocol } from "../kernel/experiments.ts";
 import { type ImplementationSource, implementationSource as parseImplementationSource } from "../kernel/implementation.ts";
-import { approvedIntakeRefs, emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, intakeRefs, validIntakeShape } from "../kernel/intake.ts";
+import {
+	approvedIntakeRefs,
+	emptyIntakes,
+	INTAKE_COMMANDS,
+	type IntakeCommand,
+	type Intakes,
+	intakeRefs,
+	validIntakeShape,
+} from "../kernel/intake.ts";
 import { INTEGRATION_COMMANDS, qualifiedSlices } from "../kernel/integration.ts";
 import { type Ground, readGround } from "../kernel/investigation.ts";
 import {
@@ -34,7 +42,7 @@ import {
 	type WorkflowState,
 } from "../kernel/kernel.ts";
 import { bindingFor, initialPolicy, type PolicyState } from "../kernel/policy.ts";
-import { publicationView } from "../kernel/publication.ts";
+import { mainCoverage, publicationView } from "../kernel/publication.ts";
 import { packetRefs, type RoleAssignment, type RolePacket, type RoleWorkState, sameAgent } from "../kernel/roles.ts";
 import type { CatalogEvidence } from "../kernel/verification.ts";
 import { faultBarrier } from "./barrier.ts";
@@ -891,12 +899,19 @@ export class Ledger {
 		}
 		const target = command.type === "revokeDevice" ? await tx.doc(Device, (command as { device: string }).device, null) : undefined;
 		const text = env.content === undefined ? undefined : decodeUtf8(env.content);
+		const prerequisites = new Map<string, Present<WorkflowRecord>>();
+		for (const id of mainWorkflows(intakes)) {
+			const w = workflow?.exists && workflow.id === id ? workflow : await tx.doc(Workflow, id, null);
+			if (w.exists) prerequisites.set(id, w as Present<WorkflowRecord>);
+		}
+		const mainDeliveries = delivered(intakes, plain(roles), prerequisites);
 		const facts: VerifiedFacts = {
 			experimentProtocols,
 			checkpointInputs,
 			...(investigationGround ? { investigationGround } : {}),
 			verificationEvidence,
 			...(implementationSource ? { implementationSource } : {}),
+			mainDeliveries,
 			principal: current,
 			sequence,
 			executorEpoch: meta.executorEpoch,
@@ -1609,7 +1624,7 @@ export class Ledger {
 				kind: "change",
 				base: o.last,
 				sequence: this.#meta.sequence,
-				workflows: view({ workflows: [workflowState(changed, this.#roleWork)] }, scopeOf(o.principal)).workflows,
+				workflows: view({ workflows: [workflowState(changed, this.#roleWork, this.#workflows)] }, scopeOf(o.principal)).workflows,
 			};
 			o.last = this.#meta.sequence;
 			o.send(frame);
@@ -2246,7 +2261,7 @@ export class Ledger {
 	#snapshotFrame(principal: Principal): Frame {
 		const workflows = this.#meta.workflows.flatMap((id) => {
 			const w = this.#workflows.get(id);
-			return w === undefined ? [] : [workflowState(w, this.#roleWork)];
+			return w === undefined ? [] : [workflowState(w, this.#roleWork, this.#workflows)];
 		});
 		return {
 			...this.#frameHeader(principal),
@@ -2384,7 +2399,11 @@ function readable(body: ReceiptBody, principal: Principal): boolean {
 	return body.acceptedBy.route === "device" && principal.workflows === "all";
 }
 
-function workflowState(w: Present<WorkflowRecord>, roles: RoleWorkState): WorkflowState {
+function workflowState(
+	w: Present<WorkflowRecord>,
+	roles: RoleWorkState,
+	workflows: ReadonlyMap<string, Present<WorkflowRecord>>,
+): WorkflowState {
 	const documents: DocumentSummary[] = Object.values(w.documents)
 		.sort((a, b) => a.document.localeCompare(b.document))
 		.map((d) => ({
@@ -2407,8 +2426,19 @@ function workflowState(w: Present<WorkflowRecord>, roles: RoleWorkState): Workfl
 		messageCount: w.messageCount,
 		assignments: plain(roles.assignments.filter((a) => a.workflow === w.id)),
 		integrated: qualifiedSlices(roles.passes ?? [], w.id, w.intakes?.slices ?? []),
-		publication: publicationView(w.publication, roles, w.id),
+		delivered: delivered(w.intakes, roles, workflows),
+		publication: publicationView(w.publication, roles, w.id, w.intakes),
 	};
+}
+
+const mainWorkflows = (intakes: Intakes | undefined) =>
+	new Set((intakes?.dependencies ?? []).flatMap((e) => (e.kind === "main" ? [e.workflow] : [])));
+/** A main edge learns only whether its prerequisite proposal's observed main merge contains its prerequisite Slice. */
+function delivered(intakes: Intakes | undefined, roles: RoleWorkState, workflows: ReadonlyMap<string, Present<WorkflowRecord>>): string[] {
+	return [...mainWorkflows(intakes)].flatMap((id) => {
+		const w = workflows.get(id);
+		return w ? mainCoverage(w.publication, roles, w.intakes, id).covered.map((s) => `${id}/${s}`) : [];
+	});
 }
 
 /** Command IDs are namespaced by principal: one human across devices, or one host scope. */

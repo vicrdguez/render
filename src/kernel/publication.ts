@@ -2,7 +2,7 @@
 // host-owned summary. Kernel derives every payload from current state; Effects only reports what the forge did.
 // Local integration never reads this state: forge outcomes cannot block it.
 import type { Intakes } from "./intake.ts";
-import { integrated } from "./integration.ts";
+import { integrated, qualifiedSlices } from "./integration.ts";
 import type { DomainWrite, KernelState, Refusal, VerifiedFacts } from "./kernel.ts";
 import type { RoleWorkState } from "./roles.ts";
 
@@ -34,7 +34,11 @@ export type ProposalItem = {
 	marker: string | null;
 	/** Opened by the configured Render identity. */
 	actor: boolean;
+	/** The forge's merge of this PR: into the configured main branch or not, and the resulting commit. */
+	merge: { main: boolean; commit: string } | null;
 };
+/** The observed human main merge of the associated PR: `source` is the head actually merged. Recorded once. */
+export type MainMerge = { pr: string; source: string; commit: string; observation: string };
 export type ForgeObservation = {
 	schema: 1;
 	operation: string | null;
@@ -78,6 +82,9 @@ export type Publication = {
 	duplicates?: string[];
 	risk?: { attempts: string[]; resolved: { statement: string; attempts: string[] } | null } | null;
 	unsupported?: string[];
+	main?: MainMerge | null;
+	/** Why the latest observation of a merged associated PR could not verify its main mapping. */
+	mainUnknown?: string | null;
 };
 export type PublicationCommand =
 	| { type: "stageForgeOperation"; workflow: string; kind: ForgeKind }
@@ -183,7 +190,9 @@ export function forgeObservation(value: string): ForgeObservation | undefined {
 			for (const i of items)
 				if (
 					!object(i) ||
-					!closed(i, ["id", "state", "draft", "head", "marker", "actor"]) ||
+					!closed(i, ["id", "state", "draft", "head", "marker", "actor", "merge"]) ||
+					(i.merge !== null &&
+						(!object(i.merge) || !closed(i.merge, ["main", "commit"]) || typeof i.merge.main !== "boolean" || !text(i.merge.commit))) ||
 					!text(i.id) ||
 					!["open", "closed", "merged"].includes(String(i.state)) ||
 					typeof i.draft !== "boolean" ||
@@ -326,6 +335,18 @@ export function changePublication(
 			if (p.association && o.proposals) {
 				const current = o.proposals.items.find((i) => i.id === p.association!.pr);
 				if (current) p.association = { ...p.association, draft: current.draft, state: current.state };
+				if (current?.state === "merged" && !p.main) {
+					// A merged label is not main integration: only a complete listing with a main merge and its head maps it.
+					const gap = !o.proposals.complete
+						? "The listing that shows the merge is incomplete."
+						: !current.merge || !current.head
+							? "The forge reports a merge without a verifiable merged head and merge commit."
+							: !current.merge.main
+								? "The PR was merged outside the main branch."
+								: null;
+					p.mainUnknown = gap;
+					if (!gap) p.main = { pr: current.id, source: current.head!, commit: current.merge!.commit, observation: revision };
+				}
 			}
 			documents.push({ ref: revision, document: `forge-observation/${facts.sequence}`, text: command.text });
 			return done({ observation: revision, operation: op?.operation ?? null, status: op?.status ?? null });
@@ -407,6 +428,29 @@ function observeOperation(p: Publication, op: ForgeOperation, o: ForgeObservatio
 	}
 }
 
+/**
+ * Which qualified Slices the observed merged source contains: those integrated at or before it in canonical lineage.
+ * An older merged head leaves later Slices uncovered; a head outside canonical lineage covers none.
+ */
+export function mainCoverage(
+	p: Publication | undefined,
+	roles: RoleWorkState | undefined,
+	intakes: Intakes | undefined,
+	workflow: string,
+): { covered: string[]; uncovered: string[] } {
+	const slices = intakes?.slices ?? [];
+	const qualified = qualifiedSlices(roles?.passes ?? [], workflow, slices);
+	const lineage = (roles?.passes ?? [])
+		.filter((x) => x.workflow === workflow)
+		.flatMap((x) => (x.handoff?.integrations ?? []).filter((i) => i.status === "qualified").map((i) => ({ pass: x, i })))
+		.sort((a, b) => a.i.attempts.at(-1)!.sequence - b.i.attempts.at(-1)!.sequence);
+	const merged = lineage.slice(0, lineage.findIndex(({ i }) => i.result === p?.main?.source) + 1);
+	const covered = qualified.filter((s) =>
+		merged.some(({ pass }) => pass.slice === s && pass.contract === slices.find((c) => c.id === s)!.contract),
+	);
+	return { covered, uncovered: qualified.filter((s) => !covered.includes(s)) };
+}
+
 export type PublicationView = {
 	status: "awaiting-integration" | "blocked" | "uncertain" | "lagging" | "published";
 	canonical: string | null;
@@ -417,11 +461,19 @@ export type PublicationView = {
 	risk: Publication["risk"];
 	unsupported: string[];
 	operations: ForgeOperation[];
+	/** The observed human main merge beside current canonical source, and the Slices its source does not contain. */
+	main: (MainMerge & { canonical: string | null; uncovered: string[] }) | null;
+	mainUnknown: string | null;
 	/** Actions this publication state holds back; local design, review and integration are never among them. */
 	blocked: string[];
 	choices: string[];
 };
-export function publicationView(p: Publication | undefined, roles: RoleWorkState | undefined, workflow: string): PublicationView {
+export function publicationView(
+	p: Publication | undefined,
+	roles: RoleWorkState | undefined,
+	workflow: string,
+	intakes: Intakes | undefined,
+): PublicationView {
 	const s = p ?? emptyPublication();
 	const head = canonical(roles, workflow).head;
 	const published = s.remote?.head ?? null;
@@ -447,6 +499,7 @@ export function publicationView(p: Publication | undefined, roles: RoleWorkState
 		...(unknownCreate || s.divergence ? ["inspect", "recheck"] : []),
 		...(unknownCreate && !s.operations.some((o) => o.reissue) ? ["authorizeForgeReissue"] : []),
 		...(open || duplicates.length ? ["resolveForgeRisk"] : []),
+		...(s.mainUnknown && !s.main && !(unknownCreate || s.divergence) ? ["recheck"] : []),
 	];
 	return {
 		status,
@@ -458,6 +511,8 @@ export function publicationView(p: Publication | undefined, roles: RoleWorkState
 		risk: s.risk ?? null,
 		unsupported: s.unsupported ?? [],
 		operations: s.operations,
+		main: s.main ? { ...s.main, canonical: head, uncovered: mainCoverage(s, roles, intakes, workflow).uncovered } : null,
+		mainUnknown: s.main ? null : (s.mainUnknown ?? null),
 		blocked,
 		choices,
 	};

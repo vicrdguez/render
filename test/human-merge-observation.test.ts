@@ -21,7 +21,7 @@ import {
 	W,
 	X2,
 } from "./support/integration.ts";
-import { admin, packet, scheduler } from "./support/roles.ts";
+import { admin, packet, scheduler, selection } from "./support/roles.ts";
 import { watched } from "./support/watchdog.ts";
 
 const PR = "github:pr:7:PR_node7";
@@ -273,6 +273,7 @@ async function consumer(t: Lifecycle) {
 					...refs,
 					role: "implementer",
 					execution: "linux-writer",
+					verification: selection(contract),
 					inputs: [contract],
 					requests: [
 						{ key: "standards", packet: packet({ ...refs, role: "audit-standards" }) },
@@ -432,7 +433,10 @@ test("HM07 the merge mapping survives reopen and export; a fresh client reads th
 		assert.deepEqual(pub(t).main, before);
 		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
 		assert.ok("manifest" in exported && exported.manifest.complete);
-		assert.deepEqual(JSON.parse(String(exported.content[seen])).proposals.items[0].merge, { main: true, commit: M });
+		assert.deepEqual(JSON.parse(Buffer.from(String(exported.content[seen]), "base64").toString()).proposals.items[0].merge, {
+			main: true,
+			commit: M,
+		});
 		const v = viewOf(t);
 		assert.equal(v.commitment.status, "accepted");
 		assert.ok(v.owner.assignments.some((a) => (a as { id?: string }).id === next));

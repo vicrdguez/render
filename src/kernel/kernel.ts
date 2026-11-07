@@ -11,7 +11,7 @@ import {
 	changeCheckpoint,
 	emptyCheckpoints,
 } from "./checkpoints.ts";
-import { changeIntake, emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, type Intakes, type IntakeWrite } from "./intake.ts";
+import { changeIntake, cleared, emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, type Intakes, type IntakeWrite } from "./intake.ts";
 import type { Ground } from "./investigation.ts";
 import { changePolicy, initialPolicy, type PolicyCommand, type PolicyState } from "./policy.ts";
 import {
@@ -102,6 +102,8 @@ export type VerifiedFacts = {
 	readonly verificationEvidence?: readonly import("./verification.ts").CatalogEvidence[];
 	readonly implementationSource?: import("./implementation.ts").ImplementationSource;
 	readonly executorEpoch?: string;
+	/** `workflow/slice` prerequisites of this proposal's main edges that an observed human main merge contains. */
+	readonly mainDeliveries?: readonly string[];
 	readonly principal: Principal;
 	/** The Render sequence an accepted command receives. */
 	readonly sequence: number;
@@ -502,6 +504,8 @@ export type WorkflowState = {
 	readonly assignments?: readonly RoleAssignment[];
 	/** Slices whose current Contract has recorded qualifying integration. */
 	readonly integrated?: readonly string[];
+	/** `workflow/slice` prerequisites of this proposal's main edges that an observed human main merge contains. */
+	readonly delivered?: readonly string[];
 	readonly publication?: PublicationView;
 	readonly id: string;
 	readonly title: string;
@@ -561,7 +565,7 @@ function workflowView(w: WorkflowState): WorkflowView {
 	const latestIntake = intakes.drafts.at(-1);
 	const acceptedIntake = intakes.drafts.findLast((d) => d.acceptance)?.acceptance ?? null;
 	const requiredIntegration = intakes.dependencies.find(
-		(e) => !w.integrated?.includes(e.requires) && intakes.slices.some((s) => s.id === e.slice && s.status === "accepted"),
+		(e) => !cleared(e, w.integrated ?? [], w.delivered ?? []) && intakes.slices.some((s) => s.id === e.slice && s.status === "accepted"),
 	);
 	const checkpoints = w.checkpoints ?? emptyCheckpoints();
 	const pending = checkpoints.requests.find((r) => r.status === "pending");
@@ -581,11 +585,17 @@ function workflowView(w: WorkflowState): WorkflowView {
 		blocker: blocked.length
 			? { code: blocked[0]?.blocker ?? "role_blocked", reason: blocked.map((a) => `${a.id}: ${a.blocker}`).join("; "), capabilities: [] }
 			: requiredIntegration
-				? {
-						code: "dependency_blocked",
-						reason: `Required ${requiredIntegration.kind} of ${requiredIntegration.requires} blocks ${requiredIntegration.slice} until recorded qualifying integration.`,
-						capabilities: ["qualifying-integration"],
-					}
+				? requiredIntegration.kind === "main"
+					? {
+							code: "dependency_blocked",
+							reason: `Required main delivery of ${requiredIntegration.workflow}/${requiredIntegration.requires} blocks ${requiredIntegration.slice} until an observed human main merge contains it.`,
+							capabilities: ["human-main-merge-observation"],
+						}
+					: {
+							code: "dependency_blocked",
+							reason: `Required ${requiredIntegration.kind} of ${requiredIntegration.requires} blocks ${requiredIntegration.slice} until recorded qualifying integration.`,
+							capabilities: ["qualifying-integration"],
+						}
 				: null,
 		nextHumanAction:
 			latestIntake && !latestIntake.acceptance
