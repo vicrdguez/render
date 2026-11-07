@@ -1773,6 +1773,10 @@ export class Engine {
 		if (!owner?.passRef) throw new Error("Missing sealed handoff owner");
 		// Each preparation task settles once; a later retry's identical result is a new settlement, not a replay of this one.
 		const block = async (reason: string) => {
+			// After a cancellation with nothing left to reconcile, a refusal of work begun earlier is its expected end; the
+			// cancellation reason stays the visible blocker.
+			const h = this.#implementationPass(owner).handoff;
+			if (h?.canceled && !unresolved(h.integrations?.at(-1))) return;
 			const command = { type: "recordPreparationBlocker", reason: reason.slice(0, 1900) };
 			const reply = await this.#command(this.#assignment(assignmentId)!, command, `preparation-task:${taskId}`);
 			if (reply.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${reply.code}`);
