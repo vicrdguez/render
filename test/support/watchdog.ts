@@ -85,7 +85,11 @@ export function receipt(t: Lifecycle, w: RoleAssignment, over: Receipt = {}) {
 	const X = over.prepared ?? w.watchdogReview!.prepared;
 	const tree = over.tree ?? EMPTY;
 	const digest = over.digest ?? V;
-	const rows = selection(t.contract).rows;
+	// The round's own pass names the Contract its verifier selection is bound to.
+	const contract =
+		((t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[]).find((p) => p.ref === w.watchdogReview?.passRef)
+			?.contract ?? t.contract;
+	const rows = selection(contract).rows;
 	return JSON.stringify({
 		schema: 1,
 		source: { repository: "owned", objectFormat: "sha1", commit: X, tree, root: `refs/render/sources/${X}`, entries: [] },
@@ -94,7 +98,7 @@ export function receipt(t: Lifecycle, w: RoleAssignment, over: Receipt = {}) {
 			role: over.role ?? "watchdog",
 			scope: { assignment: w.id, generation: w.generation, attempt: w.attempt, executorEpoch: t.f.ledger.status().executorEpoch },
 			catalog: {
-				selection: { ...selection(t.contract), commit: X, digest },
+				selection: { ...selection(contract), commit: X, digest },
 				text: "literal selected catalog",
 				ranks: ["tests", "inspection"],
 				sections: {},
