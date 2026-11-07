@@ -149,3 +149,41 @@ test("GP-E1 one draft PR across a lost create reply; a forge outage blocks neith
 		await gh.close();
 	}
 });
+
+test("GP-E2 after a human reissue the host keeps listing candidates under sticky risk; only the human's resolution clears it", async () => {
+	const gh = await fakeGitHub();
+	const forge = { ...gh.config, retryMs: 200, repositories: { owned: { owner: gh.owner, name: gh.name, base: "main" } } };
+	const t = await fixture({ watchdog: ["pass"], forge });
+	try {
+		scripted(t);
+		gh.faults.dropCreateReply = true;
+		gh.faults.lagListing = true;
+		accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
+		const create = () =>
+			publication(t).operations.find((o) => o.kind === "create-proposal") as
+				| (Publication["operations"][number] & { operation: string; candidates?: { id: string }[] })
+				| undefined;
+		await until(() => gh.posts() === 1 && create()?.status === "unknown", "the first create's reply is lost");
+		accepted(await t.f.command({ type: "authorizeForgeReissue", operation: create()!.operation }, admin));
+		await until(() => gh.posts() === 2 && create()?.status === "unknown", "the reissued create's reply is lost too");
+		gh.reveal();
+		await until(() => create()?.candidates?.length === 2, "the host keeps listing candidates under sticky risk", 20000);
+		const risk = () => (publication(t) as unknown as { risk: { attempts: string[]; resolved: unknown } | null }).risk;
+		assert.equal(publication(t).association, null, "a listing never clears sticky risk");
+		assert.equal(risk()?.resolved, null);
+		assert.equal(risk()?.attempts.length, 2, "the risk spans both attempts");
+		const [keep, other] = create()!.candidates!.map((c) => c.id);
+		const resolved = await t.f.command(
+			{ type: "resolveForgeRisk", operation: create()!.operation, pr: keep!, text: "Keep the first PR; I close the other." },
+			admin,
+		);
+		accepted(resolved);
+		assert.deepEqual(publication(t).association, { pr: keep, by: "resolved", draft: true, state: "open" });
+		assert.deepEqual((publication(t) as unknown as { duplicates: string[] }).duplicates, [other]);
+		assert.notEqual(risk()?.resolved, null, "the human's resolution, and only it, clears the risk");
+		assert.equal(gh.posts(), 2, "no create beyond the human-authorized reissue");
+	} finally {
+		await t.close();
+		await gh.close();
+	}
+});
