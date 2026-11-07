@@ -127,6 +127,7 @@ async function fixture(shape: "bug" | "design" = "bug", investigations?: { root:
 			constraints: [],
 			clarifications: [],
 			donePredicate: "Literal bytes",
+			facts: [],
 			approvedSources: [source],
 		}),
 	);
@@ -492,6 +493,9 @@ test("F5 a coordinator cannot read or propagate a concern outside its Ground inp
 							JSON.stringify({
 								schema: 1,
 								goal: "Other scope",
+								constraints: [],
+								facts: [],
+								donePredicate: "Other literal bytes",
 								shape: { value: "bug", origin: "human", confirmed: true },
 								approvedSources: [t.source],
 							}),

@@ -421,6 +421,7 @@ export async function fixture(
 			constraints: [],
 			clarifications: [],
 			donePredicate: "Value B",
+			facts: [],
 			approvedSources: [source],
 		}),
 	);
