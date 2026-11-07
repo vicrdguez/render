@@ -17,6 +17,7 @@ export type Pull = {
 	draft: boolean;
 	state: "open" | "closed";
 	merged_at: string | null;
+	merge_commit_sha: string | null;
 	head: { ref: string; sha: string; repo: { full_name: string } };
 	base: { ref: string };
 	user: { login: string };
@@ -110,6 +111,7 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 				draft: input.draft === true,
 				state: "open",
 				merged_at: null,
+				merge_commit_sha: null,
 				head: { ref: input.head, sha, repo: { full_name: full } },
 				base: { ref: input.base },
 				user: { login: actor },
@@ -199,6 +201,18 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 		branch: branchHead,
 		reveal() {
 			hidden.clear();
+		},
+		/** The human squash-merges PR `number` into its base with real Git; the PR keeps the head it was merged at. */
+		merge(number: number) {
+			const pull = pulls.find((p) => p.number === number)!;
+			pull.head.sha = branchHead(pull.head.ref) ?? pull.head.sha;
+			const parent = branchHead(pull.base.ref);
+			const commit = git(repo, ["commit-tree", `${pull.head.sha}^{tree}`, ...(parent ? ["-p", parent] : []), "-m", `Merge #${number}`])
+				.toString()
+				.trim();
+			git(repo, ["update-ref", `refs/heads/${pull.base.ref}`, commit]);
+			Object.assign(pull, { state: "closed", merged_at: new Date().toISOString(), merge_commit_sha: commit });
+			return commit;
 		},
 		/** Simulated outage: refuse every connection until `up()`. */
 		async down() {

@@ -18,6 +18,7 @@ type Publication = {
 	canonical: string | null;
 	published: string | null;
 	association: { pr: string; by: string } | null;
+	main: { source: string; commit: string } | null;
 	operations: { kind: string; status: string; canonical: string; attempts: unknown[] }[];
 };
 const publication = (t: Fixture) => ((t.f.ledger.snapshot(admin) as Frame).workflows as { publication: Publication }[])[0]!.publication;
@@ -82,7 +83,7 @@ function scripted(t: Fixture) {
 	);
 }
 
-test("GP-E1 one draft PR across a lost create reply; a forge outage blocks neither integration nor the dependent; recovery updates the same PR", async () => {
+test("GP-E1 one draft PR across a lost create reply; a forge outage blocks neither integration nor the dependent; recovery updates the same PR; HM-E1 the human merge is observed", async () => {
 	const gh = await fakeGitHub();
 	const forge = { ...gh.config, retryMs: 200, repositories: { owned: { owner: gh.owner, name: gh.name, base: "main" } } };
 	const t = await fixture({ watchdog: ["pass", "pass"], dependent: true, forge });
@@ -141,6 +142,12 @@ test("GP-E1 one draft PR across a lost create reply; a forge outage blocks neith
 			"the same PR's summary is updated",
 		);
 		assert.match(gh.pulls[0]!.body, new RegExp(`Canonical source: ${R2}`));
+
+		assert.equal(publication(t).main, null);
+		const main = gh.merge(1);
+		await until(() => publication(t).main !== null, "HM-E1 the human merge is observed");
+		assert.deepEqual([publication(t).main!.source, publication(t).main!.commit], [R2, main]);
+		assert.ok(!gh.requests.some((r) => r.path.endsWith("/merge")), "Render never sends a merge");
 		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
 		assert.ok("manifest" in exported);
 		assert.ok(!JSON.stringify(exported).includes(TOKEN), "the forge token never reaches Render records");
