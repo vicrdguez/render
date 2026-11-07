@@ -274,6 +274,12 @@ test("I02/I03 structural coverage rejects forged evidence, unknown references an
 	}
 });
 
+/** A bug's reproduction must stay a behavior obligation; these evidence-kind cases use a change intake instead. */
+function changeShaped(f: ReturnType<typeof fixture>, m: IntakeManifest) {
+	f.inputs["ground:1"]!.text = f.inputs["ground:1"]!.text.replace('"bug"', '"change"');
+	m.shape = "change";
+	m.breakdown = "One bounded read seam, no new interface";
+}
 for (const [kind, row, run, expectations] of [
 	["generated", "discovery", "list", "discovery"],
 	["human", "usability", "inspect", "advisory"],
@@ -281,6 +287,7 @@ for (const [kind, row, run, expectations] of [
 	test(`I02 exact ${kind} catalog row cannot discharge behavior`, () => {
 		const f = fixture();
 		const m = intakeManifest();
+		changeShaped(f, m);
 		Object.assign(m.checks[0]!, { row, kind, rank: null, new: false, run, expectations });
 		assert.deepEqual(
 			f.command({ type: "stageIntake", expected: null, text: "Contract", manifest: m }),
@@ -299,6 +306,7 @@ for (const [kind, row, run, expectations] of [
 	test(`I02 new ${kind} evidence cannot claim a proof rank`, () => {
 		const f = fixture();
 		const m = intakeManifest();
+		changeShaped(f, m);
 		m.slices[0]!.obligations[0]!.kind = "manual";
 		m.checks[0]!.kind = kind;
 		assert.deepEqual(

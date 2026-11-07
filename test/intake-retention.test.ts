@@ -128,6 +128,9 @@ async function fixture(shape: "bug" | "design" = "bug", investigations?: { root:
 			clarifications: [],
 			donePredicate: "Literal bytes",
 			approvedSources: [source],
+			...(shape === "bug"
+				? { reproduction: { trigger: "node read.js", observed: "read returned partial bytes" }, expected: "read returns exact bytes" }
+				: {}),
 		}),
 	);
 	const manifest: IntakeManifest = {
@@ -138,6 +141,9 @@ async function fixture(shape: "bug" | "design" = "bug", investigations?: { root:
 		decisions: [],
 		catalog,
 		breakdown: shape === "design" ? "One bounded read module" : null,
+		...(shape === "bug"
+			? { reproduction: { obligation: "B1", observed: "read returned partial bytes", expected: "read returns exact bytes" } }
+			: {}),
 		slices: [
 			{
 				id: "read-fix",
@@ -494,6 +500,8 @@ test("F5 a coordinator cannot read or propagate a concern outside its Ground inp
 								goal: "Other scope",
 								shape: { value: "bug", origin: "human", confirmed: true },
 								approvedSources: [t.source],
+								reproduction: { trigger: "node read.js", observed: "read returned partial bytes" },
+								expected: "read returns exact bytes",
 							}),
 						).toString("base64"),
 					},
