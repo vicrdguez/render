@@ -563,12 +563,7 @@ function workflowView(w: WorkflowState): WorkflowView {
 						reason: `Required ${requiredIntegration.kind} of ${requiredIntegration.requires} blocks ${requiredIntegration.slice} until recorded qualifying integration.`,
 						capabilities: ["qualifying-integration"],
 					}
-				: {
-						code: "capability_unavailable",
-						reason:
-							"This host retains Ground, documents, checkpoints, accepted Contracts and scoped role work. Full source delivery is not available in this version.",
-						capabilities: w.assignments === undefined ? ["coordinator-replies", "assignments"] : ["coordinator-replies"],
-					},
+				: null,
 		nextHumanAction:
 			latestIntake && !latestIntake.acceptance
 				? { type: "reviewIntake", intake: latestIntake.id, annotations: latestIntake.annotations }
