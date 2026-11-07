@@ -235,7 +235,7 @@ test("CI07/CI13 a fresh executor epoch cannot report a prior epoch's dispatch; o
 				observation(operation, attempt, { mode: "reconcile", observed: { commit: T0, tree: EMPTY, parents: [S] } }),
 			),
 		);
-		assert.equal(unapplied.outcome, "unapplied");
+		assert.equal(unapplied.outcome, "unapplied", "observed T is never inferred success");
 		const op = integrations(t)[0]!;
 		assert.equal(op.status, "unapplied");
 		assert.equal(op.attempts[0]!.outcome, "unapplied");

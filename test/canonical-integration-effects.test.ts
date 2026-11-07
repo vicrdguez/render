@@ -94,7 +94,7 @@ test("CI09 a moved target refuses the stale CAS and keeps the moved ref", async 
 			result: R,
 			attempt: "integration-attempt:1",
 		});
-		assert.equal(result.dispatch, "refused");
+		assert.equal(result.dispatch, "refused", "a moved target refuses the stale CAS");
 		assert.equal(result.observed?.commit, moved);
 		assert.equal(git(f.store, ["rev-parse", REF]).toString().trim(), moved, "the stale update never lands");
 	} finally {

@@ -1499,6 +1499,99 @@ const CONTROLS: Control[] = [
 		test: "test/implementation-engine.integration.ts",
 		pattern: "TP22",
 	},
+	{
+		name: "integration-requires-grant",
+		expect: /Integration needs a human grant/,
+		behavior: "eligible proposal integration waits for a human grant instead of current eligibility",
+		edits: [
+			{
+				file: "src/kernel/integration.ts",
+				find: "\t\tconst closedReason = handoffClosed(pass);\n",
+				replace:
+					'\t\tif (!facts.checkpointInputs?.grant) return refusal("forbidden_scope", "Integration needs a human grant.");\n\t\tconst closedReason = handoffClosed(pass);\n',
+			},
+		],
+		test: "test/canonical-integration.test.ts",
+		pattern: "CI01",
+	},
+	{
+		name: "integration-ignores-cancellation",
+		expect: /admission after cancellation/,
+		behavior: "admission ignores a human cancellation committed before it",
+		edits: [
+			{
+				file: "src/kernel/integration.ts",
+				find: '\t\tif (h.canceled) return refusal("assignment_closed", "Cancellation fenced this handoff before admission.");\n',
+				replace: "",
+			},
+		],
+		test: "test/canonical-integration.test.ts",
+		pattern: "CI04",
+	},
+	{
+		name: "integration-unserialized",
+		expect: /admitted unresolved operation/,
+		behavior: "another Slice stages integration while one of the proposal's operations is unresolved",
+		edits: [{ file: "src/kernel/integration.ts", find: "\tif (blocking)\n", replace: "\tif (false)\n" }],
+		test: "test/canonical-integration.test.ts",
+		pattern: "CI11",
+	},
+	{
+		name: "integration-infers-success",
+		expect: /observed T is never inferred success/,
+		behavior: "reconciliation that observes the unchanged target records qualifying integration",
+		edits: [
+			{
+				file: "src/kernel/integration.ts",
+				find: '\tif (ref.commit === intent.target) return "unapplied";\n',
+				replace: '\tif (ref.commit === intent.target) return "applied";\n',
+			},
+		],
+		test: "test/canonical-integration.test.ts",
+		pattern: "CI07/CI13",
+	},
+	{
+		name: "integration-dependency-before-qualification",
+		expect: /Watchdog passed, no qualification/,
+		behavior: "a prepared and reviewed handoff clears its same-proposal dependents without recorded qualification",
+		edits: [
+			{
+				file: "src/kernel/integration.ts",
+				find: "p.contract === s.contract && integrated(p)",
+				replace: "p.contract === s.contract && !!p.handoff?.preparations?.length",
+			},
+		],
+		test: "test/canonical-integration.test.ts",
+		pattern: "CI15 integration edge",
+	},
+	{
+		name: "integration-blind-cas",
+		expect: /refuses the stale CAS/,
+		behavior: "the canonical-ref update omits its expected old target",
+		edits: [
+			{
+				file: "src/effects/source.ts",
+				find: "update ${ref} ${result.commit} ${expected}\\n",
+				replace: "update ${ref} ${result.commit}\\n",
+			},
+		],
+		test: "test/canonical-integration-effects.test.ts",
+		pattern: "CI09",
+	},
+	{
+		name: "integration-adopts-old-permit",
+		expect: /integration_observation_refused: stale_executor/,
+		behavior: "a recovering executor dispatches an integration permit admitted under the dead executor's epoch",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: 'if (operation.status === "admitted" && attempt.executorEpoch === epoch) {',
+				replace: 'if (operation.status === "admitted") {',
+			},
+		],
+		test: "test/canonical-integration-crash.integration.ts",
+		pattern: "before-integration-cas",
+	},
 ];
 
 async function copy(): Promise<string> {
