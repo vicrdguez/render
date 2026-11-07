@@ -42,7 +42,14 @@ import {
 import { type Investigation, readInvestigationOutcome, shapeConfirmed } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, Principal, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy, policyBasis } from "./policy.ts";
-import { completionGap, type VerificationAssessment, type VerificationSelection } from "./verification.ts";
+import {
+	completionGap,
+	type Maintenance,
+	maintenanceGap,
+	maintenanceReport,
+	type VerificationAssessment,
+	type VerificationSelection,
+} from "./verification.ts";
 
 export const ROLES = [
 	"coordinator",
@@ -155,6 +162,8 @@ export type RoleAssignment = {
 	executionOrdinal: number;
 	blocker: string | null;
 	report: string | null;
+	/** Retained verify-maintain classification per row, from its observed basis. */
+	maintenance?: Maintenance;
 	evidence?: string[];
 	investigationSource?: string;
 	experimentSource?: string;
@@ -1000,7 +1009,32 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				"invalid_content",
 				"Seal exact source and decisive raw results before submitting a protocol-bound outcome, numbers, failures and limitations.",
 			);
-		if (a.packet.verification) {
+		const maintenance = a.packet.verification?.maintenance;
+		if (maintenance) {
+			if (a.packet.execution !== "read-only")
+				return refusal("forbidden_scope", "Only a read-only maintenance assignment classifies; its runner records observations.");
+			const rows = maintenanceReport(c.text);
+			if (!rows)
+				return refusal(
+					"invalid_content",
+					"Submit JSON schema:1, maintenance:{row:{status:clean|changed|blocked, reason, cause:product|prerequisite when blocked, compared:[rows] for discovery}}.",
+				);
+			const prior = work.assignments.find(
+				(b) =>
+					b.id === maintenance.basis && b.workflow === a.workflow && b.maintenance && b.packet.verification?.maintenance?.basis === null,
+			);
+			if (maintenance.basis !== null && !prior)
+				return refusal("missing_content", "Basis must be a retained pre-edit maintenance classification.");
+			const gap = maintenanceGap(
+				a.packet.verification!,
+				a.packet.role,
+				rows,
+				facts.verificationEvidence ?? [],
+				prior && { selection: prior.packet.verification!, rows: prior.maintenance! },
+			);
+			if (gap) return refusal("missing_content", gap);
+			a.maintenance = rows;
+		} else if (a.packet.verification) {
 			if (!c.verification?.reason || !["pass", "non-pass"].includes(c.verification.outcome))
 				return refusal("invalid_content", "Declare catalog adequacy and rationale; command exit is not judgment.");
 			const policy = state.policy ?? initialPolicy();

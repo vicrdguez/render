@@ -1159,6 +1159,12 @@ export class Engine {
 					}
 				: {}),
 			...(verification ? { verification } : {}),
+			...(verification?.selection.maintenance
+				? {
+						maintenanceInstructions:
+							"Verify-maintain, read-only. Read the cited maintenance runs: every non-human row's actual results, invalid definitions, journey sanity and discovery output. Classify each non-human row from that observed basis: clean only when it executed and meets its expectations; changed only for proven harness drift (stale command/path, discovery no longer matching a dependent row), never to make a product pass; blocked with cause product for a product regression (a finding for separate accepted work) or prerequisite when a required tool/fixture is unavailable. Compare each discovery row with the dependent rows it indexes. Human rows stay advisory. No product fixes and no lowered expectations; corrections are ordinary accepted source work. With a basis, judge the corrected run: claim changed only for rows the basis classified changed that now executed successfully. Submit JSON {schema:1,maintenance:{row:{status,reason,cause?,compared?}}}.",
+					}
+				: {}),
 			assignment: a.id,
 			generation: a.generation,
 			attempt: a.attempt,
@@ -1501,7 +1507,8 @@ export class Engine {
 		const results: CatalogResult[] = [];
 		for (const row of catalog.rows) {
 			const result: CatalogResult = { name: row.name, status: row.kind === "human" ? "advisory" : "completed", steps: [] };
-			if (row.kind !== "human") {
+			if (row.gap) result.status = "invalid";
+			else if (row.kind !== "human") {
 				for (const command of row.journey?.steps ?? [row.run]) result.steps.push(await run(["sh", "-c", command]));
 				if (row.journey) result.sanity = await run(["sh", "-c", row.journey.sanity]);
 				const actual = [...result.steps, ...(result.sanity ? [result.sanity] : [])];
