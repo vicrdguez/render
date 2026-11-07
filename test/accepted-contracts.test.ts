@@ -27,6 +27,7 @@ export function intakeManifest(): IntakeManifest {
 		decisions: [],
 		catalog: "catalog:1",
 		breakdown: null,
+		reproduction: { obligation: "B1", observed: 'read returned "ab"', expected: 'read returns "Ab"' },
 		slices: [
 			{
 				id: "fix",
@@ -108,6 +109,8 @@ function fixture() {
 				donePredicate: "Exact saved bytes",
 				facts: [],
 				approvedSources: ["source:1"],
+				reproduction: { trigger: "node read.js Ab", observed: 'read returned "ab"' },
+				expected: 'read returns "Ab"',
 			}),
 		},
 		"source:1": { human: true, document: "existing-seam", text: "Approved read interface source at commit abc; no new seam." },
@@ -935,4 +938,85 @@ test("RB09/RB10 retiring Record work keeps partial delivery visible and never si
 	assert.equal(f.state.intakes!.slices.find((s) => s.id === "record-a")!.status, "superseded", "retired, not completed");
 	assert.deepEqual(f.state.roleWork!.passes, [qualifiedPass], "the partial delivery stays retained");
 	assert.match(assignFix(), /^dependency_blocked: Required record of record-a2 /, "a retired qualification does not clear the replacement");
+});
+
+const ground = (f: ReturnType<typeof fixture>) => JSON.parse(f.inputs["ground:1"]!.text) as Record<string, unknown>;
+const setGround = (f: ReturnType<typeof fixture>, g: Record<string, unknown>) => {
+	f.inputs["ground:1"]!.text = JSON.stringify(g);
+};
+const refusedWith = (reason: string) => ({ outcome: "refused", code: "invalid_content", reason });
+
+test("BJ01/BJ02 a human-supplied bug shape needs no confirmation; a classifier proposal does", () => {
+	const human = fixture();
+	setGround(human, { ...ground(human), shape: { value: "bug", origin: "human", confirmed: false } });
+	assert.ok(human.stage(), "a human-supplied bug shape must not need redundant confirmation");
+	const classified = fixture();
+	setGround(classified, { ...ground(classified), shape: { value: "bug", origin: "classifier", confirmed: false } });
+	assert.deepEqual(
+		classified.command({ type: "stageIntake", expected: null, text: "Contract", manifest: intakeManifest() }),
+		refusedWith("Use exact human Ground with a confirmed matching task shape."),
+		"an unconfirmed classifier bug shape must not become consent",
+	);
+});
+
+test("BJ03 bug Ground retains the reproduction and an independent expected correction", () => {
+	const gaps: [string, (g: Record<string, unknown>) => void][] = [
+		["no reproduction", (g) => delete g.reproduction],
+		["no trigger", (g) => (g.reproduction = { observed: 'read returned "ab"' })],
+		["no observed", (g) => (g.reproduction = { trigger: "node read.js Ab" })],
+		["no expected", (g) => delete g.expected],
+	];
+	for (const [label, mutate] of gaps) {
+		const f = fixture();
+		const g = ground(f);
+		mutate(g);
+		setGround(f, g);
+		assert.deepEqual(
+			f.command({ type: "stageIntake", expected: null, text: "Contract", manifest: intakeManifest() }),
+			refusedWith(
+				"Bug intake needs human Ground with the reproduction trigger, observed wrong behavior and independent expected correction.",
+			),
+			`bug Ground with ${label} must not reach intake`,
+		);
+		assert.equal(f.state.intakes, undefined);
+	}
+});
+
+test("BJ04 bug intake carries Ground's reproduction verbatim as one behavior obligation", () => {
+	const mutations: [string, (m: IntakeManifest) => void][] = [
+		["no reproduction", (m) => delete m.reproduction],
+		["weakened observed", (m) => (m.reproduction!.observed = "read is wrong")],
+		["invented expected", (m) => (m.reproduction!.expected = 'read returns "AB"')],
+		["architecture obligation", (m) => (m.reproduction!.obligation = "A1")],
+		["unknown obligation", (m) => (m.reproduction!.obligation = "B9")],
+	];
+	for (const [label, mutate] of mutations) {
+		const f = fixture();
+		const m = intakeManifest();
+		mutate(m);
+		assert.deepEqual(
+			f.command({ type: "stageIntake", expected: null, text: "Contract", manifest: m }),
+			refusedWith("Bug intake carries human Ground's observed wrong behavior and expected correction verbatim as one behavior obligation."),
+			`bug intake with ${label} must not stand in for the reproduction`,
+		);
+	}
+});
+
+test("BJ05 compact bug intake: one Slice, no Seams/Modules, still fresh fidelity and human acceptance", () => {
+	const two = fixture();
+	const m = intakeManifest();
+	m.slices.push({ ...structuredClone(m.slices[0]!), id: "fix-2" });
+	m.mapping.push({ slice: "fix-2", obligation: "B1", checks: ["new-read"] }, { slice: "fix-2", obligation: "A1", checks: ["new-read"] });
+	assert.deepEqual(
+		two.command({ type: "stageIntake", expected: null, text: "Contract", manifest: m }),
+		refusedWith("Compact bug/performance intake has one bounded Slice."),
+	);
+	const f = fixture();
+	const intake = f.stage();
+	assert.deepEqual(f.state.intakes!.drafts[0]!.manifest.decisions, [], "no Seams/Modules decision is required");
+	assert.equal(code(f.command({ type: "acceptIntake", ...f.basis(intake, "report:none") }, human)), "review_required");
+	const report = f.review(intake);
+	assert.equal(code(f.command({ type: "acceptIntake", ...f.basis(intake, report) }, agent)), "forbidden_principal");
+	f.accepted({ type: "acceptIntake", ...f.basis(intake, report) }, human);
+	assert.equal(f.state.intakes!.slices[0]!.status, "accepted");
 });
