@@ -1289,7 +1289,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 					const canceled = pass && latestPass(work.passes, pass) ? cancelHandoff(pass, a, facts.sequence) : undefined;
 					if (!canceled || "outcome" in canceled)
 						return canceled ?? refusal("assignment_closed", "Only the current handed-off pass can be canceled.");
-					Object.assign(result, { generation: a.generation, inFlight: canceled.inFlight });
+					const inFlight = Object.fromEntries(canceled.inFlight.map((id, i) => [`inFlight${i}`, id]));
+					Object.assign(result, { generation: a.generation, inFlight: canceled.inFlight.length, ...inFlight });
 					break;
 				}
 				if (a.status === "canceled" || a.status === "canceling" || a.status === "submitted")

@@ -207,8 +207,8 @@ export function qualifiedSlices(
 		)
 		.map((s) => s.id);
 }
-/** In-flight attempts a cancellation cannot retract: the view lists them, and their observations still record. */
-export function cancelHandoff(pass: ImplementationPass, a: RoleAssignment, sequence: number): Refusal | { inFlight: number } {
+/** In-flight attempts a cancellation cannot retract: the view and the receipt name them, and their observations still record. */
+export function cancelHandoff(pass: ImplementationPass, a: RoleAssignment, sequence: number): Refusal | { inFlight: string[] } {
 	const h = pass.handoff;
 	if (!h || pass.assignment !== a.id || integrated(pass) || h.canceled)
 		return refusal("assignment_closed", "Only an unintegrated, uncanceled current handoff can be canceled.");
@@ -219,7 +219,7 @@ export function cancelHandoff(pass: ImplementationPass, a: RoleAssignment, seque
 	h.canceled = { sequence, inFlight };
 	h.blocker = `canceled: no further preparation, review or integration admission; ${inFlight.length} admitted attempt(s) in flight`;
 	a.blocker = h.blocker;
-	return { inFlight: inFlight.length };
+	return { inFlight };
 }
 
 /** Current eligibility shared by staging and every admission: lineage, Contract, exact review, policy and serialization. */
