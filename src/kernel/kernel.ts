@@ -500,6 +500,8 @@ export type WorkflowView = {
 	readonly documents: readonly DocumentSummary[];
 	readonly messages: { readonly count: number; readonly coordinator: "unavailable" };
 	readonly commitment: { readonly status: "none" | "accepted"; readonly acceptedIntake: string | null };
+	/** Slices whose current Contract has recorded qualifying integration: partial delivery, never inferred. */
+	readonly integrated: readonly string[];
 	readonly owner: { readonly status: "none" | "active" | "blocked"; readonly assignments: readonly RoleAssignment[] };
 	readonly evidence: { readonly status: "none" | "available"; readonly items: readonly string[] };
 	readonly blocker: { readonly code: string; readonly reason: string; readonly capabilities: readonly string[] } | null;
@@ -550,6 +552,7 @@ function workflowView(w: WorkflowState): WorkflowView {
 		documents: w.documents,
 		messages: { count: w.messageCount, coordinator: "unavailable" },
 		commitment: { status: acceptedIntake ? "accepted" : "none", acceptedIntake },
+		integrated: w.integrated ?? [],
 		owner: { status: owners.length ? (owners.some((a) => a.blocker) ? "blocked" : "active") : "none", assignments: owners },
 		evidence: { status: evidence.length ? "available" : "none", items: evidence },
 		blocker: blocked.length

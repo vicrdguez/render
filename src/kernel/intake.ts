@@ -282,6 +282,8 @@ function lint(state: KernelState, m: IntakeManifest, inputs: Record<string, Chec
 		(g.shape.origin === "classifier" && g.shape.confirmed !== true)
 	)
 		return "Use exact human Ground with a confirmed matching task shape.";
+	if (m.shape !== "design" && !(text(g.goal) && text(g.donePredicate) && texts(g.constraints) && texts(g.facts)))
+		return "Shortened intake requires human Ground with a goal, an independent done predicate, constraints and facts.";
 	if ((m.shape === "change" || m.shape === "design") && !m.breakdown) return "Change/design retains a bounded breakdown.";
 	if (["bug", "performance"].includes(m.shape) && m.slices.length !== 1) return "Compact bug/performance intake has one bounded Slice.";
 	if (!currentDecisions(state, m)) return "Required decisions must be current approved checkpoint records.";

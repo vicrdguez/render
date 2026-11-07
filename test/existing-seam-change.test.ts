@@ -14,7 +14,7 @@ import {
 	LedgerOnlyEngine,
 } from "./support/implementation.ts";
 import { admitted, handedOff, observation, passedRound, passOf, record, refused, W } from "./support/integration.ts";
-import { admin, packet } from "./support/roles.ts";
+import { admin, packet, selection } from "./support/roles.ts";
 
 type View = {
 	commitment: { status: string; acceptedIntake: string | null };
@@ -140,7 +140,12 @@ test("ES04 a discovered seam change blocks change-shape work with visible facts 
 		};
 		check("live");
 		const next = () =>
-			t.f.command({ type: "assignTask", slice: "read-next", delivery: true, packet: t.writer({ inputs: [t.nextContract!] }) });
+			t.f.command({
+				type: "assignTask",
+				slice: "read-next",
+				delivery: true,
+				packet: t.writer({ inputs: [t.nextContract!], verification: selection(t.nextContract!) }),
+			});
 		refused(await next(), "seams_required", "change label is not a waiver for unrelated accepted work");
 		await t.f.reopen(new LedgerOnlyEngine());
 		check("after reopen");
