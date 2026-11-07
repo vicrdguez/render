@@ -41,6 +41,7 @@ import {
 } from "./integration.ts";
 import { type Investigation, readInvestigationOutcome, shapeConfirmed } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, Principal, VerifiedFacts } from "./kernel.ts";
+import { type Comparison, comparePerformance, readCommitment } from "./performance.ts";
 import { bindingFor, initialPolicy, policyBasis } from "./policy.ts";
 import {
 	completionGap,
@@ -971,6 +972,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		// A launched round judges exact X/T from its own retained checks; its verdict is bound, never restated.
 		const binding = a.watchdogReview;
 		const reviewed = binding && work.passes?.find((p) => p.ref === binding.passRef);
+		let comparison: Comparison | undefined;
 		if (binding) {
 			if (!reviewed?.handoff || reviewed.handoff.record !== binding.handoff)
 				return refusal("missing_content", "The handed-off pass this round reviews is not retained.");
@@ -996,6 +998,21 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				);
 				if (gap) return refusal("missing_content", gap);
 			}
+			// A performance Slice's target is judged only on this round's own measurement of exact X.
+			const commitment = readCommitment(facts.checkpointInputs?.[reviewed.contract]?.text);
+			comparison =
+				commitment &&
+				comparePerformance(
+					commitment,
+					facts.verificationEvidence?.find((e) => e.role === "watchdog"),
+				);
+			if (comparison && comparison.outcome !== "met" && c.verification.outcome === "pass")
+				return {
+					outcome: "refused",
+					code: "missing_content",
+					reason: `Performance ${comparison.outcome}: ${comparison.reason}`,
+					refs: { performance: comparison.outcome },
+				};
 		}
 		if (!c.text || Buffer.byteLength(c.text) > 1024 * 1024)
 			return refusal("invalid_content", "Report must contain at most 1 MiB of complete UTF-8 text.");
@@ -1059,6 +1076,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			intents.push({ kind: "prepare-pass", assignment: reviewed.assignment, from: reviewed.handoff.preparations.length - 1 });
 		result = {
 			...(binding ? { reviews: completedReviews(work.assignments, a.workflow, a.slice).length } : {}),
+			...(comparison ? { performance: comparison.outcome, performanceReason: comparison.reason, performanceValue: comparison.value } : {}),
 			assignment: a.id,
 			report: a.report,
 			webEvidence: c.supports.length ? "retained" : "none",
