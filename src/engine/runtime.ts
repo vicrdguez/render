@@ -1176,7 +1176,7 @@ export class Engine {
 			...(a.packet.role === "coordinator" && !a.packet.investigation
 				? {
 						intakeInstructions:
-							"Use checkpoint for stageIntake:{expected:latestIntakeOrNull,text:completeContract,manifest:{schema:1,shape,ground,sources,decisions,catalog,breakdown,slices,checks,mapping,dependencies,responses,unresolved}} then requestIntakeReview:{intake,key:configuredChallenger}. Read all approved sources and complete obligations; new runnable checks are deliverables, not executed evidence. Bug/performance use one compact Slice, change keeps a bounded breakdown; a Record Slice (record:true) holds only obligations {id,kind:'record',output:'adr'|'principle'|'design',text,sources} citing approved nodes or approved existing-seam sources; existing-seam paths need no new Seams/Modules solely for build dependencies. Shortened-path human Ground names goal, donePredicate, constraints, facts and approvedSources. Design cites actual approved nodes and decision refs. Preserve all saved concerns with reasoned resulting obligation mappings. Fresh fidelity reviews the exact immutable draft; changed decisions or annotations need current review. Only authenticated human acceptIntake/amendContract/supersedeContract accepts obligations. Record/integration dependencies remain blocked until real qualifying integration; there is no delivery bypass.",
+							"Use checkpoint for stageIntake:{expected:latestIntakeOrNull,text:completeContract,manifest:{schema:1,shape,ground,sources,decisions,catalog,breakdown,slices,checks,mapping,dependencies,responses,unresolved}} then requestIntakeReview:{intake,key:configuredChallenger}. A bug manifest also carries reproduction:{obligation,observed,expected}: Ground's observed wrong behavior and expected correction verbatim, naming its one behavior obligation. catalog is null only for a verify-create that creates the repository's first asset, where every check is new. Read all approved sources and complete obligations; new runnable checks are deliverables, not executed evidence. Bug/performance use one compact Slice, change keeps a bounded breakdown; a Record Slice (record:true) holds only obligations {id,kind:'record',output:'adr'|'principle'|'design',text,sources} citing approved nodes or approved existing-seam sources; existing-seam paths need no new Seams/Modules solely for build dependencies. Shortened-path human Ground names goal, donePredicate, constraints, facts and approvedSources. Design cites actual approved nodes and decision refs. Preserve all saved concerns with reasoned resulting obligation mappings. Fresh fidelity reviews the exact immutable draft; changed decisions or annotations need current review. Only authenticated human acceptIntake/amendContract/supersedeContract accepts obligations. Record/integration dependencies remain blocked until real qualifying integration; there is no delivery bypass.",
 					}
 				: {}),
 			...(verification ? { verification } : {}),
@@ -2211,6 +2211,7 @@ export class Engine {
 			});
 		};
 		const current = () => this.#publications().find((w) => w.workflow === workflow)?.publication;
+		if (current()?.main) return false;
 		await observe(null);
 		for (let step = 0; step < 16; step++) {
 			const p = current();

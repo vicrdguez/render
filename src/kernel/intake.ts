@@ -333,7 +333,7 @@ function lint(state: KernelState, m: IntakeManifest, inputs: Record<string, Chec
 			m.reproduction.expected !== g.expected ||
 			!m.slices[0]!.obligations.some((o) => o.id === m.reproduction!.obligation && o.kind === "behavior")
 		)
-			return "Bug intake carries human Ground's observed wrong behavior and expected correction verbatim as one behavior obligation.";
+			return "Bug intake carries human Ground's observed wrong behavior and expected correction verbatim in manifest reproduction:{obligation,observed,expected}, naming one behavior obligation.";
 	}
 	if (!currentDecisions(state, m)) return "Required decisions must be current approved checkpoint records.";
 	if (

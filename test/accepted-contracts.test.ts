@@ -1004,7 +1004,9 @@ test("BJ04 bug intake carries Ground's reproduction verbatim as one behavior obl
 		mutate(m);
 		assert.deepEqual(
 			f.command({ type: "stageIntake", expected: null, text: "Contract", manifest: m }),
-			refusedWith("Bug intake carries human Ground's observed wrong behavior and expected correction verbatim as one behavior obligation."),
+			refusedWith(
+				"Bug intake carries human Ground's observed wrong behavior and expected correction verbatim in manifest reproduction:{obligation,observed,expected}, naming one behavior obligation.",
+			),
 			`bug intake with ${label} must not stand in for the reproduction`,
 		);
 	}
