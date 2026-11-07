@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { Source } from "../effects/source.ts";
 import { catalogDefinition, catalogSections as sections } from "../kernel/catalog.ts";
 import { validatePath } from "../kernel/source-path.ts";
-import { type SelectedCatalog, selectionRowsComplete, type VerificationSelection } from "../kernel/verification.ts";
+import { type CatalogRow, type SelectedCatalog, selectionRowsComplete, type VerificationSelection } from "../kernel/verification.ts";
 
 function asset(source: Source, path: string): { text: string; digest: string } {
 	validatePath(path);
@@ -18,6 +18,18 @@ function command(cell: string): string {
 	if (!match) throw new Error(`Catalog command/path must begin with one inline code span: ${cell}`);
 	return match[1]!;
 }
+function resolve(source: Source, row: CatalogRow): CatalogRow {
+	const run = command(row.run);
+	if (row.kind !== "journey") return { ...row, run };
+	const file = asset(source, run);
+	const parts = sections(file.text);
+	const steps = (parts.Steps ?? "")
+		.split(/\r?\n/)
+		.filter((line) => /^\d+\. /.test(line))
+		.map((line) => command(line.replace(/^\d+\. /, "")));
+	if (!steps.length || !parts.Sanity?.trim()) throw new Error(`Catalog journey needs steps and independent sanity: ${run}`);
+	return { ...row, run, journey: { path: run, ...file, steps, sanity: command(parts.Sanity.trim()) } };
+}
 export function selectCatalog(source: Source, selection: VerificationSelection): SelectedCatalog {
 	if (source.repository !== selection.repository || source.commit !== selection.commit)
 		throw new Error("Verification catalog source differs.");
@@ -26,20 +38,18 @@ export function selectCatalog(source: Source, selection: VerificationSelection):
 	const { sections: parts, ranks, rows: all } = catalogDefinition(selected.text);
 	if (!selectionRowsComplete(selection))
 		throw new Error("Verification catalog selection requires unique rows including full-suite, typecheck and lint.");
+	if (selection.maintenance && (selection.rows.length !== all.length || !all.every((r) => selection.rows.includes(r.name))))
+		throw new Error("Verification maintenance selects every catalog row.");
 	const rows = selection.rows.map((name) => {
 		const row = all.find((r) => r.name === name);
 		if (!row) throw new Error(`Missing catalog row: ${name}`);
 		if (row.kind === "human") return row;
-		const run = command(row.run);
-		if (row.kind !== "journey") return { ...row, run };
-		const file = asset(source, run);
-		const parts = sections(file.text);
-		const steps = (parts.Steps ?? "")
-			.split(/\r?\n/)
-			.filter((line) => /^\d+\. /.test(line))
-			.map((line) => command(line.replace(/^\d+\. /, "")));
-		if (!steps.length || !parts.Sanity?.trim()) throw new Error(`Catalog journey needs steps and independent sanity: ${run}`);
-		return { ...row, run, journey: { path: run, ...file, steps, sanity: command(parts.Sanity.trim()) } };
+		if (!selection.maintenance) return resolve(source, row);
+		try {
+			return resolve(source, row);
+		} catch (error) {
+			return { ...row, gap: (error as Error).message };
+		}
 	});
 	const cleanup = [...parts.Cleanup!.matchAll(/```sh\r?\n([\s\S]*?)\r?\n```/g)].map((m) => m[1]!);
 	return { selection, text: selected.text, ranks, sections: parts, rows, cleanup };
