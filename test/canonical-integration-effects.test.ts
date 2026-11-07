@@ -2,10 +2,11 @@
 // read-only reconciliation. No Ledger here; the Kernel classification of these observations is canonical-integration.test.ts.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import fs, { writeFile } from "node:fs/promises";
+import fs, { access, writeFile } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { Effects } from "../src/effects/source.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
 
@@ -179,6 +180,25 @@ test("CI23 no canonical observation without a durability barrier: while fsync fa
 		);
 	} finally {
 		restore();
+		await f.close();
+	}
+});
+
+test("CI25 after a restart, the previous executor's stale ref lock is removed and the ref classified; a lock written since stays held", async () => {
+	const f = await fixture();
+	try {
+		const lock = join(f.store, `${REF}.lock`);
+		await writeFile(lock, `${f.T.commit}\n`);
+		await delay(5);
+		const restarted = new Effects({ root: join(f.root, "effects"), repositories: { owned: f.repo } });
+		const reconcile = () => restarted.reconcile({ type: "integration", repository: "owned", proposal: PROPOSAL });
+		const T = { commit: f.T.commit, tree: f.T.tree, parents: [f.commit] };
+		assert.deepEqual(await reconcile(), { ref: REF, observed: T, lock: false }, "no writer of this executor can hold an older lock");
+		await assert.rejects(access(lock), "the stale lock is removed");
+		await writeFile(lock, `${f.T.commit}\n`);
+		assert.deepEqual(await reconcile(), { ref: REF, observed: T, lock: true }, "a lock written since this executor began may be live");
+		await access(lock);
+	} finally {
 		await f.close();
 	}
 });
