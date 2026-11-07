@@ -6,7 +6,9 @@ import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import type { TaskId } from "@earendil-works/pi-durable";
 import type { ImplementationPass } from "../src/kernel/roles.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import {
@@ -222,6 +224,32 @@ test("CI24 two passing Slices of one proposal contend for integration: the secon
 		);
 	} finally {
 		t.f.ledger.command = command;
+		clearBarrier();
+		await t.close();
+	}
+});
+
+test("CI26 a check still running at cancellation finishes refused, and the handoff keeps its cancellation reason", async () => {
+	const t = await fixture();
+	try {
+		const P1 = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer })).passRef as string;
+		holdAt("before-prepared-check", `prepared-check:${P1}:1`);
+		await parked("X checks start before the cancellation");
+		const pass = () => passes(t)[0]!;
+		const owner = t.assignments().find((a) => a.id === pass().assignment)!;
+		accepted(await t.f.command({ type: "cancelWork", assignment: owner.id, generation: owner.generation, attempt: owner.attempt }, admin));
+		const reason = pass().handoff!.blocker!;
+		assert.match(reason, /^canceled:/);
+		const task = pass().handoff!.preparationTask as TaskId;
+		releaseBarrier();
+		const deadline = Date.now() + 120000;
+		while ((await t.f.harness.getTask(task, BACKGROUND_CONTEXT))?.state.status !== "terminal") {
+			assert.ok(Date.now() < deadline, "the running check settles");
+			await delay(50);
+		}
+		assert.equal(pass().handoff!.blocker, reason, "the cancellation reason stays visible");
+		assert.deepEqual(pass().handoff!.preparations ?? [], [], "the late check result is not retained");
+	} finally {
 		clearBarrier();
 		await t.close();
 	}
