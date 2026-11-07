@@ -1926,6 +1926,38 @@ const CONTROLS: Control[] = [
 		test: "test/human-merge-observation-forge.test.ts",
 		pattern: "HF01",
 	},
+	{
+		name: "authoring-craft-omitted",
+		expect: /author receives reusable channel craft/,
+		behavior: "render no reusable verification authoring craft to the author",
+		edits: [{ file: "src/engine/runtime.ts", find: "verificationAuthoring: VERIFICATION_AUTHORING,", replace: "" }],
+		test: "test/verification-authoring.integration.ts",
+		pattern: "VA1-VA3",
+	},
+	{
+		name: "authoring-legacy-path-ignored",
+		expect: /authored legacy asset checked at A/,
+		behavior: "check the default .render/verify.md instead of the explicitly selected legacy asset",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: "captured.source.entries.find((e) => e.path === selected.path",
+				replace: 'captured.source.entries.find((e) => e.path === ".render/verify.md"',
+			},
+		],
+		test: "test/verification-authoring.integration.ts",
+		pattern: "VA1-VA3",
+	},
+	{
+		name: "authoring-unproven-hidden",
+		expect: /missing prerequisite and failed journey are visible/,
+		behavior: "leave a stopped author's blocker generic, hiding its unrun and failed rows",
+		edits: [
+			{ file: "src/engine/runtime.ts", find: '((await this.#unproven(a)) ?? "role_did_not_submit")', replace: '"role_did_not_submit"' },
+		],
+		test: "test/verification-authoring.integration.ts",
+		pattern: "VA4-VA5",
+	},
 ];
 
 async function copy(): Promise<string> {

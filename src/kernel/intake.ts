@@ -37,7 +37,8 @@ export type IntakeManifest = {
 	ground: string;
 	sources: string[];
 	decisions: string[];
-	catalog: string;
+	/** Null only when the change creates the repository's first asset: every catalog check is then a new deliverable. */
+	catalog: string | null;
 	breakdown: string | null;
 	slices: {
 		id: string;
@@ -146,7 +147,7 @@ export function validIntakeShape(v: unknown): v is IntakeManifest {
 		v.schema !== 1 ||
 		!["design", "bug", "performance", "change"].includes(String(v.shape)) ||
 		!text(v.ground) ||
-		!text(v.catalog) ||
+		!(v.catalog === null || text(v.catalog)) ||
 		!texts(v.sources) ||
 		!unique(v.sources) ||
 		!texts(v.decisions) ||
@@ -218,7 +219,7 @@ export function validIntakeShape(v: unknown): v is IntakeManifest {
 function manifestRefs(m: IntakeManifest): string[] {
 	return [
 		m.ground,
-		m.catalog,
+		...(m.catalog ? [m.catalog] : []),
 		...m.sources,
 		...m.decisions,
 		...m.slices.flatMap((s) => s.obligations.flatMap((o) => o.sources.map((r) => r.ref))),
@@ -337,16 +338,21 @@ function lint(state: KernelState, m: IntakeManifest, inputs: Record<string, Chec
 			return "An unknown performance target or baseline stays an unresolved product question, never an invented criterion.";
 		if (p && !m.sources.includes(p.baseline.receipt)) return "Cite the Ground baseline receipt among the intake sources.";
 	}
-	let catalog: ReturnType<typeof catalogDefinition>;
-	try {
-		catalog = catalogDefinition(inputs[m.catalog]!.text);
-	} catch {
-		return "Select an intact valid project catalog and rank ladder.";
-	}
+	// Creating the first asset: its ranks and rows exist only once authored, so its own checks bound them.
+	let catalog: ReturnType<typeof catalogDefinition> | undefined;
+	if (m.catalog === null) {
+		if (m.checks.some((c) => !c.new && c.kind !== "inspection")) return "Existing evidence must cite the retained project catalog.";
+	} else
+		try {
+			catalog = catalogDefinition(inputs[m.catalog]!.text);
+		} catch {
+			return "Select an intact valid project catalog and rank ladder.";
+		}
 	for (const check of m.checks) {
 		if (check.kind === "human" || check.kind === "generated") {
 			if (check.rank !== null) return "Human/generated rows cannot claim proof ranks.";
-		} else if (!catalog.ranks.includes(check.rank ?? "")) return "Unknown project rank.";
+		} else if (catalog && !catalog.ranks.includes(check.rank ?? "")) return "Unknown project rank.";
+		if (!catalog) continue;
 		if (!check.new && check.kind !== "inspection") {
 			const row = catalog.rows.find((r) => r.name === check.row);
 			if (
@@ -362,7 +368,7 @@ function lint(state: KernelState, m: IntakeManifest, inputs: Record<string, Chec
 	}
 	const minimum = (state.policy ?? initialPolicy()).revisions[bindingFor(state.policy ?? initialPolicy(), state.workflow!.id).policy]!
 		.minimumEvidenceRank;
-	const min = minimum === null ? catalog.ranks.length - 1 : catalog.ranks.indexOf(minimum);
+	const min = !catalog || minimum === null ? Number.POSITIVE_INFINITY : catalog.ranks.indexOf(minimum);
 	if (min < 0) return "Configured minimum rank is absent from this project ladder.";
 	for (const s of m.slices)
 		for (const o of s.obligations) {
@@ -373,7 +379,7 @@ function lint(state: KernelState, m: IntakeManifest, inputs: Record<string, Chec
 				o.kind === "behavior" &&
 				mapping.checks.some((ref) => {
 					const c = m.checks.find((c) => c.id === ref)!;
-					return !["executed", "journey"].includes(c.kind) || catalog.ranks.indexOf(c.rank ?? "") > min;
+					return !["executed", "journey"].includes(c.kind) || (!!catalog && catalog.ranks.indexOf(c.rank ?? "") > min);
 				})
 			)
 				return "Behavior requires executable/journey rows at the required project rank, not generated/human evidence.";

@@ -68,6 +68,12 @@ Maintenance is bounded work over the same selected asset, requested directly or 
 
 Classifications are ordinary role reports, retained per row on the assignment and in history/export. Cases: [verification-maintenance-failure-cases.md](verification/verification-maintenance-failure-cases.md); `npm run verify:verification-maintenance`.
 
+## Creating an asset (verify-create)
+
+Verify-create is not a new delivery shape (spec §8.1). A standalone request is an ordinary change through the existing intake whose accepted Slice selects the asset path, `.render/verify.md` by default or an explicit legacy path such as `.skl/verify.md`, with `new` checks naming the rows to author. The pass's implementer is the author. Its rendered packet carries `verificationAuthoring`: the recommended default paths, the eight sections, the six Catalog columns, the four row kinds, the seven channels with their limits and the authoring instructions (interview the actual repository, reuse its commands, report unknown channels and prerequisites, prove one executed row or journey with cleanup). The repository owns the commands it writes.
+
+The author's captures run the authored rows through the runner above, so the handoff needs the same passing completion table, and the asset then goes through the pass's one Audit, preparation checks, Watchdog and qualifying integration. Nothing writes the baseline directly. When an author stops without a handoff, the owner's blocker is read from its latest retained checks, for example `verification_unproven: failed observe; unrun smoke; cleanup complete`, so a missing prerequisite or a failed journey is visible rather than `role_did_not_submit`. Cases: [verification-authoring-failure-cases.md](verification/verification-authoring-failure-cases.md).
+
 ## Retention and recovery
 
 Receipts, selected inputs, diagnostics, assessment declarations and packet references use existing atomic Ledger records and scoped history/export. Reads and submission verify retained bytes; no refetch replaces a missing required receipt. Restart uses the existing source/journal recovery path without replaying interrupted commands. Runtime uncertainty remains blocked; failed commands and incomplete cleanup are retained. History export still excludes private Git source objects and is not a recoverable package. Role/source-bearing package generation/restore remains explicitly unavailable rather than dropping catalog records. Supported role-free packages continue unchanged.

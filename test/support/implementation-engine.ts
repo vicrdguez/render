@@ -67,8 +67,11 @@ export async function fixture(
 		dependent?: boolean;
 		/** Trusted Forge configuration for the Engine's Effects (an owned fake GitHub in tests). */
 		forge?: ForgeConfig;
+		/** Accept `value` through the change intake rather than the compact bug path. */
+		change?: boolean;
 	} = {},
 ) {
+	const change = options.dependent || options.change;
 	const f = await catalogFixture(true, {
 		text: catalog().replaceAll("endpoint", "tests").replace("printf 'SUITE OK'", "sh verify-suite"),
 		...(options.forge ? { forge: options.forge } : {}),
@@ -417,12 +420,13 @@ export async function fixture(
 			),
 		).revision as string;
 	const source = await save("source", "Keep the existing value interface.");
-	const catalogRef = await save("catalog", f.text);
+	// A repository with no asset cites no catalog: its change creates one.
+	const catalogRef = options.bootstrap ? null : await save("catalog", f.text);
 	const ground = await save(
 		"ground",
 		JSON.stringify({
 			schema: 1,
-			shape: { value: options.dependent ? "change" : "bug", origin: "human", confirmed: true },
+			shape: { value: change ? "change" : "bug", origin: "human", confirmed: true },
 			goal: "Change value",
 			constraints: [],
 			clarifications: [],
@@ -433,12 +437,12 @@ export async function fixture(
 	);
 	const manifest: IntakeManifest = {
 		schema: 1,
-		shape: options.dependent ? "change" : "bug",
+		shape: change ? "change" : "bug",
 		ground,
 		sources: [source],
 		decisions: [],
 		catalog: catalogRef,
-		breakdown: options.dependent ? "Change value, then build on it." : null,
+		breakdown: options.dependent ? "Change value, then build on it." : change ? "One bounded Slice." : null,
 		slices: [
 			{
 				id: "value",
@@ -462,7 +466,15 @@ export async function fixture(
 				: []),
 		],
 		checks: [
-			{ id: "suite", row: "full-suite", kind: "executed", rank: "tests", new: false, run: "sh verify-suite", expectations: "SUITE OK" },
+			{
+				id: "suite",
+				row: "full-suite",
+				kind: "executed",
+				rank: "tests",
+				new: !!options.bootstrap,
+				run: "sh verify-suite",
+				expectations: "SUITE OK",
+			},
 		],
 		mapping: [
 			{ slice: "value", obligation: "B1", checks: ["suite"] },
@@ -478,7 +490,7 @@ export async function fixture(
 			slice: "design",
 			delivery: false,
 			packet: packet({
-				inputs: [ground, source, catalogRef],
+				inputs: [ground, source, ...(catalogRef ? [catalogRef] : [])],
 				requests: [{ key: "fidelity", packet: packet({ role: "challenger" }) }],
 				maxTurns: 20,
 			}),

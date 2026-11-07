@@ -10,7 +10,7 @@ The coordinator's packet explicitly includes Ground, source and selected catalog
 
 `stageIntake` takes `expected` (latest draft ref or null), complete UTF-8 `text`, and a manifest:
 
-- `schema:1`, `shape`, exact `ground`, `sources`, `decisions`, `catalog` refs, and `breakdown` (null for compact work).
+- `schema:1`, `shape`, exact `ground`, `sources`, `decisions`, `catalog` refs, and `breakdown` (null for compact work). `catalog` is null only when the change creates the repository's first asset (verify-create): every non-inspection check is then `new:true`, and its ranks, rows and minimum are bounded by the authored asset's own capture, preparation and Watchdog checks.
 - `slices:[{id,title,record,delegated,forbidden,obligations:[{id,kind:"behavior"|"architecture"|"manual",text,sources:[{ref,node}]}]}]`.
   A Record Slice (`record:true`) holds only Record outputs `{id,kind:"record",output:"adr"|"principle"|"design",text,sources}`,
   and only a Record Slice holds them. Each output cites its fidelity basis as architecture does: an approved decision node
