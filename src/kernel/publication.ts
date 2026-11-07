@@ -619,7 +619,8 @@ export function publicationView(
 		blocked,
 		choices,
 		readiness: readiness(s, roles, intakes, workflow, gaps),
-		summaryStale: !!association && !open && summaryStale(s, head, published, gaps),
+		// After the observed merge or under divergence no summary update follows, so reconciles must not reschedule reads.
+		summaryStale: !!association && !open && !s.main && !s.divergence && summaryStale(s, head, published, gaps),
 	};
 }
 function summaryStale(s: Publication, head: string | null, published: string | null, gaps: string[]): boolean {

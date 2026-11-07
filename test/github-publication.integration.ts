@@ -170,6 +170,10 @@ test("GP-E1/AR-E1 one draft PR across a lost create reply; a forge outage blocks
 		await delay(1500);
 		assert.equal(gh.branch(branch), null, "HM08 a delivered proposal's deleted branch is never recreated");
 		assert.equal(publication(t).operations.length, operations, "HM08 no forge operation after the merge");
+		const [reads, sequence] = [gh.requests.length, t.f.ledger.status().sequence];
+		await delay(1500);
+		assert.equal(gh.requests.length, reads, "HM09 reconciles after the observed merge send no further GitHub request");
+		assert.equal(t.f.ledger.status().sequence, sequence, "HM09 and record no further forge observation");
 		assert.deepEqual([publication(t).main!.source, publication(t).main!.commit], [R2, main]);
 		assert.ok(!gh.requests.some((r) => r.path.endsWith("/merge")), "Render never sends a merge");
 		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
