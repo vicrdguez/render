@@ -2,7 +2,8 @@
 // read-only reconciliation. No Ledger here; the Kernel classification of these observations is canonical-integration.test.ts.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import fs, { writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { test } from "node:test";
 import { Effects } from "../src/effects/source.ts";
@@ -134,6 +135,50 @@ test("CI10 Effects refuses a result that is not exactly a single-parent commit o
 		});
 		assert.equal(replay.dispatch, "refused", "even a new process cannot apply T→R again once the ref moved");
 	} finally {
+		await f.close();
+	}
+});
+
+test("CI23 no canonical observation without a durability barrier: while fsync fails, neither the CAS readback nor reconciliation reports R", async () => {
+	const f = await fixture();
+	const open = fs.open;
+	const restore = () => {
+		fs.open = open;
+		syncBuiltinESMExports();
+	};
+	try {
+		const R = await f.effects.perform({ type: "squash", prepared: f.X, target: f.T, message: MESSAGE });
+		const refs = join(f.store, "refs/render/proposals");
+		fs.open = (async (...args: Parameters<typeof open>) => {
+			const handle = await open(...args);
+			if (String(args[0]).startsWith(refs))
+				handle.sync = () => Promise.reject(Object.assign(new Error("Injected canonical-ref fsync EIO"), { code: "EIO" }));
+			return handle;
+		}) as typeof open;
+		syncBuiltinESMExports();
+		const reconcile = () => f.effects.reconcile({ type: "integration", repository: "owned", proposal: PROPOSAL });
+		await assert.rejects(
+			f.effects.perform({
+				type: "integrate",
+				repository: "owned",
+				proposal: PROPOSAL,
+				expected: f.T.commit,
+				result: R,
+				attempt: "integration-attempt:1",
+			}),
+			/EIO/,
+			"the dispatch reports no applied R it could not make durable",
+		);
+		assert.equal(git(f.store, ["rev-parse", REF]).toString().trim(), R.commit, "the ref moved; only its durability is unknown");
+		await assert.rejects(reconcile(), /EIO/, "reconciliation reports no R it could not make durable");
+		restore();
+		assert.deepEqual(
+			await reconcile(),
+			{ ref: REF, observed: { commit: R.commit, tree: f.X.tree, parents: [f.T.commit] }, lock: false },
+			"once the durability barrier succeeds, reconciliation reads R back",
+		);
+	} finally {
+		restore();
 		await f.close();
 	}
 });
