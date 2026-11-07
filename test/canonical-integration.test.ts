@@ -185,8 +185,21 @@ test("CI05 admission first: cancellation lists the attempt in flight and its obs
 	try {
 		const r = await passedRound(t);
 		const { operation, attempt } = await admitted(t, t.id, r);
-		accepted(await cancel(t));
+		const receipt = accepted(await cancel(t));
 		assert.deepEqual(canceled(t)?.inFlight, [attempt], "the cancellation view lists the admitted attempt");
+		assert.deepEqual([receipt.inFlight, receipt.inFlight0], [1, attempt], "the cancellation receipt names the attempt in flight");
+		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
+		assert.ok("jsonl" in exported);
+		assert.ok(
+			exported.jsonl
+				.trim()
+				.split("\n")
+				.some((line) => {
+					const r = JSON.parse(line);
+					return r.kind === "receipt" && r.result.inFlight0 === attempt;
+				}),
+			"history export shows which attempt was in flight at cancellation",
+		);
 		const recorded = accepted(await record(t, t.id, operation, observation(operation, attempt)));
 		assert.equal(recorded.outcome, "applied");
 		assert.equal(integrations(t)[0]!.status, "qualified");
