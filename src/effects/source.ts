@@ -1,7 +1,7 @@
 // Effects owns trusted private Git. Worker Git/configuration is never opened here.
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, mkdir, open, readdir } from "node:fs/promises";
+import { mkdir, open, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { validatePath } from "../kernel/source-path.ts";
 import { faultBarrier } from "../ledger/barrier.ts";
@@ -138,6 +138,7 @@ export class Effects {
 	readonly #stores = new Map<string, Promise<{ path: string; cwd: string; format: Source["objectFormat"] }>>();
 	/** Integration permits this executor already dispatched: each admitted attempt is consumed at most once. */
 	readonly #consumed = new Set<string>();
+	readonly #started = Date.now();
 	constructor(options: { root: string; repositories: Readonly<Record<string, string>> }) {
 		this.#root = options.root;
 		this.#repositories = options.repositories;
@@ -292,25 +293,25 @@ export class Effects {
 	async #canonical(repository: string, proposal: string): Promise<CanonicalObservation> {
 		const store = await this.#store(repository);
 		const ref = canonicalRef(proposal);
+		let lock = false;
+		for (const path of [join(store.path, `${ref}.lock`), join(store.path, "packed-refs.lock")]) {
+			const held = await stat(path).catch(() => undefined);
+			// Only this host's Effects writes private Git: a lock untouched since before this executor began was left by a
+			// dead one and is removed. A newer lock may belong to a live writer, so the outcome stays unknown.
+			if (held && held.mtimeMs < this.#started) await rm(path);
+			else if (held) lock = true;
+		}
 		await syncTree(store.path);
-		const lock = await Promise.all(
-			[join(store.path, `${ref}.lock`), join(store.path, "packed-refs.lock")].map((path) =>
-				access(path).then(
-					() => true,
-					() => false,
-				),
-			),
-		);
 		const current = await this.#gitResult(store.path, store.cwd, ["rev-parse", "--verify", "--quiet", ref]);
 		if (current.signal || (current.exitCode !== 0 && current.exitCode !== 1)) throw gitFailure("rev-parse", current);
-		if (current.exitCode === 1) return { ref, observed: null, lock: lock.includes(true) };
+		if (current.exitCode === 1) return { ref, observed: null, lock };
 		const commit = current.stdout.toString().trim();
 		const [, ...parents] = (await this.#git(store.path, store.cwd, ["rev-list", "--parents", "-n", "1", commit]))
 			.toString()
 			.trim()
 			.split(" ");
 		const tree = (await this.#git(store.path, store.cwd, ["rev-parse", "--verify", `${commit}^{tree}`])).toString().trim();
-		return { ref, observed: { commit, tree, parents }, lock: lock.includes(true) };
+		return { ref, observed: { commit, tree, parents }, lock };
 	}
 	#transaction(path: string, cwd: string, prepare: string): Promise<"applied" | "refused"> {
 		return new Promise((resolve, reject) => {
