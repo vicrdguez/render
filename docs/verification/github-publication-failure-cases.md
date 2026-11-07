@@ -6,6 +6,11 @@ and §13 V3/V6 navigate them. Operator decisions (design gaps G2, G3, G5): one G
 configuration, readable only by Effects; Render never merges main; before creating the draft PR Render reuses an open
 PR on the proposal branch, and a rare second PR is shown for the human to close (Forge has no close request).
 
+Chronology, kept as it happened: GP01–GP16, G5, GF01–GF07 and GP-E1 were written and failed (`capability_unavailable`,
+unknown Effects operations) before the first product change. Afterwards three test-only corrections followed: GF03 selected
+Git-transport POSTs as the create request (now narrowed to the pulls endpoint), four assertions gained their own messages so
+each unsafe control is detected by its intended assertion, and the V1 literal command matrix gained the five new commands.
+
 ## Interface these cases name (new in this Slice)
 
 Publication is proposal-scoped state on the workflow. Kernel derives every payload from current state; the caller
