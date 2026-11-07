@@ -3,6 +3,7 @@ import { catalogDefinition } from "./catalog.ts";
 import type { CheckpointInput, Checkpoints } from "./checkpoints.ts";
 import { qualifiedSlices } from "./integration.ts";
 import type { Decision, DomainWrite, KernelState, VerifiedFacts } from "./kernel.ts";
+import { performanceCommitment } from "./performance.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
 import { type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
 
@@ -297,6 +298,13 @@ function lint(state: KernelState, m: IntakeManifest, inputs: Record<string, Chec
 		return "Shortened intake requires applicable existing-seam sources explicitly approved in human Ground.";
 	if ([...manifestRefs(m), ...approvedIntakeRefs(state.checkpoints, m)].some((ref) => !inputs[ref]))
 		return "Every required source must resolve to exact retained bytes.";
+	if (m.shape === "performance") {
+		const p = performanceCommitment(ground.text, inputs, state.roleWork?.assignments ?? []);
+		if (typeof p === "string") return p;
+		if (p === null && !m.unresolved.some((u) => u.kind === "product"))
+			return "An unknown performance target or baseline stays an unresolved product question, never an invented criterion.";
+		if (p && !m.sources.includes(p.baseline.receipt)) return "Cite the Ground baseline receipt among the intake sources.";
+	}
 	let catalog: ReturnType<typeof catalogDefinition>;
 	try {
 		catalog = catalogDefinition(inputs[m.catalog]!.text);
@@ -633,6 +641,10 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 			}
 			const replaced = new Set(d.manifest.slices.map((s) => s.id));
 			work.dependencies = [...work.dependencies.filter((e) => !replaced.has(e.slice)), ...structuredClone(d.manifest.dependencies)];
+			const performance =
+				d.manifest.shape === "performance"
+					? performanceCommitment(inputs[d.manifest.ground]?.text, inputs, state.roleWork?.assignments ?? [])
+					: undefined;
 			for (const [index, slice] of d.manifest.slices.entries()) {
 				const contract = `contract:${facts.sequence}:${index}`;
 				const prior = work.slices.find((s) => s.id === slice.id);
@@ -659,6 +671,7 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 						review: c.review,
 						decisions: c.decisions,
 						annotations: c.annotations,
+						...(performance && typeof performance === "object" ? { performance } : {}),
 					}),
 				});
 			}
