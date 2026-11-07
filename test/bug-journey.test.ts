@@ -109,6 +109,22 @@ test("BJ06 saving bug Ground implies no implementation commitment; Ground and th
 test("BJ07 a regression row failing with the reported wrong behavior is red-on-the-bug proof and unlocks Audit", async () => {
 	const t = await bugPass();
 	try {
+		const evidence = reproductionCapture(t.owner(), t.f.ledger.status().executorEpoch, t.contract, { exitCode: 1, stdout: OBSERVED });
+		const forged = {
+			type: "recordImplementationSource",
+			assignment: t.id,
+			generation: 1,
+			attempt: t.owner().attempt,
+			kind: "reproduction",
+		};
+		for (const [label, principal] of [
+			["implementer", t.actor],
+			["human", admin],
+		] as const) {
+			const reply = await t.f.command({ ...forged, text: JSON.stringify(evidence) }, principal);
+			assert.equal(reply.status, "refused", `${label} must not record trusted reproduction evidence`);
+			assert.equal(passes(t.f)[0]!.reproduction, undefined);
+		}
 		const red = accepted(await t.reproduce({ exitCode: 1, stdout: `not ok 1 - ${OBSERVED}\n` }));
 		assert.equal(red.reproduction, "red");
 		assert.deepEqual(passes(t.f)[0]!.reproduction, {
@@ -132,7 +148,11 @@ test("BJ08/BJ09/BJ10 a missing prerequisite, a setup failure or a passing row is
 			[{ exitCode: 0, stdout: "ok 1\n" }, PASSED],
 		] as const) {
 			const reply = accepted(await t.reproduce(step));
-			assert.deepEqual({ reproduction: reply.reproduction, reason: reply.reason }, { reproduction: "not-reproduced", reason });
+			assert.deepEqual(
+				{ reproduction: reply.reproduction, reason: reply.reason },
+				{ reproduction: "not-reproduced", reason },
+				"a missing prerequisite or setup failure must be reported, not claimed as red",
+			);
 			refused(
 				await t.captureA(),
 				"missing_content",
