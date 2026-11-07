@@ -47,6 +47,7 @@ export type ReconcileIntegration = { type: "integration"; repository: string; pr
 export type Publish = { type: "publish"; repository: string; proposal: string; commit: string; expected: string | null; attempt: string };
 export type CreateProposal = { type: "createProposal"; repository: string; proposal: string; title: string; body: string; attempt: string };
 export type UpdateSummary = { type: "updateSummary"; repository: string; proposal: string; pr: string; summary: string; attempt: string };
+export type MarkReady = { type: "markReady"; repository: string; proposal: string; pr: string; attempt: string };
 export type ReconcilePublication = { type: "publication"; repository: string; proposal: string };
 export type CanonicalObservation = {
 	ref: string;
@@ -157,12 +158,29 @@ export class Effects {
 	perform(operation: Prepare): Promise<PreparationReceipt>;
 	perform(operation: Observe): Promise<TargetObservation>;
 	perform(operation: Squash): Promise<Source>;
-	perform(operation: Publish | CreateProposal | UpdateSummary): Promise<ForgeDispatch>;
+	perform(operation: Publish | CreateProposal | UpdateSummary | MarkReady): Promise<ForgeDispatch>;
 	perform(operation: Integrate): Promise<IntegrationDispatch>;
 	async perform(
-		operation: Resolve | Read | Retain | Diff | Prepare | Observe | Squash | Integrate | Publish | CreateProposal | UpdateSummary,
+		operation:
+			| Resolve
+			| Read
+			| Retain
+			| Diff
+			| Prepare
+			| Observe
+			| Squash
+			| Integrate
+			| Publish
+			| CreateProposal
+			| UpdateSummary
+			| MarkReady,
 	): Promise<Source | SourceReceipt | string | PreparationReceipt | TargetObservation | IntegrationDispatch | ForgeDispatch> {
-		if (operation.type === "publish" || operation.type === "createProposal" || operation.type === "updateSummary")
+		if (
+			operation.type === "publish" ||
+			operation.type === "createProposal" ||
+			operation.type === "updateSummary" ||
+			operation.type === "markReady"
+		)
 			return this.#dispatchForge(operation);
 		if (operation.type === "prepare") return this.#prepare(operation);
 		if (operation.type === "squash") return this.#squash(operation);
@@ -275,7 +293,7 @@ export class Effects {
 			return { stdout: result.stdout.toString("utf8"), exitCode: result.signal ? null : result.exitCode };
 		});
 	}
-	async #dispatchForge(operation: Publish | CreateProposal | UpdateSummary): Promise<ForgeDispatch> {
+	async #dispatchForge(operation: Publish | CreateProposal | UpdateSummary | MarkReady): Promise<ForgeDispatch> {
 		const forge = await this.#forgeFor(operation.repository);
 		if (operation.type === "publish") {
 			const store = await this.#store(operation.repository);
@@ -295,6 +313,7 @@ export class Effects {
 			return forge.apply({ type: "publishSource", proposal: operation.proposal, commit: operation.commit, expected: operation.expected });
 		if (operation.type === "createProposal")
 			return forge.apply({ type: "createDraftProposal", proposal: operation.proposal, title: operation.title, body: operation.body });
+		if (operation.type === "markReady") return forge.apply({ type: "markProposalReady", proposal: operation.proposal, pr: operation.pr });
 		return forge.apply({ type: "updateProposalSummary", proposal: operation.proposal, pr: operation.pr, summary: operation.summary });
 	}
 	async #squash({ prepared, target, message }: Squash): Promise<Source> {

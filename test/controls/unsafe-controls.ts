@@ -2016,6 +2016,104 @@ const CONTROLS: Control[] = [
 		test: "test/bug-journey.test.ts",
 		pattern: "BJ11",
 	},
+	{
+		name: "readiness-ignores-unfinished-slice",
+		expect: /unfinished Slice/,
+		behavior: "a required Slice without recorded qualifying integration is not a readiness gap",
+		edits: [
+			{
+				file: "src/kernel/publication.ts",
+				find: "const gaps = slices.filter((s) => !done.includes(s.id))",
+				replace: "const gaps = slices.filter((s) => s.record && !done.includes(s.id))",
+			},
+		],
+		test: "test/automatic-readiness.test.ts",
+		pattern: "AR02",
+	},
+	{
+		name: "readiness-ignores-record",
+		expect: /an unfinished Record Slice is a gap/,
+		behavior: "an unfinished Record Slice does not block ready promotion",
+		edits: [
+			{
+				file: "src/kernel/publication.ts",
+				find: "const gaps = slices.filter((s) => !done.includes(s.id))",
+				replace: "const gaps = slices.filter((s) => !s.record && !done.includes(s.id))",
+			},
+		],
+		test: "test/automatic-readiness.test.ts",
+		pattern: "AR03",
+	},
+	{
+		name: "readiness-ignores-publication",
+		expect: /unpublished current source/,
+		behavior: "a canonical head not yet published to the PR counts as eligible",
+		edits: [
+			{
+				file: "src/kernel/publication.ts",
+				find: "\telse if ((p.remote?.head ?? null) !== head) gaps.push(`awaiting publication: ${head}`);\n",
+				replace: "",
+			},
+		],
+		test: "test/automatic-readiness.test.ts",
+		pattern: "AR02",
+	},
+	{
+		name: "ready-admits-without-reobservation",
+		expect: /no admission before reobserving the PR/,
+		behavior: "a ready promotion is admitted without reobserving the associated PR on the exact head",
+		edits: [
+			{
+				file: "src/kernel/publication.ts",
+				find: '\t\t\t\tif (!op.checked)\n\t\t\t\t\treturn refusal("stale_basis", "Reobserve the associated PR open and draft on the exact published head before admitting.");\n',
+				replace: "",
+			},
+		],
+		test: "test/automatic-readiness.test.ts",
+		pattern: "AR04",
+	},
+	{
+		name: "ready-lost-reply-any-ready",
+		expect: /ready on a changed head is not success/,
+		behavior: "any ready listing satisfies an unknown promotion, whatever head the PR shows",
+		edits: [
+			{
+				file: "src/kernel/publication.ts",
+				find: '&& exact && !seen.draft) op.status = "satisfied";',
+				replace: '&& seen && !seen.draft) op.status = "satisfied";',
+			},
+		],
+		test: "test/automatic-readiness.test.ts",
+		pattern: "AR06",
+	},
+	{
+		name: "ready-partial-draft-resends",
+		expect: /a partial observation that still says draft keeps it unknown/,
+		behavior: "an incomplete listing that still says draft settles an unknown promotion for a fresh dispatch",
+		edits: [
+			{
+				file: "src/kernel/publication.ts",
+				find: 'exact && o.proposals!.complete) op.status = "unapplied";',
+				replace: 'exact) op.status = "unapplied";',
+			},
+		],
+		test: "test/automatic-readiness.test.ts",
+		pattern: "AR07",
+	},
+	{
+		name: "ready-flag-certifies-new-source",
+		expect: /the ready flag does not bless new source/,
+		behavior: "an observed ready PR makes the proposal eligible whatever its current scope and source",
+		edits: [
+			{
+				file: "src/kernel/publication.ts",
+				find: '\tif (!head) return [...gaps, "no qualifying integration"];\n',
+				replace: '\tif (!head) return [...gaps, "no qualifying integration"];\n\tif (p.association?.draft === false) return [];\n',
+			},
+		],
+		test: "test/automatic-readiness.test.ts",
+		pattern: "AR08",
+	},
 ];
 
 async function copy(): Promise<string> {

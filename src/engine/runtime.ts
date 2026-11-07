@@ -1324,6 +1324,8 @@ export class Engine {
 					await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment, effects: "reconciled" });
 				}
 			}
+			// A scope change on an unchanged head reaches the PR summary on the next reconcile, not only on new source.
+			for (const w of this.#publications()) if (w.publication.summaryStale) this.#schedulePublication(w.workflow);
 		} finally {
 			this.#reconciling = false;
 			if (this.#reconcileAgain) {
@@ -2191,7 +2193,9 @@ export class Engine {
 						? { type: "publish", ...common, commit: intent.canonical!, expected: intent.expected ?? null }
 						: op.kind === "create-proposal"
 							? { type: "createProposal", ...common, title: intent.title!, body: intent.body! }
-							: { type: "updateSummary", ...common, pr: intent.pr!, summary: intent.summary! },
+							: op.kind === "mark-ready"
+								? { type: "markReady", ...common, pr: intent.pr! }
+								: { type: "updateSummary", ...common, pr: intent.pr!, summary: intent.summary! },
 				);
 			} catch (error) {
 				result = { outcome: "unknown", reason: String(error).slice(0, 500), created: null, head: null };
@@ -2244,8 +2248,24 @@ export class Engine {
 			if (p.risk && !p.risk.resolved) return false;
 			const summary = p.operations.findLast((o) => o.kind === "update-summary" && o.status !== "superseded");
 			if (summary?.status === "planned") await dispatch(summary);
-			else if (!summary || summary.canonical !== p.canonical || summary.published !== p.published)
-				await send({ type: "stageForgeOperation", kind: "update-summary" });
+			else if (p.summaryStale) await send({ type: "stageForgeOperation", kind: "update-summary" });
+			else if (p.readiness.eligible && !p.unsupported.includes("markProposalReady")) {
+				// Ready promotion (spec §9.3 R2-A008): reobserve the PR before admission and after dispatch; an unknown outcome
+				// only reconciles, and only a complete observation still draft lets a fresh, re-checked stage follow.
+				const ready = p.operations.findLast((o) => o.kind === "mark-ready" && o.canonical === p.canonical);
+				const status = () => current()?.operations.find((o) => o.operation === ready!.operation);
+				if (!ready || ready.status === "unapplied") await send({ type: "stageForgeOperation", kind: "mark-ready" });
+				else if (ready.status === "planned" && ready.checked) {
+					await dispatch(ready);
+					await observe(ready.operation);
+				} else if (ready.status === "planned" || ready.status === "unknown") {
+					await observe(ready.operation);
+					const after = status();
+					if (after?.status === ready.status && !after.checked) return true;
+				}
+				// Only the human merges main; keep reading the associated PR until that merge is observed.
+				else return true;
+			}
 			// Only the human merges main; keep reading the associated PR until that merge is observed.
 			else return true;
 		}

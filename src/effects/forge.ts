@@ -16,7 +16,8 @@ export type ForgeConfig = {
 export type ForgeRequest =
 	| { type: "publishSource"; proposal: string; commit: string; expected: string | null }
 	| { type: "createDraftProposal"; proposal: string; title: string; body: string }
-	| { type: "updateProposalSummary"; proposal: string; pr: string; summary: string };
+	| { type: "updateProposalSummary"; proposal: string; pr: string; summary: string }
+	| { type: "markProposalReady"; proposal: string; pr: string };
 export type ForgeDispatch = {
 	outcome: "applied" | "rejected" | "unknown";
 	reason: string | null;
@@ -65,7 +66,7 @@ export class GitHubForge {
 	capabilities(): Capabilities {
 		return {
 			draftProposalPR: true,
-			markProposalReady: false,
+			markProposalReady: true,
 			guardedSourceUpdate: true,
 			createIdempotency: false,
 			stableObjectIdentity: true,
@@ -159,8 +160,20 @@ export class GitHubForge {
 				? result("rejected", `http-${response.status}`)
 				: result("unknown", `http-${response.status}`);
 		}
-		const number = /^github:pr:(\d+):/.exec(request.pr)?.[1];
-		if (!number) return result("rejected", "foreign-pr-id");
+		const [, number, node] = /^github:pr:(\d+):(.+)$/.exec(request.pr) ?? [];
+		if (!number || !node) return result("rejected", "foreign-pr-id");
+		if (request.type === "markProposalReady") {
+			const response = await this.#request("POST", `${this.#config.api}/graphql`, {
+				query: "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }",
+				variables: { id: node },
+			}).catch((error: Error) => error);
+			if (response instanceof Error) return result("unknown", `ready reply lost: ${response.name}`);
+			if (response.status >= 500) return result("unknown", `http-${response.status}`);
+			if (!response.ok) return result("rejected", `http-${response.status}`);
+			const reply = (await response.json().catch(() => undefined)) as { errors?: { type?: string }[] } | undefined;
+			if (!reply) return result("unknown", "unreadable ready reply");
+			return reply.errors?.length ? result("rejected", `graphql: ${reply.errors[0]!.type ?? "error"}`) : result("applied", null);
+		}
 		const url = `${this.#base()}/pulls/${number}`;
 		const current = await this.#request("GET", url).catch((error: Error) => error);
 		if (current instanceof Error || current.status >= 500) return result("unknown", "summary read failed");

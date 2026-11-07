@@ -47,7 +47,7 @@ test("GF01 capabilities are literal provider facts; a fresh repository observes 
 		const seen = await f.reconcile();
 		assert.deepEqual(seen.capabilities, {
 			draftProposalPR: true,
-			markProposalReady: false,
+			markProposalReady: true,
 			guardedSourceUpdate: true,
 			createIdempotency: false,
 			stableObjectIdentity: true,

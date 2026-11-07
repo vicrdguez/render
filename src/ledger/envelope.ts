@@ -109,7 +109,7 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 	switch (type) {
 		case "stageForgeOperation":
 			only(c, ["type", "kind"], "command");
-			if (!FORGE_KINDS.includes(c.kind as ForgeKind)) malformed("kind is publish-source, create-proposal or update-summary");
+			if (!FORGE_KINDS.includes(c.kind as ForgeKind)) malformed("kind is publish-source, create-proposal, update-summary or mark-ready");
 			return { command: { type, workflow: workflow as string, kind: c.kind as ForgeKind } };
 		case "admitForgeOperation":
 		case "authorizeForgeReissue":

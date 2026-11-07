@@ -20,6 +20,7 @@ type Publication = {
 	association: { pr: string; by: string } | null;
 	main: { source: string; commit: string } | null;
 	operations: { kind: string; status: string; canonical: string; attempts: unknown[] }[];
+	readiness: { eligible: boolean; gaps: string[]; observed: string | null };
 };
 const publication = (t: Fixture) => ((t.f.ledger.snapshot(admin) as Frame).workflows as { publication: Publication }[])[0]!.publication;
 const passes = (t: Fixture) => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
@@ -83,7 +84,7 @@ function scripted(t: Fixture) {
 	);
 }
 
-test("GP-E1 one draft PR across a lost create reply; a forge outage blocks neither integration nor the dependent; recovery updates the same PR; HM-E1 the human merge is observed", async () => {
+test("GP-E1/AR-E1 one draft PR across a lost create reply; a forge outage blocks neither integration nor the dependent; recovery updates the same PR and promotes it ready; HM-E1 the human merge is observed", async () => {
 	const gh = await fakeGitHub();
 	const forge = { ...gh.config, retryMs: 200, repositories: { owned: { owner: gh.owner, name: gh.name, base: "main" } } };
 	const t = await fixture({ watchdog: ["pass", "pass"], dependent: true, forge });
@@ -117,6 +118,8 @@ test("GP-E1 one draft PR across a lost create reply; a forge outage blocks neith
 			"the one verified PR associates and receives its summary",
 		);
 		assert.equal(gh.pulls[0]!.draft, true);
+		assert.deepEqual(publication(t).readiness.gaps, ["next: not yet integrated"], "no promotion while a Slice is unfinished");
+		assert.equal(gh.readyRequests().length, 0);
 
 		await gh.down();
 		const next = { ...t.writer, inputs: [t.nextContract!], verification: { ...t.writer.verification!, contract: t.nextContract! } };
@@ -127,6 +130,7 @@ test("GP-E1 one draft PR across a lost create reply; a forge outage blocks neith
 			.trim();
 		assert.deepEqual([publication(t).status, publication(t).canonical, publication(t).published], ["lagging", R2, R1]);
 
+		gh.faults.dropReadyReply = true;
 		await gh.up();
 		await until(
 			() =>
@@ -142,6 +146,21 @@ test("GP-E1 one draft PR across a lost create reply; a forge outage blocks neith
 			"the same PR's summary is updated",
 		);
 		assert.match(gh.pulls[0]!.body, new RegExp(`Canonical source: ${R2}`));
+		await until(
+			() => publication(t).operations.some((o) => o.kind === "mark-ready" && o.status === "satisfied"),
+			"the Engine promotes the eligible PR and reconciles the lost reply",
+		);
+		assert.deepEqual(
+			publication(t)
+				.operations.filter((o) => o.kind === "mark-ready")
+				.map((o) => [o.status, o.canonical, o.attempts.length]),
+			[["satisfied", R2, 1]],
+		);
+		assert.equal(gh.readyRequests().length, 1, "one ready request, no blind resend");
+		assert.equal(gh.pulls[0]!.draft, false, "the PR is ready on GitHub");
+		assert.deepEqual([publication(t).readiness.eligible, publication(t).readiness.observed], [true, "ready"]);
+		assert.equal(gh.posts(), 1, "promotion creates no PR");
+		assert.ok(!gh.requests.some((r) => r.path.includes("/merge")), "no merge request");
 
 		assert.equal(publication(t).main, null);
 		const operations = publication(t).operations.length;

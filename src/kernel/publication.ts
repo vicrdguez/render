@@ -6,7 +6,7 @@ import { integrated, qualifiedSlices } from "./integration.ts";
 import type { DomainWrite, KernelState, Refusal, VerifiedFacts } from "./kernel.ts";
 import type { RoleWorkState } from "./roles.ts";
 
-export type ForgeKind = "publish-source" | "create-proposal" | "update-summary";
+export type ForgeKind = "publish-source" | "create-proposal" | "update-summary" | "mark-ready";
 export type Capabilities = {
 	draftProposalPR: boolean;
 	markProposalReady: boolean;
@@ -57,13 +57,21 @@ export type ForgeAttempt = { id: string; executorEpoch: string; sequence: number
 export type ForgeOperation = {
 	operation: string;
 	kind: ForgeKind;
-	status: "planned" | "admitted" | "applied" | "rejected" | "unknown" | "unapplied" | "superseded";
+	/** `satisfied`: the desired ready state was observed on the op's basis, without claiming this attempt caused it. */
+	status: "planned" | "admitted" | "applied" | "rejected" | "unknown" | "unapplied" | "superseded" | "satisfied";
 	/** Canonical R and observed published head when staged: the summary/publication basis. */
 	canonical: string;
 	published: string | null;
 	expected?: string | null;
 	marker?: string;
-	/** Create only: a complete pre-create listing found no open PR on the branch. */
+	/** Mark-ready only: the associated PR it promotes. */
+	pr?: string;
+	/** Update-summary only: the readiness gaps the summary states. */
+	gaps?: string[];
+	/**
+	 * Create: a complete pre-create listing found no open PR on the branch. Mark-ready: the latest listing showed the PR
+	 * open and draft on the op's canonical head.
+	 */
 	checked?: boolean;
 	/** Create only: a human authorized one more attempt despite uncertainty. */
 	reissue?: boolean;
@@ -104,7 +112,7 @@ export const PUBLICATION_COMMANDS = [
 	"authorizeForgeReissue",
 	"resolveForgeRisk",
 ];
-export const FORGE_KINDS: readonly ForgeKind[] = ["publish-source", "create-proposal", "update-summary"];
+export const FORGE_KINDS: readonly ForgeKind[] = ["publish-source", "create-proposal", "update-summary", "mark-ready"];
 export const emptyPublication = (): Publication => ({ operations: [] });
 const refusal = (code: Refusal["code"], reason: string): Refusal => ({ outcome: "refused", code, reason });
 
@@ -119,6 +127,25 @@ export function canonical(roles: RoleWorkState | undefined, workflow: string): {
 }
 const riskOpen = (p: Publication) => !!p.risk && !p.risk.resolved;
 
+/**
+ * Why the proposal is not eligible for ready promotion (spec §9.3 R2-A008); empty means eligible. Every accepted Slice,
+ * Record work included, needs recorded qualifying integration of its current Contract, and the canonical head must be
+ * published to the one associated open PR without divergence or duplicate risk. An observed ready flag never counts.
+ */
+export function readinessGaps(p: Publication, roles: RoleWorkState | undefined, intakes: Intakes | undefined, workflow: string): string[] {
+	const slices = (intakes?.slices ?? []).filter((s) => s.status === "accepted");
+	const done = qualifiedSlices(roles?.passes ?? [], workflow, slices);
+	const gaps = slices.filter((s) => !done.includes(s.id)).map((s) => `${s.id}: ${s.record ? "Record " : ""}not yet integrated`);
+	const head = canonical(roles, workflow).head;
+	if (!head) return [...gaps, "no qualifying integration"];
+	if (p.divergence) gaps.push(`divergence: published ${p.divergence} is outside canonical lineage`);
+	else if ((p.remote?.head ?? null) !== head) gaps.push(`awaiting publication: ${head}`);
+	if (riskOpen(p) || p.duplicates?.length) gaps.push("unresolved duplicate PR risk");
+	else if (!p.association) gaps.push("no associated proposal PR");
+	else if (p.association.state !== "open") gaps.push(`associated PR ${p.association.pr} is ${p.association.state}`);
+	return gaps;
+}
+
 /** The host-owned summary section: current local facts only; details stay in Render. */
 export function proposalSummary(
 	title: string,
@@ -126,6 +153,7 @@ export function proposalSummary(
 	intakes: Intakes | undefined,
 	workflow: string,
 	published: string | null,
+	gaps: string[],
 ): string {
 	const passes = (roles?.passes ?? []).filter((p) => p.workflow === workflow);
 	const slices = (intakes?.slices ?? []).filter((s) => s.status === "accepted");
@@ -146,6 +174,7 @@ export function proposalSummary(
 		`- Published head: ${published ?? "not yet published"}`,
 		`- Evidence: ${evidence.join("; ") || "none"}`,
 		`- Remaining blocking work: ${remaining.join("; ") || "none"}`,
+		`- Ready promotion: ${gaps.length ? `not eligible: ${gaps.join("; ")}` : "eligible; the forge ready state is observed separately"}`,
 		"- Advisory human checks: local verification prompts are advisory and gate neither readiness nor merge.",
 		"- Main merge: the human only.",
 		"",
@@ -222,6 +251,7 @@ export function changePublication(
 	const title = state.workflow.title ?? workflow;
 	const revision = facts.ids.revision!;
 	const { head, lineage } = canonical(state.roleWork, workflow);
+	const gaps = () => readinessGaps(p, state.roleWork, state.intakes, workflow);
 	const documents: PublicationWrite["documents"] = [];
 	const done = (result: Record<string, string | number | null>) => ({
 		outcome: "accepted" as const,
@@ -266,7 +296,7 @@ export function changePublication(
 				if (!published || !lineage.has(published) || p.divergence)
 					return refusal("stale_basis", "Publish a valid canonical head before creating the draft PR.");
 				op.marker = `render-proposal:${workflow}:${revision}`;
-				const summary = proposalSummary(title, state.roleWork, state.intakes, workflow, published);
+				const summary = proposalSummary(title, state.roleWork, state.intakes, workflow, published, gaps());
 				intent = {
 					schema: 1,
 					kind: command.kind,
@@ -276,13 +306,29 @@ export function changePublication(
 					head: published,
 					body: `<!-- render:proposal-pr ${op.marker} -->\n${summary}`,
 				};
+			} else if (command.kind === "mark-ready") {
+				if (p.unsupported?.includes("markProposalReady"))
+					return refusal(
+						"capability_unavailable",
+						"The forge offers no ready promotion; a ready state set on the forge is still observed.",
+					);
+				const current = gaps();
+				if (current.length) return refusal("stale_basis", `Not eligible for ready promotion: ${current.join("; ")}`);
+				const same = p.operations.filter((o) => o.kind === "mark-ready" && o.canonical === head);
+				if (same.some((o) => ["planned", "admitted", "unknown"].includes(o.status)))
+					return refusal("ownership_conflict", "A ready promotion on this basis is unresolved.");
+				if (same.some((o) => ["applied", "satisfied"].includes(o.status)))
+					return refusal("stale_basis", "Ready promotion on this basis is already applied or observed.");
+				op.pr = p.association!.pr;
+				intent = { schema: 1, kind: command.kind, proposal: workflow, pr: op.pr, canonical: head, published };
 			} else {
 				if (!p.association || riskOpen(p))
 					return refusal("stale_basis", "Summary updates need a verified association without unresolved duplicate risk.");
 				if (p.operations.some((o) => o.kind === "update-summary" && o.status === "admitted"))
 					return refusal("ownership_conflict", "A summary update is in flight.");
 				for (const o of p.operations) if (o.kind === "update-summary" && o.status === "planned") o.status = "superseded";
-				const summary = proposalSummary(title, state.roleWork, state.intakes, workflow, published);
+				op.gaps = gaps();
+				const summary = proposalSummary(title, state.roleWork, state.intakes, workflow, published, op.gaps);
 				intent = { schema: 1, kind: command.kind, proposal: workflow, pr: p.association.pr, canonical: head, published, summary };
 			}
 			p.operations.push(op);
@@ -302,6 +348,13 @@ export function changePublication(
 			if (op.kind === "publish-source" && p.divergence) return refusal("stale_basis", "The published head diverged.");
 			if (op.kind === "update-summary" && (!p.association || riskOpen(p)))
 				return refusal("stale_basis", "Summary updates need a verified association without unresolved duplicate risk.");
+			if (op.kind === "mark-ready") {
+				const current = gaps();
+				if (current.length || op.canonical !== head || op.pr !== p.association?.pr)
+					return refusal("stale_basis", `The promotion basis is no longer current: ${current.join("; ") || "canonical or PR changed"}`);
+				if (!op.checked)
+					return refusal("stale_basis", "Reobserve the associated PR open and draft on the exact published head before admitting.");
+			}
 			const id = `forge-attempt:${facts.sequence}`;
 			op.attempts.push({ id, executorEpoch: facts.executorEpoch, sequence: facts.sequence });
 			op.status = "admitted";
@@ -323,7 +376,8 @@ export function changePublication(
 				if (attempt.outcome || op!.status !== "admitted") return refusal("stale_basis", "A dispatch is reported once.");
 				attempt.outcome = o.outcome!;
 			}
-			if (o.capabilities) p.unsupported = (["draftProposalPR", "guardedSourceUpdate"] as const).filter((k) => !o.capabilities![k]);
+			if (o.capabilities)
+				p.unsupported = (["draftProposalPR", "guardedSourceUpdate", "markProposalReady"] as const).filter((k) => !o.capabilities![k]);
 			if (o.head) {
 				p.remote = { head: o.head.commit, observation: revision };
 				p.divergence = o.head.commit && !lineage.has(o.head.commit) ? o.head.commit : null;
@@ -395,6 +449,21 @@ function observeOperation(p: Publication, op: ForgeOperation, o: ForgeObservatio
 	if (op.kind === "update-summary") {
 		if (o.mode === "dispatch") op.status = o.outcome!;
 		else if (op.status === "admitted") op.status = "unknown";
+		return;
+	}
+	if (op.kind === "mark-ready") {
+		if (o.mode === "dispatch") {
+			op.status = o.outcome!;
+			return;
+		}
+		if (op.status === "admitted") op.status = "unknown";
+		const seen = o.proposals?.items.find((i) => i.id === op.pr);
+		const exact = seen?.state === "open" && seen.head === op.canonical;
+		if (op.status === "planned") op.checked = exact && seen.draft;
+		if ((op.status === "planned" || op.status === "unknown") && exact && !seen.draft) op.status = "satisfied";
+		// Marking ready sets a state and creates nothing: a complete listing still draft on the exact head shows it
+		// unapplied, and a fresh promotion then needs its own stage, eligibility and pre-admission observation.
+		else if (op.status === "unknown" && exact && o.proposals!.complete) op.status = "unapplied";
 		return;
 	}
 	if (o.mode === "dispatch") {
@@ -469,6 +538,37 @@ export type PublicationView = {
 	/** Actions this publication state holds back; local design, review and integration are never among them. */
 	blocked: string[];
 	choices: string[];
+	readiness: Readiness;
+	/** The associated PR's latest summary no longer states the current heads or readiness gaps. */
+	summaryStale: boolean;
+};
+/**
+ * Eligibility, the latest promotion and the observed forge state, kept apart (spec §9.3). `package` maps each integrated
+ * Slice to the exact records behind it for the human's own main merge; Render never requests a merge.
+ */
+export type Readiness = {
+	eligible: boolean;
+	gaps: string[];
+	promotion: { operation: string; status: ForgeOperation["status"]; canonical: string; pr: string } | null;
+	observed: "draft" | "ready" | "closed" | "merged" | null;
+	package: {
+		slice: string;
+		record: boolean;
+		contract: string;
+		pass: string;
+		captureA: string | null;
+		audit: string | null;
+		handoff: string;
+		source: string;
+		preparation: string;
+		prepared: string;
+		watchdog: string;
+		report: string | null;
+		integration: string;
+		result: string;
+	}[];
+	advisory: string;
+	uncertain: string[];
 };
 export function publicationView(
 	p: Publication | undefined,
@@ -478,6 +578,7 @@ export function publicationView(
 ): PublicationView {
 	const s = p ?? emptyPublication();
 	const head = canonical(roles, workflow).head;
+	const gaps = readinessGaps(s, roles, intakes, workflow);
 	const published = s.remote?.head ?? null;
 	const association = s.association ?? null;
 	const duplicates = s.duplicates ?? [];
@@ -494,7 +595,7 @@ export function publicationView(
 	const blocked = [
 		...(s.divergence ? ["publish-source"] : []),
 		...(!association || open ? ["update-summary"] : []),
-		...(head && (s.divergence || !association || open || published !== head) ? ["ready-promotion"] : []),
+		...(head && gaps.length ? ["ready-promotion"] : []),
 	];
 	const unknownCreate = s.operations.some((o) => o.kind === "create-proposal" && o.status === "unknown");
 	const choices = [
@@ -517,5 +618,56 @@ export function publicationView(
 		mainUnknown: s.main ? null : (s.mainUnknown ?? null),
 		blocked,
 		choices,
+		readiness: readiness(s, roles, intakes, workflow, gaps),
+		summaryStale: !!association && !open && summaryStale(s, head, published, gaps),
+	};
+}
+function summaryStale(s: Publication, head: string | null, published: string | null, gaps: string[]): boolean {
+	const summary = s.operations.findLast((o) => o.kind === "update-summary" && o.status !== "superseded");
+	return !summary || summary.canonical !== head || summary.published !== published || summary.gaps?.join("\n") !== gaps.join("\n");
+}
+function readiness(
+	s: Publication,
+	roles: RoleWorkState | undefined,
+	intakes: Intakes | undefined,
+	workflow: string,
+	gaps: string[],
+): Readiness {
+	const promotion = s.operations.findLast((o) => o.kind === "mark-ready");
+	const a = s.association;
+	const passes = (roles?.passes ?? []).filter((p) => p.workflow === workflow && integrated(p));
+	const slices = (intakes?.slices ?? []).filter((x) => x.status === "accepted");
+	return {
+		eligible: gaps.length === 0,
+		gaps,
+		promotion: promotion
+			? { operation: promotion.operation, status: promotion.status, canonical: promotion.canonical, pr: promotion.pr! }
+			: null,
+		observed: !a ? null : a.state === "open" ? (a.draft ? "draft" : "ready") : (a.state as "closed" | "merged"),
+		package: slices.flatMap((x) => {
+			const p = passes.find((p) => p.slice === x.id && p.contract === x.contract);
+			const i = p?.handoff?.integrations?.find((i) => i.status === "qualified");
+			if (!p || !i) return [];
+			return [
+				{
+					slice: x.id,
+					record: x.record,
+					contract: x.contract,
+					pass: p.ref,
+					captureA: p.captureA ?? null,
+					audit: p.audit?.record ?? null,
+					handoff: p.handoff!.record,
+					source: p.handoff!.source,
+					preparation: i.preparation,
+					prepared: i.tree,
+					watchdog: i.review,
+					report: roles?.assignments.find((r) => r.id === i.review)?.report ?? null,
+					integration: i.operation,
+					result: i.result,
+				},
+			];
+		}),
+		advisory: "Local verification prompts are advisory and gate neither readiness nor merge; the human alone merges main.",
+		uncertain: s.operations.filter((o) => o.status === "unknown" || o.status === "admitted").map((o) => o.operation),
 	};
 }
