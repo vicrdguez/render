@@ -40,6 +40,8 @@ export type IntakeManifest = {
 	/** Null only when the change creates the repository's first asset: every catalog check is then a new deliverable. */
 	catalog: string | null;
 	breakdown: string | null;
+	/** Bug only: the behavior obligation that is the reproduction, with human Ground's observed and expected text verbatim. */
+	reproduction?: { obligation: string; observed: string; expected: string };
 	slices: {
 		id: string;
 		title: string;
@@ -153,6 +155,10 @@ export function validIntakeShape(v: unknown): v is IntakeManifest {
 		!texts(v.decisions) ||
 		!unique(v.decisions) ||
 		!(v.breakdown === null || text(v.breakdown)) ||
+		!(
+			v.reproduction === undefined ||
+			(object(v.reproduction) && id(v.reproduction.obligation) && text(v.reproduction.observed) && text(v.reproduction.expected))
+		) ||
 		!Array.isArray(v.slices) ||
 		!v.slices.length ||
 		!Array.isArray(v.checks) ||
@@ -318,6 +324,17 @@ function lint(state: KernelState, m: IntakeManifest, inputs: Record<string, Chec
 		return "Shortened intake requires human Ground with a goal, an independent done predicate, constraints and facts.";
 	if ((m.shape === "change" || m.shape === "design") && !m.breakdown) return "Change/design retains a bounded breakdown.";
 	if (["bug", "performance"].includes(m.shape) && m.slices.length !== 1) return "Compact bug/performance intake has one bounded Slice.";
+	if (m.shape === "bug") {
+		const r = g.reproduction;
+		if (!object(r) || !text(r.trigger) || !text(r.observed) || !text(g.expected))
+			return "Bug intake needs human Ground with the reproduction trigger, observed wrong behavior and independent expected correction.";
+		if (
+			m.reproduction?.observed !== r.observed ||
+			m.reproduction.expected !== g.expected ||
+			!m.slices[0]!.obligations.some((o) => o.id === m.reproduction!.obligation && o.kind === "behavior")
+		)
+			return "Bug intake carries human Ground's observed wrong behavior and expected correction verbatim as one behavior obligation.";
+	}
 	if (!currentDecisions(state, m)) return "Required decisions must be current approved checkpoint records.";
 	if (
 		m.shape === "design" &&
@@ -408,6 +425,14 @@ function lint(state: KernelState, m: IntakeManifest, inputs: Record<string, Chec
 	if (!graphValid(slices, m.dependencies, state.workflow!.id) || m.dependencies.some((e) => !m.slices.some((s) => s.id === e.slice)))
 		return "Dependencies must name eligible Slices, required Record and an acyclic graph.";
 	return undefined;
+}
+/** The accepted bug Contract's regression rows and the observed wrong behavior they must show; undefined for other shapes. */
+export function bugReproduction(intakes: Intakes | undefined, contract: string): { rows: string[]; observed: string } | undefined {
+	const slice = intakes?.slices.find((s) => s.contract === contract);
+	const m = intakes?.drafts.find((d) => d.id === slice?.intake)?.manifest;
+	if (!slice || m?.shape !== "bug" || !m.reproduction) return;
+	const checks = m.mapping.find((x) => x.slice === slice.id && x.obligation === m.reproduction!.obligation)?.checks ?? [];
+	return { rows: m.checks.filter((c) => checks.includes(c.id)).map((c) => c.row), observed: m.reproduction.observed };
 }
 function refused(code: string, reason: string): Decision {
 	return { outcome: "refused", code, reason } as Decision;

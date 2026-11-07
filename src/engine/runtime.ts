@@ -549,6 +549,10 @@ export class Engine {
 							await this.#diagnostic(a, this.#scope(a), workspace.source, result);
 							return { output: [{ type: "text", text: JSON.stringify(result) }], isError: result.exitCode !== 0 };
 						}
+						if (name === "implementation_reproduce") {
+							const reply = await this.#captureImplementation(a, "reproduction");
+							return { output: [{ type: "text", text: JSON.stringify(reply) }], isError: reply.result.reproduction !== "red" };
+						}
 						const kind = name === "implementation_audit" ? "audit" : "final";
 						const existing = this.#implementationPass(a);
 						const captured =
@@ -580,6 +584,7 @@ export class Engine {
 		);
 		const auditImplementation = implementation("implementation_audit", schema({}));
 		const checkImplementation = implementation("implementation_check", schema({}));
+		const reproduceImplementation = implementation("implementation_reproduce", schema({}));
 		const handoffImplementation = implementation(
 			"implementation_handoff",
 			Type.Object(
@@ -630,6 +635,7 @@ export class Engine {
 				executeImplementation,
 				auditImplementation,
 				checkImplementation,
+				reproduceImplementation,
 				handoffImplementation,
 			],
 			sections: [
@@ -1206,7 +1212,7 @@ export class Engine {
 						},
 						verificationAuthoring: VERIFICATION_AUTHORING,
 						implementationInstructions:
-							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately. When implementation.opening is present this is a new pass after a retained handoff: the workspace starts from opening.base, the observation in inputs says why (after Watchdog rework, the cited Watchdog report with its findings and directions is also in inputs, and after a human-directed return so is the human's direction: address them), predecessor source and reports are read-only references, and this pass needs its own Audit before its own handoff. After a preparation conflict, the retained preparation record in inputs holds Git's exact conflict output, and read-only originals are mounted at /candidates/implementation (B), /candidates/base (recorded base T0) and /candidates/target (T1); reapply and resolve in the writable workspace, never guess.",
+							"Use implementation_execute for coding commands in owned Linux only. Bootstrap the selected verification asset if absent and maintain affected checks as ordinary accepted source work; new rows name deliverables. Run tests before implementation; never lower accepted expectations. implementation_audit captures/checks A, stops the runtime and stages exactly two fresh reviewers. Read both reports; fix/dispose every finding with reasons and exact source/check refs, without requesting a second Audit. Caches, services and Git metadata do not survive capture; rerun setup as needed. For a bug Contract, before product code write the regression check named by the Contract's reproduction, then implementation_reproduce captures and checks the pre-fix source: it is red-on-the-bug only when a regression row fails showing the reported wrong behavior. A missing prerequisite, setup failure or passing row is reported in its reply and blocks Audit; report it rather than claiming a correction. Use implementation_check to capture/check final B before naming its exact revision in fixed dispositions (changes:[captureB], rechecks:[catalogRowNames]). implementation_handoff reuses unchanged sealed B, or captures/checks it when absent, and accepts only a passing current completion table. Audit remains about A, not B/X. Preparation/Watchdog may be unavailable and are not a full delivery pass. Report verifier changes separately. When implementation.opening is present this is a new pass after a retained handoff: the workspace starts from opening.base, the observation in inputs says why (after Watchdog rework, the cited Watchdog report with its findings and directions is also in inputs, and after a human-directed return so is the human's direction: address them), predecessor source and reports are read-only references, and this pass needs its own Audit before its own handoff. After a preparation conflict, the retained preparation record in inputs holds Git's exact conflict output, and read-only originals are mounted at /candidates/implementation (B), /candidates/base (recorded base T0) and /candidates/target (T1); reapply and resolve in the writable workspace, never guess.",
 					}
 				: {}),
 			...(a.packet.experiment
@@ -1456,7 +1462,7 @@ export class Engine {
 	}
 	async #recordImplementationSource(
 		a: RoleAssignment,
-		kind: "audit" | "final" | "checkpoint",
+		kind: "audit" | "final" | "checkpoint" | "reproduction",
 		source: SourceReceipt,
 		verification?: CatalogEvidence,
 	) {
@@ -1485,7 +1491,7 @@ export class Engine {
 		if (e.verification.status === "source_changed") gaps.push("source changed");
 		return `verification_unproven: ${[...gaps, `cleanup ${e.cleanup.status}`].join("; ")}`.slice(0, 1900);
 	}
-	async #captureImplementation(a: RoleAssignment, kind: "audit" | "final") {
+	async #captureImplementation(a: RoleAssignment, kind: "audit" | "final" | "reproduction") {
 		await this.#implementationWorkspace(a);
 		const captured = await this.#sealImplementation(a);
 		// Preserve progress even when the selected verifier is missing or its execution fails.

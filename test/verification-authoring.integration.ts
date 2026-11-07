@@ -132,7 +132,7 @@ const selected = (t: Fixture, rows: string[], behavioralRows: string[]) => ({
 });
 
 test("VA1-VA3 verify-create authors the selected legacy asset from the actual repository, proves a journey and delivers it normally", async () => {
-	const t = await fixture({ bootstrap: true, change: true, watchdog: [] });
+	const t = await fixture({ bootstrap: true, watchdog: [] });
 	try {
 		const store = effectsStore(t);
 		const T = t.writer.verification!.commit;
@@ -209,7 +209,7 @@ test("VA1-VA3 verify-create authors the selected legacy asset from the actual re
 });
 
 test("VA4-VA5 an unproven authored asset keeps discovery, a missing prerequisite and a failed journey visible and delivers nothing", async () => {
-	const t = await fixture({ bootstrap: true, change: true, watchdog: [] });
+	const t = await fixture({ bootstrap: true, watchdog: [] });
 	try {
 		const store = effectsStore(t);
 		const T = t.writer.verification!.commit;

@@ -163,6 +163,8 @@ async function consumer(t: Lifecycle) {
 			donePredicate: "Literal bytes",
 			facts: [],
 			approvedSources: [source],
+			reproduction: { trigger: "node read.js", observed: "read returned altered bytes" },
+			expected: "read returns exact bytes",
 		}),
 	);
 	const policy = (ledger.snapshot(admin) as Frame).policy as { defaultRevision: string; bindings: Record<string, { revision: string }> };
@@ -218,6 +220,7 @@ async function consumer(t: Lifecycle) {
 		decisions: [],
 		catalog,
 		breakdown: null,
+		reproduction: { obligation: "B1", observed: "read returned altered bytes", expected: "read returns exact bytes" },
 		slices: [
 			{
 				id: "cross",
