@@ -1,7 +1,13 @@
 # Canonical integration failure cases
 
-Acceptance oracles for the `canonical-integration` Slice, written before its product change. They are requirements,
-not run results. Behavior rules B1–B6 and commitments A1–A3 are the Slice Contract's; spec §3 I9/I10/I16/I17, §§9.1,
+Acceptance oracles for the `canonical-integration` Slice. They are requirements, not run results.
+
+Chronology, kept as it happened: CI01–CI17 and CI21 and their Ledger, Effects and V1 schedule checks were written and
+failed (`capability_unavailable`, unknown Effects operations) before the first product change. The CI18–CI20 Engine
+journeys and the seven unsafe controls were written after the Engine change, so they are not test-first evidence. The
+CI22 workload was written before the scheduling-frame change and first measured p95 acknowledgement 1435 ms and snapshot
+1656 ms: every queued task rebuilt a full snapshot on each commit. Sharing one frame per committed sequence fixed that
+without weakening persistence. Behavior rules B1–B6 and commitments A1–A3 are the Slice Contract's; spec §3 I9/I10/I16/I17, §§9.1,
 9.3–9.4, §10 and §13 V1/V3/V6/V9 navigate them.
 
 ## Interface these cases name (new in this Slice)

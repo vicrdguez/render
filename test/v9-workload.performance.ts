@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { enroll, http, percentile, ROOT, save, tempDir, track } from "./support/host.ts";
 
-const SAVES_PER_CLIENT = Number(process.env.RENDER_V9_SAVES ?? 150);
+const SAVES_PER_CLIENT = Number(process.env.RENDER_V9_SAVES ?? 500);
 const LANES = 4;
 const SNAPSHOT_EVERY = 10;
 type Status = { executing: string[]; active: number; turns: Record<string, number>; sequence: number };
@@ -117,7 +117,7 @@ test("V9 full workload: 100 active Slices, two clients, four streaming Durable a
 		assert.ok(end.active >= 100, `100 active Slices, saw ${end.active}`);
 		assert.equal(end.executing.length, 4, "four executing attempts throughout");
 		assert.deepEqual(end.executing, start.executing, "the same four attempts streamed for the whole measurement");
-		for (const [id, n] of Object.entries(streamed)) assert.ok(n >= 3, `stream ${id} committed only ${n} turns during measurement`);
+		for (const [id, n] of Object.entries(streamed)) assert.ok(n >= 5, `stream ${id} committed only ${n} turns during measurement`);
 		assert.ok(result.ackMs.p95 < 250, `ack p95 ${result.ackMs.p95}`);
 		assert.ok(result.snapshotMs.p95 < 1_000, `snapshot p95 ${result.snapshotMs.p95}`);
 	} finally {
