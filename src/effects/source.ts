@@ -286,12 +286,13 @@ export class Effects {
 		this.#consumed.add(attempt);
 		const ref = canonicalRef(proposal);
 		const dispatch = await this.#transaction(store.path, store.cwd, `start\nupdate ${ref} ${result.commit} ${expected}\nprepare\n`);
-		if (dispatch === "applied") await syncTree(store.path);
 		return { ...(await this.#canonical(repository, proposal)), dispatch };
 	}
+	/** Every observation, dispatch readback or reconciliation, follows a durability barrier: a failed fsync reports nothing. */
 	async #canonical(repository: string, proposal: string): Promise<CanonicalObservation> {
 		const store = await this.#store(repository);
 		const ref = canonicalRef(proposal);
+		await syncTree(store.path);
 		const lock = await Promise.all(
 			[join(store.path, `${ref}.lock`), join(store.path, "packed-refs.lock")].map((path) =>
 				access(path).then(
