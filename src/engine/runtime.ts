@@ -152,6 +152,7 @@ export class Engine {
 	readonly #implementationAdmitted = new Set<string>();
 	/** Exact Sandboxes scopes of in-flight host checks of prepared X; they confer no role or writer authority. */
 	readonly #preparing = new Set<string>();
+	#cached: { sequence: number; frame: ReturnType<Ledger["snapshot"]> } | undefined;
 	/** In-process serialization of each proposal's canonical integration. */
 	readonly #integrating = new Map<string, Promise<void>>();
 	readonly #preparation;
@@ -918,6 +919,7 @@ export class Engine {
 				}
 			},
 			bindLedger: (ledger, harness) => {
+				this.#cached = undefined;
 				this.#ledger = ledger;
 				this.#harness = harness;
 			},
@@ -1092,7 +1094,7 @@ export class Engine {
 		const results = currentChildren(this.#assignments(), a.id)
 			.filter((child) => child.status === "submitted")
 			.map((child) => ({ assignment: child.id, report: child.report }));
-		const frame = this.#ledger.snapshot(scheduling);
+		const frame = this.#frame()!;
 		if (!("policy" in frame)) throw new Error("Current policy is unavailable.");
 		const policy = frame.policy as import("../kernel/policy.ts").PolicyState;
 		const binding = policy.bindings[a.workflow];
@@ -1300,8 +1302,7 @@ export class Engine {
 	async #waitUntil(signal: AbortSignal, ready: () => boolean): Promise<void> {
 		// The task's existing run/resume checkpoint is durable. Observation is only a wakeup hint:
 		// after reopen the phase checkpoints its new observation epoch and rechecks committed state.
-		// Debt: each waiter scans a full scheduling snapshot on every Ledger commit. Coalesce these
-		// reads when implementing the full streaming workload; larger queues can exceed the V9 ack target.
+		// Waiters share one scheduling frame per committed sequence (`#frame`), so queued work stays cheap per commit.
 		const { promise, resolve, reject } = Promise.withResolvers<void>();
 		const observation = this.#ledger!.observe(scheduling, {
 			send: () => {
@@ -1321,8 +1322,18 @@ export class Engine {
 			observation.stop();
 		}
 	}
+	/**
+	 * The scheduling view of committed state, built once per Ledger sequence and shared by every reader (V9: one frame per
+	 * commit, not one per waiting task). Frozen, because it is shared: Engine never edits committed state in place.
+	 */
+	#frame(): ReturnType<Ledger["snapshot"]> | undefined {
+		if (!this.#ledger) return undefined;
+		const sequence = this.#ledger.status().sequence;
+		if (this.#cached?.sequence !== sequence) this.#cached = { sequence, frame: deepFreeze(this.#ledger.snapshot(scheduling)) };
+		return this.#cached.frame;
+	}
 	#assignments(): RoleAssignment[] {
-		const frame = this.#ledger?.snapshot(scheduling);
+		const frame = this.#frame();
 		return frame && "assignments" in frame ? (frame.assignments as RoleAssignment[]) : [];
 	}
 	#assignment(id: string) {
@@ -1337,7 +1348,7 @@ export class Engine {
 		};
 	}
 	#implementationPass(a: RoleAssignment): ImplementationPass {
-		const frame = this.#ledger!.snapshot(scheduling);
+		const frame = this.#frame()!;
 		const pass =
 			"implementationPasses" in frame ? (frame.implementationPasses as ImplementationPass[]).find((p) => p.ref === a.passRef) : undefined;
 		if (!pass) throw new Error("Missing retained implementation pass");
@@ -2052,7 +2063,7 @@ export class Engine {
 	}
 	/** The workflow's current policy basis; Ledger verifies its exact retained bytes when a record names it. */
 	#policyBasis(workflow: string): PolicyBasis {
-		const frame = this.#ledger!.snapshot(scheduling);
+		const frame = this.#frame()!;
 		const basis = "policy" in frame ? policyBasis(frame.policy as PolicyState, workflow) : undefined;
 		if (!basis) throw new Error("Current policy is unavailable.");
 		return basis;
@@ -2304,7 +2315,7 @@ export class Engine {
 		return read.content.toString();
 	}
 	#reviewLimit(workflow: string): number {
-		const frame = this.#ledger!.snapshot(scheduling);
+		const frame = this.#frame()!;
 		const policy = "policy" in frame ? (frame.policy as PolicyState) : initialPolicy();
 		return policy.revisions[bindingFor(policy, workflow).policy]!.completedReviewLimit;
 	}
@@ -2375,7 +2386,7 @@ export class Engine {
 		}
 	}
 	#passes(): ImplementationPass[] {
-		const frame = this.#ledger!.snapshot(scheduling);
+		const frame = this.#frame()!;
 		return "implementationPasses" in frame ? (frame.implementationPasses as ImplementationPass[]) : [];
 	}
 	/** A return commits before its base is materialized; an unresolvable base blocks visibly before any writer turn. */
@@ -2546,6 +2557,14 @@ export class Engine {
 			mintContext({ kind: "host", scope: "recovery" }),
 		);
 	}
+}
+
+function deepFreeze<T>(value: T): T {
+	if (value && typeof value === "object" && !Object.isFrozen(value)) {
+		Object.freeze(value);
+		for (const child of Object.values(value)) deepFreeze(child);
+	}
+	return value;
 }
 
 export function runtimeOptions(onReport: (error: unknown, info: ReportInfo) => void): RenderRuntimeOptions {
