@@ -34,6 +34,7 @@ import {
 	type WorkflowState,
 } from "../kernel/kernel.ts";
 import { bindingFor, initialPolicy, type PolicyState } from "../kernel/policy.ts";
+import { publicationView } from "../kernel/publication.ts";
 import { packetRefs, type RoleAssignment, type RolePacket, type RoleWorkState, sameAgent } from "../kernel/roles.ts";
 import type { CatalogEvidence } from "../kernel/verification.ts";
 import { faultBarrier } from "./barrier.ts";
@@ -915,7 +916,8 @@ export class Ledger {
 			checkpointSettings: plain(checkpointSettings),
 			roleWork: plain(roles),
 			policy: plain(policy),
-			workflow: workflow?.exists ? { id: workflow.id, messageCount: workflow.messageCount } : null,
+			workflow: workflow?.exists ? { id: workflow.id, messageCount: workflow.messageCount, title: workflow.title } : null,
+			...(workflow?.exists && workflow.publication ? { publication: plain(workflow.publication) } : {}),
 			document,
 			device: target?.exists ? { id: target.device, revoked: target.revokedAtSequence !== null } : null,
 		};
@@ -957,6 +959,12 @@ export class Ledger {
 							current.kind === "assignment-agent" ? current : undefined,
 							doc.markdown ? "text/markdown" : "text/plain",
 						);
+					break;
+				}
+				case "publication.replace": {
+					if (!workflow?.exists) throw new Error("publication without workflow");
+					workflow.publication = plain(write.state);
+					for (const doc of write.documents) await this.#retainRoleText(tx, env, by, sequence, doc.ref, doc.document, doc.text);
 					break;
 				}
 				case "checkpoints.replace": {
@@ -2396,6 +2404,7 @@ function workflowState(w: Present<WorkflowRecord>, roles: RoleWorkState): Workfl
 		messageCount: w.messageCount,
 		assignments: plain(roles.assignments.filter((a) => a.workflow === w.id)),
 		integrated: qualifiedSlices(roles.passes ?? [], w.id, w.intakes?.slices ?? []),
+		publication: publicationView(w.publication, roles, w.id),
 	};
 }
 

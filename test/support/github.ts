@@ -39,7 +39,9 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 	const actor = options.actor ?? "render-bot";
 	const root = await mkdtemp(join(tmpdir(), "render-fake-github-"));
 	const repo = join(root, owner, `${name}.git`);
-	execFileSync("git", ["init", "--bare", "-q", repo], { env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
+	execFileSync("git", ["init", "--bare", "-q", repo], {
+		env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
+	});
 	const pulls: Pull[] = [];
 	const hidden = new Set<number>();
 	const requests: { method: string; path: string; body: string; authorization: string | undefined }[] = [];
@@ -47,7 +49,9 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 	const full = `${owner}/${name}`;
 	const branchHead = (ref: string) => {
 		try {
-			return git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${ref}`]).toString().trim();
+			return git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${ref}`])
+				.toString()
+				.trim();
 		} catch {
 			return null;
 		}
@@ -59,7 +63,12 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 	const pullsPath = `/repos/${full}/pulls`;
 	async function handle(req: IncomingMessage, res: ServerResponse, body: Buffer) {
 		const url = new URL(req.url ?? "/", "http://fake");
-		requests.push({ method: req.method ?? "", path: url.pathname + url.search, body: body.toString(), authorization: req.headers.authorization });
+		requests.push({
+			method: req.method ?? "",
+			path: url.pathname + url.search,
+			body: body.toString(),
+			authorization: req.headers.authorization,
+		});
 		if (url.pathname.startsWith("/git/")) {
 			if (req.headers.authorization !== `Basic ${Buffer.from(`x-access-token:${TOKEN}`).toString("base64")}`) {
 				res.writeHead(401, { "www-authenticate": 'Basic realm="fake"' });
@@ -75,13 +84,21 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 			if (faults.failPage === page) return json(res, 500, { message: "Server Error" });
 			const all = pulls.filter((p) => !hidden.has(p.number) && (!head || `${owner}:${p.head.ref}` === head));
 			const items = all.slice((page - 1) * per, page * per);
-			const next = page * per < all.length ? { link: `<http://${req.headers.host}${pullsPath}?${new URLSearchParams({ ...Object.fromEntries(url.searchParams), page: String(page + 1) })}>; rel="next"` } : {};
+			const next =
+				page * per < all.length
+					? {
+							link: `<http://${req.headers.host}${pullsPath}?${new URLSearchParams({ ...Object.fromEntries(url.searchParams), page: String(page + 1) })}>; rel="next"`,
+						}
+					: {};
 			return json(res, 200, items, next);
 		}
 		if (url.pathname === pullsPath && req.method === "POST") {
 			const input = JSON.parse(body.toString()) as { title: string; head: string; base: string; body: string; draft?: boolean };
 			if (faults.draftUnsupported && input.draft)
-				return json(res, 422, { message: "Validation Failed", errors: [{ message: "Draft pull requests are not supported in this repository." }] });
+				return json(res, 422, {
+					message: "Validation Failed",
+					errors: [{ message: "Draft pull requests are not supported in this repository." }],
+				});
 			const sha = branchHead(input.head);
 			if (!sha) return json(res, 422, { message: "Validation Failed", errors: [{ field: "head", code: "invalid" }] });
 			const number = pulls.length + 1;
@@ -104,7 +121,8 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 		}
 		const one = new RegExp(`^${pullsPath}/(\\d+)$`).exec(url.pathname);
 		const pull = one ? pulls.find((p) => p.number === Number(one[1])) : undefined;
-		if (pull && req.method === "GET") return json(res, 200, { ...pull, head: { ...pull.head, sha: branchHead(pull.head.ref) ?? pull.head.sha } });
+		if (pull && req.method === "GET")
+			return json(res, 200, { ...pull, head: { ...pull.head, sha: branchHead(pull.head.ref) ?? pull.head.sha } });
 		if (pull && req.method === "PATCH") {
 			const input = JSON.parse(body.toString()) as { body?: string };
 			if (typeof input.body === "string") pull.body = input.body;
@@ -170,7 +188,13 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 		pulls,
 		requests,
 		faults,
-		config: { api: base, git: `${base}/git`, token: TOKEN, actor, repositories: {} as Record<string, { owner: string; name: string; base: string }> },
+		config: {
+			api: base,
+			git: `${base}/git`,
+			token: TOKEN,
+			actor,
+			repositories: {} as Record<string, { owner: string; name: string; base: string }>,
+		},
 		posts: () => requests.filter((r) => r.method === "POST" && r.path === pullsPath).length,
 		branch: branchHead,
 		reveal() {

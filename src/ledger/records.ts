@@ -6,6 +6,7 @@ import type { Checkpoints } from "../kernel/checkpoints.ts";
 import type { Intakes } from "../kernel/intake.ts";
 import type { MediaType, Persistence } from "../kernel/kernel.ts";
 import { initialPolicy, type PolicyState } from "../kernel/policy.ts";
+import type { Publication } from "../kernel/publication.ts";
 import type { RoleWorkState } from "../kernel/roles.ts";
 
 /** SQLite `application_id` identifying a Render store ("REND"). */
@@ -76,6 +77,7 @@ export type WorkflowRecord =
 			messageCount: number;
 			checkpoints?: Checkpoints;
 			intakes?: Intakes;
+			publication?: Publication;
 	  };
 
 export const Workflow = defineDocFamily<WorkflowRecord, null>({

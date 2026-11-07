@@ -73,7 +73,18 @@ test("GF02/GF07 publication is an expected-old guarded push of exact host source
 		const R2 = await f.resolve(f.commit("R2\n", R1));
 		assert.equal((await f.publish(R2, R1, "forge-attempt:2")).outcome, "applied");
 		assert.equal(f.gh.branch(BRANCH), R2);
-		const foreign = git(f.gh.repo, ["commit-tree", git(f.gh.repo, ["rev-parse", `${R2}^{tree}`]).toString().trim(), "-p", R2], "Human push\n")
+		const foreign = git(
+			f.gh.repo,
+			[
+				"commit-tree",
+				git(f.gh.repo, ["rev-parse", `${R2}^{tree}`])
+					.toString()
+					.trim(),
+				"-p",
+				R2,
+			],
+			"Human push\n",
+		)
 			.toString()
 			.trim();
 		git(f.gh.repo, ["update-ref", `refs/heads/${BRANCH}`, foreign]);
@@ -138,7 +149,14 @@ test("GF04 an applied create whose reply is lost is unknown; lagging listing is 
 		assert.equal(items.length, 1);
 		assert.deepEqual(
 			{ ...items[0], id: undefined },
-			{ id: undefined, state: "open", draft: true, head: f.gh.branch(BRANCH), marker: "render-proposal:workflow:2:revision:9", actor: true },
+			{
+				id: undefined,
+				state: "open",
+				draft: true,
+				head: f.gh.branch(BRANCH),
+				marker: "render-proposal:workflow:2:revision:9",
+				actor: true,
+			},
 		);
 		assert.match(items[0]!.id, /^github:pr:1:/);
 	} finally {

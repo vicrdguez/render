@@ -36,7 +36,11 @@ function scripted(t: Fixture) {
 	const turns = new Map<string, number>();
 	const submit = (args: object, verification?: Record<string, string>) =>
 		fauxAssistantMessage(
-			fauxToolCall("submit_role_result", { text: JSON.stringify({ schema: 1, ...args }), supports: [], ...(verification ? { verification } : {}) }),
+			fauxToolCall("submit_role_result", {
+				text: JSON.stringify({ schema: 1, ...args }),
+				supports: [],
+				...(verification ? { verification } : {}),
+			}),
 			{ stopReason: "toolUse" },
 		);
 	t.f.provider.setResponses(
@@ -92,8 +96,13 @@ test("GP-E1 one draft PR across a lost create reply; a forge outage blocks neith
 		gh.faults.lagListing = true;
 		accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
 		await until(() => qualified(t, "value"), "the first Slice integrates");
-		const R1 = git(store, ["rev-parse", proposalRef("workflow:2")]).toString().trim();
-		await until(() => gh.posts() === 1 && publication(t).operations.some((o) => o.kind === "create-proposal" && o.status === "unknown"), "the create's reply is lost");
+		const R1 = git(store, ["rev-parse", proposalRef("workflow:2")])
+			.toString()
+			.trim();
+		await until(
+			() => gh.posts() === 1 && publication(t).operations.some((o) => o.kind === "create-proposal" && o.status === "unknown"),
+			"the create's reply is lost",
+		);
 		assert.equal(gh.branch(branch), R1, "the exact canonical R1 is published");
 		await delay(1500);
 		assert.equal(gh.posts(), 1, "lagging empty listings never trigger another create");
@@ -107,18 +116,25 @@ test("GP-E1 one draft PR across a lost create reply; a forge outage blocks neith
 		const next = { ...t.writer, inputs: [t.nextContract!], verification: { ...t.writer.verification!, contract: t.nextContract! } };
 		accepted(await t.f.command({ type: "assignTask", slice: "next", delivery: true, packet: next }));
 		await until(() => qualified(t, "next"), "the dependent integrates during the outage");
-		const R2 = git(store, ["rev-parse", proposalRef("workflow:2")]).toString().trim();
+		const R2 = git(store, ["rev-parse", proposalRef("workflow:2")])
+			.toString()
+			.trim();
 		assert.deepEqual([publication(t).status, publication(t).canonical, publication(t).published], ["lagging", R2, R1]);
 
 		await gh.up();
 		await until(
-			() => publication(t).published === R2 && publication(t).operations.some((o) => o.kind === "update-summary" && o.status === "applied" && o.canonical === R2),
+			() =>
+				publication(t).published === R2 &&
+				publication(t).operations.some((o) => o.kind === "update-summary" && o.status === "applied" && o.canonical === R2),
 			"recovery publishes R2 and updates the summary",
 		);
 		assert.equal(gh.branch(branch), R2);
 		assert.equal(gh.posts(), 1, "still exactly one create");
 		assert.equal(gh.pulls.length, 1);
-		assert.ok(gh.requests.some((r) => r.method === "PATCH" && r.path.endsWith("/pulls/1")), "the same PR's summary is updated");
+		assert.ok(
+			gh.requests.some((r) => r.method === "PATCH" && r.path.endsWith("/pulls/1")),
+			"the same PR's summary is updated",
+		);
 		assert.match(gh.pulls[0]!.body, new RegExp(`Canonical source: ${R2}`));
 		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
 		assert.ok("manifest" in exported);
