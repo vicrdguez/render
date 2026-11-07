@@ -301,10 +301,13 @@ export async function acceptedImplementation(engine?: Engine, second?: SecondSli
 				record: second === "record",
 				delegated: ["Names"],
 				forbidden: ["New interface"],
-				obligations: [
-					{ id: "B1", kind: "behavior", text: "Return exact bytes", sources: [] },
-					{ id: "A1", kind: "architecture", text: "Retain seam", sources: [{ ref: source, node: null }] },
-				],
+				obligations:
+					second === "record"
+						? [{ id: "R1", kind: "record", output: "adr", text: "Record the retained seam", sources: [{ ref: source, node: null }] }]
+						: [
+								{ id: "B1", kind: "behavior", text: "Return exact bytes", sources: [] },
+								{ id: "A1", kind: "architecture", text: "Retain seam", sources: [{ ref: source, node: null }] },
+							],
 			},
 			...(second
 				? [
@@ -321,8 +324,12 @@ export async function acceptedImplementation(engine?: Engine, second?: SecondSli
 		],
 		checks: [{ id: "read", row: "read", kind: "executed", rank: "tests", new: false, run: "node read.js", expectations: "exact bytes" }],
 		mapping: [
-			{ slice: "read-fix", obligation: "B1", checks: ["read"] },
-			{ slice: "read-fix", obligation: "A1", checks: ["read"] },
+			...(second === "record"
+				? [{ slice: "read-fix", obligation: "R1", checks: ["read"] }]
+				: [
+						{ slice: "read-fix", obligation: "B1", checks: ["read"] },
+						{ slice: "read-fix", obligation: "A1", checks: ["read"] },
+					]),
 			...(second ? [{ slice: "read-next", obligation: "B1", checks: ["read"] }] : []),
 		],
 		dependencies: second && second !== "independent" ? [{ slice: "read-next", requires: "read-fix", kind: second }] : [],
@@ -389,12 +396,25 @@ export async function acceptedImplementation(engine?: Engine, second?: SecondSli
 		packet({
 			role: "implementer",
 			execution: "linux-writer",
-			inputs: [contract],
+			inputs: second === "record" ? [contract, report, source] : [contract],
 			requests: [
 				{ key: "arbitrary-left", packet: packet({ role: "audit-standards" }) },
 				{ key: "arbitrary-right", packet: packet({ role: "audit-contracts" }) },
 			],
 			...overrides,
 		});
-	return { f, contract, nextContract, source, catalog, ground, writer, assignments, start, agent, close: () => f.close() };
+	return {
+		f,
+		contract,
+		nextContract,
+		source,
+		catalog,
+		ground,
+		fidelity: report,
+		writer,
+		assignments,
+		start,
+		agent,
+		close: () => f.close(),
+	};
 }

@@ -58,6 +58,7 @@
 		"verify:preparation-crash": "node --test test/target-preparation-crash.integration.ts",
 		"verify:watchdog-rework": "node --test --test-concurrency=1 test/watchdog-rework.test.ts test/watchdog-rework-schedules.test.ts test/implementation-successor.test.ts test/watchdog-rework.integration.ts test/watchdog-crash.integration.ts",
 		"verify:watchdog-crash": "node --test test/watchdog-crash.integration.ts",
+		"verify:record-baseline": "node --test --test-concurrency=1 test/record-baseline.test.ts test/accepted-contracts.test.ts test/canonical-integration.test.ts",
 		"verify:canonical-integration": "node --test --test-concurrency=1 test/canonical-integration.test.ts test/canonical-integration-effects.test.ts test/canonical-integration-schedules.test.ts test/canonical-integration.integration.ts test/canonical-integration-crash.integration.ts test/watchdog-rework.integration.ts",
 		"verify:integration-crash": "node --test test/canonical-integration-crash.integration.ts",
 		"verify:v9-workload": "node --test test/v9-workload.performance.ts",

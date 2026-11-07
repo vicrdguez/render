@@ -1633,6 +1633,37 @@ const CONTROLS: Control[] = [
 		test: "test/canonical-integration-effects.test.ts",
 		pattern: "CI25",
 	},
+	{
+		name: "record-assignment-without-basis",
+		expect: /Contract alone omits the fidelity basis/,
+		behavior: "a Record assignment need not carry its fidelity review and cited approved sources",
+		edits: [{ file: "src/kernel/intake.ts", find: "const missing = recordBasis(state, slice)", replace: "const missing = [].concat()" }],
+		test: "test/record-baseline.test.ts",
+		pattern: "RB03",
+	},
+	{
+		name: "record-unbounded-obligations",
+		expect: /Record Slice with a behavior obligation/,
+		behavior: "a Record Slice may hold obligations other than its explicit Record outputs",
+		edits: [{ file: "src/kernel/intake.ts", find: '(o.kind === "record") !== s.record', replace: 'o.kind === "record" && !s.record' }],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "RB01",
+	},
+	{
+		name: "record-document-clears-consumer",
+		expect: /document-only/,
+		behavior: "a Record edge clears once the Record pass is handed off, before recorded qualification",
+		edits: [
+			{
+				file: "src/kernel/intake.ts",
+				find: "!qualified.includes(e.requires));",
+				replace:
+					'!qualified.includes(e.requires) && !(e.kind === "record" && state.roleWork?.passes?.some((p) => p.slice === e.requires && p.handoff)));',
+			},
+		],
+		test: "test/record-baseline.test.ts",
+		pattern: "RB06",
+	},
 ];
 
 async function copy(): Promise<string> {
