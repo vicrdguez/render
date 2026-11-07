@@ -6,7 +6,8 @@ are the `watchdog-rework` Contract's; spec §3 I8/I19, §6.2/§6.4/§6.5, §9.4 
 Chronology, kept as it happened: WR01–WR18 and WR21–WR22 were written before the first product change, and their
 Ledger/Kernel tests came first. WR19, WR20, WR23, WR24, the WR21 cancel case and the WR17 SIGKILL journey were added
 after that code, so they are not test-first evidence. WR25–WR27 were written for the first Watchdog round's rework
-(findings W1, W2, W4), and their regressions failed on the reviewed head before each repair.
+(findings W1, W2, W4), and their regressions failed on the reviewed head before each repair. WR28–WR29 were written
+for the second round's rework (findings W5, W6) and failed on the reviewed head `8f3e055` before either repair.
 
 Interface these cases name (new in this Slice):
 
@@ -61,6 +62,8 @@ review, text}` naming the handed-off owner and the exact stopped round, with the
 | WR26 | Human `directRework` on the Needs Human round | direction retained as its own document, readable by the human; the handoff settles again; a host `human-direction` return citing it opens P2 from X with count still 1; P2's inputs carry the report and the direction, both readable by P2's agent; P2 handoff without its own Audit refuses `missing_content`; a second direction refuses; a `human-direction` return citing no recorded direction refuses `human_direction_required`, and so do cap adoption plus retry alone | Ledger/Kernel |
 | WR26 | Cap stop at limit 0 (rework verdict) then human `directRework` | same successor path without adopting a larger limit; count unchanged | Ledger/Kernel |
 | WR26 | Engine journey (real Docker): Needs Human → `needs_human` blocker → human `directRework` → P2 from X whose scripted implementer takes its edit only from the direction in its rendered inputs → fresh Audit → fresh round passes → `awaiting_integration`, count 2 | Engine/Ledger/Effects/Sandboxes |
+| WR28 | Rework verdict at count 1, default limit 2 (no stop, no recorded direction); host `human-direction` return citing the Watchdog report, or another revision, as its direction | `human_direction_required`; no pass opens; the same round's `watchdog-rework` return then opens P2 with cause `watchdog-rework`, count still 1 | Ledger/Kernel |
+| WR29 | Engine journey of WR26 continued: the fresh round reviewing directed P2 | its binding's prior context names the recorded direction, and its rendered prompt holds the exact direction text read in its own scope (not `not_found`); its instructions name human directions; unavailable direction bytes fall back to WR22's full review, never a guessed direction | Engine/Ledger render |
 | WR27 | Human cancels a Watchdog while its own check runtime runs (parked at `before-review-check`) | the owned check container is stopped before quiescence: once the round is `canceled` with `executing:false`, `docker inspect` reports it not running and no checks receipt is retained; a failed or unconfirmed stop leaves a visible `watchdog_check_quiescence_unconfirmed` blocker and keeps the slot (inspection only: no fault injection makes a Docker stop fail) | Engine/Sandboxes/Ledger |
 
 Unsafe controls (must fail on their own assertion):
@@ -72,6 +75,8 @@ Unsafe controls (must fail on their own assertion):
 - `watchdog-resume-abandons-check-runtime`: recovery resumes an interrupted round without stopping its check runtime (WR17).
 - `watchdog-successor-blind`: a rework successor not given the cited report lets WR25 start without its findings.
 - `watchdog-direction-bypass`: a `human-direction` return admitted without a recorded human direction (WR26).
+- `watchdog-direction-unbound`: a `human-direction` return below the cap admitted without its recorded direction (WR28).
+- `watchdog-reviewer-direction-blind`: the next round's prior context omits the human direction (WR29).
 - `watchdog-cancel-abandons-check-runtime`: cancellation records quiescence without stopping the check runtime (WR27).
 
 Scripted provider fixtures exercise lifecycle and literal bytes, not semantic review quality. Canonical CAS/integration,

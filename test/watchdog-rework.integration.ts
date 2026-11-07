@@ -203,7 +203,7 @@ test("WR17: an interrupted Watchdog round resumes its own Assignment and retaine
 	}
 });
 
-test("WR26: a human directs a Needs Human stop into P2, which applies only that direction and passes a fresh round", async () => {
+test("WR26/WR29: a human directs a Needs Human stop into P2, which applies only that direction; the next fresh round reads it and passes", async () => {
 	const t = await fixture({ watchdog: ["needs-human", "pass"] });
 	try {
 		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
@@ -235,6 +235,17 @@ test("WR26: a human directs a Needs Human stop into P2, which applies only that 
 		assert.equal(captureValue(await read(t, p2.handoff.source)), "D\n", "P2 applied the human's direction");
 		assert.match(p2.handoff.blocker ?? "", /^awaiting_integration: .*2 completed reviews, limit 2/);
 		assert.equal(watchdogs(t).length, 2);
+		// WR29: the next independent round reviews the fix against the human's actual resolution, read in its own scope.
+		const [, w2] = watchdogs(t);
+		const direction = p1!.handoff!.direction!.revision;
+		assert.ok(w2!.watchdogReview!.prior.includes(direction), "the next Watchdog's prior context names the human direction");
+		const prompt = t.prompts.find((p) => p.assignment === w2!.id && p.watchdogReview);
+		assert.deepEqual(
+			prompt?.watchdogReview?.prior.find((p) => p.ref === direction),
+			{ ref: direction, text: "Value must become D; the Needs Human question is settled." },
+			"the next Watchdog's rendered context holds the exact direction text",
+		);
+		assert.match(prompt?.watchdogInstructions ?? "", /human direction/);
 	} finally {
 		await t.close();
 	}

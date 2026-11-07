@@ -696,6 +696,23 @@ test("WR26 only an authenticated human direction on the exact stopped round reso
 	}
 });
 
+test("WR28 below the cap a human-direction return needs the recorded direction; legal rework stays automatic", async () => {
+	const t = await handedOff();
+	try {
+		const rework = await round(t, T0, X1, "rework");
+		assert.equal(completed(t), 1, "one completed review, below the default limit 2");
+		refused(await openDirected(t, rework, rework.report, X1, T0), "human_direction_required", "the report is no human direction");
+		refused(await openDirected(t, rework, "revision:1", X1, T0), "human_direction_required", "an unrecorded direction");
+		assert.equal(passes(t).length, 1, "a refused return opens no pass");
+		const opened = accepted(await openRework(t, rework, X1, T0));
+		assert.equal(opened.passRef, P2);
+		assert.equal(pass(t, P2).cause, "watchdog-rework", "undirected rework is not attributed to a human");
+		assert.equal(completed(t), 1);
+	} finally {
+		await t.close();
+	}
+});
+
 test("WR26 human direction also resolves a cap stop without adopting a larger limit; cap adoption alone never passes Needs Human", async () => {
 	const capped = await handedOff({ limit: 0 });
 	try {
