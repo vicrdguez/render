@@ -18,6 +18,7 @@ import {
 	fixture,
 	holdAt,
 	parked,
+	proposalRef,
 	releaseBarrier,
 } from "./support/implementation-engine.ts";
 import { admin } from "./support/roles.ts";
@@ -45,20 +46,23 @@ async function checksOf(t: Fixture, w: RoleAssignment) {
 	return JSON.parse(await read(t, w.watchdogReview.checks)) as Checks;
 }
 const value = (c: Checks) => Buffer.from(c.source.entries.find((e) => e.path === "value")!.content, "base64").toString();
+/** Recorded qualifying integration (canonical-integration): a passing current review integrates automatically. */
+const qualified = (p?: ImplementationPass) => p?.handoff?.integrations?.at(-1)?.status === "qualified";
+const completed = (t: Fixture) => watchdogs(t).filter((w) => w.status === "submitted").length;
 
 test("WR19: checked X is reviewed by a fresh Watchdog that runs its own Linux checks; rework opens P2 whose fresh round passes", async () => {
 	const t = await fixture({ watchdog: ["rework", "pass"] });
 	try {
 		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
-		const blocker = () => passes(t)[1]?.handoff?.blocker ?? "";
-		const settled = (p?: ImplementationPass) => /^(awaiting_|needs_human|watchdog_|preparation_)/.test(p?.handoff?.blocker ?? "");
+		const settled = (p?: ImplementationPass) =>
+			qualified(p) || /^(awaiting_|needs_human|watchdog_|preparation_|integration_)/.test(p?.handoff?.blocker ?? "");
 		await t.wait(() => !!passes(t)[0]?.handoff || settled(passes(t)[0]), "P1 handed off");
 		await t.wait(() => watchdogs(t).length === 1 || settled(passes(t)[0]), "P1 checked and its Watchdog launched");
 		await t.wait(() => passes(t).length === 2 || settled(passes(t)[0]), "rework verdict opens P2");
 		await t.wait(() => !!passes(t)[1]?.handoff || settled(passes(t)[0]), "P2 handed off");
 		await t.wait(() => watchdogs(t).length === 2 || settled(passes(t)[1]), "P2 checked and a fresh Watchdog launched");
 		await t.wait(() => settled(passes(t)[1]), "P2 reviewed");
-		assert.match(blocker(), /^awaiting_integration: /, blocker());
+		assert.ok(qualified(passes(t)[1]), `P2 integrates automatically: ${passes(t)[1]?.handoff?.blocker}`);
 		const [p1, p2] = passes(t);
 		assert.ok(p1?.handoff && p2?.handoff);
 		const [w1, w2] = watchdogs(t);
@@ -105,12 +109,10 @@ test("WR19: checked X is reviewed by a fresh Watchdog that runs its own Linux ch
 		assert.equal(value(c2), "C\n");
 		const verdict = JSON.parse(await read(t, w2.report!));
 		assert.equal(verdict.verdict, "pass");
-		assert.match(
-			blocker(),
-			new RegExp(
-				`passed prepared ${w2.watchdogReview!.prepared} on current target ${w2.watchdogReview!.target}; 2 completed reviews, limit 2`,
-			),
-		);
+		assert.equal(completed(t), 2, "two completed reviews");
+		const integration = passes(t)[1]!.handoff!.integrations!.at(-1)!;
+		assert.equal(integration.preparation, w2.watchdogReview!.preparation, "the integrated X is the reviewed X");
+		assert.equal(integration.target, w2.watchdogReview!.target);
 		assert.equal(passes(t).length, 2, "a pass verdict opens no successor");
 		// History: both rounds, their checks and verdicts survive export.
 		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
@@ -129,7 +131,7 @@ test("WR19: checked X is reviewed by a fresh Watchdog that runs its own Linux ch
 	}
 });
 
-test("WR20/WR15: no stale review launches after drift; a target moving after a passing review re-prepares and reviews again, counting both", async () => {
+test("WR20/WR15/CI19: no stale review launches after drift; a target moving before the admitted CAS re-prepares, reviews and integrates again", async () => {
 	const t = await fixture({ watchdog: ["pass", "pass"] });
 	try {
 		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
@@ -141,27 +143,54 @@ test("WR20/WR15: no stale review launches after drift; a target moving after a p
 		const store = effectsStore(t);
 		const base = t.writer.verification!.commit;
 		const T1 = advanceTarget(store, base, { target: "T1\n" }, base);
-		releaseBarrier();
+		// The passing review on X1/T1 is admitted automatically; park before its CAS and move the target again.
+		releaseBarrier(["before-integration-cas", `integration:${P1}`]);
+		await parked("admitted integration before its CAS");
 		const blocker = () => passes(t)[0]?.handoff?.blocker ?? "";
-		await t.wait(() => watchdogs(t).length === 1 || blocker() !== "", "current X checked and reviewed");
-		await t.wait(() => /^awaiting_integration/.test(blocker()), "first review settles");
 		const [w1] = watchdogs(t);
 		assert.equal(watchdogs(t).length, 1, "X1/T0 was never reviewed");
 		assert.equal(w1!.watchdogReview?.target, T1, "the review binds the re-prepared current target");
 		assert.equal(passes(t)[0]!.handoff!.preparations!.length, 2, "drift re-prepared under the same pass");
 		assert.equal(git(store, ["show", `${w1!.watchdogReview!.prepared}:target`]).toString(), "T1\n");
-		// The target moves after the completed passing review: it stays counted, but cannot qualify.
-		const T2 = advanceTarget(store, T1, { other: "T2\n" }, T1);
-		const owner = t.assignments().find((a) => a.id === opening.assignment)!;
-		accepted(
-			await t.f.command({ type: "retryPreparation", assignment: owner.id, generation: owner.generation, attempt: owner.attempt }, admin),
+		assert.deepEqual(
+			passes(t)[0]!.handoff!.integrations!.map((o) => [o.status, o.target]),
+			[["admitted", T1]],
+			"no human grant or setting between the passing review and admission",
 		);
-		await t.wait(() => watchdogs(t).length === 2, "stale pass re-prepared and a fresh round launched");
-		await t.wait(() => /^awaiting_integration/.test(blocker()), "second review settles");
+		const T2 = advanceTarget(store, T1, { other: "T2\n" }, T1);
+		releaseBarrier();
+		await t.wait(
+			() => qualified(passes(t)[0]) || /^(needs_human|watchdog_|preparation_|integration_)/.test(blocker()),
+			"stale CAS re-prepared, reviewed again and integrated",
+		);
+		assert.ok(qualified(passes(t)[0]), blocker());
 		const [, w2] = watchdogs(t);
 		assert.equal(w2!.watchdogReview?.target, T2);
 		assert.equal(w1!.status, "submitted", "the stale review remains visible");
-		assert.match(blocker(), new RegExp(`on current target ${T2}; 2 completed reviews, limit 2`));
+		assert.equal(completed(t), 2, "both completed reviews count");
+		const operations = passes(t)[0]!.handoff!.integrations!;
+		assert.deepEqual(
+			operations.map((o) => [o.status, o.target]),
+			[
+				["stale", T1],
+				["qualified", T2],
+			],
+			"the refused CAS stays in history; no old verdict authorizes new bytes",
+		);
+		const R = git(store, ["rev-parse", proposalRef("workflow:2")])
+			.toString()
+			.trim();
+		assert.equal(R, operations[1]!.result);
+		assert.equal(git(store, ["rev-list", "--parents", "-n", "1", R]).toString().trim(), `${R} ${T2}`, "R sits exactly on T2");
+		assert.equal(
+			git(store, ["rev-parse", `${R}^{tree}`])
+				.toString()
+				.trim(),
+			git(store, ["rev-parse", `${w2!.watchdogReview!.prepared}^{tree}`])
+				.toString()
+				.trim(),
+			"R's tree is exactly the reviewed X2's tree",
+		);
 		assert.equal(passes(t).length, 1, "drift opens no pass and no Audit");
 		assert.equal(t.assignments().filter((a) => a.auditReview).length, 2);
 	} finally {
@@ -190,8 +219,12 @@ test("WR17: an interrupted Watchdog round resumes its own Assignment and retaine
 		assert.equal(watchdogs(t).filter((a) => a.status === "submitted").length, 0, "interruption is not a completed review");
 		t.release();
 		const blocker = () => passes(t)[0]?.handoff?.blocker ?? "";
-		await t.wait(() => /^(awaiting_|needs_human|watchdog_)/.test(blocker()), "resumed review settles");
-		assert.match(blocker(), /^awaiting_integration: .*; 1 completed reviews, limit 2/);
+		await t.wait(
+			() => qualified(passes(t)[0]) || /^(awaiting_|needs_human|watchdog_|integration_)/.test(blocker()),
+			"resumed review settles",
+		);
+		assert.ok(qualified(passes(t)[0]), blocker());
+		assert.equal(completed(t), 1);
 		const after = watchdogs(t);
 		assert.equal(after.length, 1, "no new round for an interruption");
 		assert.equal(after[0]!.id, w.id);
@@ -207,7 +240,8 @@ test("WR26/WR29: a human directs a Needs Human stop into P2, which applies only 
 	const t = await fixture({ watchdog: ["needs-human", "pass"] });
 	try {
 		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
-		const settled = (p?: ImplementationPass) => /^(awaiting_|needs_human|watchdog_|preparation_)/.test(p?.handoff?.blocker ?? "");
+		const settled = (p?: ImplementationPass) =>
+			qualified(p) || /^(awaiting_|needs_human|watchdog_|preparation_|integration_)/.test(p?.handoff?.blocker ?? "");
 		await t.wait(() => settled(passes(t)[0]), "P1 reviewed");
 		assert.match(passes(t)[0]!.handoff!.blocker!, /^needs_human: .*1 completed reviews, limit 2/);
 		assert.equal(passes(t).length, 1, "Needs Human opens nothing by itself");
@@ -233,7 +267,8 @@ test("WR26/WR29: a human directs a Needs Human stop into P2, which applies only 
 		assert.equal(p2.opening?.base, w1!.watchdogReview!.prepared, "P2 starts from the reviewed X");
 		assert.ok(p2.audit && p1!.audit && p2.audit.ref !== p1!.audit.ref, "fresh Audit for the directed pass");
 		assert.equal(captureValue(await read(t, p2.handoff.source)), "D\n", "P2 applied the human's direction");
-		assert.match(p2.handoff.blocker ?? "", /^awaiting_integration: .*2 completed reviews, limit 2/);
+		assert.ok(qualified(p2), p2.handoff.blocker);
+		assert.equal(completed(t), 2);
 		assert.equal(watchdogs(t).length, 2);
 		// WR29: the next independent round reviews the fix against the human's actual resolution, read in its own scope.
 		const [, w2] = watchdogs(t);

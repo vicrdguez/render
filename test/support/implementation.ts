@@ -169,8 +169,14 @@ export function damageImplementation(data: string, ref: string, failure: "missin
 	}
 }
 
-export async function implementationLifecycle(engine?: Engine, overrides: (contract: string) => Partial<RolePacket> = () => ({})) {
-	const t = await acceptedImplementation(engine);
+/** `second` adds Slice `read-next`, independent or depending on `read-fix` by an integration or Record edge. */
+export type SecondSlice = "independent" | "integration" | "record";
+export async function implementationLifecycle(
+	engine?: Engine,
+	overrides: (contract: string) => Partial<RolePacket> = () => ({}),
+	second?: SecondSlice,
+) {
+	const t = await acceptedImplementation(engine, second);
 	const id = accepted(
 		await t.f.command({
 			type: "assignTask",
@@ -229,7 +235,7 @@ export async function implementationLifecycle(engine?: Engine, overrides: (contr
 }
 
 /** Accepted obligations are produced by real intake/fidelity/human commands, never seeded SQL. */
-export async function acceptedImplementation(engine?: Engine) {
+export async function acceptedImplementation(engine?: Engine, second?: SecondSlice) {
 	const f = await roleFixture(new LedgerOnlyEngine());
 	await allowSameFamily(f.ledger);
 	const assignments = () => (f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[];
@@ -272,7 +278,7 @@ export async function acceptedImplementation(engine?: Engine) {
 		"ground",
 		JSON.stringify({
 			schema: 1,
-			shape: { value: "bug", origin: "human", confirmed: true },
+			shape: { value: second ? "change" : "bug", origin: "human", confirmed: true },
 			goal: "Correct read",
 			constraints: [],
 			clarifications: [],
@@ -282,17 +288,17 @@ export async function acceptedImplementation(engine?: Engine) {
 	);
 	const manifest: IntakeManifest = {
 		schema: 1,
-		shape: "bug",
+		shape: second ? "change" : "bug",
 		ground,
 		sources: [source],
 		decisions: [],
 		catalog,
-		breakdown: null,
+		breakdown: second ? "Fix read, then read next." : null,
 		slices: [
 			{
 				id: "read-fix",
 				title: "Fix read",
-				record: false,
+				record: second === "record",
 				delegated: ["Names"],
 				forbidden: ["New interface"],
 				obligations: [
@@ -300,13 +306,26 @@ export async function acceptedImplementation(engine?: Engine) {
 					{ id: "A1", kind: "architecture", text: "Retain seam", sources: [{ ref: source, node: null }] },
 				],
 			},
+			...(second
+				? [
+						{
+							id: "read-next",
+							title: "Read next",
+							record: false,
+							delegated: [],
+							forbidden: [],
+							obligations: [{ id: "B1", kind: "behavior" as const, text: "Read next exact bytes", sources: [] }],
+						},
+					]
+				: []),
 		],
 		checks: [{ id: "read", row: "read", kind: "executed", rank: "tests", new: false, run: "node read.js", expectations: "exact bytes" }],
 		mapping: [
 			{ slice: "read-fix", obligation: "B1", checks: ["read"] },
 			{ slice: "read-fix", obligation: "A1", checks: ["read"] },
+			...(second ? [{ slice: "read-next", obligation: "B1", checks: ["read"] }] : []),
 		],
-		dependencies: [],
+		dependencies: second && second !== "independent" ? [{ slice: "read-next", requires: "read-fix", kind: second }] : [],
 		responses: [],
 		unresolved: [],
 	};
@@ -364,6 +383,7 @@ export async function acceptedImplementation(engine?: Engine) {
 		);
 	}
 	const contract = state().slices[0]!.contract;
+	const nextContract = state().slices[1]?.contract;
 	if (engine) await f.reopen(engine);
 	const writer = (overrides: Partial<RolePacket> = {}) =>
 		packet({
@@ -376,5 +396,5 @@ export async function acceptedImplementation(engine?: Engine) {
 			],
 			...overrides,
 		});
-	return { f, contract, source, catalog, ground, writer, assignments, start, agent, close: () => f.close() };
+	return { f, contract, nextContract, source, catalog, ground, writer, assignments, start, agent, close: () => f.close() };
 }

@@ -106,11 +106,12 @@ test("WR17 SIGKILL while a Watchdog's own checks run: recovery stops the runtime
 				"the running check belonged to the one launched round",
 			);
 			const until = Date.now() + 180000;
-			while (!/^(awaiting_|needs_human|watchdog_)/.test(passes()[0]?.handoff?.blocker ?? "")) {
+			const qualified = () => passes()[0]?.handoff?.integrations?.at(-1)?.status === "qualified";
+			while (!qualified() && !/^(awaiting_|needs_human|watchdog_|integration_)/.test(passes()[0]?.handoff?.blocker ?? "")) {
 				assert.ok(Date.now() < until, `recovered review: ${JSON.stringify([passes()[0]?.handoff, watchdogs()])}`);
 				await delay(50);
 			}
-			assert.match(passes()[0]!.handoff!.blocker!, /^awaiting_integration: .*; 1 completed reviews, limit 2/);
+			assert.ok(qualified(), `the recovered passing round integrates: ${passes()[0]?.handoff?.blocker}`);
 			assert.equal(running(old.runtime), false, "the interrupted check runtime was stopped, not abandoned");
 			for (const id of await readdir(sandboxes))
 				runtimes.push(JSON.parse(await readFile(join(sandboxes, id, "state.json"), "utf8")).handle.runtime);

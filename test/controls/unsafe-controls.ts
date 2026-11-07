@@ -1453,8 +1453,8 @@ const CONTROLS: Control[] = [
 		expect: /HOME-only hostile default attributes changed a real conflict/,
 		behavior: "trusted preparation Git reads default attributes through the caller's HOME",
 		edits: [
-			{ file: "src/effects/source.ts", find: '\t\t\t\t\t"-c",\n\t\t\t\t\t"core.attributesFile=/dev/null",\n', replace: "" },
-			{ file: "src/effects/source.ts", find: "\t\t\t\t\t\tHOME: cwd,\n", replace: "\t\t\t\t\t\tHOME: process.env.HOME,\n" },
+			{ file: "src/effects/source.ts", find: '\t\t\t"-c",\n\t\t\t"core.attributesFile=/dev/null",\n', replace: "" },
+			{ file: "src/effects/source.ts", find: "\t\tHOME: cwd,\n", replace: "\t\tHOME: process.env.HOME,\n" },
 		],
 		test: "test/target-preparation.test.ts",
 		pattern: "HOME-only hostile",
@@ -1464,11 +1464,11 @@ const CONTROLS: Control[] = [
 		expect: /XDG_CONFIG_HOME-only hostile default attributes changed a real conflict/,
 		behavior: "trusted preparation Git reads default attributes through the caller's XDG_CONFIG_HOME",
 		edits: [
-			{ file: "src/effects/source.ts", find: '\t\t\t\t\t"-c",\n\t\t\t\t\t"core.attributesFile=/dev/null",\n', replace: "" },
+			{ file: "src/effects/source.ts", find: '\t\t\t"-c",\n\t\t\t"core.attributesFile=/dev/null",\n', replace: "" },
 			{
 				file: "src/effects/source.ts",
-				find: "\t\t\t\t\t\tHOME: cwd,\n",
-				replace: "\t\t\t\t\t\tHOME: cwd,\n\t\t\t\t\t\tXDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,\n",
+				find: "\t\tHOME: cwd,\n",
+				replace: "\t\tHOME: cwd,\n\t\tXDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,\n",
 			},
 		],
 		test: "test/target-preparation.test.ts",
@@ -1498,6 +1498,140 @@ const CONTROLS: Control[] = [
 		],
 		test: "test/implementation-engine.integration.ts",
 		pattern: "TP22",
+	},
+	{
+		name: "integration-requires-grant",
+		expect: /Integration needs a human grant/,
+		behavior: "eligible proposal integration waits for a human grant instead of current eligibility",
+		edits: [
+			{
+				file: "src/kernel/integration.ts",
+				find: "\t\tconst closedReason = handoffClosed(pass);\n",
+				replace:
+					'\t\tif (!facts.checkpointInputs?.grant) return refusal("forbidden_scope", "Integration needs a human grant.");\n\t\tconst closedReason = handoffClosed(pass);\n',
+			},
+		],
+		test: "test/canonical-integration.test.ts",
+		pattern: "CI01",
+	},
+	{
+		name: "integration-ignores-cancellation",
+		expect: /admission after cancellation: \{"status":"accepted"/,
+		// Cancellation fences admission twice: the canceled guard, and the generation bump that makes the staged intent's
+		// pinned owner generation stale. Removing only the guard still refuses, so both go.
+		behavior: "admission ignores a human cancellation committed before it",
+		edits: [
+			{
+				file: "src/kernel/integration.ts",
+				find: '\t\tif (h.canceled) return refusal("assignment_closed", "Cancellation fenced this handoff before admission.");\n',
+				replace: "",
+			},
+			{ file: "src/kernel/integration.ts", find: "\t\tintent.generation !== a.generation ||\n", replace: "" },
+		],
+		test: "test/canonical-integration.test.ts",
+		pattern: "CI04",
+	},
+	{
+		name: "integration-unserialized",
+		expect: /admitted unresolved operation/,
+		behavior: "another Slice stages integration while one of the proposal's operations is unresolved",
+		edits: [{ file: "src/kernel/integration.ts", find: "\tif (blocking)\n", replace: "\tif (false)\n" }],
+		test: "test/canonical-integration.test.ts",
+		pattern: "CI11",
+	},
+	{
+		name: "integration-infers-success",
+		expect: /observed T is never inferred success/,
+		behavior: "reconciliation that observes the unchanged target records qualifying integration",
+		edits: [
+			{
+				file: "src/kernel/integration.ts",
+				find: '\tif (ref.commit === intent.target) return "unapplied";\n',
+				replace: '\tif (ref.commit === intent.target) return "applied";\n',
+			},
+		],
+		test: "test/canonical-integration.test.ts",
+		pattern: "CI07/CI13",
+	},
+	{
+		name: "integration-dependency-before-qualification",
+		expect: /Watchdog passed, no qualification/,
+		behavior: "a prepared and reviewed handoff clears its same-proposal dependents without recorded qualification",
+		edits: [
+			{
+				file: "src/kernel/integration.ts",
+				find: "p.contract === s.contract && integrated(p)",
+				replace: "p.contract === s.contract && !!p.handoff?.preparations?.length",
+			},
+		],
+		test: "test/canonical-integration.test.ts",
+		pattern: "CI15 integration edge",
+	},
+	{
+		name: "integration-blind-cas",
+		expect: /refuses the stale CAS/,
+		behavior: "the canonical-ref update omits its expected old target",
+		edits: [
+			{
+				file: "src/effects/source.ts",
+				find: "update ${ref} ${result.commit} ${expected}\\n",
+				replace: "update ${ref} ${result.commit}\\n",
+			},
+		],
+		test: "test/canonical-integration-effects.test.ts",
+		pattern: "CI09",
+	},
+	{
+		name: "integration-adopts-old-permit",
+		expect: /integration_observation_refused: stale_executor/,
+		behavior: "a recovering executor dispatches an integration permit admitted under the dead executor's epoch",
+		edits: [
+			{
+				file: "src/engine/runtime.ts",
+				find: 'if (operation.status === "admitted" && attempt.executorEpoch === epoch) {',
+				replace: 'if (operation.status === "admitted") {',
+			},
+		],
+		test: "test/canonical-integration-crash.integration.ts",
+		pattern: "before-integration-cas",
+	},
+	{
+		name: "integration-observes-without-durability",
+		expect: /the dispatch reports no applied R it could not make durable/,
+		behavior: "a canonical-ref observation that can qualify is reported without a successful fsync of the store",
+		edits: [
+			{
+				file: "src/effects/source.ts",
+				find: "\t\tawait syncTree(store.path);\n\t\tconst current = await this.#gitResult(",
+				replace: "\t\tconst current = await this.#gitResult(",
+			},
+		],
+		test: "test/canonical-integration-effects.test.ts",
+		pattern: "CI23",
+	},
+	{
+		name: "integration-blocks-behind-serialization",
+		expect: /integration_refused: ownership_conflict/,
+		behavior: "a passing Slice blocks for good behind another unresolved integration of its proposal",
+		edits: [
+			{ file: "src/engine/runtime.ts", find: '\t\t\tif (reply.code === "ownership_conflict") return "wait" as const;\n', replace: "" },
+		],
+		test: "test/canonical-integration.integration.ts",
+		pattern: "CI24",
+	},
+	{
+		name: "integration-removes-live-lock",
+		expect: /a lock written since this executor began may be live/,
+		behavior: "reconciliation removes a canonical-ref lock that a live writer may hold",
+		edits: [
+			{
+				file: "src/effects/source.ts",
+				find: "if (held && held.mtimeMs < this.#started) await rm(path);",
+				replace: "if (held) await rm(path);",
+			},
+		],
+		test: "test/canonical-integration-effects.test.ts",
+		pattern: "CI25",
 	},
 ];
 

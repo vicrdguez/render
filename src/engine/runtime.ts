@@ -38,6 +38,15 @@ import {
 	reviewSelection,
 	watchdogVerdict,
 } from "../kernel/implementation.ts";
+import {
+	type Integration,
+	type IntegrationIntent,
+	type IntegrationObservation,
+	type IntegrationOutcome,
+	integrated,
+	serializing,
+	unresolved,
+} from "../kernel/integration.ts";
 import { bindingFor, initialPolicy, type PolicyBasis, type PolicyState, policyBasis } from "../kernel/policy.ts";
 import {
 	currentChildren,
@@ -144,6 +153,8 @@ export class Engine {
 	readonly #implementationAdmitted = new Set<string>();
 	/** Exact Sandboxes scopes of in-flight host checks of prepared X; they confer no role or writer authority. */
 	readonly #preparing = new Set<string>();
+	#cached: { sequence: number; frame: ReturnType<Ledger["snapshot"]> } | undefined;
+	readonly #integrating = new Map<string, Promise<void>>();
 	readonly #preparation;
 	readonly #priorPreparation;
 	readonly #roles;
@@ -863,8 +874,13 @@ export class Engine {
 			initial: () => ({ phase: "prepare" }),
 			phases: {
 				prepare: async (task, runtime, context) => {
-					await this.#prepareHandoff(task.id, task.input.assignment, task.input.from ?? 0, task.state.checkpoint.scope, (scope) =>
-						runtime.commit(() => ({ status: "running", checkpoint: { phase: "prepare", scope } }), context),
+					await this.#prepareHandoff(
+						task.id,
+						task.input.assignment,
+						task.input.from ?? 0,
+						task.state.checkpoint.scope,
+						(scope) => runtime.commit(() => ({ status: "running", checkpoint: { phase: "prepare", scope } }), context),
+						runtime.signal,
 					);
 					return runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context);
 				},
@@ -908,6 +924,7 @@ export class Engine {
 				}
 			},
 			bindLedger: (ledger, harness) => {
+				this.#cached = undefined;
 				this.#ledger = ledger;
 				this.#harness = harness;
 			},
@@ -1082,7 +1099,7 @@ export class Engine {
 		const results = currentChildren(this.#assignments(), a.id)
 			.filter((child) => child.status === "submitted")
 			.map((child) => ({ assignment: child.id, report: child.report }));
-		const frame = this.#ledger.snapshot(scheduling);
+		const frame = this.#frame()!;
 		if (!("policy" in frame)) throw new Error("Current policy is unavailable.");
 		const policy = frame.policy as import("../kernel/policy.ts").PolicyState;
 		const binding = policy.bindings[a.workflow];
@@ -1290,8 +1307,7 @@ export class Engine {
 	async #waitUntil(signal: AbortSignal, ready: () => boolean): Promise<void> {
 		// The task's existing run/resume checkpoint is durable. Observation is only a wakeup hint:
 		// after reopen the phase checkpoints its new observation epoch and rechecks committed state.
-		// Debt: each waiter scans a full scheduling snapshot on every Ledger commit. Coalesce these
-		// reads when implementing the full streaming workload; larger queues can exceed the V9 ack target.
+		// Waiters share one scheduling frame per committed sequence (`#frame`), so queued work stays cheap per commit.
 		const { promise, resolve, reject } = Promise.withResolvers<void>();
 		const observation = this.#ledger!.observe(scheduling, {
 			send: () => {
@@ -1311,8 +1327,18 @@ export class Engine {
 			observation.stop();
 		}
 	}
+	/**
+	 * The scheduling view of committed state, built once per Ledger sequence and shared by every reader (V9: one frame per
+	 * commit, not one per waiting task). Frozen, because it is shared: Engine never edits committed state in place.
+	 */
+	#frame(): ReturnType<Ledger["snapshot"]> | undefined {
+		if (!this.#ledger) return undefined;
+		const sequence = this.#ledger.status().sequence;
+		if (this.#cached?.sequence !== sequence) this.#cached = { sequence, frame: deepFreeze(this.#ledger.snapshot(scheduling)) };
+		return this.#cached.frame;
+	}
 	#assignments(): RoleAssignment[] {
-		const frame = this.#ledger?.snapshot(scheduling);
+		const frame = this.#frame();
 		return frame && "assignments" in frame ? (frame.assignments as RoleAssignment[]) : [];
 	}
 	#assignment(id: string) {
@@ -1327,7 +1353,7 @@ export class Engine {
 		};
 	}
 	#implementationPass(a: RoleAssignment): ImplementationPass {
-		const frame = this.#ledger!.snapshot(scheduling);
+		const frame = this.#frame()!;
 		const pass =
 			"implementationPasses" in frame ? (frame.implementationPasses as ImplementationPass[]).find((p) => p.ref === a.passRef) : undefined;
 		if (!pass) throw new Error("Missing retained implementation pass");
@@ -1741,11 +1767,16 @@ export class Engine {
 		from: number,
 		prior: ExecutionScope | undefined,
 		save: (scope: ExecutionScope) => Promise<unknown>,
+		signal: AbortSignal,
 	) {
 		const owner = this.#assignment(assignmentId);
 		if (!owner?.passRef) throw new Error("Missing sealed handoff owner");
 		// Each preparation task settles once; a later retry's identical result is a new settlement, not a replay of this one.
 		const block = async (reason: string) => {
+			// After a cancellation with nothing left to reconcile, a refusal of work begun earlier is its expected end; the
+			// cancellation reason stays the visible blocker.
+			const h = this.#implementationPass(owner).handoff;
+			if (h?.canceled && !unresolved(h.integrations?.at(-1))) return;
 			const command = { type: "recordPreparationBlocker", reason: reason.slice(0, 1900) };
 			const reply = await this.#command(this.#assignment(assignmentId)!, command, `preparation-task:${taskId}`);
 			if (reply.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${reply.code}`);
@@ -1758,6 +1789,14 @@ export class Engine {
 			if (prior && prior.executorEpoch !== this.#ledger!.status().executorEpoch) await this.#stopPreparationScope(prior);
 			for (;;) {
 				const pass = this.#implementationPass(owner);
+				const operation = pass.handoff?.integrations?.at(-1);
+				if (integrated(pass) || (pass.handoff?.canceled && !unresolved(operation))) return;
+				// An admitted or divergent operation is settled before anything else on this handoff (spec §9.3).
+				if (unresolved(operation)) {
+					const outcome = await this.#serialized(owner.workflow, () => this.#settleIntegration(owner, pass, operation!, check, block));
+					if (outcome === "divergent" || outcome === "blocked") return;
+					continue;
+				}
 				const refs = pass.handoff?.preparations ?? [];
 				const ref = refs.length > from ? refs.at(-1) : undefined;
 				const latest = ref ? await this.#preparationRecord(ref) : undefined;
@@ -1780,29 +1819,26 @@ export class Engine {
 						`needs_human: Watchdog ${done.id} ${verdict ? "requires human direction" : "submitted no bound verdict"} on prepared ${latest!.preparation!.result}; ${counted()}`,
 					);
 				await faultBarrier("before-target-observe", `preparation-observe:${pass.ref}:${refs.length}`);
-				const observed = await this.#effects.perform({
-					type: "observe",
-					repository: check.repository,
-					proposal: owner.workflow,
-					initial: check.commit,
-				});
-				const basis = this.#policyBasis(owner.workflow);
-				if (latest && done) {
-					// A completed pass stays counted; on a moved target or policy it no longer qualifies, so prepare again.
-					const stale = reviewQualification({
-						pass,
-						preparation: ref!,
-						record: latest,
-						review: done,
-						verdict,
-						target: observed.target.commit,
-						basis,
+				// A passing review integrates automatically when still current; otherwise it returns the observed target to prepare.
+				const reviewed =
+					latest && done
+						? await this.#serialized(owner.workflow, () => this.#integrateReviewed(owner, pass, ref!, latest, done, check, block))
+						: undefined;
+				if (reviewed === "settled") return;
+				if (reviewed === "again") continue;
+				if (reviewed === "wait") {
+					await this.#waitUntil(signal, () => {
+						const frame = this.#frame()!;
+						const passes = "implementationPasses" in frame ? (frame.implementationPasses as ImplementationPass[]) : [];
+						return !serializing(passes, owner.workflow);
 					});
-					if (!stale)
-						return block(
-							`awaiting_integration: Watchdog ${done.id} passed prepared ${latest.preparation!.result} on current target ${observed.target.commit}; ${counted()}; canonical integration capability unavailable`,
-						);
-				} else if (latest && latest.target.commit === observed.target.commit && latest.policy.binding === basis.binding) {
+					continue;
+				}
+				const observed =
+					reviewed ??
+					(await this.#effects.perform({ type: "observe", repository: check.repository, proposal: owner.workflow, initial: check.commit }));
+				const basis = this.#policyBasis(owner.workflow);
+				if (!done && latest && latest.target.commit === observed.target.commit && latest.policy.binding === basis.binding) {
 					if (!pass.configuration.watchdog)
 						return block(
 							`awaiting_watchdog: prepared ${latest.preparation!.result} checked on current target ${observed.target.commit}; Watchdog capability unavailable: no Watchdog reviewer configured`,
@@ -1860,9 +1896,193 @@ export class Engine {
 			return block(`preparation_operational_error: ${error instanceof Error ? error.message : error}`);
 		}
 	}
+	/** One proposal integrates at a time in this executor; Kernel independently refuses an unserialized admission. */
+	#serialized<T>(workflow: string, run: () => Promise<T>): Promise<T> {
+		const next = (this.#integrating.get(workflow) ?? Promise.resolve()).then(run, run);
+		this.#integrating.set(
+			workflow,
+			next.then(
+				() => {},
+				() => {},
+			),
+		);
+		return next;
+	}
+	/**
+	 * A completed passing review on current X/T stages its exact intent, takes current admission and leaves the dispatch
+	 * to `#settleIntegration` (spec §9.3). No human grant or setting is consulted. A stale review returns the observed
+	 * target so the same pass prepares again; the completed review stays counted. While another integration of the
+	 * proposal is unresolved this one waits for it, never blocks on it.
+	 */
+	async #integrateReviewed(
+		owner: RoleAssignment,
+		pass: ImplementationPass,
+		preparation: string,
+		record: PreparationRecord,
+		review: RoleAssignment,
+		check: OwnedChecks["checks"][string],
+		block: (reason: string) => Promise<void>,
+	): Promise<"settled" | "again" | "wait" | TargetObservation> {
+		const observed = await this.#effects!.perform({
+			type: "observe",
+			repository: check.repository,
+			proposal: owner.workflow,
+			initial: check.commit,
+		});
+		const basis = this.#policyBasis(owner.workflow);
+		const verdict = watchdogVerdict(await this.#reportText(review));
+		const stale = reviewQualification({ pass, preparation, record, review, verdict, target: observed.target.commit, basis });
+		const operation = pass.handoff!.integrations?.at(-1);
+		if (stale || (operation?.preparation === preparation && operation.status === "stale")) return observed;
+		const current = this.#assignment(owner.id)!;
+		const command = async (commandId: string, body: Record<string, unknown>) =>
+			this.#ledger!.command(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId,
+					workflow: owner.workflow,
+					command: { assignment: current.id, generation: current.generation, attempt: current.attempt, ...body },
+				},
+				mintContext({ kind: "host", scope: "effects" }),
+			);
+		const refused = async (reply: { code: string; reason: string }) => {
+			if (reply.code === "ownership_conflict") return "wait" as const;
+			await block(`integration_refused: ${reply.code}: ${reply.reason}`);
+			return "settled" as const;
+		};
+		if (operation?.preparation !== preparation) {
+			const X = record.preparation!;
+			const T = observed.target;
+			const message = `Render proposal integration\n\nproposal ${owner.workflow}\npass ${pass.ref}\nprepared ${X.result}\ntarget ${T.commit}\nreview ${review.id}\n`;
+			const R = await this.#effects!.perform({
+				type: "squash",
+				prepared: await this.#effects!.perform({ type: "read", repository: check.repository, commit: X.result }),
+				target: T,
+				message,
+			});
+			const audit = pass.audit!;
+			const intent = {
+				schema: 1,
+				kind: "proposal-integration",
+				proposal: owner.workflow,
+				ref: observed.ref,
+				slice: pass.slice,
+				contract: pass.contract,
+				passRef: pass.ref,
+				handoff: pass.handoff!.record,
+				source: pass.handoff!.source,
+				captureA: pass.captureA,
+				audit: audit.record,
+				reports: [audit.results.standards!.report, audit.results.contracts!.report],
+				preparation,
+				prepared: X.result,
+				tree: X.tree,
+				target: T.commit,
+				review: review.id,
+				report: review.report,
+				result: { commit: R.commit, tree: R.tree, parent: T.commit, message },
+				policy: basis,
+				assignment: current.id,
+				generation: current.generation,
+				attempt: current.attempt,
+				unresolved: [],
+			};
+			const staged = await command(`integration-stage:${pass.ref}:${preparation}`, {
+				type: "stageOperation",
+				text: JSON.stringify(intent),
+			});
+			return staged.status === "accepted" ? "again" : refused(staged);
+		}
+		await faultBarrier("before-integration-admission", `integration:${pass.ref}`);
+		const admitted = await command(`integration-admit:${operation.operation}:${operation.attempts.length + 1}`, {
+			type: "admitEffect",
+			operation: operation.operation,
+		});
+		if (admitted.status !== "accepted") return refused(admitted);
+		await faultBarrier("after-integration-admission", `integration:${pass.ref}`);
+		return "again";
+	}
+	/**
+	 * Settles an admitted or divergent operation (spec §§9.1, 9.3). Only the executor epoch that holds the permit
+	 * dispatches it, once; any other executor, or an uncertain dispatch, reconciles the canonical ref without rewriting
+	 * it and records what it saw. Kernel derives the outcome; nothing is replayed or rolled back here.
+	 */
+	async #settleIntegration(
+		owner: RoleAssignment,
+		pass: ImplementationPass,
+		operation: Integration,
+		check: OwnedChecks["checks"][string],
+		block: (reason: string) => Promise<void>,
+	): Promise<IntegrationOutcome | "blocked"> {
+		const attempt = operation.attempts.at(-1)!;
+		const read = await this.#ledger!.artifact(scheduling, { read: operation.operation });
+		if (!("content" in read)) {
+			await block(`integration_operational_error: restore exact integration intent ${operation.operation}`);
+			return "blocked";
+		}
+		const intent = JSON.parse(read.content.toString()) as IntegrationIntent;
+		const epoch = this.#ledger!.status().executorEpoch;
+		let seen: Omit<IntegrationObservation, "schema" | "operation" | "attempt">;
+		let failure: string | undefined;
+		if (operation.status === "admitted" && attempt.executorEpoch === epoch) {
+			try {
+				await faultBarrier("before-integration-cas", `integration:${pass.ref}`);
+				const result = await this.#effects!.perform({ type: "read", repository: check.repository, commit: intent.result.commit });
+				const dispatched = await this.#effects!.perform({
+					type: "integrate",
+					repository: check.repository,
+					proposal: owner.workflow,
+					expected: intent.target,
+					result,
+					attempt: attempt.id,
+				});
+				const { dispatch, ...observed } = dispatched;
+				seen = { mode: "dispatch", dispatch, ...observed };
+				if (dispatch === "refused") failure = "canonical CAS refused";
+			} catch (error) {
+				failure = error instanceof Error ? error.message : String(error);
+			}
+		}
+		seen ??= {
+			mode: "reconcile",
+			dispatch: null,
+			...(await this.#effects!.reconcile({ type: "integration", repository: check.repository, proposal: owner.workflow })),
+		};
+		const current = this.#assignment(owner.id)!;
+		const reply = await this.#ledger!.command(
+			{
+				version: 1,
+				authorityEpoch: this.#ledger!.status().authorityEpoch,
+				commandId: `integration-observe:${attempt.id}:${attempt.observations.length}:${seen.mode}:${epoch}`,
+				workflow: owner.workflow,
+				command: {
+					type: "recordIntegration",
+					assignment: current.id,
+					generation: current.generation,
+					attempt: current.attempt,
+					operation: operation.operation,
+					text: JSON.stringify({ schema: 1, operation: operation.operation, attempt: attempt.id, ...seen }),
+				},
+			},
+			mintContext({ kind: "host", scope: "effects" }),
+		);
+		if (reply.status !== "accepted") {
+			await block(`integration_observation_refused: ${reply.code}: ${reply.reason}`);
+			return "blocked";
+		}
+		await faultBarrier("after-integration-qualification", `integration:${pass.ref}`);
+		const outcome = reply.result.outcome as IntegrationOutcome;
+		// This executor's own dispatch left T unchanged: a visible operational blocker, never an automatic hot retry.
+		if (outcome === "unapplied" && failure) {
+			await block(`integration_operational_error: ${failure}`.slice(0, 1900));
+			return "blocked";
+		}
+		return outcome;
+	}
 	/** The workflow's current policy basis; Ledger verifies its exact retained bytes when a record names it. */
 	#policyBasis(workflow: string): PolicyBasis {
-		const frame = this.#ledger!.snapshot(scheduling);
+		const frame = this.#frame()!;
 		const basis = "policy" in frame ? policyBasis(frame.policy as PolicyState, workflow) : undefined;
 		if (!basis) throw new Error("Current policy is unavailable.");
 		return basis;
@@ -2114,7 +2334,7 @@ export class Engine {
 		return read.content.toString();
 	}
 	#reviewLimit(workflow: string): number {
-		const frame = this.#ledger!.snapshot(scheduling);
+		const frame = this.#frame()!;
 		const policy = "policy" in frame ? (frame.policy as PolicyState) : initialPolicy();
 		return policy.revisions[bindingFor(policy, workflow).policy]!.completedReviewLimit;
 	}
@@ -2185,7 +2405,7 @@ export class Engine {
 		}
 	}
 	#passes(): ImplementationPass[] {
-		const frame = this.#ledger!.snapshot(scheduling);
+		const frame = this.#frame()!;
 		return "implementationPasses" in frame ? (frame.implementationPasses as ImplementationPass[]) : [];
 	}
 	/** A return commits before its base is materialized; an unresolvable base blocks visibly before any writer turn. */
@@ -2356,6 +2576,14 @@ export class Engine {
 			mintContext({ kind: "host", scope: "recovery" }),
 		);
 	}
+}
+
+function deepFreeze<T>(value: T): T {
+	if (value && typeof value === "object" && !Object.isFrozen(value)) {
+		Object.freeze(value);
+		for (const child of Object.values(value)) deepFreeze(child);
+	}
+	return value;
 }
 
 export function runtimeOptions(onReport: (error: unknown, info: ReportInfo) => void): RenderRuntimeOptions {

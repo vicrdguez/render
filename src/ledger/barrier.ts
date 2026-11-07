@@ -9,7 +9,13 @@ export async function faultBarrier(
 		| "after-sandbox-stop"
 		| "before-target-observe"
 		| "before-prepared-check"
-		| "before-review-check",
+		| "before-review-check"
+		| "before-integration-admission"
+		| "after-integration-admission"
+		| "before-integration-cas"
+		| "after-integration-cas"
+		| "after-integration-readback"
+		| "after-integration-qualification",
 	commandId: string,
 ): Promise<void> {
 	if (process.env.RENDER_FAULT_BARRIER !== name || process.env.RENDER_FAULT_COMMAND !== commandId) return;

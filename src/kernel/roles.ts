@@ -30,6 +30,15 @@ import {
 	watchdogVerdict,
 } from "./implementation.ts";
 import { consumeIntake, type IntakeReview, intakeAssignmentGap } from "./intake.ts";
+import {
+	cancelHandoff,
+	changeIntegration,
+	handoffClosed,
+	INTEGRATION_COMMANDS,
+	type Integration,
+	type IntegrationCommand,
+	unresolved,
+} from "./integration.ts";
 import { type Investigation, readInvestigationOutcome, shapeConfirmed } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, Principal, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy, policyBasis } from "./policy.ts";
@@ -95,6 +104,10 @@ export type ImplementationPass = {
 		preparations?: string[];
 		/** The one human direction resolving a stopped round of this handoff: Needs Human or the review limit. */
 		direction?: { review: string; revision: string };
+		/** Every proposal integration operation of this handoff, in order; at most one ever qualifies. */
+		integrations?: Integration[];
+		/** A human cancellation fence: attempts admitted before it stay in flight and are still observed. */
+		canceled?: { sequence: number; inFlight: string[] };
 	};
 	ref: string;
 	ordinal: number;
@@ -150,6 +163,7 @@ export type RoleWorkState = { assignments: RoleAssignment[]; passes?: Implementa
 /** `from`: preparation attempts a staged preparation task inherits as settled history rather than continues. */
 export type RoleIntent = { kind: "run-role" | "notify-role" | "prepare-pass"; assignment: string; from?: number };
 export type RoleCommand =
+	| IntegrationCommand
 	| { type: "recordImplementationExecution"; workflow: string; assignment: string; generation: number; attempt: string }
 	| {
 			type: "recordImplementationSource";
@@ -229,6 +243,7 @@ export type RoleCommand =
 	  };
 
 export const ROLE_COMMANDS = [
+	...INTEGRATION_COMMANDS,
 	"recordImplementationExecution",
 	"recordImplementationSource",
 	"requestImplementationAudit",
@@ -424,6 +439,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			"recordRuntimeHistory",
 			"replaceTask",
 			"openSuccessorPass",
+			// Integration eligibility checks the reviewed X's policy basis against the current one itself.
+			...INTEGRATION_COMMANDS,
 		].includes(c.type) &&
 		a?.policyBinding !== bindingFor(state.policy ?? initialPolicy(), c.workflow).revision
 	)
@@ -742,6 +759,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 	} else if (c.type === "requestWatchdogReview") {
 		if (!a?.passRef || !pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work.passes, pass))
 			return refusal("assignment_closed", "Watchdog reviews only the current handed-off pass.");
+		if (handoffClosed(pass)) return refusal("assignment_closed", handoffClosed(pass)!);
 		if (a.workflow !== c.workflow || a.generation !== c.generation || a.attempt !== c.attempt)
 			return refusal("stale_assignment", "Generation or Attempt is no longer current.");
 		if (pass.handoff.preparations?.at(-1) !== c.preparation)
@@ -803,6 +821,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		if (a.generation !== c.generation || a.attempt !== c.attempt)
 			return refusal("stale_assignment", "Generation or Attempt is no longer current.");
 		if (!pass.handoff) return refusal("missing_content", "Only an accepted handoff can return to implementation; the pass stays open.");
+		if (handoffClosed(pass)) return refusal("assignment_closed", handoffClosed(pass)!);
 		const latest = Math.max(...work.passes!.filter((p) => p.workflow === pass.workflow && p.slice === pass.slice).map((p) => p.ordinal));
 		if (pass.assignment !== a.id || pass.ordinal !== latest)
 			return refusal("assignment_closed", "This pass already has its one successor.");
@@ -1018,6 +1037,14 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			return refusal("stale_assignment", "Generation or Attempt is no longer current.");
 		result = { assignment: a.id };
 		switch (c.type) {
+			case "stageOperation":
+			case "admitEffect":
+			case "recordIntegration": {
+				const outcome = changeIntegration(state, work, a, pass, c, facts, !!pass && latestPass(work.passes, pass));
+				if ("code" in outcome) return outcome as Decision;
+				Object.assign(result, outcome);
+				break;
+			}
 			case "recordImplementationExecution":
 			case "recordImplementationSource": {
 				if (!a.passRef || !pass || pass.assignment !== a.id || pass.handoff)
@@ -1065,6 +1092,9 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 					return refusal("assignment_closed", "Preparation attempts belong to the current handed-off pass.");
 				if (reviewing(work, pass))
 					return refusal("stale_basis", "A Watchdog round of this handoff is in progress; it settles before another preparation.");
+				if (handoffClosed(pass)) return refusal("assignment_closed", handoffClosed(pass)!);
+				if (unresolved(pass.handoff.integrations?.at(-1)))
+					return refusal("stale_basis", "This handoff's admitted integration is unresolved; reconcile it before preparing again.");
 				const sealed = facts.implementationSource;
 				const record = sealed && c.text ? preparationRecord(c.text, sealed.source.source.objectFormat) : undefined;
 				if (!sealed || !record) return refusal("invalid_content", "Preparation requires a complete closed host result.");
@@ -1101,6 +1131,9 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			case "retryPreparation": {
 				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work.passes, pass))
 					return refusal("assignment_closed", "Only the current handed-off pass can be prepared again.");
+				// A canceled handoff may still reconcile an attempt admitted before the cancellation.
+				if (handoffClosed(pass) && !unresolved(pass.handoff.integrations?.at(-1)))
+					return refusal("assignment_closed", handoffClosed(pass)!);
 				// A blocker is recorded only by a settled preparation task, so this also keeps one preparation in flight. A round
 				// canceled without replacement leaves no blocker; its handoff is settled too and may be prepared again.
 				const latest = pass.handoff.preparations?.at(-1);
@@ -1120,6 +1153,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			case "directRework": {
 				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work.passes, pass))
 					return refusal("assignment_closed", "Only the current handed-off pass takes direction.");
+				if (handoffClosed(pass)) return refusal("assignment_closed", handoffClosed(pass)!);
 				const latest = pass.handoff.preparations?.at(-1);
 				const round = work.assignments.find((r) => r.id === c.review);
 				// The human directs the exact settled stop they saw: this handoff's latest completed round, once.
@@ -1250,6 +1284,15 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			case "requestOwnStop":
 			case "cancelWork":
 			case "fenceAttempt":
+				// A handed-off pass is canceled through its handoff: the owner's generation fences new admissions.
+				if (c.type === "cancelWork" && a.status === "submitted" && a.passRef) {
+					const canceled = pass && latestPass(work.passes, pass) ? cancelHandoff(pass, a, facts.sequence) : undefined;
+					if (!canceled || "outcome" in canceled)
+						return canceled ?? refusal("assignment_closed", "Only the current handed-off pass can be canceled.");
+					const inFlight = Object.fromEntries(canceled.inFlight.map((id, i) => [`inFlight${i}`, id]));
+					Object.assign(result, { generation: a.generation, inFlight: canceled.inFlight.length, ...inFlight });
+					break;
+				}
 				if (a.status === "canceled" || a.status === "canceling" || a.status === "submitted")
 					return refusal("assignment_closed", "Work is closed or already fenced.");
 				a.generation++;
