@@ -1958,6 +1958,64 @@ const CONTROLS: Control[] = [
 		test: "test/verification-authoring.integration.ts",
 		pattern: "VA4-VA5",
 	},
+	{
+		name: "bug-intake-without-reproduction",
+		expect: /must not reach intake/,
+		behavior: "stage a bug intake whose human Ground lacks the reproduction or expected correction",
+		edits: [{ file: "src/kernel/intake.ts", find: 'if (m.shape === "bug") {', replace: "if (false) {" }],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "BJ03",
+	},
+	{
+		name: "bug-intake-unfaithful-reproduction",
+		expect: /must not stand in for the reproduction/,
+		behavior: "accept a bug intake whose reproduction is missing, weakened, invented or not a behavior obligation",
+		edits: [
+			{
+				file: "src/kernel/intake.ts",
+				find: '\t\t\tm.reproduction?.observed !== r.observed ||\n\t\t\tm.reproduction.expected !== g.expected ||\n\t\t\t!m.slices[0]!.obligations.some((o) => o.id === m.reproduction!.obligation && o.kind === "behavior")\n',
+				replace: "\t\t\tfalse\n",
+			},
+		],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "BJ04",
+	},
+	{
+		name: "bug-setup-failure-counts-as-red",
+		expect: /must be reported, not claimed as red/,
+		behavior: "treat any failing regression row as red-on-the-bug, whatever its output shows",
+		edits: [{ file: "src/kernel/implementation.ts", find: "`${s.stdout}${s.stderr}`.includes(observed)", replace: "true" }],
+		test: "test/bug-journey.test.ts",
+		pattern: "BJ08",
+	},
+	{
+		name: "bug-audit-without-reproduction",
+		expect: /must not reach Audit without a reproduction/,
+		behavior: "capture Audit source A of a bug pass with no red-on-the-bug reproduction",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: '\t\t\t\t\tc.kind === "audit" &&\n\t\t\t\t\tbug &&\n',
+				replace: '\t\t\t\t\tc.kind === "audit" &&\n\t\t\t\t\tfalse &&\n',
+			},
+		],
+		test: "test/bug-journey.test.ts",
+		pattern: "BJ11",
+	},
+	{
+		name: "bug-reproduction-after-audit",
+		expect: /a reproduction after A is not pre-fix evidence/,
+		behavior: "record a reproduction after Audit source A, when product code may already exist",
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: 'if (pass.captureA) return refusal("assignment_closed", "Reproduction precedes product code',
+				replace: 'if (false) return refusal("assignment_closed", "Reproduction precedes product code',
+			},
+		],
+		test: "test/bug-journey.test.ts",
+		pattern: "BJ11",
+	},
 ];
 
 async function copy(): Promise<string> {
