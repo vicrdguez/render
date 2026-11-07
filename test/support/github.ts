@@ -84,7 +84,7 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 			if (faults.failPage === page) return json(res, 500, { message: "Server Error" });
 			const all = pulls.filter((p) => !hidden.has(p.number) && (!head || `${owner}:${p.head.ref}` === head));
 			const items = all.slice((page - 1) * per, page * per);
-			const next =
+			const next: Record<string, string> =
 				page * per < all.length
 					? {
 							link: `<http://${req.headers.host}${pullsPath}?${new URLSearchParams({ ...Object.fromEntries(url.searchParams), page: String(page + 1) })}>; rel="next"`,

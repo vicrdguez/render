@@ -109,7 +109,7 @@ test("GF03 the create is a draft with the marker and host section; draft unsuppo
 		const created = await f.create("forge-attempt:2");
 		assert.equal(created.outcome, "applied");
 		assert.match(String(created.created), /^github:pr:1:/);
-		const post = JSON.parse(f.gh.requests.find((r) => r.method === "POST")!.body);
+		const post = JSON.parse(f.gh.requests.find((r) => r.method === "POST" && r.path.endsWith("/pulls"))!.body);
 		assert.equal(post.draft, true);
 		assert.equal(post.head, BRANCH);
 		assert.equal(post.base, "main");
@@ -121,7 +121,7 @@ test("GF03 the create is a draft with the marker and host section; draft unsuppo
 			g.gh.faults.draftUnsupported = true;
 			const refused = await g.create("forge-attempt:2");
 			assert.deepEqual(refused, { outcome: "rejected", reason: "draft-unsupported", created: null, head: null });
-			const posts = g.gh.requests.filter((r) => r.method === "POST").map((r) => JSON.parse(r.body).draft);
+			const posts = g.gh.requests.filter((r) => r.method === "POST" && r.path.endsWith("/pulls")).map((r) => JSON.parse(r.body).draft);
 			assert.deepEqual(posts, [true], "no non-draft substitute was sent");
 			assert.equal(g.gh.pulls.length, 0);
 		} finally {
