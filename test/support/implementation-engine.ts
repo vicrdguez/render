@@ -420,7 +420,8 @@ export async function fixture(
 			),
 		).revision as string;
 	const source = await save("source", "Keep the existing value interface.");
-	const catalogRef = await save("catalog", f.text);
+	// A repository with no asset cites no catalog: its change creates one.
+	const catalogRef = options.bootstrap ? null : await save("catalog", f.text);
 	const ground = await save(
 		"ground",
 		JSON.stringify({
@@ -465,7 +466,15 @@ export async function fixture(
 				: []),
 		],
 		checks: [
-			{ id: "suite", row: "full-suite", kind: "executed", rank: "tests", new: false, run: "sh verify-suite", expectations: "SUITE OK" },
+			{
+				id: "suite",
+				row: "full-suite",
+				kind: "executed",
+				rank: "tests",
+				new: !!options.bootstrap,
+				run: "sh verify-suite",
+				expectations: "SUITE OK",
+			},
 		],
 		mapping: [
 			{ slice: "value", obligation: "B1", checks: ["suite"] },
@@ -481,7 +490,7 @@ export async function fixture(
 			slice: "design",
 			delivery: false,
 			packet: packet({
-				inputs: [ground, source, catalogRef],
+				inputs: [ground, source, ...(catalogRef ? [catalogRef] : [])],
 				requests: [{ key: "fidelity", packet: packet({ role: "challenger" }) }],
 				maxTurns: 20,
 			}),
