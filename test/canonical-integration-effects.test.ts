@@ -20,15 +20,19 @@ function commit(repo: string, files: Record<string, string>, parents: string[] =
 		.toString()
 		.trim();
 }
-/** Canonical T (the bound base), B on T0, and prepared X merging B with T, all rooted by Effects. */
+/** Canonical T (another Slice's integration on the bound base T0), B on T0, and prepared X merging B with T. */
 async function fixture() {
 	const f = await gitSourceFixture({ common: { text: "base\n" } });
 	const resolve = (oid: string) => f.effects.perform({ type: "resolve", repository: "owned", commit: oid });
-	const observed = await f.effects.perform({ type: "observe", repository: "owned", proposal: PROPOSAL, initial: f.commit });
-	const T = observed.target;
-	const B = await resolve(commit(f.repo, { common: "base\n", implementation: "B\n" }, [f.commit]));
-	const prepared = await f.effects.perform({ type: "prepare", base: T, source: B, target: T });
+	const T0 = (await f.effects.perform({ type: "observe", repository: "owned", proposal: PROPOSAL, initial: f.commit })).target;
 	const store = join(f.root, "effects", createHash("sha256").update("owned").digest("hex"), "source.git");
+	const T1 = await resolve(commit(f.repo, { common: "base\n", target: "T1\n" }, [f.commit]));
+	git(store, ["update-ref", REF, T1.commit, T0.commit]);
+	const T = (await f.effects.perform({ type: "observe", repository: "owned", proposal: PROPOSAL, initial: f.commit })).target;
+	assert.equal(T.commit, T1.commit);
+	const B = await resolve(commit(f.repo, { common: "base\n", implementation: "B\n" }, [f.commit]));
+	const prepared = await f.effects.perform({ type: "prepare", base: T0, source: B, target: T });
+	assert.equal(prepared.kind, "clean");
 	return { ...f, resolve, T, B, X: prepared.result, store };
 }
 const MESSAGE = "Render proposal integration\npass pass:workflow:2:value:1\n";

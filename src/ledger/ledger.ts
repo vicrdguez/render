@@ -19,6 +19,7 @@ import {
 import { type ExperimentProtocol, experimentInputs, readExperimentProtocol } from "../kernel/experiments.ts";
 import { type ImplementationSource, implementationSource as parseImplementationSource } from "../kernel/implementation.ts";
 import { approvedIntakeRefs, emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, intakeRefs, validIntakeShape } from "../kernel/intake.ts";
+import { INTEGRATION_COMMANDS, qualifiedSlices } from "../kernel/integration.ts";
 import { type Ground, readGround } from "../kernel/investigation.ts";
 import {
 	change,
@@ -352,6 +353,8 @@ export class Ledger {
 				"openSuccessorPass",
 				"recordPreparation",
 				"requestWatchdogReview",
+				"stageOperation",
+				"admitEffect",
 				...CHECKPOINT_COMMANDS,
 				...INTAKE_COMMANDS,
 			].includes(command.type)
@@ -510,6 +513,7 @@ export class Ledger {
 			"retryPreparation",
 			"directRework",
 			"requestWatchdogReview",
+			...INTEGRATION_COMMANDS,
 		].includes(command.type);
 		if (implementationPass && implementationPreflight) {
 			requiredInputs.push(
@@ -529,7 +533,17 @@ export class Ledger {
 				if (ref) requiredInputs.push(ref);
 			if (command.type === "requestWatchdogReview" && implementationPass.handoff)
 				requiredInputs.push(implementationPass.handoff.record, (command as { preparation: string }).preparation);
-			if ((command.type === "openSuccessorPass" || command.type === "directRework") && implementationPass.handoff) {
+			const integration = INTEGRATION_COMMANDS.includes(command.type);
+			if (integration && implementationPass.handoff) {
+				// Eligibility reads the latest record, the verdicts and every staged intent from exact retained bytes.
+				const latest = implementationPass.handoff.preparations?.at(-1);
+				requiredInputs.push(
+					implementationPass.handoff.record,
+					...(latest ? [latest] : []),
+					...(implementationPass.handoff.integrations ?? []).map((i) => i.operation),
+				);
+			}
+			if ((command.type === "openSuccessorPass" || command.type === "directRework" || integration) && implementationPass.handoff) {
 				requiredInputs.push(implementationPass.handoff.record);
 				// Verdicts and the review count are read from exact retained bytes, never restated by the caller.
 				for (const a of roles.assignments)
@@ -638,7 +652,10 @@ export class Ledger {
 					? implementationPass?.captureB
 					: command.type === "rebindAttempt"
 						? implementationPass?.workspace
-						: command.type === "openSuccessorPass" || command.type === "recordPreparation" || command.type === "requestWatchdogReview"
+						: command.type === "openSuccessorPass" ||
+								command.type === "recordPreparation" ||
+								command.type === "requestWatchdogReview" ||
+								INTEGRATION_COMMANDS.includes(command.type)
 							? implementationPass?.handoff?.source
 							: undefined;
 		if (command.type === "recordImplementationSource" || sourceRef) {
@@ -1151,6 +1168,20 @@ export class Ledger {
 							c,
 						);
 					}
+					if (command.type === "stageOperation" || command.type === "recordIntegration") {
+						const c = command as Extract<import("../kernel/roles.ts").RoleCommand, { type: "stageOperation" | "recordIntegration" }>;
+						const ref = (command.type === "stageOperation" ? decision.result.operation : decision.result.observation) as string;
+						await this.#retainRoleText(
+							tx,
+							env,
+							by,
+							sequence,
+							ref,
+							`${command.type === "stageOperation" ? "integration-intent" : "integration-observation"}/${decision.result.passRef}/${sequence}`,
+							c.text,
+							c,
+						);
+					}
 					if (command.type === "openSuccessorPass") {
 						const c = command as Extract<import("../kernel/roles.ts").RoleCommand, { type: "openSuccessorPass" }>;
 						await this.#retainRoleText(
@@ -1632,6 +1663,7 @@ export class Ledger {
 				p.handoff?.record,
 				p.handoff?.preparationResult,
 				...(p.handoff?.preparations ?? []),
+				...(p.handoff?.integrations ?? []).flatMap((i) => [i.operation, ...i.attempts.flatMap((x) => x.observations)]),
 				p.opening?.observation,
 				...Object.values(p.audit?.results ?? {}).map((r) => r?.report),
 			);
@@ -2363,6 +2395,7 @@ function workflowState(w: Present<WorkflowRecord>, roles: RoleWorkState): Workfl
 		documents,
 		messageCount: w.messageCount,
 		assignments: plain(roles.assignments.filter((a) => a.workflow === w.id)),
+		integrated: qualifiedSlices(roles.passes ?? [], w.id, w.intakes?.slices ?? []),
 	};
 }
 

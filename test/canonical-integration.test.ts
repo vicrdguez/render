@@ -27,6 +27,7 @@ import {
 	T0,
 	T1,
 	W,
+	X1,
 } from "./support/integration.ts";
 import { admin, recovery, scheduler } from "./support/roles.ts";
 import { EMPTY, watchdogRound } from "./support/watchdog.ts";

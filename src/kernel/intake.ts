@@ -1,6 +1,7 @@
 // Bounded Contract intake. Ledger supplies exact scoped bytes; this module performs no I/O.
 import { catalogDefinition } from "./catalog.ts";
 import type { CheckpointInput, Checkpoints } from "./checkpoints.ts";
+import { qualifiedSlices } from "./integration.ts";
 import type { Decision, DomainWrite, KernelState, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
 import { type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
@@ -373,13 +374,11 @@ export function intakeAssignmentGap(state: KernelState, slice: string, packet: R
 	if (!s) return state.intakes?.slices.length ? refused("not_found", "Delivery must name an accepted Slice in this workflow.") : undefined;
 	if (s.status !== "accepted") return refused("contract_superseded", "Superseded work is not completed or assignable.");
 	if (!packet.inputs.includes(s.contract)) return refused("stale_basis", "Assignment must bind the current immutable Contract revision.");
-	const dependency = state.intakes!.dependencies.find((e) => e.slice === slice);
-	// No qualifying integration producer exists in this staged host. Never infer one from files, reports or a pass.
+	// Same-proposal edges clear only on recorded qualifying integration, never on a pass, report or publication.
+	const qualified = qualifiedSlices(state.roleWork?.passes ?? [], state.workflow!.id, state.intakes!.slices);
+	const dependency = state.intakes!.dependencies.find((e) => e.slice === slice && !qualified.includes(e.requires));
 	if (dependency)
-		return refused(
-			"dependency_blocked",
-			`Required ${dependency.kind} of ${dependency.requires} has no recorded qualifying integration; delivery capability is unavailable.`,
-		);
+		return refused("dependency_blocked", `Required ${dependency.kind} of ${dependency.requires} has no recorded qualifying integration.`);
 	return undefined;
 }
 export function consumeIntake(state: KernelState, slice: string, assignment: string, sequence: number): IntakeWrite | undefined {

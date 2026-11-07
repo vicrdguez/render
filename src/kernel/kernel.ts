@@ -157,7 +157,8 @@ export type RefusalCode =
 	| "stale_basis"
 	| "content_corrupt"
 	| "missing_content"
-	| "already_revoked";
+	| "already_revoked"
+	| "contract_superseded";
 
 export type Repair = { readonly action: string; readonly [key: string]: string | null };
 
@@ -244,8 +245,9 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	recordQuiescence: { family: "scheduling", available: true },
 	quarantineWorkspace: { family: "scheduling", available: false },
 	cleanupWorkspace: { family: "scheduling", available: false },
-	stageOperation: { family: "source-effect", available: false },
-	admitEffect: { family: "source-effect", available: false },
+	stageOperation: { family: "source-effect", available: true },
+	admitEffect: { family: "source-effect", available: true },
+	recordIntegration: { family: "source-effect", available: true },
 	recordSourceObservation: { family: "source-effect", available: true },
 	recordRunnerObservation: { family: "source-effect", available: true },
 	recordRunnerDiagnostic: { family: "source-effect", available: true },
@@ -478,6 +480,8 @@ export type WorkflowState = {
 	readonly intakes?: Intakes;
 	readonly checkpoints?: Checkpoints;
 	readonly assignments?: readonly RoleAssignment[];
+	/** Slices whose current Contract has recorded qualifying integration. */
+	readonly integrated?: readonly string[];
 	readonly id: string;
 	readonly title: string;
 	readonly documents: readonly DocumentSummary[];
@@ -532,7 +536,9 @@ function workflowView(w: WorkflowState): WorkflowView {
 	const intakes = w.intakes ?? emptyIntakes();
 	const latestIntake = intakes.drafts.at(-1);
 	const acceptedIntake = intakes.drafts.findLast((d) => d.acceptance)?.acceptance ?? null;
-	const requiredIntegration = intakes.dependencies.find((e) => intakes.slices.some((s) => s.id === e.slice && s.status === "accepted"));
+	const requiredIntegration = intakes.dependencies.find(
+		(e) => !w.integrated?.includes(e.requires) && intakes.slices.some((s) => s.id === e.slice && s.status === "accepted"),
+	);
 	const checkpoints = w.checkpoints ?? emptyCheckpoints();
 	const pending = checkpoints.requests.find((r) => r.status === "pending");
 	return {
@@ -551,7 +557,7 @@ function workflowView(w: WorkflowState): WorkflowView {
 			: requiredIntegration
 				? {
 						code: "dependency_blocked",
-						reason: `Required ${requiredIntegration.kind} of ${requiredIntegration.requires} blocks ${requiredIntegration.slice} until recorded qualifying integration. Delivery capability is unavailable.`,
+						reason: `Required ${requiredIntegration.kind} of ${requiredIntegration.requires} blocks ${requiredIntegration.slice} until recorded qualifying integration.`,
 						capabilities: ["qualifying-integration"],
 					}
 				: {

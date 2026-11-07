@@ -56,6 +56,13 @@ function generate(seed: number): { slice: Slice; step: Step }[] {
 	}));
 }
 type Coverage = Record<string, number>;
+function freeze<T>(value: T): T {
+	if (value && typeof value === "object" && !Object.isFrozen(value)) {
+		Object.freeze(value);
+		for (const child of Object.values(value)) freeze(child);
+	}
+	return value;
+}
 const accepted = (slice: { id: string; contract: string }) => ({
 	...slice,
 	intake: "intake:1",
@@ -66,6 +73,19 @@ const accepted = (slice: { id: string; contract: string }) => ({
 	predecessors: [],
 });
 
+type Round = { review: string; preparation: string; report: string; X: string; T: string };
+type Base = {
+	state: KernelState;
+	sequence: number;
+	sources: Partial<Record<Slice, ReturnType<typeof capture>>>;
+	texts: Record<string, string>;
+	evidence: CatalogEvidence[];
+	owners: Record<Slice, string>;
+	rounds: number;
+	round: Record<Slice, Round>;
+};
+/** The two handed-off passes and their first passing rounds are identical in every schedule: built once, then cloned. */
+let base: Base | undefined;
 function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): string | undefined {
 	try {
 		let state: KernelState = {
@@ -88,9 +108,9 @@ function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): stri
 		};
 		let sequence = 0;
 		let epoch = 1;
-		const sources: Partial<Record<Slice, ReturnType<typeof capture>>> = {};
+		let sources: Partial<Record<Slice, ReturnType<typeof capture>>> = {};
 		let current: Slice = "a";
-		const texts: Record<string, string> = {};
+		let texts: Record<string, string> = {};
 		let evidence: CatalogEvidence[] = [];
 		function command(c: Record<string, unknown>, principal: Principal, expected?: "accepted" | "refused") {
 			sequence++;
@@ -100,7 +120,14 @@ function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): stri
 				sequence,
 				executorEpoch: `executor:${epoch}`,
 				implementationSource: sources[current],
-				checkpointInputs: Object.fromEntries(Object.entries(texts).map(([ref, text]) => [ref, { text, human: false, document: ref }])),
+				// Only the commands that read retained bytes receive them, keeping each schedule cheap.
+				...(["stageOperation", "admitEffect", "recordIntegration", "requestWatchdogReview"].includes(String(c.type))
+					? {
+							checkpointInputs: Object.fromEntries(
+								Object.entries(texts).map(([ref, text]) => [ref, { text, human: false, document: ref }]),
+							),
+						}
+					: {}),
 				...(c.type === "submitRoleResult" ? { verificationEvidence: evidence } : {}),
 				ids: {
 					fact: `fact:${sequence}`,
@@ -109,9 +136,15 @@ function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): stri
 					revision: `revision:${sequence}`,
 				},
 			};
-			const before = JSON.stringify([state, input, facts]);
-			const decision = change(state, input, facts as unknown as VerifiedFacts);
-			assert.equal(JSON.stringify([state, input, facts]), before, "Kernel mutated input");
+			// Deeply frozen inputs: any Kernel write to state, command or facts throws instead of passing silently.
+			let decision: ReturnType<typeof change>;
+			try {
+				decision = change(freeze(state), freeze(input), freeze(facts) as unknown as VerifiedFacts);
+			} catch (error) {
+				if (error instanceof TypeError && /read only|not extensible|frozen/.test(error.message))
+					assert.fail(`Kernel mutated input: ${error}`);
+				throw error;
+			}
 			if (expected) assert.equal(decision.outcome, expected, `${String(c.type)}: ${JSON.stringify(decision)}`);
 			if (decision.outcome === "refused") {
 				assert.ok(!("writes" in decision), "refusal cannot write");
@@ -141,7 +174,7 @@ function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): stri
 			const binding = state.policy!.bindings[workflow] ?? { revision: `${workflow}:policy:initial`, policy: "policy:initial" };
 			return { binding: binding.revision, revision: binding.policy, minimumEvidenceRank: null };
 		};
-		const owners = {} as Record<Slice, string>;
+		let owners = {} as Record<Slice, string>;
 		const pass = (slice: Slice) => state.roleWork!.passes!.findLast((p) => p.slice === slice)!;
 		function handOff(slice: Slice) {
 			current = slice;
@@ -199,7 +232,7 @@ function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): stri
 		}
 		let rounds = 0;
 		/** A newly checked X/T on the slice's handoff and its passing launched round. */
-		function passingRound(slice: Slice): { review: string; preparation: string; report: string; X: string; T: string } | undefined {
+		function passingRound(slice: Slice): Round | undefined {
 			current = slice;
 			rounds++;
 			const X = rounds.toString(16).padStart(40, "e");
@@ -337,12 +370,18 @@ function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): stri
 			);
 			return { review: id, preparation, report, X, T };
 		}
-		handOff("a");
-		handOff("c");
+		if (!base) {
+			handOff("a");
+			handOff("c");
+			const round = { a: passingRound("a")!, c: passingRound("c")! };
+			base = freeze(structuredClone({ state, sequence, sources, texts, evidence, owners, rounds, round }));
+		}
+		({ state, sequence, sources, evidence, owners, rounds } = base);
+		texts = { ...base.texts };
 		// Oracle state, maintained only from accepted commands and the Contract rules.
 		type Op = { operation: string; preparation: string; status: string; attempts: { id: string; epoch: number; resolved: boolean }[] };
 		const o = {
-			round: { a: passingRound("a")!, c: passingRound("c")! } as Record<Slice, NonNullable<ReturnType<typeof passingRound>>>,
+			round: { ...base.round },
 			ops: { a: [] as Op[], c: [] as Op[] } as Record<Slice, Op[]>,
 			canceled: { a: false, c: false } as Record<Slice, boolean>,
 			qualified: { a: 0, c: 0 } as Record<Slice, number>,

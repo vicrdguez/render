@@ -1,7 +1,7 @@
 // Effects owns trusted private Git. Worker Git/configuration is never opened here.
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, open, readdir } from "node:fs/promises";
+import { access, mkdir, open, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { validatePath } from "../kernel/source-path.ts";
 import { faultBarrier } from "../ledger/barrier.ts";
@@ -37,6 +37,20 @@ export type Prepare = { type: "prepare"; base: Source; source: Source; target: S
 /** The host-private canonical proposal ref; `initial` binds it only while absent. */
 export type Observe = { type: "observe"; repository: string; proposal: string; initial: string };
 export type TargetObservation = { proposal: string; ref: string; target: Source };
+/** Squash R: exactly prepared X's tree on parent T with fixed metadata, rooted before any canonical-ref change. */
+export type Squash = { type: "squash"; prepared: Source; target: Source; message: string };
+/** One admitted attempt's expected-old CAS of the canonical proposal ref from `expected` (T) to `result` (R). */
+export type Integrate = { type: "integrate"; repository: string; proposal: string; expected: string; result: Source; attempt: string };
+/** Read-only reconciliation of the canonical proposal ref. */
+export type ReconcileIntegration = { type: "integration"; repository: string; proposal: string };
+export type CanonicalObservation = {
+	ref: string;
+	observed: { commit: string; tree: string; parents: string[] } | null;
+	/** A held ref lock: a writer may still be finishing, so nothing about the outcome is known. */
+	lock: boolean;
+};
+/** `refused`: the transaction never committed (prepare failed); `applied`: Git confirmed the commit. */
+export type IntegrationDispatch = CanonicalObservation & { dispatch: "applied" | "refused" };
 export type PreparationReceipt = {
 	kind: "clean" | "conflict";
 	base: Source;
@@ -123,6 +137,8 @@ export class Effects {
 	readonly #root: string;
 	readonly #repositories: Readonly<Record<string, string>>;
 	readonly #stores = new Map<string, Promise<{ path: string; cwd: string; format: Source["objectFormat"] }>>();
+	/** Integration permits this executor already dispatched: each admitted attempt is consumed at most once. */
+	readonly #consumed = new Set<string>();
 	constructor(options: { root: string; repositories: Readonly<Record<string, string>> }) {
 		this.#root = options.root;
 		this.#repositories = options.repositories;
@@ -132,10 +148,14 @@ export class Effects {
 	perform(operation: Diff): Promise<string>;
 	perform(operation: Prepare): Promise<PreparationReceipt>;
 	perform(operation: Observe): Promise<TargetObservation>;
+	perform(operation: Squash): Promise<Source>;
+	perform(operation: Integrate): Promise<IntegrationDispatch>;
 	async perform(
-		operation: Resolve | Read | Retain | Diff | Prepare | Observe,
-	): Promise<Source | SourceReceipt | string | PreparationReceipt | TargetObservation> {
+		operation: Resolve | Read | Retain | Diff | Prepare | Observe | Squash | Integrate,
+	): Promise<Source | SourceReceipt | string | PreparationReceipt | TargetObservation | IntegrationDispatch> {
 		if (operation.type === "prepare") return this.#prepare(operation);
+		if (operation.type === "squash") return this.#squash(operation);
+		if (operation.type === "integrate") return this.#integrate(operation);
 		if (operation.type === "read") {
 			this.#checkOid(operation.commit, (await this.#store(operation.repository)).format);
 			const source = await this.#read(operation.repository, operation.commit);
@@ -219,7 +239,11 @@ export class Effects {
 	}
 	reconcile(receipt: SourceReceipt): Promise<SourceReceipt>;
 	reconcile(receipt: PreparationReceipt): Promise<PreparationReceipt>;
-	async reconcile(receipt: SourceReceipt | PreparationReceipt): Promise<SourceReceipt | PreparationReceipt> {
+	reconcile(operation: ReconcileIntegration): Promise<CanonicalObservation>;
+	async reconcile(
+		receipt: SourceReceipt | PreparationReceipt | ReconcileIntegration,
+	): Promise<SourceReceipt | PreparationReceipt | CanonicalObservation> {
+		if ("type" in receipt) return this.#canonical(receipt.repository, receipt.proposal);
 		await this.#verifySource(receipt.base);
 		await this.#verifySource(receipt.source);
 		if ("algorithm" in receipt) {
@@ -230,9 +254,94 @@ export class Effects {
 		}
 		return receipt;
 	}
+	async #squash({ prepared, target, message }: Squash): Promise<Source> {
+		if (prepared.repository !== target.repository) throw new Error("Integration repository mismatch.");
+		await this.#verifySource(prepared);
+		await this.#verifySource(target);
+		const store = await this.#store(target.repository);
+		// The fixed Render identity and date in every trusted Git call make R a pure function of X's tree, T and message.
+		const commit = (await this.#git(store.path, store.cwd, ["commit-tree", prepared.tree, "-p", target.commit], Buffer.from(message)))
+			.toString()
+			.trim();
+		const result = await this.#read(target.repository, commit);
+		await this.#rootSource(result);
+		return result;
+	}
+	/**
+	 * The expected-old canonical-ref CAS T→R under the host's exclusive store ownership, as one `update-ref --stdin`
+	 * transaction. Commit is sent only after Git reports `prepare: ok` (ref locked, old value verified); if this process
+	 * dies before that, Git aborts the transaction at end of input. A prepare failure is a definite refusal; any failure
+	 * after commit is sent is uncertain and thrown, for the caller to reconcile.
+	 */
+	async #integrate({ repository, proposal, expected, result, attempt }: Integrate): Promise<IntegrationDispatch> {
+		const store = await this.#store(repository);
+		this.#checkOid(expected, store.format);
+		await this.#verifySource(result);
+		const parents = (await this.#git(store.path, store.cwd, ["rev-list", "--parents", "-n", "1", result.commit]))
+			.toString()
+			.trim()
+			.split(" ");
+		if (parents.length !== 2 || parents[1] !== expected)
+			throw new Error("Integration result must be a single-parent commit on the expected target.");
+		if (this.#consumed.has(attempt)) throw new Error(`Integration permit ${attempt} was already consumed.`);
+		this.#consumed.add(attempt);
+		const ref = canonicalRef(proposal);
+		const dispatch = await this.#transaction(store.path, store.cwd, `start\nupdate ${ref} ${result.commit} ${expected}\nprepare\n`);
+		if (dispatch === "applied") await syncTree(store.path);
+		return { ...(await this.#canonical(repository, proposal)), dispatch };
+	}
+	async #canonical(repository: string, proposal: string): Promise<CanonicalObservation> {
+		const store = await this.#store(repository);
+		const ref = canonicalRef(proposal);
+		const lock = await Promise.all(
+			[join(store.path, `${ref}.lock`), join(store.path, "packed-refs.lock")].map((path) =>
+				access(path).then(
+					() => true,
+					() => false,
+				),
+			),
+		);
+		const current = await this.#gitResult(store.path, store.cwd, ["rev-parse", "--verify", "--quiet", ref]);
+		if (current.signal || (current.exitCode !== 0 && current.exitCode !== 1)) throw gitFailure("rev-parse", current);
+		if (current.exitCode === 1) return { ref, observed: null, lock: lock.includes(true) };
+		const commit = current.stdout.toString().trim();
+		const [, ...parents] = (await this.#git(store.path, store.cwd, ["rev-list", "--parents", "-n", "1", commit]))
+			.toString()
+			.trim()
+			.split(" ");
+		const tree = (await this.#git(store.path, store.cwd, ["rev-parse", "--verify", `${commit}^{tree}`])).toString().trim();
+		return { ref, observed: { commit, tree, parents }, lock: lock.includes(true) };
+	}
+	#transaction(path: string, cwd: string, prepare: string): Promise<"applied" | "refused"> {
+		return new Promise((resolve, reject) => {
+			const child = spawn("git", [...this.#gitArgs(path), "update-ref", "--stdin"], { cwd, env: GIT_ENV(cwd), stdio: "pipe" });
+			let stdout = "";
+			let stderr = "";
+			let committed = false;
+			child.stdout.on("data", (chunk: Buffer) => {
+				stdout += chunk.toString();
+				if (!committed && stdout.includes("prepare: ok\n")) {
+					committed = true;
+					child.stdin.end("commit\n");
+				}
+			});
+			child.stderr.on("data", (chunk: Buffer) => {
+				stderr += chunk.toString();
+			});
+			child.on("error", (error) => reject(new Error(`Trusted source Git update-ref failed to start: ${error.message}`)));
+			// Resolve only after exit: the dispatching Git process is quiescent before anything is observed.
+			child.on("close", (code, signal) => {
+				if (!committed) resolve("refused");
+				else if (code === 0 && !signal && stdout.includes("commit: ok\n")) resolve("applied");
+				else reject(new Error(`Canonical CAS outcome unknown (exit ${code}, signal ${signal}): ${stderr}`));
+			});
+			child.stdin.on("error", () => {});
+			child.stdin.write(prepare);
+		});
+	}
 	async #observe({ repository, proposal, initial }: Observe): Promise<TargetObservation> {
 		const store = await this.#store(repository);
-		const ref = `refs/render/proposals/${createHash("sha256").update(proposal).digest("hex")}`;
+		const ref = canonicalRef(proposal);
 		const current = await this.#gitResult(store.path, store.cwd, ["rev-parse", "--verify", "--quiet", ref]);
 		if (current.signal || (current.exitCode !== 0 && current.exitCode !== 1)) throw gitFailure("rev-parse", current);
 		if (current.exitCode === 1) {
@@ -429,47 +538,29 @@ export class Effects {
 		if (result.exitCode !== 0 || result.signal) throw gitFailure(args[0]!, result);
 		return result.stdout;
 	}
+	#gitArgs(path: string): string[] {
+		return [
+			"--no-replace-objects",
+			"--git-dir",
+			path,
+			"-c",
+			"core.hooksPath=/dev/null",
+			"-c",
+			"core.attributesFile=/dev/null",
+			"-c",
+			"core.fsync=all",
+			"-c",
+			"core.fsyncMethod=fsync",
+			"-c",
+			"protocol.file.allow=always",
+		];
+	}
 	#gitResult(path: string, cwd: string, args: string[], input?: Buffer): Promise<GitResult> {
 		return new Promise((resolve, reject) => {
 			const child = execFile(
 				"git",
-				[
-					"--no-replace-objects",
-					"--git-dir",
-					path,
-					"-c",
-					"core.hooksPath=/dev/null",
-					"-c",
-					"core.attributesFile=/dev/null",
-					"-c",
-					"core.fsync=all",
-					"-c",
-					"core.fsyncMethod=fsync",
-					"-c",
-					"protocol.file.allow=always",
-					...args,
-				],
-				{
-					cwd,
-					maxBuffer: MAX_BYTES + 1024 * 1024,
-					encoding: "buffer",
-					timeout: 60000,
-					env: {
-						PATH: process.env.PATH,
-						HOME: cwd,
-						GIT_CONFIG_NOSYSTEM: "1",
-						GIT_ATTR_NOSYSTEM: "1",
-						GIT_CONFIG_GLOBAL: "/dev/null",
-						GIT_TERMINAL_PROMPT: "0",
-						GIT_AUTHOR_NAME: "Render",
-						GIT_AUTHOR_EMAIL: "render@invalid",
-						GIT_COMMITTER_NAME: "Render",
-						GIT_COMMITTER_EMAIL: "render@invalid",
-						GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z",
-						GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z",
-						LC_ALL: "C",
-					},
-				},
+				[...this.#gitArgs(path), ...args],
+				{ cwd, maxBuffer: MAX_BYTES + 1024 * 1024, encoding: "buffer", timeout: 60000, env: GIT_ENV(cwd) },
 				(error, stdout, stderr) => {
 					if (error && typeof error.code !== "number" && !error.signal) {
 						reject(new Error(`Trusted source Git ${args[0]} failed: ${error.message}; ${stderr.toString()}`));
@@ -486,6 +577,28 @@ export class Effects {
 			child.stdin?.end(input);
 		});
 	}
+}
+/** The fixed trusted Git environment (PROFILE): no inherited configuration, fixed identity and dates. */
+function GIT_ENV(cwd: string): NodeJS.ProcessEnv {
+	return {
+		PATH: process.env.PATH,
+		HOME: cwd,
+		GIT_CONFIG_NOSYSTEM: "1",
+		GIT_ATTR_NOSYSTEM: "1",
+		GIT_CONFIG_GLOBAL: "/dev/null",
+		GIT_TERMINAL_PROMPT: "0",
+		GIT_AUTHOR_NAME: "Render",
+		GIT_AUTHOR_EMAIL: "render@invalid",
+		GIT_COMMITTER_NAME: "Render",
+		GIT_COMMITTER_EMAIL: "render@invalid",
+		GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z",
+		GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z",
+		LC_ALL: "C",
+	};
+}
+/** The host-private canonical proposal ref; upstream and forge branches never become it. */
+export function canonicalRef(proposal: string): string {
+	return `refs/render/proposals/${createHash("sha256").update(proposal).digest("hex")}`;
 }
 function gitFailure(command: string, result: GitResult): Error {
 	return new Error(
