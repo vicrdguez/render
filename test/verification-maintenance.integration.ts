@@ -148,7 +148,6 @@ async function classify(
 				role: "implementer",
 			});
 			reply = await f.command({ type: "submitRoleResult", text, supports: [] }, context);
-			console.error("REPLY", JSON.stringify(reply));
 			return fauxAssistantMessage(fauxToolCall("submit_role_result", { text, supports: [] }), { stopReason: "toolUse" });
 		},
 	]);
