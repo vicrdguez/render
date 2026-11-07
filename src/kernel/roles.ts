@@ -386,8 +386,10 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			"requestImplementationAudit",
 			"submitImplementationHandoff",
 			"openSuccessorPass",
+			"stageOperation",
+			"admitEffect",
 		].includes(c.type) &&
-		blockedBySeams(state.checkpoints, affectedPacket, c.type === "assignTask" ? c.delivery : (a?.delivery ?? false))
+		blockedBySeams(state.checkpoints, affectedPacket, c.type === "assignTask" ? c.delivery : (a?.delivery ?? false), state.intakes)
 	)
 		return refusal("seams_required", "Revised Seams block affected execution; historical approvals remain retained.");
 	const slice = c.type === "assignTask" ? c.slice : a?.slice;

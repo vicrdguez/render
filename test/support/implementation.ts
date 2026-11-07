@@ -283,6 +283,7 @@ export async function acceptedImplementation(engine?: Engine, second?: SecondSli
 			constraints: [],
 			clarifications: [],
 			donePredicate: "Literal bytes",
+			facts: [],
 			approvedSources: [source],
 		}),
 	);

@@ -610,6 +610,42 @@ const CONTROLS: Control[] = [
 		pattern: "required Record stays blocked",
 	},
 	{
+		name: "existing-seam-ground-unchecked",
+		expect: /must not ground a commitment/,
+		behavior: "stage shortened intake on human Ground without a goal, done predicate, constraints or facts",
+		edits: [
+			{
+				file: "src/kernel/intake.ts",
+				find: 'if (m.shape !== "design" && !(text(g.goal) && text(g.donePredicate) && texts(g.constraints) && texts(g.facts)))',
+				replace: "if (false)",
+			},
+		],
+		test: "test/accepted-contracts.test.ts",
+		pattern: "ES01",
+	},
+	{
+		name: "existing-seam-change-waives-seams",
+		expect: /running change-shape owner stops/,
+		behavior: "let change-shape Contract work keep running under a revised Seams request",
+		edits: [
+			{
+				file: "src/kernel/checkpoints.ts",
+				find: "const contracts = (intakes?.slices ?? []).filter((s) => inputs.includes(s.contract));",
+				replace: "const contracts: Intakes['slices'] = [];",
+			},
+		],
+		test: "test/existing-seam-change.test.ts",
+		pattern: "ES04",
+	},
+	{
+		name: "existing-seam-handover-hides-delivery",
+		expect: /partial delivery: read-fix qualified/,
+		behavior: "omit recorded qualifying integration from the handover view",
+		edits: [{ file: "src/kernel/kernel.ts", find: "integrated: w.integrated ?? [],", replace: "integrated: []," }],
+		test: "test/existing-seam-change.test.ts",
+		pattern: "ES05",
+	},
+	{
 		name: "intake-stale-acceptance",
 		expect: /edited intake cannot use stale fidelity/,
 		behavior: "accept an intake despite unreviewed saved concerns",
