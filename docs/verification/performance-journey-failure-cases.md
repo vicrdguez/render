@@ -46,12 +46,16 @@ exist:
 | PJ13 | B4 | Implementer's B handoff passed; the Watchdog's X receipt has no bench result | pass refused, `refs.performance:"mismatch"`; the handoff's evidence is never inherited | Ledger/Kernel |
 | PJ14 | A2 | After PJ08, reopen and export | Contract `performance` and the round's receipt result `performance:"met"` survive reopen and are in the complete export | Ledger |
 
+An earlier `accepted-contracts` case (I01/I12) staged a performance intake from Ground with no measured commitment.
+B1 makes that ineligible, so its performance variant now carries the commitment with unknown baseline and target and an
+unresolved product question.
+
 ## Unsafe controls
 
 - `performance-target-invented`: stage a performance intake whose Ground lacks a target without an unresolved question.
   PJ03 must fail.
-- `performance-workload-ignored`: compare without the workload literal. PJ09 must fail.
-- `performance-regression-ignored`: compare without baseline row literals. PJ11 must fail.
+- `performance-mismatch-passes`: admit a passing Watchdog verdict unless the comparison is `regressed`. PJ09 must fail.
+- `performance-regression-ignored`: compare without the baseline rows. PJ11 must fail.
 
 ## Limits
 
