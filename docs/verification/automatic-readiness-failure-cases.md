@@ -5,8 +5,11 @@ and commitments A1–A3 are the Slice Contract's; spec §3 I10, §§9.1–9.3, �
 and §13 V1/V3/V6/V8 navigate them. Operator decisions: GitHub is best effort, with no exactly-once machinery beyond the
 Contract; the token stays in trusted host configuration, readable only by Effects; Render never merges main.
 
-Chronology, kept as it happens: AR01–AR08, AF01–AF03 and AR-E1 are written and committed failing before the product
-change. GF01 and GP16 change only their literal `markProposalReady` capability, because the GitHub adapter now offers it.
+Chronology, kept as it happened: AR01–AR08 and AF01–AF03 were written, committed and run failing (unknown `mark-ready`
+kind, no `readiness` view, no `markReady` operation) before the product change. AR-E1 was committed with them but not run
+before the Engine change; it could not pass without the `mark-ready` kind. GF01 and GP16 change only their literal
+`markProposalReady` capability, because the GitHub adapter now offers it. After implementation one test-only correction
+followed: AR03's first assertion gained its own message so `readiness-ignores-record` is detected by it.
 
 ## Interface these cases name (new in this Slice)
 
