@@ -2206,7 +2206,8 @@ export class Engine {
 					if (p.unsupported.includes("draftProposalPR")) return false;
 					await send({ type: "stageForgeOperation", kind: "create-proposal" });
 				} else if (create.reissue || (create.status === "planned" && create.checked)) await dispatch(create);
-				else if (create.status === "planned" || (create.status === "unknown" && !p.risk)) {
+				else if (create.status === "planned" || create.status === "unknown") {
+					// Under sticky risk this only refreshes the listed candidates the human resolves from; Kernel never associates.
 					await observe(create.operation);
 					if (!current()?.association) return true;
 				} else return false;
