@@ -132,7 +132,7 @@ async function classify(
 	refs: string[],
 	basisRef: string | null = null,
 	others: Context[] = [],
-): Promise<{ reply: CommandReply; others: CommandReply[]; assignment: RoleAssignment }> {
+): Promise<{ reply: CommandReply | { status: "unsubmitted"; reason: string }; others: CommandReply[]; assignment: RoleAssignment }> {
 	let reply: CommandReply | undefined;
 	const refused: CommandReply[] = [];
 	const text = JSON.stringify({ schema: 1, maintenance: rows });
@@ -148,6 +148,7 @@ async function classify(
 				role: "implementer",
 			});
 			reply = await f.command({ type: "submitRoleResult", text, supports: [] }, context);
+			console.error("REPLY", JSON.stringify(reply));
 			return fauxAssistantMessage(fauxToolCall("submit_role_result", { text, supports: [] }), { stopReason: "toolUse" });
 		},
 	]);
@@ -160,7 +161,7 @@ async function classify(
 	assert.ok(assigned.status === "accepted", JSON.stringify(assigned));
 	const assignment = await settled(f as never, String(assigned.result.assignment));
 	return {
-		reply: reply ?? { status: "blocked", code: "capability_unavailable", reason: String(assignment.blocker) },
+		reply: reply ?? { status: "unsubmitted", reason: String(assignment.blocker) },
 		others: refused,
 		assignment,
 	};
@@ -185,12 +186,7 @@ const outcome: Classification = {
 	moved: { status: "blocked", cause: "prerequisite", reason: "Corrected path still needs render-golden-fixture" },
 };
 const statuses = (a: RoleAssignment) =>
-	Object.fromEntries(
-		Object.entries((a as RoleAssignment & { maintenance?: { rows: Classification } }).maintenance?.rows ?? {}).map(([k, v]) => [
-			k,
-			v.cause ? `${v.status}/${v.cause}` : v.status,
-		]),
-	);
+	Object.fromEntries(Object.entries(a.maintenance ?? {}).map(([k, v]) => [k, v.cause ? `${v.status}/${v.cause}` : v.status]));
 
 before(async () => {
 	source = await sourceFixture({ placeholder: { text: "x\n" } });
@@ -254,7 +250,6 @@ test("VM01 maintenance runs every non-human row and keeps an unresolvable row as
 	assert.equal(result("moved").status, "invalid");
 	assert.deepEqual(result("moved").steps, []);
 	assert.equal(result("human").status, "advisory");
-	assert.equal(receipt.verification.status, "non-pass");
 	assert.deepEqual(receipt.catalog.selection.maintenance, { basis: null });
 });
 
@@ -306,9 +301,10 @@ test("VM03 the honest pre-edit classification is retained per row before any cor
 	assert.deepEqual("implementationPasses" in frame ? frame.implementationPasses : [], [], "a finding opens no pass");
 });
 
-test("VM10 findings without edits cannot claim a change on the basis's own commit", async () => {
-	const { reply } = await classify("c0", outcome, [receipts.c0!], basis);
-	assert.equal(reply.status, "refused", "no corrected source, no changed claim");
+test("VM10 findings without edits are no corrected-run outcome on the basis's own commit", async () => {
+	const unedited = { ...outcome, stale: { status: "blocked", cause: "prerequisite", reason: "Not yet corrected" } };
+	const { reply } = await classify("c0", unedited, [receipts.c0!], basis);
+	assert.equal(reply.status, "refused", "no corrected source, no corrected-run outcome");
 });
 
 test("VM04/VM08 a corrected path is substantiated only by its re-execution; an unrunnable correction stays blocked", async () => {

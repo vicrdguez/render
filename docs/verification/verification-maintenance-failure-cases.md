@@ -33,7 +33,7 @@ expectation is `4`; `fixture` journey steps print `STEP OK` and its sanity needs
 
 - VM01 (B1): the maintenance runner retains a result for every non-human row: `discover` completed with stdout
   `add.sh\nproduct.sh\nsuite.sh\n`, `stale` and `product` failed, `fixture` steps exit 0 and sanity `unrun` (127),
-  `moved` `invalid` with no steps, `human` advisory. Receipt status `non-pass`; nothing refuses the whole asset.
+  `moved` `invalid` with no steps, `human` advisory. Nothing refuses the whole asset.
 - VM02 (B1): a classification that omits a non-human row, names an unknown row, classifies `human`, omits `compared` on
   `discover` or names a non-row in it, or cites no maintenance receipt for exact commit/digest refuses
   `invalid_content`/`missing_content`. A row that did not execute successfully (`stale`, `product`, `fixture`,
@@ -55,11 +55,10 @@ expectation is `4`; `fixture` journey steps print `STEP OK` and its sanity needs
   attempted change. `product` stays blocked/product.
 - VM09 (B3): an outcome claiming `changed` for a row the basis did not classify `changed` refuses; an outcome without
   the basis receipt, or with a basis that is not a retained pre-edit classification, refuses.
-- VM10 (B4): an outcome on the basis's own commit (findings without edits) cannot claim any `changed` row. A runner
-  whose command modifies source yields `source_changed`, and a classification citing it refuses. Maintenance reports
-  open no implementation pass, handoff or integration. Post-handoff verifier repair opening a successor pass with its
-  own fresh Audit is the existing `implementation-successor` behavior (TP23, "P1 reports cannot satisfy P2"), run by
-  `verify:verification-maintenance`.
+- VM10 (B4): an outcome citing the basis on the basis's own commit (findings without edits) refuses: it is no
+  corrected run. Maintenance reports open no implementation pass, handoff or integration. Post-handoff verifier repair
+  opening a successor pass with its own fresh Audit is the existing `implementation-successor` behavior (TP23, "P1
+  reports cannot satisfy P2"), run by `verify:verification-maintenance`.
 - VM11 (A1): the classification is assignment-agent work. The human local-admin and the host scheduling principal
   submitting it refuse before any report is retained.
 - VM12 (A2): runner receipts and classification reports are ordinary retained role reports: export holds their exact

@@ -10,6 +10,8 @@ export type VerificationSelection = {
 	rows: string[];
 	behavioralRows: string[];
 	receipts: string[];
+	/** Verify-maintain over every row; `basis` names the pre-edit classification a corrected run is judged against. */
+	maintenance?: { basis: string | null };
 };
 export type VerificationAssessment = { outcome: "pass" | "non-pass"; rank: string | null; reason: string };
 export type CatalogRow = {
@@ -20,6 +22,8 @@ export type CatalogRow = {
 	expectations: string;
 	rank: string | null;
 	literal: string;
+	/** Maintenance only: why this row's command or journey path no longer resolves. */
+	gap?: string;
 	journey?: { path: string; digest: string; text: string; steps: string[]; sanity: string };
 };
 export type SelectedCatalog = {
@@ -32,7 +36,7 @@ export type SelectedCatalog = {
 };
 export type CatalogResult = {
 	name: string;
-	status: "completed" | "failed" | "unrun" | "advisory";
+	status: "completed" | "failed" | "unrun" | "advisory" | "invalid";
 	steps: ExecutionResult[];
 	sanity?: ExecutionResult;
 };
@@ -43,7 +47,17 @@ export type CatalogEvidence = {
 	results: CatalogResult[];
 	verification: { status: string; inputCommit: string; inputTree: string; resultTree: string };
 	cleanup: { status: "complete" | "pending"; results: ExecutionResult[] };
+	/** Standalone runner receipts carry the literal entries of the source they ran. */
+	source?: { base: { entries: { path: string; mode: string; oid: string }[] } };
 };
+/** One row's verify-maintain status from its observed basis: changed is proven harness drift. */
+export type MaintenanceRow = {
+	status: "clean" | "changed" | "blocked";
+	reason: string;
+	cause?: "product" | "prerequisite";
+	compared?: string[];
+};
+export type Maintenance = Record<string, MaintenanceRow>;
 
 export function requiredCatalogRows(selection: VerificationSelection): string[] {
 	return [...new Set(["full-suite", "typecheck", "lint", ...selection.behavioralRows])];
@@ -119,5 +133,95 @@ export function completionGap(
 		if (selection.behavioralRows.includes(name)) weakest = Math.max(weakest, rank);
 	}
 	if (claimed < weakest || claimed > min || weakest > min) return "Passing rank exceeds required evidence or is below the project minimum.";
+	return undefined;
+}
+
+/** Report text `{schema:1, maintenance:{row:{status, reason, cause?, compared?}}}`, or undefined when malformed. */
+export function maintenanceReport(text: string): Maintenance | undefined {
+	try {
+		const v = JSON.parse(text);
+		if (v?.schema !== 1 || typeof v.maintenance !== "object" || !v.maintenance || Array.isArray(v.maintenance)) return;
+		for (const row of Object.values(v.maintenance) as MaintenanceRow[]) {
+			if (typeof row !== "object" || !row || typeof row.reason !== "string" || !row.reason.trim()) return;
+			if (!["clean", "changed", "blocked"].includes(row.status)) return;
+			if ((row.status === "blocked") !== ["product", "prerequisite"].includes(row.cause as string)) return;
+			if (row.compared !== undefined && !(Array.isArray(row.compared) && row.compared.every((n) => typeof n === "string"))) return;
+		}
+		return v.maintenance;
+	} catch {
+		return;
+	}
+}
+const ran = (row: CatalogRow, result: CatalogResult | undefined, digest: string) =>
+	row.kind === "generated"
+		? result?.status === "completed" && result.steps.every((s) => s.exitCode === 0 && !s.timedOut && s.verifierRevision === digest)
+		: rowExecuted(row, result, digest);
+/**
+ * Why a classification does not rest on its observed basis. Pre-edit (no basis): every non-human row classified once
+ * against an exact maintenance run, clean only when it executed. Against a basis: corrected source touches only
+ * verifier files, only rows classified changed are corrected and keep their expectations, and a changed claim is
+ * re-executed successfully.
+ */
+export function maintenanceGap(
+	selection: VerificationSelection,
+	role: string,
+	rows: Maintenance,
+	evidence: readonly CatalogEvidence[],
+	basis?: { selection: VerificationSelection; rows: Maintenance },
+): string | undefined {
+	const run = (s: VerificationSelection) =>
+		evidence.find(
+			(e) =>
+				e.kind === "catalog-check" &&
+				e.role === role &&
+				!!e.catalog.selection.maintenance &&
+				(["repository", "commit", "path", "digest"] as const).every((key) => e.catalog.selection[key] === s[key]) &&
+				e.verification.inputTree === e.verification.resultTree,
+		);
+	const current = run(selection);
+	if (!current) return "Cite this role's exact unchanged-source maintenance run of the selected asset.";
+	const rowsOf = (e: CatalogEvidence) => e.catalog.rows.filter((r) => r.kind !== "human");
+	const named = rowsOf(current).map((r) => r.name);
+	if (Object.keys(rows).length !== named.length || !named.every((name) => Object.hasOwn(rows, name)))
+		return "Classify every non-human row exactly once; human observations stay advisory.";
+	const dependents = rowsOf(current)
+		.filter((r) => r.kind !== "generated")
+		.map((r) => r.name);
+	for (const row of rowsOf(current)) {
+		const c = rows[row.name]!;
+		const executed = ran(
+			row,
+			current.results.find((r) => r.name === row.name),
+			selection.digest,
+		);
+		if (row.kind === "generated" && !c.compared?.every((name) => dependents.includes(name)))
+			return `Compare discovery ${row.name} with the dependent rows it indexes.`;
+		if (c.status === "clean" && !executed) return `Row ${row.name} did not execute successfully; it cannot be clean.`;
+		if (basis && c.status === "changed" && basis.rows[row.name]?.status !== "changed")
+			return `Row ${row.name} was not classified changed before editing.`;
+		if (basis && c.status === "changed" && !executed)
+			return `Re-execute corrected row ${row.name} successfully before claiming it changed.`;
+	}
+	if (!basis) return undefined;
+	const prior = run(basis.selection);
+	if (!prior) return "Cite the basis's exact maintenance run.";
+	if (prior.catalog.selection.commit === selection.commit) return "Findings without edits are no corrected run; cite corrected source.";
+	const verifier = new Set([selection.path, ...[prior, current].flatMap((e) => e.catalog.rows.flatMap((r) => r.journey?.path ?? []))]);
+	const entries = (e: CatalogEvidence) => new Map((e.source?.base.entries ?? []).map((x) => [x.path, `${x.mode} ${x.oid}`]));
+	const [before, after] = [entries(prior), entries(current)];
+	if (!before.size || !after.size) return "Maintenance runs must retain their literal source entries.";
+	for (const path of new Set([...before.keys(), ...after.keys()]))
+		if (before.get(path) !== after.get(path) && !verifier.has(path))
+			return `Maintenance corrects only the selected asset and its journeys; ${path} is separate accepted work.`;
+	const old = new Map(rowsOf(prior).map((r) => [r.name, r]));
+	if (old.size !== named.length || !named.every((name) => old.has(name))) return "Adding or removing rows changes expectations.";
+	for (const row of rowsOf(current)) {
+		const p = old.get(row.name)!;
+		if (basis.rows[row.name]?.status !== "changed") {
+			if (row.literal !== p.literal || row.journey?.digest !== p.journey?.digest)
+				return `Row ${row.name} was not classified changed before editing; its definition stays literal.`;
+		} else if (row.kind !== p.kind || row.expectations !== p.expectations || row.rank !== p.rank)
+			return `A drift correction keeps row ${row.name}'s kind, expectations and rank.`;
+	}
 	return undefined;
 }
