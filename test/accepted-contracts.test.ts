@@ -106,6 +106,7 @@ function fixture() {
 				constraints: [],
 				clarifications: [],
 				donePredicate: "Exact saved bytes",
+				facts: [],
 				approvedSources: ["source:1"],
 			}),
 		},
@@ -308,6 +309,27 @@ for (const [kind, row, run, expectations] of [
 		assert.ok(f.stage(m), "removing the false rank makes non-behavioral evidence eligible");
 	});
 }
+
+for (const field of ["goal", "donePredicate", "constraints", "facts"])
+	test(`ES01 shortened intake refuses human Ground without ${field}`, () => {
+		const f = fixture();
+		const ground = JSON.parse(f.inputs["ground:1"]!.text);
+		delete ground[field];
+		f.inputs["ground:1"]!.text = JSON.stringify(ground);
+		assert.deepEqual(
+			f.command({ type: "stageIntake", expected: null, text: "Contract", manifest: intakeManifest() }),
+			{
+				outcome: "refused",
+				code: "invalid_content",
+				reason: "Shortened intake requires human Ground with a goal, an independent done predicate, constraints and facts.",
+			},
+			`Ground without ${field} must not ground a commitment`,
+		);
+		assert.equal(f.state.intakes, undefined);
+		ground[field] = field === "constraints" || field === "facts" ? [] : "Restored";
+		f.inputs["ground:1"]!.text = JSON.stringify(ground);
+		assert.ok(f.stage());
+	});
 
 test("I12 matching change Ground still requires a bounded breakdown", () => {
 	const f = fixture();
