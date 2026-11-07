@@ -67,8 +67,11 @@ export async function fixture(
 		dependent?: boolean;
 		/** Trusted Forge configuration for the Engine's Effects (an owned fake GitHub in tests). */
 		forge?: ForgeConfig;
+		/** Accept `value` through the change intake rather than the compact bug path. */
+		change?: boolean;
 	} = {},
 ) {
+	const change = options.dependent || options.change;
 	const f = await catalogFixture(true, {
 		text: catalog().replaceAll("endpoint", "tests").replace("printf 'SUITE OK'", "sh verify-suite"),
 		...(options.forge ? { forge: options.forge } : {}),
@@ -422,7 +425,7 @@ export async function fixture(
 		"ground",
 		JSON.stringify({
 			schema: 1,
-			shape: { value: options.dependent ? "change" : "bug", origin: "human", confirmed: true },
+			shape: { value: change ? "change" : "bug", origin: "human", confirmed: true },
 			goal: "Change value",
 			constraints: [],
 			clarifications: [],
@@ -433,12 +436,12 @@ export async function fixture(
 	);
 	const manifest: IntakeManifest = {
 		schema: 1,
-		shape: options.dependent ? "change" : "bug",
+		shape: change ? "change" : "bug",
 		ground,
 		sources: [source],
 		decisions: [],
 		catalog: catalogRef,
-		breakdown: options.dependent ? "Change value, then build on it." : null,
+		breakdown: options.dependent ? "Change value, then build on it." : change ? "One bounded Slice." : null,
 		slices: [
 			{
 				id: "value",
