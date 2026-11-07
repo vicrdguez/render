@@ -1,0 +1,10 @@
+target/
+/.audit/
+/.state/
+/artifacts/
+/crates/*/Cargo.lock
+/crates/render-desktop/verification/
+/crates/render-desktop/brief-tree.json
+/crates/render-desktop/brief.png
+*.log
+.DS_Store

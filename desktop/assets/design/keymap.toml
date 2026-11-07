@@ -1,0 +1,1239 @@
+# Render client keymap: the single declarative table shared by the rune client and a future TUI.
+# Semantics: grammar.md. Lint rules: grammar.md §15. Cheat sheet is generated from this file.
+# Tiers: local (no host effect) · write (host write, no authority) · decide (authority: readback + y).
+# Key syntax: <leader> <C-x> <M-x> <S-x> <D-x> (D = Cmd, GUI only) <CR> <Esc> <Tab> <BS>, printable keys otherwise.
+# A <D-x> binding is an alias: its command always has a terminal-representable binding too (KL9).
+# The placeholder <label> (hint label) appears only in kind = "modal" entries; KL0 accepts it there.
+
+[meta]
+schema = 1
+leader = "<Space>"                 # ~/.config/nvim lua/options.lua: mapleader = " "
+whichkey_delay_ms = 300            # ~/.config/nvim: timeoutlen = 300
+layout_unfreeze_ms = 1500          # FC-T02: deferred list changes apply after this idle time
+hint_alphabet = "asdfghjkl"
+jumplist_size = 100
+digest_display = "4.4"             # widened to "8.8" on collision (FC-M19)
+
+[contexts]                         # child = parent; "" = root
+global = ""
+list = "global"
+reader = "global"
+review = "reader"
+diff = "reader"
+evidence = "reader"
+decision = "reader"
+chat = "reader"
+diagram = "reader"
+explorer = "list"                  # the list views: Slices, Proposals, Agents (SC-16, SC-08)
+slices = "explorer"                # the Slices list only: ␣sf and :filter live here
+filter = "slices"                  # the Slices filter float
+settings = "reader"                # SC-17 project settings
+editor = "global"
+prompt = "editor"
+composer = "editor"
+editbuf = "editor"
+picker = "global"
+readback = "global"
+hint = "global"
+handover = ""                      # the K / gk handover float over a list: an overlay with its own key set, nothing else passes (CD-08)
+
+[groups]                           # which-key labels (KL8)
+"<leader>" = "leader"
+"<leader>a" = "◇ authorize"
+"<leader>c" = "chat"
+"<leader>d" = "diagnose"
+"<leader>f" = "find"
+"<leader>h" = "help"
+"<leader>m" = "local"
+"<leader>o" = "open"
+"<leader>r" = "recover"
+"<leader>s" = "search"
+"<leader>t" = "toggle"
+"g" = "goto"
+"z" = "view"
+"Z" = "close"
+"]" = "next"
+"[" = "prev"
+
+# Reserved builtin sets: local tier by definition, countable, used by KL2 for prefix checks.
+[builtin]
+reader_motions = ["j", "k", "h", "l", "w", "b", "e", "0", "$", "gg", "G", "{", "}", "(", ")", "H", "M", "L",
+                  "<C-d>", "<C-u>", "<C-f>", "<C-b>", "<C-e>", "<C-y>", "zz", "zt", "zb", "zl", "zh", "n", "N", "*", "#", "/", "?"]
+list_motions = ["j", "k", "gg", "G", "<C-d>", "<C-u>", "n", "N", "/", "?"]
+editor_normal = ["h", "j", "k", "l", "w", "b", "e", "W", "B", "E", "0", "^", "$", "gg", "G", "f", "t", "F", "T", ";", ",",
+                 "d", "c", "y", "dd", "yy", "cc", "D", "C", "x", "p", "P", "J", "u", "<C-r>", ".", "v", "V",
+                 "i", "a", "I", "A", "o", "O", "r", "n", "N", "/", "?", "%"]
+editor_textobjects = ["iw", "aw", "ip", "ap", "is", "as", "i\"", "a\"", "i(", "a(", "i[", "a[", "i{", "a{", "iq", "aq", "ib", "ab"]
+editor_insert = ["<Esc>", "jk", "<C-w>", "<C-u>", "<CR>", "<C-CR>", "<C-t>", "<C-d>", "<C-j>", "<C-k>", "<C-f>", "<C-n>", "<C-p>", "<Tab>", "<BS>"]
+hint = ["<Esc>", "a", "s", "d", "f", "g", "h", "j", "k", "l"]      # hint mode: Esc leaves; the hint_alphabet letters are the labels (printed as chips)
+pending = ["<Esc>"]                # Esc cancels a pending prefix (the which-key head prints it as a chip)
+timeout_ok = ["jk"]                # KL2 single exception (user's insert-mode escape)
+
+# ───────────────────────────── global: views, finders, panes ─────────────────────────────
+
+[[command]]
+id = "view.switch"
+ex = "buffers"
+desc = "views"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader><leader>" }]
+
+[[command]]
+id = "find.object"
+ex = "find"
+desc = "find anything"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>." }]
+
+[[command]]
+id = "find.recent"
+ex = "recent"
+desc = "recent objects"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>fr" }]
+
+[[command]]
+id = "search.lines"
+ex = "lines"
+desc = "lines"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>/" }]
+
+[[command]]
+id = "search.global"
+ex = "grep"
+desc = "search everything"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>sg" }]
+
+[[command]]
+id = "picker.resume"
+ex = "resume"
+desc = "resume"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>'" }]
+
+[[command]]
+id = "palette"
+ex = "commands"
+desc = "commands"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>;" },
+        { mode = "n", ctx = "global", seq = "<D-k>" }]
+
+[[command]]
+id = "cmdline.history"
+ex = "history-cmd"
+desc = "command history"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>:" }]
+
+[[command]]
+id = "cmdline.open"
+ex = "cmdline"
+desc = "command line"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = ":" }, { mode = "v", ctx = "global", seq = ":" }]
+
+[[command]]
+id = "queue.open"
+ex = "queue"
+ex_aliases = ["brief"]
+desc = "the Brief"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>q" }]
+
+[[command]]
+id = "queue.next"
+ex = "qnext"
+desc = "next needs-you entry"
+tier = "local"
+kind = "motion"
+object = "q"
+jump = true
+countable = true
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "]q" }]
+
+[[command]]
+id = "queue.prev"
+ex = "qprev"
+desc = "prev needs-you entry"
+tier = "local"
+kind = "motion"
+object = "q"
+jump = true
+countable = true
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "[q" }]
+
+[[command]]
+id = "object.history"
+ex = "history"
+desc = "revision history"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>u" }]
+
+[[command]]
+id = "yank.clipboard"
+ex = "yank-clip"
+desc = "clipboard"
+tier = "local"
+kind = "operator"
+ctx = ["reader", "editor"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>y" }, { mode = "v", ctx = "global", seq = "<leader>y" }]
+
+[[command]]
+id = "diag.actions"
+ex = "actions"
+desc = "actions on this object"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>da" }]
+
+[[command]]
+id = "open.settings"
+ex = "settings"
+desc = "project settings"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>op" }]
+
+[[command]]
+id = "open.localprompt"
+ex = "localprompt"
+desc = "local-verification prompt"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>ol" }]
+
+[[command]]
+id = "localprompt.request"
+ex = "request-prompt"
+desc = "request a new local prompt"
+tier = "write"
+kind = "command"
+ctx = ["reader"]
+wire = ["requestLocalVerificationPrompt"]
+keys = []
+
+[[command]]
+id = "next.go"
+ex = "next"
+desc = "next action"
+tier = "local"
+kind = "command"
+jump = true
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>n" }]
+
+[[command]]
+id = "open.overview"
+ex = "overview"
+desc = "overview / andon"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>oo" }]
+
+[[command]]
+id = "open.chat"
+ex = "chat"
+desc = "coordinator chat"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>oc" }, { mode = "n", ctx = "global", seq = "<leader>cc", alias_of = "open.chat" }]
+
+[[command]]
+id = "open.evidence"
+ex = "evidence"
+desc = "evidence & receipts"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>oe" }]
+
+[[command]]
+id = "open.agents"
+ex = "agents"
+desc = "agents list"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+note = "Opens the Agents list (SC-08) as a tab."
+keys = [{ mode = "n", ctx = "global", seq = "<leader>oa" }]
+
+[[command]]
+id = "open.proposals"
+ex = "proposals"
+desc = "proposals list"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+note = "Opens the Proposals list (SC-16) as a tab; ⏎ on a row opens its Proposal page (SC-19)."
+keys = [{ mode = "n", ctx = "global", seq = "<leader>oP" }]
+
+[[command]]
+id = "open.dispositions"
+ex = "dispositions"
+desc = "annotation disposition map"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>om" }]
+
+[[command]]
+id = "open.messages"
+ex = "messages"
+desc = "message history"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = []
+
+[[command]]
+id = "open.jumps"
+ex = "jumps"
+desc = "jumplist"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = []
+
+[[command]]
+id = "open.marks"
+ex = "marks"
+desc = "marks"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = []
+
+[[command]]
+id = "help.topics"
+ex = "help"
+desc = "help topics"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>hh" }]
+
+[[command]]
+id = "help.keys"
+ex = "keys"
+desc = "keymap cheat sheet"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>hk" }]
+
+[[command]]
+id = "help.theme"
+ex = "theme"
+desc = "theme: ember / soft / light"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>ht" }]
+
+[[command]]
+id = "work.new"
+ex = "new"
+desc = "new workflow from an idea"
+tier = "write"
+kind = "command"
+ctx = ["global"]
+wire = ["createDesign"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>cn" }]
+
+[[command]]
+id = "toggle.follow"
+ex = "follow"
+desc = "follow stream"
+tier = "local"
+kind = "command"
+ctx = ["chat"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>tf" }]
+
+[[command]]
+id = "toggle.measure"
+ex = "measure"
+desc = "prose measure: 80 ch / wide"
+tier = "local"
+kind = "command"
+ctx = ["reader"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>tw" }]
+
+[[command]]
+id = "toggle.numbers"
+ex = "numbers"
+desc = "relative line numbers"
+tier = "local"
+kind = "command"
+ctx = ["reader", "editor"]
+keys = []   # ex only (:numbers)
+
+[[command]]
+id = "toggle.prosefont"
+ex = "prosefont"
+desc = "prose face: Etoile / Iosevka"
+tier = "local"
+kind = "command"
+ctx = ["reader"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>tp" }]
+
+[[command]]
+id = "toggle.mermaid"
+ex = "mermaid-source"
+desc = "diagram: render/source"
+tier = "local"
+kind = "command"
+ctx = ["reader"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>tm" }]
+
+# Splits are not in v1 (CD-04). Reserved, unbound, and never to be reused for anything else:
+# <C-h> <C-j> <C-k> <C-l>, the whole <leader>w group, the whole <C-w> group, and <C-v> <C-s> in pickers.
+# They come back with their nvim meanings (pane moves, split, close, balance, maximize) if splits do (grammar.md §6).
+
+# ───────────────────────────── global: navigation verbs ─────────────────────────────
+
+[[command]]
+id = "jump.back"
+ex = "jump-back"
+desc = "jump back"
+tier = "local"
+kind = "command"
+countable = true
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<C-o>" }]
+
+[[command]]
+id = "jump.forward"
+ex = "jump-forward"
+desc = "jump forward"
+tier = "local"
+kind = "command"
+countable = true
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<C-i>", tui = "legacy-as-tab" }]
+
+[[command]]
+id = "mark.set"
+ex = "mark"
+desc = "set mark"
+tier = "local"
+kind = "prefixarg"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "m" }]
+
+[[command]]
+id = "mark.jump.line"
+ex = "jump-mark"
+desc = "jump to mark"
+tier = "local"
+kind = "prefixarg"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "'" }]
+
+[[command]]
+id = "mark.jump.exact"
+ex = "jump-mark-exact"
+desc = "jump to mark (exact)"
+tier = "local"
+kind = "prefixarg"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "`" }]
+
+[[command]]
+id = "hint.pane"
+ex = "hints"
+desc = "hint: targets in pane"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "gs" }]
+
+[[command]]
+id = "goto.definition"
+ex = "def"
+desc = "go to referenced object"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "gd" }]
+
+[[command]]
+id = "goto.evidence"
+ex = "evidence-for"
+desc = "evidence for this"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "gi" }]
+
+[[command]]
+id = "goto.basis"
+ex = "basis"
+desc = "accepted basis it binds"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "gD" }]
+
+[[command]]
+id = "peek"
+ex = "peek"
+desc = "peek: reference or handover"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+note = "On a reference: the peek. On a list row: the handover float, which follows j/k; a list's right-hand peek gives way while it is open."
+keys = [{ mode = "n", ctx = "global", seq = "K" }]
+
+[[command]]
+id = "blocker.float"
+ex = "blocker"
+desc = "handover, blocker in full"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "gk" }]
+
+[[command]]
+id = "yank.ref"
+ex = "yank-ref"
+desc = "yank stable reference"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "gy" }, { mode = "v", ctx = "global", seq = "gy" }]
+
+[[command]]
+id = "link.external"
+ex = "open-url"
+desc = "open external link"
+tier = "local"
+kind = "command"
+confirm_local = true
+ctx = ["reader"]
+keys = [{ mode = "n", ctx = "reader", seq = "gx" }]
+
+[[command]]
+id = "parent"
+ex = "parent"
+desc = "parent object"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "-" }]
+
+[[command]]
+id = "float.close"
+ex = "close-float"
+desc = "close float / full diagram"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+note = "The diagram full view is a float: q, Esc and Enter leave it and restore the panes (FC-K08)."
+keys = [{ mode = "n", ctx = "global", seq = "q" }, { mode = "n", ctx = "diagram", seq = "<Esc>" }, { mode = "n", ctx = "diagram", seq = "<CR>", shadows = "parent" }]
+
+[[command]]
+id = "problem.next"
+ex = "dnext"
+desc = "next problem mark"
+tier = "local"
+kind = "motion"
+object = "d"
+jump = false
+countable = true
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "]d" }]
+
+[[command]]
+id = "problem.prev"
+ex = "dprev"
+desc = "prev problem mark"
+tier = "local"
+kind = "motion"
+object = "d"
+jump = false
+countable = true
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "[d" }]
+
+# ───────────────────────────── lists ─────────────────────────────
+
+[[command]]
+id = "list.open"
+ex = "open"
+desc = "open"
+tier = "local"
+kind = "command"
+ctx = ["list", "reader"]
+keys = [{ mode = "n", ctx = "list", seq = "<CR>" }, { mode = "n", ctx = "list", seq = "l" }, { mode = "n", ctx = "reader", seq = "<CR>" }]
+
+[[command]]
+id = "list.up"
+ex = "up"
+desc = "up / parent"
+tier = "local"
+kind = "command"
+ctx = ["list"]
+keys = [{ mode = "n", ctx = "list", seq = "h" }]
+
+[[command]]
+id = "list.expand"
+ex = "expand"
+desc = "expand row"
+tier = "local"
+kind = "command"
+ctx = ["list"]
+keys = [{ mode = "n", ctx = "list", seq = "za" }]
+
+# ───────────────────────────── explorer (SC-16) ─────────────────────────────
+
+[[command]]
+id = "open.explorer"
+ex = "explorer"
+desc = "slices list"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+note = "Opens the Slices list (SC-16) as a tab, with the last filter used on this device."
+keys = [{ mode = "n", ctx = "global", seq = "<leader>os" }]
+
+[[command]]
+id = "view.tab_next"
+ex = "tabnext"
+desc = "next view tab ({N}gt: tab N)"
+tier = "local"
+kind = "command"
+countable = true
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "gt" }]
+
+[[command]]
+id = "view.tab_prev"
+ex = "tabprev"
+desc = "previous view tab"
+tier = "local"
+kind = "command"
+countable = true
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "gT" }]
+
+[[command]]
+id = "filter.toggle"
+ex = "filter-toggle"
+desc = "toggle state in filter"
+tier = "local"
+kind = "command"
+ctx = ["filter"]
+note = "x again undoes. No states selected = all open states."
+keys = [{ mode = "n", ctx = "filter", seq = "x" }]
+
+[[command]]
+id = "filter.solo"
+ex = "filter-solo"
+desc = "show only this state"
+tier = "local"
+kind = "command"
+ctx = ["filter"]
+keys = [{ mode = "n", ctx = "filter", seq = "X" }]
+
+[[command]]
+id = "filter.cmd"
+ex = "filter"
+desc = "set, save or apply a filter"
+tier = "local"
+kind = "command"
+ctx = ["slices"]
+note = "Slices list only; on Proposals and Agents ␣sf is unbound. ␣sf or bare :filter opens the filter float. :filter needs-human,awaiting-review · :filter +rework · :filter -merged · :filter clear · :filter save <name> · :filter <name> · :filter forget <name>. Saved filters are device-local."
+keys = [{ mode = "n", ctx = "slices", seq = "<leader>sf" }]
+
+[[command]]
+id = "group.next"
+ex = "gnext"
+desc = "next / prev group"
+tier = "local"
+kind = "motion"
+object = "g"
+jump = false
+countable = true
+ctx = ["list"]
+keys = [{ mode = "n", ctx = "list", seq = "]g" }, { mode = "n", ctx = "list", seq = "[g" }]
+
+# ───────────────────────────── readers: objects, folds, operators ─────────────────────────────
+
+[[command]]
+id = "annotate"
+ex = "annotate"
+desc = "annotate range"
+tier = "local"
+kind = "operator"
+ctx = ["review", "diff"]
+keys = [{ mode = "n", ctx = "reader", seq = "c" }, { mode = "v", ctx = "reader", seq = "c" },
+        { mode = "n", ctx = "reader", seq = "gc", alias_of = "annotate" }, { mode = "v", ctx = "reader", seq = "gc", alias_of = "annotate" }]
+
+[[command]]
+id = "yank"
+ex = "yank"
+desc = "yank text"
+tier = "local"
+kind = "operator"
+ctx = ["reader"]
+keys = [{ mode = "n", ctx = "reader", seq = "y" }, { mode = "v", ctx = "reader", seq = "y" }]
+
+[[command]]
+id = "draft.edit"
+ex = "edit-draft"
+desc = "edit draft under cursor"
+tier = "local"
+kind = "command"
+ctx = ["review", "diff", "decision"]
+keys = [{ mode = "n", ctx = "review", seq = "i" }, { mode = "n", ctx = "diff", seq = "i" }, { mode = "n", ctx = "decision", seq = "o" }]
+
+[[command]]
+id = "draft.discard"
+ex = "discard-draft"
+desc = "discard local draft"
+tier = "local"
+kind = "command"
+effect = "discard"
+local_only = true
+ctx = ["review", "diff", "decision"]
+keys = [{ mode = "n", ctx = "reader", seq = "dd" }]
+
+[[command]]
+id = "draft.undo"
+ex = "undo"
+desc = "undo draft change"
+tier = "local"
+kind = "command"
+countable = true
+ctx = ["reader"]
+keys = [{ mode = "n", ctx = "reader", seq = "u" }]
+
+[[command]]
+id = "draft.redo"
+ex = "redo"
+desc = "redo draft change"
+tier = "local"
+kind = "command"
+countable = true
+ctx = ["reader"]
+keys = [{ mode = "n", ctx = "reader", seq = "<C-r>" }]
+
+[[command]]
+id = "repeat"
+ex = "repeat"
+desc = "repeat last local op"
+tier = "local"
+kind = "command"
+ctx = ["reader"]
+keys = [{ mode = "n", ctx = "reader", seq = "." }]
+
+[[command]]
+id = "fold.toggle"
+ex = "fold"
+desc = "toggle fold"
+tier = "local"
+kind = "command"
+ctx = ["reader"]
+keys = [{ mode = "n", ctx = "reader", seq = "za" }, { mode = "n", ctx = "reader", seq = "zo" }, { mode = "n", ctx = "reader", seq = "zc" },
+        { mode = "n", ctx = "reader", seq = "zR" }, { mode = "n", ctx = "reader", seq = "zM" }]
+
+[[command]]
+id = "node.next"
+ex = "nnext"
+desc = "next node"
+tier = "local"
+kind = "motion"
+object = "n"
+jump = false
+countable = true
+ctx = ["review", "diff"]
+keys = [{ mode = "n", ctx = "reader", seq = "]n" }, { mode = "n", ctx = "reader", seq = "[n" }, { mode = "n", ctx = "reader", seq = "]N" }, { mode = "n", ctx = "reader", seq = "[N" }]
+
+[[command]]
+id = "annotation.next"
+ex = "anext"
+desc = "next unresolved annotation"
+tier = "local"
+kind = "motion"
+object = "a"
+jump = false
+countable = true
+ctx = ["review", "diff"]
+keys = [{ mode = "n", ctx = "reader", seq = "]a" }, { mode = "n", ctx = "reader", seq = "[a" }, { mode = "n", ctx = "reader", seq = "]A" }, { mode = "n", ctx = "reader", seq = "[A" }]
+
+[[command]]
+id = "hunk.next"
+ex = "hnext"
+desc = "next hunk"
+tier = "local"
+kind = "motion"
+object = "h"
+jump = false
+countable = true
+ctx = ["diff"]
+keys = [{ mode = "n", ctx = "reader", seq = "]h" }, { mode = "n", ctx = "reader", seq = "[h" }, { mode = "n", ctx = "reader", seq = "]H" }, { mode = "n", ctx = "reader", seq = "[H" },
+        { mode = "n", ctx = "reader", seq = "]c", alias_of = "hunk.next" }, { mode = "n", ctx = "reader", seq = "[c", alias_of = "hunk.next" }]
+
+[[command]]
+id = "finding.next"
+ex = "fnext"
+desc = "next finding"
+tier = "local"
+kind = "motion"
+object = "f"
+jump = false
+countable = true
+ctx = ["evidence"]
+keys = [{ mode = "n", ctx = "reader", seq = "]f" }, { mode = "n", ctx = "reader", seq = "[f" }, { mode = "n", ctx = "reader", seq = "]F" }, { mode = "n", ctx = "reader", seq = "[F" }]
+
+[[command]]
+id = "obligation.next"
+ex = "onext"
+desc = "next obligation"
+tier = "local"
+kind = "motion"
+object = "o"
+jump = false
+countable = true
+ctx = ["evidence", "decision"]
+keys = [{ mode = "n", ctx = "reader", seq = "]o" }, { mode = "n", ctx = "reader", seq = "[o" }, { mode = "n", ctx = "reader", seq = "]O" }, { mode = "n", ctx = "reader", seq = "[O" }]
+
+[[command]]
+id = "message.next"
+ex = "mnext"
+desc = "next message"
+tier = "local"
+kind = "motion"
+object = "m"
+jump = false
+countable = true
+ctx = ["chat"]
+keys = [{ mode = "n", ctx = "reader", seq = "]m" }, { mode = "n", ctx = "reader", seq = "[m" }, { mode = "n", ctx = "reader", seq = "]M" }, { mode = "n", ctx = "reader", seq = "[M" }]
+
+[[command]]
+id = "toolcall.next"
+ex = "tnext"
+desc = "next tool call"
+tier = "local"
+kind = "motion"
+object = "t"
+jump = false
+countable = true
+ctx = ["chat"]
+keys = [{ mode = "n", ctx = "reader", seq = "]t" }, { mode = "n", ctx = "reader", seq = "[t" }]
+
+[[command]]
+id = "textobject.render"
+ex = "textobjects"
+desc = "node/hunk/message objects"
+tier = "local"
+kind = "textobject"
+ctx = ["reader"]
+chars = { n = "node", h = "hunk", m = "message", p = "paragraph", s = "sentence", w = "word" }
+keys = []
+
+# ───────────────────────────── review (localleader) ─────────────────────────────
+
+[[command]]
+id = "review.save"
+ex = "w"
+desc = "save annotations to host"
+tier = "write"
+kind = "command"
+ctx = ["review", "diff", "editbuf"]
+wire = ["saveAnnotations", "saveEditedBytes"]
+keys = [{ mode = "n", ctx = "reader", seq = "<leader>ms" }]
+
+[[command]]
+id = "review.save_close"
+ex = "wq"
+desc = "save and close view"
+tier = "write"
+kind = "command"
+ctx = ["review", "diff", "decision", "editbuf"]
+wire = ["saveAnnotations", "saveEditedBytes"]
+ex_aliases = ["x"]
+keys = [{ mode = "n", ctx = "global", seq = "ZZ" }]
+
+[[command]]
+id = "view.close"
+ex = "q"
+desc = "close view (refuses with drafts)"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = []
+
+[[command]]
+id = "view.close_discard"
+ex = "q!"
+desc = "close, discard local drafts"
+tier = "local"
+kind = "command"
+effect = "discard"
+local_only = true
+confirm_local = true
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "ZQ" }]
+
+[[command]]
+id = "app.quit"
+ex = "qa"
+desc = "quit (drafts kept locally)"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = []
+
+[[command]]
+id = "review.note_here"
+ex = "note"
+desc = "note on paragraph or selection"
+tier = "local"
+kind = "command"
+ctx = ["review", "diff"]
+note = "FC-K19: the discoverable entry to annotate. Normal: notes the paragraph or node under the cursor (= c ip). Visual: notes the selection (= c). c stays the operator."
+keys = [{ mode = "n", ctx = "review", seq = "<leader>mn" }, { mode = "v", ctx = "review", seq = "<leader>mn" }]
+
+[[command]]
+id = "review.edit_bytes"
+ex = "edit"
+desc = "edit emission bytes"
+tier = "local"
+kind = "command"
+ctx = ["review"]
+keys = [{ mode = "n", ctx = "review", seq = "<leader>me" }]
+
+[[command]]
+id = "review.diff_prev"
+ex = "diff-prev"
+desc = "diff previous emission"
+tier = "local"
+kind = "command"
+ctx = ["review", "diff"]
+keys = [{ mode = "n", ctx = "reader", seq = "<leader>md" }]
+
+[[command]]
+id = "review.outline"
+ex = "outline"
+desc = "toggle node outline"
+tier = "local"
+kind = "command"
+ctx = ["review", "diff", "evidence"]
+keys = [{ mode = "n", ctx = "reader", seq = "<leader>mo" }]
+
+# ───────────────────────────── chat ─────────────────────────────
+[[command]]
+id = "chat.focus_prompt"
+ex = "prompt"
+desc = "write in prompt"
+tier = "local"
+kind = "command"
+ctx = ["chat"]
+keys = [{ mode = "n", ctx = "chat", seq = "i" }, { mode = "n", ctx = "chat", seq = "a" }, { mode = "n", ctx = "chat", seq = "o" },
+        { mode = "n", ctx = "global", seq = "<leader>cp" }]
+
+[[command]]
+id = "chat.send"
+ex = "send"
+desc = "send (prompt or steer)"
+tier = "write"
+kind = "command"
+ctx = ["prompt"]
+wire = ["sendMessage"]
+keys = [{ mode = "n", ctx = "prompt", seq = "<CR>" },
+        { mode = "i", ctx = "prompt", seq = "<D-CR>" }]
+
+[[command]]
+id = "chat.followup"
+ex = "followup"
+desc = "queue as follow-up"
+tier = "write"
+kind = "command"
+ctx = ["prompt", "chat"]
+wire = ["sendMessage"]
+keys = [{ mode = "n", ctx = "prompt", seq = "<M-CR>", tui = "kitty", tui_alt = "<leader>cf" },
+        { mode = "i", ctx = "prompt", seq = "<M-CR>", tui = "kitty", tui_alt = "<leader>cf" },
+        { mode = "n", ctx = "global", seq = "<leader>cf" }]
+
+[[command]]
+id = "chat.interrupt"
+ex = "interrupt"
+desc = "interrupt current turn"
+tier = "write"
+kind = "command"
+ctx = ["chat", "list"]
+wire = ["interruptTurn"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>cx" }]
+
+[[command]]
+id = "chat.queue"
+ex = "steer-queue"
+desc = "steering queue"
+tier = "local"
+kind = "command"
+ctx = ["chat"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>cq" }]
+
+[[command]]
+id = "chat.follow_resume"
+ex = "follow-on"
+desc = "jump to end, follow"
+tier = "local"
+kind = "command"
+ctx = ["chat"]
+keys = []   # G in chat resumes follow (builtin motion; behaviour, not a separate binding)
+
+# ───────────────────────────── recover ─────────────────────────────
+
+[[command]]
+id = "recover.refresh"
+ex = "refresh"
+desc = "fresh snapshot"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>rr" }]
+
+[[command]]
+id = "recover.outbox"
+ex = "outbox"
+desc = "pending / unknown commands"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>ru" }]
+
+[[command]]
+id = "recover.query"
+ex = "receipt"
+desc = "query receipt (no execute)"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+wire = ["queryReceipt"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>rq" }]
+
+[[command]]
+id = "recover.retry"
+ex = "retry"
+desc = "retry with original ID"
+tier = "write"
+kind = "command"
+ctx = ["list"]
+wire = ["resend"]
+keys = [{ mode = "n", ctx = "list", seq = "<leader>rt" }]
+
+[[command]]
+id = "recover.reconnect"
+ex = "reconnect"
+desc = "reconnect now"
+tier = "local"
+kind = "command"
+ctx = ["global"]
+keys = [{ mode = "n", ctx = "global", seq = "<leader>rc" }]
+
+[[command]]
+id = "diagram.zoom"
+ex = "zoom"
+desc = "diagram zoom in / out / reset"
+tier = "local"
+kind = "command"
+ctx = ["diagram"]
+note = "From fit-to-window to 200 %; labels never below 12 px. h j k l pan as normal motions."
+keys = [{ mode = "n", ctx = "diagram", seq = "+" }, { mode = "n", ctx = "diagram", seq = "-", shadows = "parent" }, { mode = "n", ctx = "diagram", seq = "=" }]
+
+# ───────────────────────────── authority (◆) ─────────────────────────────
+# KL4: only under <leader>a, never countable/repeatable, never in editors, backed by a host decidable (wire). The readback renders the host's Basis.fields, so commands no longer list fields (challenge 4). Commands whose readback needs the basis on screen are not offered in list contexts (challenge 2).
+# One authority tier (decide). Deferred: revoking a device from a client (Q16).
+
+[[command]]
+id = "auth.approve"
+ex = "approve"
+desc = "◆ approve emission"
+tier = "decide"
+kind = "command"
+ctx = ["review", "diff"]
+wire = ["approveCheckpoint"]
+repeatable = false
+countable = false
+keys = [{ mode = "n", ctx = "global", seq = "<leader>aa" }]
+
+[[command]]
+id = "auth.rework"
+ex = "rework"
+desc = "◆ request rework"
+tier = "decide"
+kind = "command"
+ctx = ["review", "diff"]
+wire = ["requestRework"]
+repeatable = false
+countable = false
+keys = [{ mode = "n", ctx = "global", seq = "<leader>ar" }]
+
+[[command]]
+id = "auth.decide"
+ex = "decide"
+desc = "◆ answer decision"
+tier = "decide"
+kind = "command"
+ctx = ["decision"]
+wire = ["recordDecision"]
+repeatable = false
+countable = false
+keys = [{ mode = "n", ctx = "global", seq = "<leader>ad" }]
+
+[[command]]
+id = "auth.shape"
+ex = "confirm-shape"
+desc = "◆ confirm task shape"
+tier = "decide"
+kind = "command"
+ctx = ["decision", "review"]
+wire = ["confirmShape"]
+repeatable = false
+countable = false
+keys = [{ mode = "n", ctx = "global", seq = "<leader>as" }]
+
+[[command]]
+id = "auth.accept"
+ex = "accept"
+desc = "◆ accept / supersede Contract"
+tier = "decide"
+kind = "command"
+ctx = ["review", "evidence"]
+wire = ["acceptIntake", "acceptAmendment", "supersedeContract"]
+repeatable = false
+countable = false
+keys = [{ mode = "n", ctx = "global", seq = "<leader>ac" }]
+
+[[command]]
+id = "auth.routing"
+ex = "routing"
+desc = "◆ checkpoint routing"
+tier = "decide"
+kind = "command"
+ctx = ["settings"]
+wire = ["setCheckpointSettings"]
+repeatable = false
+countable = false
+keys = [{ mode = "n", ctx = "global", seq = "<leader>at" }]
+
+[[command]]
+id = "auth.policy"
+ex = "policy"
+desc = "◆ review policy: save / adopt"
+tier = "decide"
+kind = "command"
+ctx = ["settings"]
+wire = ["savePolicyRevision", "adoptPolicy"]
+repeatable = false
+countable = false
+keys = [{ mode = "n", ctx = "global", seq = "<leader>ap" }]
+
+[[command]]
+id = "auth.cancel"
+ex = "cancel"
+desc = "◆ cancel work"
+tier = "decide"
+kind = "command"
+ctx = ["list", "chat", "evidence", "review"]
+wire = ["cancelWork"]
+repeatable = false
+countable = false
+keys = [{ mode = "n", ctx = "global", seq = "<leader>ax" }]
+
+# ───────────────────────────── modal keymaps (readback, hint, handover, picker) ─────────────────────────────
+[[command]]
+id = "readback.confirm"
+ex = "-"
+desc = "confirm"
+tier = "local"
+kind = "modal"
+ctx = ["readback"]
+note = "Dispatches the pinned authority command. Ignores keys before readback presentation and auto-repeat."
+keys = [{ mode = "rb", ctx = "readback", seq = "y" }]
+
+[[command]]
+id = "readback.cancel"
+ex = "-"
+desc = "cancel"
+tier = "local"
+kind = "modal"
+ctx = ["readback"]
+keys = [{ mode = "rb", ctx = "readback", seq = "n" }, { mode = "rb", ctx = "readback", seq = "<Esc>" }, { mode = "rb", ctx = "readback", seq = "q" }, { mode = "rb", ctx = "readback", seq = "<C-c>" }]
+
+[[command]]
+id = "readback.details"
+ex = "-"
+desc = "full basis / stale diff"
+tier = "local"
+kind = "modal"
+ctx = ["readback"]
+keys = [{ mode = "rb", ctx = "readback", seq = "K" }, { mode = "rb", ctx = "readback", seq = "d" }]
+
+[[command]]
+id = "hint.select"
+ex = "-"
+desc = "select label (moves cursor only)"
+tier = "local"
+kind = "modal"
+ctx = ["hint"]
+keys = [{ mode = "h", ctx = "hint", seq = "<label>" }, { mode = "h", ctx = "hint", seq = "<Esc>" }, { mode = "h", ctx = "hint", seq = "<BS>" }]
+
+[[command]]
+id = "handover.keys"
+ex = "-"
+desc = "handover float keys"
+tier = "local"
+kind = "modal"
+ctx = ["handover"]
+note = "While K or gk shows the handover over a list: j k move the list cursor and the float follows; ⏎ opens the row's object; ␣n opens its next action; K, q and Esc close. Every other key is inert. The badge stays NORMAL."
+keys = [{ mode = "ho", ctx = "handover", seq = "j" }, { mode = "ho", ctx = "handover", seq = "k" },
+        { mode = "ho", ctx = "handover", seq = "<CR>" }, { mode = "ho", ctx = "handover", seq = "<leader>n" },
+        { mode = "ho", ctx = "handover", seq = "K" }, { mode = "ho", ctx = "handover", seq = "q" }, { mode = "ho", ctx = "handover", seq = "<Esc>" }]
+
+[[command]]
+id = "picker.keys"
+ex = "-"
+desc = "picker keys (fzf-lua habits)"
+tier = "local"
+kind = "modal"
+ctx = ["picker"]
+keys = [{ mode = "c", ctx = "picker", seq = "<C-j>" }, { mode = "c", ctx = "picker", seq = "<C-k>" },
+        { mode = "c", ctx = "picker", seq = "<C-n>" }, { mode = "c", ctx = "picker", seq = "<C-p>" },
+        { mode = "c", ctx = "picker", seq = "<CR>" },
+        { mode = "c", ctx = "picker", seq = "<C-l>" }, { mode = "c", ctx = "picker", seq = "<Tab>" },
+        { mode = "c", ctx = "picker", seq = "<Esc>" }, { mode = "c", ctx = "picker", seq = "<C-c>" }]

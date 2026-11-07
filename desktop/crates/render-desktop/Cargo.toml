@@ -1,0 +1,20 @@
+[package]
+name = "render-desktop"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rune.workspace = true
+render-core = { path = "../render-core" }
+render-host = { path = "../render-host" }
+render-keymap = { path = "../render-keymap" }
+render-editor = { path = "../render-editor" }
+render-content = { path = "../render-content" }
+render-store = { path = "../render-store" }
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSWindow", "NSScreen", "NSGraphics", "NSResponder"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSDictionary", "NSString", "NSValue"] }

@@ -1,0 +1,18 @@
+pub static FONTS: &[&[u8]] = &[
+    include_bytes!("../../../assets/fonts/IosevkaEtoile-Regular.ttf"),
+    include_bytes!("../../../assets/fonts/IosevkaEtoile-Italic.ttf"),
+    include_bytes!("../../../assets/fonts/IosevkaEtoile-Medium.ttf"),
+    include_bytes!("../../../assets/fonts/IosevkaEtoile-MediumItalic.ttf"),
+    include_bytes!("../../../assets/fonts/IosevkaEtoile-SemiBold.ttf"),
+    include_bytes!("../../../assets/fonts/IosevkaEtoile-SemiBoldItalic.ttf"),
+    include_bytes!("../../../assets/fonts/IosevkaEtoile-Bold.ttf"),
+    include_bytes!("../../../assets/fonts/IosevkaEtoile-BoldItalic.ttf"),
+    include_bytes!("../../../assets/fonts/Iosevka-Regular.ttf"),
+    include_bytes!("../../../assets/fonts/Iosevka-Italic.ttf"),
+    include_bytes!("../../../assets/fonts/Iosevka-Medium.ttf"),
+    include_bytes!("../../../assets/fonts/Iosevka-MediumItalic.ttf"),
+    include_bytes!("../../../assets/fonts/Iosevka-SemiBold.ttf"),
+    include_bytes!("../../../assets/fonts/Iosevka-SemiBoldItalic.ttf"),
+    include_bytes!("../../../assets/fonts/Iosevka-Bold.ttf"),
+    include_bytes!("../../../assets/fonts/Iosevka-BoldItalic.ttf"),
+];

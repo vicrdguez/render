@@ -1,0 +1,11 @@
+[package]
+name = "render-content"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rune = { git = "https://github.com/anomalyco/rune", rev = "781e2b6d87cd5f32d6f4365956fad4baaf24ee50" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "781e2b6d87cd5f32d6f4365956fad4baaf24ee50" }
+rune-mermaid = { git = "https://github.com/anomalyco/rune", rev = "781e2b6d87cd5f32d6f4365956fad4baaf24ee50" }
+pulldown-cmark = "0.13"
+serde_json = "1"
