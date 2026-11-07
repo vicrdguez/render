@@ -1,6 +1,7 @@
 // BJ16: owned Linux execution proves the regression red on the reported behavior and correct on prepared X.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { setTimeout } from "node:timers/promises";
 import type { ImplementationPass } from "../src/kernel/roles.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import { accepted, captureFile, fixture } from "./support/implementation-engine.ts";
@@ -14,7 +15,11 @@ test("BJ16 a missing tool is reported, the real failure is red-on-the-bug, and p
 	try {
 		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
 		const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
-		await t.wait(() => /^awaiting_watchdog/.test(passes()[0]?.handoff?.blocker ?? ""), "bug pass prepared and checked");
+		const deadline = Date.now() + 120000;
+		while (!/^awaiting_watchdog/.test(passes()[0]?.handoff?.blocker ?? "")) {
+			assert.ok(Date.now() < deadline, `bug pass prepared and checked: ${JSON.stringify(passes())}`);
+			await setTimeout(100);
+		}
 		const read = async (ref: string) => {
 			const value = await t.f.ledger.artifact(admin, { read: ref });
 			assert.ok("content" in value, `read ${ref}`);

@@ -19,6 +19,7 @@ import {
 	preparationBase,
 	preparationRecord,
 	type ReturnObservation,
+	reproductionOutcome,
 	returnObservation,
 	reviewChecks,
 	reviewSelection,
@@ -29,7 +30,7 @@ import {
 	type WatchdogBinding,
 	watchdogVerdict,
 } from "./implementation.ts";
-import { consumeIntake, type IntakeReview, intakeAssignmentGap } from "./intake.ts";
+import { bugReproduction, consumeIntake, type IntakeReview, intakeAssignmentGap } from "./intake.ts";
 import {
 	cancelHandoff,
 	changeIntegration,
@@ -85,6 +86,8 @@ export type ImplementationPass = {
 	configuration: PassConfiguration;
 	captureA?: string;
 	captureB?: string;
+	/** Bug Contracts: the latest pre-fix reproduction before A; Audit source A needs a red one on some pass of the Contract. */
+	reproduction?: { source: string; red: boolean; reason: string };
 	workspace?: string;
 	audit?: {
 		ref: string;
@@ -171,7 +174,7 @@ export type RoleCommand =
 			assignment: string;
 			generation: number;
 			attempt: string;
-			kind: "audit" | "final" | "checkpoint";
+			kind: "audit" | "final" | "checkpoint" | "reproduction";
 			text: string;
 	  }
 	| { type: "requestImplementationAudit"; workflow: string }
@@ -1057,7 +1060,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 					delete pass.captureB;
 					break;
 				}
-				if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024 || !["audit", "final", "checkpoint"].includes(c.kind))
+				if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024 || !["audit", "final", "checkpoint", "reproduction"].includes(c.kind))
 					return refusal("invalid_content", "Complete literal source must fit retained source bounds.");
 				if (
 					!sourceScopeMatches(facts.implementationSource, a) ||
@@ -1074,6 +1077,20 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 						"A successor's first capture must descend from its host-selected base, not a worker-chosen parent.",
 					);
 				if (c.kind === "audit" && pass.captureA) return refusal("assignment_closed", "Audit A is immutable and captured once.");
+				const bug = bugReproduction(state.intakes, pass.contract);
+				if (c.kind === "reproduction") {
+					if (pass.captureA) return refusal("assignment_closed", "Reproduction precedes product code: record it before Audit source A.");
+					if (!bug) return refusal("invalid_content", "Only a bug Contract records a reproduction.");
+				}
+				if (
+					c.kind === "audit" &&
+					bug &&
+					!work.passes!.some((p) => p.workflow === pass.workflow && p.contract === pass.contract && p.reproduction?.red)
+				)
+					return refusal(
+						"missing_content",
+						`Bug correction needs red-on-the-bug reproduction before Audit: ${pass.reproduction?.reason ?? "record the regression check failing on the reported wrong behavior before product code."}`,
+					);
 				if (c.kind === "final" && !pass.audit) return refusal("missing_content", "Request this pass's Audit before final capture.");
 				if (c.kind !== "checkpoint") {
 					const gap = implementationEvidenceGap(facts.implementationSource, pass);
@@ -1083,6 +1100,12 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				pass.workspace = ref;
 				if (c.kind === "audit") pass.captureA = ref;
 				if (c.kind === "final") pass.captureB = ref;
+				if (c.kind === "reproduction") {
+					const outcome = reproductionOutcome(facts.implementationSource!.verification!, bug!.rows, bug!.observed);
+					pass.reproduction = { source: ref, ...outcome };
+					result.reproduction = outcome.red ? "red" : "not-reproduced";
+					result.reason = outcome.reason;
+				}
 				result.source = ref;
 				result.passRef = pass.ref;
 				break;
