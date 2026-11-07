@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import type { Intakes } from "../src/kernel/intake.ts";
 import type { ImplementationPass } from "../src/kernel/roles.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import { accepted, effectsStore, fixture, proposalRef } from "./support/implementation-engine.ts";
@@ -153,6 +154,9 @@ test("VA1-VA3 verify-create authors the selected legacy asset from the actual re
 				packet: selected(t, ["observe", "full-suite", "typecheck", "lint"], ["observe"]),
 			}),
 		);
+		const intake = ((t.f.ledger.snapshot(admin) as Frame).workflows as { intakes: Intakes }[])[0]!.intakes;
+		assert.equal(intake.drafts[0]!.manifest.catalog, null, "a repository with no asset needs no placeholder catalog");
+		assert.equal(intake.slices[0]!.everAssigned, true, "the author starts on the accepted change");
 		const pass = () => passes(t).find((p) => p.ref === opening.passRef)!;
 		await t.wait(() => !!pass().captureA, "authored legacy asset checked at A");
 		const first = seen.prompts[0]!;
