@@ -5,6 +5,47 @@ import { catalogDefinition, catalogSections as sections } from "../kernel/catalo
 import { validatePath } from "../kernel/source-path.ts";
 import { type SelectedCatalog, selectionRowsComplete, type VerificationSelection } from "../kernel/verification.ts";
 
+/** Render-owned reusable craft for authoring or updating a repository's asset; the repository owns its commands. */
+export const VERIFICATION_AUTHORING = {
+	recommended: { asset: ".render/verify.md", journeys: ".render/journeys/" },
+	sections: ["Ranks", "Launch", "Doctor", "Channels", "Catalog", "Cleanup", "Extend", "Traps"],
+	columns: ["Name", "Channel", "Kind", "Run", "Expectations", "Rank"],
+	kinds: {
+		generated: "Discovery/index command; rank -, never proof.",
+		executed: "Runnable repository check: Run begins with one inline code-spanned command; rank from this ladder.",
+		journey:
+			"Run names a repository file whose ## Steps holds numbered code-spanned commands and ## Sanity one independent code-spanned predicate.",
+		human: "Advisory observation; rank -, never executed or counted as proof.",
+	},
+	channels: [
+		{
+			name: "Executable oracle",
+			checks: "Independent corpus/reference/golden/property cases.",
+			limits: "Expected results must not come from the code under test.",
+		},
+		{
+			name: "Process",
+			checks: "Invoke the real CLI/process; assert status, output and side effects.",
+			limits: "Exit status alone is not the expected result.",
+		},
+		{
+			name: "Live runtime introspection",
+			checks: "Inspect a running service through its project-supported interface.",
+			limits: "Prove the transition; never set internal state to the expected answer.",
+		},
+		{
+			name: "Driven surface",
+			checks: "HTTP/UI/TUI interaction via real handlers or supported automation hooks.",
+			limits: "Capture the action and resulting state; own the instance.",
+		},
+		{ name: "Tests", checks: "Existing project suites at their documented seams.", limits: "State substitutes and scope." },
+		{ name: "Static", checks: "Build, types, lint, structural inspection.", limits: "No runtime behavior." },
+		{ name: "Human-observed", checks: "Suggested usability/experience observations.", limits: "Advisory only." },
+	],
+	instructions:
+		"When the selected asset is absent or needs new rows, interview the repository in your workspace: read its actual tooling, documented commands, prerequisites and observation channels, and reuse those commands. Write one asset at the selected path (legacy paths stay supported); never a parallel copy or registry. Ranks is a project-named ladder, strongest first, replacing tests/build/inspection. Report unknown channels and prerequisites in Doctor/Channels and your handoff text instead of inventing a harness. Every selected row must exist; full-suite, typecheck and lint stay mandatory, and minimal static rows are honest scaffolding. Prove at least one executed row or journey end to end on your owned instance with independent expected results, then Cleanup; setup success or exit zero alone is not proof. Never claim checks for behavior the repository does not have yet.",
+} as const;
+
 function asset(source: Source, path: string): { text: string; digest: string } {
 	validatePath(path);
 	const entry = source.entries.find((e) => e.path === path);
