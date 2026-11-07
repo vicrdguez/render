@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import type { ForgeConfig } from "../../src/effects/forge.ts";
 import type { IntakeManifest, Intakes } from "../../src/kernel/intake.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import type { CommandReply, Frame } from "../../src/ledger/ledger.ts";
@@ -64,9 +65,14 @@ export async function fixture(
 		watchdog?: ("pass" | "rework" | "needs-human")[];
 		/** Accept a second Slice `next` that requires `value`'s recorded qualifying integration. */
 		dependent?: boolean;
+		/** Trusted Forge configuration for the Engine's Effects (an owned fake GitHub in tests). */
+		forge?: ForgeConfig;
 	} = {},
 ) {
-	const f = await catalogFixture(true, { text: catalog().replaceAll("endpoint", "tests").replace("printf 'SUITE OK'", "sh verify-suite") });
+	const f = await catalogFixture(true, {
+		text: catalog().replaceAll("endpoint", "tests").replace("printf 'SUITE OK'", "sh verify-suite"),
+		...(options.forge ? { forge: options.forge } : {}),
+	});
 	const originalTree = git(f.source.repo, ["rev-parse", `${f.selection.commit}^{tree}`])
 		.toString()
 		.trim();
