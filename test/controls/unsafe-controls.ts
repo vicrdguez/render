@@ -1736,9 +1736,9 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/intake.ts",
-				find: "!qualified.includes(e.requires));",
+				find: "e.slice === slice && !cleared(e, qualified, delivered));",
 				replace:
-					'!qualified.includes(e.requires) && !(e.kind === "record" && state.roleWork?.passes?.some((p) => p.slice === e.requires && p.handoff)));',
+					'e.slice === slice && !cleared(e, qualified, delivered) && !(e.kind === "record" && state.roleWork?.passes?.some((p) => p.slice === e.requires && p.handoff)));',
 			},
 		],
 		test: "test/record-baseline.test.ts",
@@ -1765,9 +1765,9 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/publication.ts",
-				find: '\tif (op.status === "admitted") op.status = "unknown";\n',
+				find: '\tif (op.status === "admitted") op.status = "unknown";\n\tif (!o.proposals?.complete || settled) return;\n',
 				replace:
-					'\tif (op.status === "admitted") op.status = "unknown";\n\tif (op.status === "unknown" && o.proposals?.complete && !o.proposals.items.length) op.status = "planned";\n',
+					'\tif (op.status === "admitted") op.status = "unknown";\n\tif (op.status === "unknown" && o.proposals?.complete && !o.proposals.items.length) op.status = "planned";\n\tif (!o.proposals?.complete || settled) return;\n',
 			},
 		],
 		test: "test/github-publication.test.ts",
