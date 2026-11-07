@@ -789,6 +789,50 @@ const CONTROLS: Control[] = [
 		test: "test/verification-catalog.test.ts",
 		pattern: "catalog refuses old verifier",
 	},
+	{
+		name: "maintenance-clean-failed-row",
+		expect: /a failed row called clean must not be retained/,
+		behavior: "classify a row clean although its maintenance run failed",
+		edits: [{ file: "src/kernel/verification.ts", find: 'if (c.status === "clean" && !executed)', replace: "if (false)" }],
+		test: "test/verification-maintenance.integration.ts",
+		pattern: "VM01|VM02 classification refuses a failed row",
+	},
+	{
+		name: "maintenance-unchanged-definition",
+		expect: /a blocked row's definition is not maintenance's to change/,
+		behavior: "let maintenance lower the expectations of a row it did not prove drifted",
+		edits: [
+			{
+				file: "src/kernel/verification.ts",
+				find: "if (row.literal !== p.literal || row.journey?.digest !== p.journey?.digest)",
+				replace: "if (false)",
+			},
+		],
+		test: "test/verification-maintenance.integration.ts",
+		pattern: "VM01|VM03|VM05",
+	},
+	{
+		name: "maintenance-product-code",
+		expect: /product\.js is not a verifier file/,
+		behavior: "accept a maintenance correction that also edits product code",
+		edits: [
+			{
+				file: "src/kernel/verification.ts",
+				find: "if (before.get(path) !== after.get(path) && !verifier.has(path))",
+				replace: "if (false)",
+			},
+		],
+		test: "test/verification-maintenance.integration.ts",
+		pattern: "VM01|VM03|VM06",
+	},
+	{
+		name: "maintenance-unsubstantiated-change",
+		expect: /a correction that cannot run is not a successful change/,
+		behavior: "claim a corrected row changed without a successful re-execution",
+		edits: [{ file: "src/kernel/verification.ts", find: 'if (basis && c.status === "changed" && !executed)', replace: "if (false)" }],
+		test: "test/verification-maintenance.integration.ts",
+		pattern: "VM01|VM03|VM04",
+	},
 	...[
 		{
 			name: "inherited-noncandidate-packet",
