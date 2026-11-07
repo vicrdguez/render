@@ -1,7 +1,8 @@
 // V1 (CI21): seeded pure-Kernel schedules of autonomous proposal integration. Two handed-off Slices of one proposal
-// (`a`, `c`) with passing Watchdog rounds, plus `b` depending on `a`. Random interleavings of stage, admission,
-// cancellation, executor restarts, canonical-ref observations, re-preparation and dependent assignment are checked
-// against an independent oracle written from the Contract rules (B1–B5), not from Kernel code.
+// (`a`, `c`) with passing Watchdog rounds, plus `b` depending on `a` by an integration edge and `d` depending on the
+// Record Slice `c` by a Record edge. Random interleavings of stage, admission, cancellation, executor restarts,
+// canonical-ref observations, re-preparation, saved Record documents and dependent assignment are checked against an
+// independent oracle written from the Contract rules (integration B1–B5, record-baseline B2), not from Kernel code.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Command, change, type KernelState, type Principal, type VerifiedFacts } from "../src/kernel/kernel.ts";
@@ -18,7 +19,9 @@ const REF = "refs/render/proposals/x";
 const S = "a".repeat(40);
 const EMPTY = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const V = "b".repeat(64);
-const contracts = { a: "contract:a", b: "contract:b", c: "contract:c" } as const;
+const contracts = { a: "contract:a", b: "contract:b", c: "contract:c", d: "contract:d" } as const;
+/** Record Slice `c`'s fidelity basis: its acceptance review and the approved source its one ADR output cites. */
+const recordBasis = ["review:fixture", "source:c"];
 type Slice = "a" | "c";
 const review = (role: "audit-standards" | "audit-contracts" | "watchdog", contract: string) =>
 	packet({ role, family: "review", requiredFamily: "review", inputs: [contract] });
@@ -26,7 +29,7 @@ const writer = (contract: string) =>
 	packet({
 		role: "implementer",
 		execution: "linux-writer",
-		inputs: [contract],
+		inputs: contract === contracts.c ? [contract, ...recordBasis] : [contract],
 		verification: selection(contract),
 		requests: [
 			{ key: "standards", packet: review("audit-standards", contract) },
@@ -46,6 +49,8 @@ const STEPS = [
 	"restart",
 	"reprepare",
 	"dependent",
+	"document",
+	"recordDependent",
 ] as const;
 type Step = (typeof STEPS)[number];
 function generate(seed: number): { slice: Slice; step: Step }[] {
@@ -70,7 +75,7 @@ const accepted = (slice: { id: string; contract: string }) => ({
 	everAssigned: false,
 	review: "review:fixture",
 	status: "accepted" as const,
-	record: false,
+	record: slice.id === "c",
 	predecessors: [],
 });
 
@@ -101,10 +106,25 @@ function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): stri
 			},
 			intakes: {
 				revision: "acceptance:1",
-				drafts: [],
+				drafts: [
+					{
+						id: "intake:1",
+						manifest: {
+							slices: [
+								{
+									id: "c",
+									obligations: [{ id: "R1", kind: "record", output: "adr", text: "Record", sources: [{ ref: "source:c", node: null }] }],
+								},
+							],
+						},
+					} as never,
+				],
 				concerns: [],
-				dependencies: [{ slice: "b", requires: "a", kind: "integration" }],
-				slices: (["a", "b", "c"] as const).map((id) => accepted({ id, contract: contracts[id] })),
+				dependencies: [
+					{ slice: "b", requires: "a", kind: "integration" },
+					{ slice: "d", requires: "c", kind: "record" },
+				],
+				slices: (["a", "b", "c", "d"] as const).map((id) => accepted({ id, contract: contracts[id] })),
 			},
 		};
 		let sequence = 0;
@@ -130,6 +150,7 @@ function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): stri
 						}
 					: {}),
 				...(c.type === "submitRoleResult" ? { verificationEvidence: evidence } : {}),
+				...(c.type === "saveDocument" ? { content: { digest: "d".repeat(64), byteLength: 9, validUtf8: true } } : {}),
 				ids: {
 					fact: `fact:${sequence}`,
 					assignment: `assignment:${sequence}`,
@@ -371,10 +392,14 @@ function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): stri
 			);
 			return { review: id, preparation, report, X, T };
 		}
+		const assignRecordConsumer = (expected: "accepted" | "refused") =>
+			command({ type: "assignTask", slice: "d", delivery: true, packet: writer(contracts.d) }, host, expected);
 		if (!base) {
 			handOff("a");
 			handOff("c");
+			assert.equal(assignRecordConsumer("refused").refused, "dependency_blocked", "fidelity-only: Record Audit and handoff");
 			const round = { a: passingRound("a")!, c: passingRound("c")! };
+			assert.equal(assignRecordConsumer("refused").refused, "dependency_blocked", "Watchdog-only: Record review passed");
 			base = freeze(structuredClone({ state, sequence, sources, texts, evidence, owners, rounds, round }));
 		}
 		({ state, sequence, sources, evidence, owners, rounds } = base);
@@ -388,6 +413,8 @@ function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): stri
 			qualified: { a: 0, c: 0 } as Record<Slice, number>,
 			staleFor: { a: new Set<string>(), c: new Set<string>() } as Record<Slice, Set<string>>,
 			dependentAssigned: false,
+			recordDependentAssigned: false,
+			documents: 0,
 		};
 		const latest = (slice: Slice) => o.ops[slice].at(-1);
 		const unresolved = (slice: Slice) => ["admitted", "divergent"].includes(latest(slice)?.status ?? "");
@@ -484,6 +511,30 @@ function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): stri
 				if (next) o.round[slice] = next;
 				continue;
 			}
+			if (step === "document") {
+				command(
+					{ type: "saveDocument", document: `docs/adr/${++o.documents}.md`, mediaType: "text/markdown", expected: null },
+					human,
+					"accepted",
+				);
+				continue;
+			}
+			if (step === "recordDependent") {
+				if (o.recordDependentAssigned) continue;
+				current = "c";
+				// Only recorded qualification of the Record Slice releases its consumer: no document, review or intent does.
+				const allowed = o.qualified.c === 1;
+				const result = assignRecordConsumer(allowed ? "accepted" : "refused");
+				if (allowed) {
+					o.recordDependentAssigned = true;
+					coverage.recordDependent = (coverage.recordDependent ?? 0) + 1;
+				} else {
+					assert.equal(result.refused, "dependency_blocked", "Record consumer blocked before qualification");
+					if (o.documents) coverage.recordBlockedAfterDocument = (coverage.recordBlockedAfterDocument ?? 0) + 1;
+					if (latest("c")) coverage.recordBlockedAfterIntent = (coverage.recordBlockedAfterIntent ?? 0) + 1;
+				}
+				continue;
+			}
 			if (step === "dependent") {
 				if (o.dependentAssigned) continue;
 				current = "a";
@@ -563,7 +614,7 @@ function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): stri
 	}
 }
 
-test("V1 seeded integration schedules: no grant, one qualification, cancellation and serialization order, dependents only after qualification", () => {
+test("V1 seeded integration schedules: no grant, one qualification, cancellation and serialization order, integration and Record dependents only after qualification", () => {
 	const base = Number(process.env.RENDER_V1_SEED ?? 0x1c4a);
 	const count = Number(process.env.RENDER_V1_SCHEDULES ?? 10_000);
 	const coverage: Coverage = {};
@@ -573,7 +624,19 @@ test("V1 seeded integration schedules: no grant, one qualification, cancellation
 		if (failure) assert.fail(`seed ${seed}: ${failure}\nreplay: RENDER_V1_SEED=${seed} RENDER_V1_SCHEDULES=1`);
 	}
 	if (count >= 1000)
-		for (const path of ["staged", "admitted", "canceledFirst", "applied", "stale", "unapplied", "divergent", "dependent"])
+		for (const path of [
+			"staged",
+			"admitted",
+			"canceledFirst",
+			"applied",
+			"stale",
+			"unapplied",
+			"divergent",
+			"dependent",
+			"recordDependent",
+			"recordBlockedAfterDocument",
+			"recordBlockedAfterIntent",
+		])
 			assert.ok((coverage[path] ?? 0) > 0, `schedules exercise ${path}`);
 	console.log(JSON.stringify({ measure: "integration_schedule_paths", schedules: count, ...coverage }));
 });
