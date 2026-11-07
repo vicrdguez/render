@@ -134,7 +134,7 @@ type EngineConfig = {
 	ownedChecks?: OwnedChecks;
 	experiments?: ExperimentConfig;
 	investigations?: { root: string; repositories: Readonly<Record<string, string>> };
-	/** Trusted forge configuration; only Effects ever holds it. */
+	/** Trusted forge configuration, passed only to Effects; no packet, record or Sandboxes input carries it. */
 	forge?: ForgeConfig;
 	web?: WebConfig;
 };
