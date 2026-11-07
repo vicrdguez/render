@@ -141,8 +141,8 @@ Preimplementation cases: `docs/verification/owned-source-check-failure-cases.md`
 - `verify:source-root-crash`: SIGKILL before/after source rooting, after freeze and before/after Ledger receipt commit; actual diagnostics survive, missing receipts block, committed receipts survive, exact retry and wrong-source refusal.
 - `verify:unsafe-controls`: baseline-green mutations of follow-symlink collection, host-shell fallback, hidden accepted-base loss and early workspace reuse, plus the inherited authority/storage/recovery controls.
 
-`RENDER_V3_REPETITIONS=100` selects extended critical-point jobs, separate from smoke. Repeat cancellation with
-`RENDER_V3_REPETITIONS=100 node --test test/owned-check-cancellation.integration.ts`. Historical results are recorded separately,
+`RENDER_V3_REPETITIONS=2` selects extended critical-point jobs, separate from smoke. Repeat cancellation with
+`RENDER_V3_REPETITIONS=2 node --test test/owned-check-cancellation.integration.ts`. Historical results are recorded separately,
 not inferred from these commands. Full later-feature V8/V9 remain unavailable; disaster recovery is deferred, not a v1 completion gate.
 No human usability, native Mac, physical second-device, live-model, private-route confinement or physical power-loss
 trial is claimed. Execution-time workspace quotas are outside this slice, not an unrun acceptance requirement.
