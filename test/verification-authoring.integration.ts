@@ -64,7 +64,7 @@ Never borrow a live service.
 \`${sanity}\`
 `,
 });
-const write = (a: { verify: string; journey: string }) => [
+const write = (a: { verify: string; journey: string }): Call => [
 	"implementation_execute",
 	{
 		argv: [
@@ -74,16 +74,17 @@ const write = (a: { verify: string; journey: string }) => [
 		],
 	},
 ];
-const handoff = [
+const handoff: Call = [
 	"implementation_handoff",
 	{ text: "Authored the selected asset", dispositions: [], verification: { outcome: "pass", rank: "tests", reason: "Authored rows ran" } },
 ];
 
 /** Reviewers find nothing and every Watchdog round passes; the author runs `calls` once each, then stops. */
-function author(t: Fixture, calls: unknown[][]) {
+type Call = [string, Parameters<typeof fauxToolCall>[1]];
+function author(t: Fixture, calls: Call[]) {
 	const seen = { prompts: [] as Packet[], toolResults: [] as string[] };
 	let turn = 0;
-	const submit = (args: object, verification?: object) =>
+	const submit = (args: object, verification?: Record<string, string>) =>
 		fauxAssistantMessage(
 			fauxToolCall("submit_role_result", {
 				text: JSON.stringify({ schema: 1, ...args }),
@@ -113,7 +114,7 @@ function author(t: Fixture, calls: unknown[][]) {
 			if (last) seen.toolResults.push((last.content as { text: string }[])[0]!.text);
 			const call = calls[turn++];
 			if (!call) return fauxAssistantMessage("Stopped: the authored asset is not proven; see retained checks.");
-			return fauxAssistantMessage(fauxToolCall(call[0] as string, call[1] as Record<string, unknown>), { stopReason: "toolUse" });
+			return fauxAssistantMessage(fauxToolCall(call[0], call[1]), { stopReason: "toolUse" });
 		}),
 	);
 	return seen;
