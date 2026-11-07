@@ -531,7 +531,7 @@ export function reproductionOutcome(
 				`Regression row ${name} failed without showing the reported wrong behavior (${observed}): a setup failure is not red-on-the-bug proof.`,
 			);
 	}
-	return { red: false, reason: gaps[0] ?? "No regression row maps the reproduction." };
+	return { red: false, reason: gaps[0]! };
 }
 export function sourceScopeMatches(source: ImplementationSource | undefined, a: RoleAssignment): boolean {
 	const scope = source?.source.freeze.scope;
