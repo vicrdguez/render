@@ -1324,6 +1324,8 @@ export class Engine {
 					await this.#command(a, { type: "recordQuiescence", providerIdle: true, environment, effects: "reconciled" });
 				}
 			}
+			// A scope change on an unchanged head reaches the PR summary on the next reconcile, not only on new source.
+			for (const w of this.#publications()) if (w.publication.summaryStale) this.#schedulePublication(w.workflow);
 		} finally {
 			this.#reconciling = false;
 			if (this.#reconcileAgain) {
@@ -2246,8 +2248,7 @@ export class Engine {
 			if (p.risk && !p.risk.resolved) return false;
 			const summary = p.operations.findLast((o) => o.kind === "update-summary" && o.status !== "superseded");
 			if (summary?.status === "planned") await dispatch(summary);
-			else if (!summary || summary.canonical !== p.canonical || summary.published !== p.published)
-				await send({ type: "stageForgeOperation", kind: "update-summary" });
+			else if (p.summaryStale) await send({ type: "stageForgeOperation", kind: "update-summary" });
 			else if (p.readiness.eligible && !p.unsupported.includes("markProposalReady")) {
 				// Ready promotion (spec §9.3 R2-A008): reobserve the PR before admission and after dispatch; an unknown outcome
 				// only reconciles, and only a complete observation still draft lets a fresh, re-checked stage follow.

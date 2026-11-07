@@ -66,6 +66,8 @@ export type ForgeOperation = {
 	marker?: string;
 	/** Mark-ready only: the associated PR it promotes. */
 	pr?: string;
+	/** Update-summary only: the readiness gaps the summary states. */
+	gaps?: string[];
 	/**
 	 * Create: a complete pre-create listing found no open PR on the branch. Mark-ready: the latest listing showed the PR
 	 * open and draft on the op's canonical head.
@@ -325,7 +327,8 @@ export function changePublication(
 				if (p.operations.some((o) => o.kind === "update-summary" && o.status === "admitted"))
 					return refusal("ownership_conflict", "A summary update is in flight.");
 				for (const o of p.operations) if (o.kind === "update-summary" && o.status === "planned") o.status = "superseded";
-				const summary = proposalSummary(title, state.roleWork, state.intakes, workflow, published, gaps());
+				op.gaps = gaps();
+				const summary = proposalSummary(title, state.roleWork, state.intakes, workflow, published, op.gaps);
 				intent = { schema: 1, kind: command.kind, proposal: workflow, pr: p.association.pr, canonical: head, published, summary };
 			}
 			p.operations.push(op);
@@ -536,6 +539,8 @@ export type PublicationView = {
 	blocked: string[];
 	choices: string[];
 	readiness: Readiness;
+	/** The associated PR's latest summary no longer states the current heads or readiness gaps. */
+	summaryStale: boolean;
 };
 /**
  * Eligibility, the latest promotion and the observed forge state, kept apart (spec §9.3). `package` maps each integrated
@@ -614,7 +619,12 @@ export function publicationView(
 		blocked,
 		choices,
 		readiness: readiness(s, roles, intakes, workflow, gaps),
+		summaryStale: !!association && !open && summaryStale(s, head, published, gaps),
 	};
+}
+function summaryStale(s: Publication, head: string | null, published: string | null, gaps: string[]): boolean {
+	const summary = s.operations.findLast((o) => o.kind === "update-summary" && o.status !== "superseded");
+	return !summary || summary.canonical !== head || summary.published !== published || summary.gaps?.join("\n") !== gaps.join("\n");
 }
 function readiness(
 	s: Publication,
