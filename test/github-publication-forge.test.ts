@@ -90,7 +90,11 @@ test("GF02/GF07 publication is an expected-old guarded push of exact host source
 		git(f.gh.repo, ["update-ref", `refs/heads/${BRANCH}`, foreign]);
 		const R3 = await f.resolve(f.commit("R3\n", R2));
 		const refused = await f.publish(R3, R2, "forge-attempt:3");
-		assert.deepEqual(refused, { outcome: "rejected", reason: "stale-expected", created: null, head: { commit: foreign } });
+		assert.deepEqual(
+			refused,
+			{ outcome: "rejected", reason: "stale-expected", created: null, head: { commit: foreign } },
+			"a moved remote refuses the guarded push",
+		);
 		assert.equal(f.gh.branch(BRANCH), foreign, "the moved remote is never overwritten");
 		const gitRequests = f.gh.requests.filter((r) => r.path.startsWith("/git/"));
 		assert.ok(gitRequests.length > 0 && gitRequests.every((r) => r.authorization?.startsWith("Basic ")), "Git transport carries the token");
@@ -120,7 +124,11 @@ test("GF03 the create is a draft with the marker and host section; draft unsuppo
 			await g.publish(await g.resolve(g.commit("R1\n", g.source.commit)), null, "forge-attempt:1");
 			g.gh.faults.draftUnsupported = true;
 			const refused = await g.create("forge-attempt:2");
-			assert.deepEqual(refused, { outcome: "rejected", reason: "draft-unsupported", created: null, head: null });
+			assert.deepEqual(
+				refused,
+				{ outcome: "rejected", reason: "draft-unsupported", created: null, head: null },
+				"draft unsupported is a capability rejection",
+			);
 			const posts = g.gh.requests.filter((r) => r.method === "POST" && r.path.endsWith("/pulls")).map((r) => JSON.parse(r.body).draft);
 			assert.deepEqual(posts, [true], "no non-draft substitute was sent");
 			assert.equal(g.gh.pulls.length, 0);
