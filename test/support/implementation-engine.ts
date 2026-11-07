@@ -64,6 +64,8 @@ export async function fixture(
 		watchdog?: ("pass" | "rework" | "needs-human")[];
 		/** Accept a second Slice `next` that requires `value`'s recorded qualifying integration. */
 		dependent?: boolean;
+		/** A compact bug Contract: the writer reproduces before product code (a missing tool first, then the real failure). */
+		bug?: boolean;
 	} = {},
 ) {
 	const f = await catalogFixture(true, { text: catalog().replaceAll("endpoint", "tests").replace("printf 'SUITE OK'", "sh verify-suite") });
@@ -358,6 +360,24 @@ export async function fixture(
 						);
 					}
 					const calls = [
+						...(options.bug
+							? ([
+									["implementation_execute", { argv: ["sh", "-c", "printf 'missing-tool --expect B value\\n' > verify-suite"] }],
+									["implementation_reproduce", {}],
+									["implementation_audit", {}],
+									[
+										"implementation_execute",
+										{
+											argv: [
+												"sh",
+												"-c",
+												`printf '%s\\n' 'test "$(cat value)" = B || { echo "value is $(cat value)"; exit 1; }' > verify-suite`,
+											],
+										},
+									],
+									["implementation_reproduce", {}],
+								] as const)
+							: []),
 						[
 							"implementation_execute",
 							{
@@ -416,22 +436,24 @@ export async function fixture(
 		"ground",
 		JSON.stringify({
 			schema: 1,
-			shape: { value: options.dependent ? "change" : "bug", origin: "human", confirmed: true },
+			shape: { value: options.bug ? "bug" : "change", origin: "human", confirmed: true },
 			goal: "Change value",
 			constraints: [],
 			clarifications: [],
 			donePredicate: "Value B",
 			approvedSources: [source],
+			...(options.bug ? { reproduction: { trigger: "cat value", observed: "value is A" }, expected: "value is B" } : {}),
 		}),
 	);
 	const manifest: IntakeManifest = {
 		schema: 1,
-		shape: options.dependent ? "change" : "bug",
+		shape: options.bug ? "bug" : "change",
 		ground,
 		sources: [source],
 		decisions: [],
 		catalog: catalogRef,
-		breakdown: options.dependent ? "Change value, then build on it." : null,
+		breakdown: options.bug ? null : options.dependent ? "Change value, then build on it." : "Change value.",
+		...(options.bug ? { reproduction: { obligation: "B1", observed: "value is A", expected: "value is B" } } : {}),
 		slices: [
 			{
 				id: "value",

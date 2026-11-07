@@ -171,12 +171,29 @@ export function damageImplementation(data: string, ref: string, failure: "missin
 
 /** `second` adds Slice `read-next`, independent or depending on `read-fix` by an integration or Record edge. */
 export type SecondSlice = "independent" | "integration" | "record";
+/** `bug`: one compact bug Slice whose Ground and Contract carry the reproduction; otherwise a change intake. */
+export type Variant = SecondSlice | "bug";
+export const OBSERVED = 'read returned "ab"';
+export const EXPECTED = 'read returns "Ab"';
+/** A pre-fix catalog run whose regression row `read` produced exactly this step. */
+export function reproductionCapture(
+	a: RoleAssignment,
+	epoch: string,
+	contract: string,
+	step: { exitCode: number; stdout?: string; stderr?: string },
+) {
+	const c = capture(a, epoch, contract);
+	const result = c.verification.results.find((r) => r.name === "read")!;
+	result.status = step.exitCode === 0 ? "completed" : [126, 127].includes(step.exitCode) ? "unrun" : "failed";
+	result.steps = [{ ...result.steps[0]!, exitCode: step.exitCode, stdout: step.stdout ?? "", stderr: step.stderr ?? "" }];
+	return c;
+}
 export async function implementationLifecycle(
 	engine?: Engine,
 	overrides: (contract: string) => Partial<RolePacket> = () => ({}),
-	second?: SecondSlice,
+	variant?: Variant,
 ) {
-	const t = await acceptedImplementation(engine, second);
+	const t = await acceptedImplementation(engine, variant);
 	const id = accepted(
 		await t.f.command({
 			type: "assignTask",
@@ -202,6 +219,22 @@ export async function implementationLifecycle(
 				mintContext({ kind: "host", scope: "effects" }),
 			),
 		).source as string;
+	if (variant === "bug")
+		accepted(
+			await t.f.command(
+				{
+					type: "recordImplementationSource",
+					assignment: id,
+					generation: 1,
+					attempt: owner().attempt,
+					kind: "reproduction",
+					text: JSON.stringify(
+						reproductionCapture(owner(), t.f.ledger.status().executorEpoch, t.contract, { exitCode: 1, stdout: `not ok: ${OBSERVED}` }),
+					),
+				},
+				mintContext({ kind: "host", scope: "effects" }),
+			),
+		);
 	const A = await retain("audit");
 	const audit = async () => accepted(await t.f.command({ type: "requestImplementationAudit" }, actor, "paired-audit"));
 	const reports = async () => {
@@ -235,7 +268,9 @@ export async function implementationLifecycle(
 }
 
 /** Accepted obligations are produced by real intake/fidelity/human commands, never seeded SQL. */
-export async function acceptedImplementation(engine?: Engine, second?: SecondSlice) {
+export async function acceptedImplementation(engine?: Engine, variant?: Variant) {
+	const bug = variant === "bug";
+	const second = bug ? undefined : variant;
 	const f = await roleFixture(new LedgerOnlyEngine());
 	await allowSameFamily(f.ledger);
 	const assignments = () => (f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[];
@@ -278,22 +313,24 @@ export async function acceptedImplementation(engine?: Engine, second?: SecondSli
 		"ground",
 		JSON.stringify({
 			schema: 1,
-			shape: { value: second ? "change" : "bug", origin: "human", confirmed: true },
+			shape: { value: bug ? "bug" : "change", origin: "human", confirmed: true },
 			goal: "Correct read",
 			constraints: [],
 			clarifications: [],
 			donePredicate: "Literal bytes",
 			approvedSources: [source],
+			...(bug ? { reproduction: { trigger: "node read.js Ab", observed: OBSERVED }, expected: EXPECTED } : {}),
 		}),
 	);
 	const manifest: IntakeManifest = {
 		schema: 1,
-		shape: second ? "change" : "bug",
+		shape: bug ? "bug" : "change",
 		ground,
 		sources: [source],
 		decisions: [],
 		catalog,
-		breakdown: second ? "Fix read, then read next." : null,
+		breakdown: bug ? null : second ? "Fix read, then read next." : "Fix read.",
+		...(bug ? { reproduction: { obligation: "B1", observed: OBSERVED, expected: EXPECTED } } : {}),
 		slices: [
 			{
 				id: "read-fix",
