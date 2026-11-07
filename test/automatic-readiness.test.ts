@@ -170,11 +170,11 @@ test("AR02 every required Slice must have recorded qualifying integration and th
 test("AR03 an unfinished Record Slice blocks readiness like any required Slice", async () => {
 	const t = await handedOff("record");
 	try {
-		assert.deepEqual(readiness(t).gaps, [
-			"read-fix: Record not yet integrated",
-			"read-next: not yet integrated",
-			"no qualifying integration",
-		]);
+		assert.deepEqual(
+			readiness(t).gaps,
+			["read-fix: Record not yet integrated", "read-next: not yet integrated", "no qualifying integration"],
+			"an unfinished Record Slice is a gap",
+		);
 		const r = await passedRound(t);
 		const { operation, attempt } = await admitted(t, t.id, r);
 		accepted(await record(t, t.id, operation, observation(operation, attempt)));
