@@ -109,7 +109,12 @@ test("GP-E1 one draft PR across a lost create reply; a forge outage blocks neith
 		assert.equal(publication(t).association, null);
 		gh.faults.dropCreateReply = false;
 		gh.reveal();
-		await until(() => publication(t).association?.by === "reconciled", "the one verified PR associates");
+		await until(
+			() =>
+				publication(t).association?.by === "reconciled" &&
+				publication(t).operations.some((o) => o.kind === "update-summary" && o.status === "applied"),
+			"the one verified PR associates and receives its summary",
+		);
 		assert.equal(gh.pulls[0]!.draft, true);
 
 		await gh.down();
