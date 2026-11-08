@@ -10,6 +10,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type NodeSqliteDatabase, openNodeSqliteDatabase } from "@earendil-works/chord/sqlite/node";
 import { Harness, type ReportInfo } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
@@ -177,11 +178,13 @@ export function openLedgerEffect(options: OpenLedgerOptions): Effect.Effect<Open
 			}
 			const executorEpoch = `executor-${randomUUID()}`;
 			const ledger = yield* Ledger.loadEffect(harness, opened.persistence, options.onFatal, runtime.roleTasks).pipe(
-				Effect.mapError((error) =>
-					blocked(
-						"unsupported_schema",
-						`Retained Ledger records are unreadable: ${message(error)}`,
-						"Run a compatible Render version; no tasks were dispatched.",
+				Effect.catchCause((cause) =>
+					Effect.fail(
+						blocked(
+							"unsupported_schema",
+							`Retained Ledger records are unreadable: ${message(Cause.squash(cause))}`,
+							"Run a compatible Render version; no tasks were dispatched.",
+						),
 					),
 				),
 			);
