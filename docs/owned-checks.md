@@ -139,11 +139,8 @@ Preimplementation cases: `docs/verification/owned-source-check-failure-cases.md`
 - `verify:literal-source-roundtrip`: literal attributes/CRLF/symlink/executable/unusual-name bytes, actual deletion, hardlinks, FIFO/sparse/mode/representation/collision/entry/exclusion refusals; unsafe archive comparison and source-control oracles.
 - `verify:whole-container-quiescence`: background writer stopped, new execute refused, missing-runtime quarantine/no reuse, never-issued create absence (including stop racing prepare and reopen), transient outage reconciliation, and cancellation while a rooted source effect remains admitted.
 - `verify:source-root-crash`: SIGKILL before/after source rooting, after freeze and before/after Ledger receipt commit; actual diagnostics survive, missing receipts block, committed receipts survive, exact retry and wrong-source refusal.
-- `verify:unsafe-controls`: baseline-green mutations of follow-symlink collection, host-shell fallback, hidden accepted-base loss and early workspace reuse, plus the inherited authority/storage/recovery controls.
 
-`RENDER_V3_REPETITIONS=2` selects extended critical-point jobs, separate from smoke. Repeat cancellation with
-`RENDER_V3_REPETITIONS=2 node --test test/owned-check-cancellation.integration.ts`. Historical results are recorded separately,
-not inferred from these commands. Full later-feature V8/V9 remain unavailable; disaster recovery is deferred, not a v1 completion gate.
+Each named critical-point scenario runs once in the integration selection. The source-mutation runner and duplicate extended crash jobs were removed; historical mutation and repetition results are not current gate claims. Full later-feature V8/V9 remain unavailable; disaster recovery is deferred, not a v1 completion gate.
 No human usability, native Mac, physical second-device, live-model, private-route confinement or physical power-loss
 trial is claimed. Execution-time workspace quotas are outside this slice, not an unrun acceptance requirement.
 

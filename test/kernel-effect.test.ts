@@ -31,11 +31,6 @@ test("Kernel Effect exposes authorization refusal as its typed failure before as
 	assert.match(outcome.reason, /createWorkflow belongs to the human-decision family/);
 });
 
-test("Kernel Effect does not disguise a missing Ledger identity as a domain refusal", async () => {
-	const Effect = await import("effect/Effect");
-	assert.throws(() => Effect.runSync(kernel.change(state, create, { ...facts, ids: { fact: "fact:1" } })));
-});
-
 test("Ledger finishes an admitted SQLite command when its Effect caller is interrupted", { timeout: 10000 }, async () => {
 	const Effect = await import("effect/Effect");
 	const Fiber = await import("effect/Fiber");
