@@ -281,7 +281,7 @@ export class Ledger {
 	}
 
 	commandEffect(raw: unknown, context: AuthenticatedContext): Effect.Effect<CommandReply, unknown> {
-		return Effect.gen({ self: this }, function* () {
+		return Effect.gen({ self: this }, function* (): Effect.gen.Return<CommandReply, unknown> {
 			const principal = principalOf(context);
 			if (principal === undefined)
 				return { status: "refused", code: "untrusted_context", reason: "The context was not established by a trusted Ledger adapter." };
@@ -320,7 +320,7 @@ export class Ledger {
 			const credential =
 				enrollment !== undefined && typeof result.device === "string" ? { bearer: bearerOf(result.device, enrollment.secret) } : undefined;
 			return { ...outcome.body, duplicate: false, ...(credential ? { credential } : {}) };
-		});
+		}).pipe(Effect.uninterruptible);
 	}
 
 	/** One Ledger transaction: authorization, dedup, Kernel decision and every staged record. */
