@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import { Effects, type Source } from "../src/effects/source.ts";
 import { selectCatalog } from "../src/engine/catalog.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
@@ -95,7 +96,15 @@ test("blob or missing inputs are operational errors, not conflict returns", asyn
 		const operation = { type: "prepare" as const, base: f.base, source: f.source, target: f.target };
 		const blob = git(f.repo, ["hash-object", "-w", "--stdin"], "not a commit").toString().trim();
 		for (const hash of [blob, "f".repeat(40)]) {
-			await assert.rejects(f.effects.perform({ ...operation, source: { ...f.source, commit: hash, root: `refs/render/sources/${hash}` } }));
+			const result = await Effect.runPromise(
+				Effect.result(
+					f.effects.performEffect({
+						...operation,
+						source: { ...f.source, commit: hash, root: `refs/render/sources/${hash}` },
+					}),
+				),
+			);
+			assert.equal(result._tag, "Failure", "missing or non-commit Git input is a recoverable operational failure");
 		}
 	} finally {
 		await f.close();

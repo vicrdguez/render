@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import { Effects } from "../src/effects/source.ts";
 import { fakeGitHub, TOKEN } from "./support/github.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
@@ -215,7 +216,14 @@ test("GF07 a forge outage throws on observation and leaves dispatch unknown; not
 	try {
 		const R1 = await f.resolve(f.commit("R1\n", f.source.commit));
 		await f.gh.down();
-		await assert.rejects(f.reconcile(), (error: Error) => !error.message.includes(TOKEN));
+		const observed = await Effect.runPromise(
+			Effect.result(f.effects.reconcileEffect({ type: "publication", repository: "owned", proposal: PROPOSAL })),
+		);
+		assert.equal(observed._tag, "Failure", "an unreachable forge is a recoverable observation failure");
+		if (observed._tag === "Failure") {
+			assert.ok(observed.failure instanceof Error);
+			assert.ok(!observed.failure.message.includes(TOKEN));
+		}
 		const sent = await f.publish(R1, null, "forge-attempt:1");
 		assert.equal(sent.outcome, "unknown");
 		noToken(sent, "outage result");
