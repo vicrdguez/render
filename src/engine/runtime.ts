@@ -212,74 +212,84 @@ export class Engine {
 		this.#models.setProvider({
 			...provider,
 			streamSimple: (model, transcript, options) =>
-				lazyStream(model, async () => {
-					let scope = options?.sessionId ? this.#sessions.get(options.sessionId) : undefined;
-					if (!scope && this.#harness && options?.sessionId) {
-						for (const assignment of this.#assignments()) {
-							const session = await this.#harness.snapshot(ProviderDoc, assignment.conversation as ConversationId, ctx);
-							if (session?.sessionId === options.sessionId) {
-								scope = { assignment: assignment.id, task: 0 };
-								break;
+				lazyStream(model, () =>
+					runPromise(
+						Effect.gen({ self: this }, function* () {
+							const harness = this.#harness;
+							let scope = options?.sessionId ? this.#sessions.get(options.sessionId) : undefined;
+							if (!scope && harness && options?.sessionId) {
+								for (const assignment of this.#assignments()) {
+									const session = yield* fromPromise(() => harness.snapshot(ProviderDoc, assignment.conversation as ConversationId, ctx));
+									if (session?.sessionId === options.sessionId) {
+										scope = { assignment: assignment.id, task: 0 };
+										break;
+									}
+								}
 							}
-						}
-					}
-					if (!scope || !this.#harness) throw new Error("Role provider request has no trusted scope.");
-					const a = this.#assignment(scope.assignment);
-					if (!a || this.#configurationBlocker(a)) throw new Error("Role provider configuration is unavailable.");
-					await runPromise(this.renderEffect(a));
-					let activePacket: string | null | undefined;
-					for (const message of transcript.messages)
-						if (message.role === "system" && message.sections && Object.hasOwn(message.sections, "role-packet"))
-							activePacket = message.sections["role-packet"];
-					// Native compaction has a distinct summarizer prompt, not a role request. Accept it only
-					// while its actual pinned task is live under this executing assignment's conversation.
-					let nativeCompaction = false;
-					if (
-						transcript.messages[0]?.role === "system" &&
-						typeof transcript.messages[0].content === "string" &&
-						transcript.messages[0].content.startsWith("You are a context summarization assistant.")
-					) {
-						const tasks = await this.#harness.commit(
-							(tx) => tx.scanTasks({ conversationId: a.conversation as ConversationId, kind: "pi.compaction", status: "running" }, 200),
-							ctx,
-						);
-						const compact = tasks.items.find(
-							(task) =>
-								task.kind === "pi.compaction" &&
-								task.state.status !== "terminal" &&
-								(task.state.checkpoint as { phase?: string }).phase === "summarize",
-						);
-						if (compact) {
-							nativeCompaction = true;
-							scope.task = compact.id;
-						}
-					}
-					if (!nativeCompaction && !activePacket?.includes(JSON.stringify(a.packet)))
-						throw new Error("Mandatory role packet is absent from effective provider context.");
-					if (model.provider !== a.packet.provider || model.id !== a.packet.model)
-						throw new Error("Role model differs from pinned packet.");
-					if (Buffer.byteLength(JSON.stringify(transcript)) > a.packet.maxInputBytes)
-						throw new Error("Required packet and transcript exceed maxInputBytes; no obligations were dropped.");
-					await this.#harness.commit(async (tx) => {
-						const work = await tx.doc(RoleWork);
-						const current = work.assignments.find((x) => x.id === a.id);
-						const meta = await tx.doc(Meta);
-						if (
-							!current ||
-							current.status !== "running" ||
-							!current.executing ||
-							current.executorEpoch !== meta.executorEpoch ||
-							current.generation !== a.generation
-						)
-							throw new Error("Role provider admission is fenced.");
-						const budget = await tx.doc(Budget, a.conversation as ConversationId);
-						if (!budget.requests.includes(scope.task)) {
-							if (budget.requests.length >= a.packet.maxTurns) throw new Error("Role turn budget exhausted.");
-							budget.requests.push(scope.task);
-						}
-					}, ctx);
-					return provider.streamSimple(model, transcript, { ...options, maxTokens: a.packet.maxOutputTokens });
-				}),
+							if (!scope || !harness) throw new Error("Role provider request has no trusted scope.");
+							const a = this.#assignment(scope.assignment);
+							if (!a || this.#configurationBlocker(a)) throw new Error("Role provider configuration is unavailable.");
+							yield* this.renderEffect(a);
+							let activePacket: string | null | undefined;
+							for (const message of transcript.messages)
+								if (message.role === "system" && message.sections && Object.hasOwn(message.sections, "role-packet"))
+									activePacket = message.sections["role-packet"];
+							// Native compaction has a distinct summarizer prompt, not a role request. Accept it only
+							// while its actual pinned task is live under this executing assignment's conversation.
+							let nativeCompaction = false;
+							if (
+								transcript.messages[0]?.role === "system" &&
+								typeof transcript.messages[0].content === "string" &&
+								transcript.messages[0].content.startsWith("You are a context summarization assistant.")
+							) {
+								const tasks = yield* fromPromise(() =>
+									harness.commit(
+										(tx) =>
+											tx.scanTasks({ conversationId: a.conversation as ConversationId, kind: "pi.compaction", status: "running" }, 200),
+										ctx,
+									),
+								);
+								const compact = tasks.items.find(
+									(task) =>
+										task.kind === "pi.compaction" &&
+										task.state.status !== "terminal" &&
+										(task.state.checkpoint as { phase?: string }).phase === "summarize",
+								);
+								if (compact) {
+									nativeCompaction = true;
+									scope.task = compact.id;
+								}
+							}
+							if (!nativeCompaction && !activePacket?.includes(JSON.stringify(a.packet)))
+								throw new Error("Mandatory role packet is absent from effective provider context.");
+							if (model.provider !== a.packet.provider || model.id !== a.packet.model)
+								throw new Error("Role model differs from pinned packet.");
+							if (Buffer.byteLength(JSON.stringify(transcript)) > a.packet.maxInputBytes)
+								throw new Error("Required packet and transcript exceed maxInputBytes; no obligations were dropped.");
+							yield* fromPromise(() =>
+								harness.commit(async (tx) => {
+									const work = await tx.doc(RoleWork);
+									const current = work.assignments.find((x) => x.id === a.id);
+									const meta = await tx.doc(Meta);
+									if (
+										!current ||
+										current.status !== "running" ||
+										!current.executing ||
+										current.executorEpoch !== meta.executorEpoch ||
+										current.generation !== a.generation
+									)
+										throw new Error("Role provider admission is fenced.");
+									const budget = await tx.doc(Budget, a.conversation as ConversationId);
+									if (!budget.requests.includes(scope.task)) {
+										if (budget.requests.length >= a.packet.maxTurns) throw new Error("Role turn budget exhausted.");
+										budget.requests.push(scope.task);
+									}
+								}, ctx),
+							);
+							return provider.streamSimple(model, transcript, { ...options, maxTokens: a.packet.maxOutputTokens });
+						}),
+					),
+				),
 		});
 		const schema = <T extends Record<string, ReturnType<typeof Type.String>>>(fields: T) =>
 			Type.Object(fields, { additionalProperties: false });
@@ -289,22 +299,25 @@ export class Engine {
 				description: `Scoped Ledger ${name}; no inline effects.`,
 				parameters,
 				replay: "safe",
-				execute: async (args, api, _context) => {
-					const command = make(args as Record<string, string>);
-					const reply = await runPromise(this.#toolCommand(api, name, command));
-					return {
-						output: [{ type: "text" as const, text: JSON.stringify(reply) }],
-						isError: reply.status !== "accepted",
-						...(reply.status === "accepted" &&
-						(name === "request_role" ||
-							name === "submit_role_result" ||
-							name === "request_own_stop" ||
-							command.type === "requestCheckpointReview" ||
-							command.type === "requestIntakeReview")
-							? { control: { handoff: `${name} durably accepted.` } }
-							: {}),
-					};
-				},
+				execute: (args, api, _context) =>
+					runPromise(
+						Effect.gen({ self: this }, function* () {
+							const command = make(args as Record<string, string>);
+							const reply = yield* this.#toolCommand(api, name, command);
+							return {
+								output: [{ type: "text" as const, text: JSON.stringify(reply) }],
+								isError: reply.status !== "accepted",
+								...(reply.status === "accepted" &&
+								(name === "request_role" ||
+									name === "submit_role_result" ||
+									name === "request_own_stop" ||
+									command.type === "requestCheckpointReview" ||
+									command.type === "requestIntakeReview")
+									? { control: { handoff: `${name} durably accepted.` } }
+									: {}),
+							};
+						}),
+					),
 			});
 		const checkpoint = tool(
 			"checkpoint",
@@ -343,14 +356,17 @@ export class Engine {
 				{ additionalProperties: false },
 			),
 			replay: "safe",
-			execute: async (args, api) => {
-				const reply = await runPromise(this.#toolCommand(api, "submit_role_result", { type: "submitRoleResult", ...args }));
-				return {
-					output: [{ type: "text", text: JSON.stringify(reply) }],
-					isError: reply.status !== "accepted",
-					...(reply.status === "accepted" ? { control: { handoff: "Report durably accepted." } } : {}),
-				};
-			},
+			execute: (args, api) =>
+				runPromise(
+					Effect.gen({ self: this }, function* () {
+						const reply = yield* this.#toolCommand(api, "submit_role_result", { type: "submitRoleResult", ...args });
+						return {
+							output: [{ type: "text", text: JSON.stringify(reply) }],
+							isError: reply.status !== "accepted",
+							...(reply.status === "accepted" ? { control: { handoff: "Report durably accepted." } } : {}),
+						};
+					}),
+				),
 		});
 		const experimentRun = defineTool({
 			name: "experiment_run",
@@ -386,19 +402,22 @@ export class Engine {
 			description: "Read only immutable artifacts granted by this packet.",
 			parameters: schema({ ref: Type.String() }),
 			replay: "safe",
-			execute: async (args, api) => {
-				const identity = await runPromise(this.#identity(api, "read_artifact"));
-				const reply =
-					"code" in identity
-						? identity
-						: (args.ref as string).startsWith("web:")
-							? { code: "use_scoped_web_paging" }
-							: await this.#ledger!.artifact(identity.context, { read: args.ref as string });
-				return {
-					output: [{ type: "text", text: "content" in reply ? reply.content.toString("utf8") : JSON.stringify(reply) }],
-					isError: !("content" in reply),
-				};
-			},
+			execute: (args, api) =>
+				runPromise(
+					Effect.gen({ self: this }, function* () {
+						const identity = yield* this.#identity(api, "read_artifact");
+						const reply =
+							"code" in identity
+								? identity
+								: (args.ref as string).startsWith("web:")
+									? { code: "use_scoped_web_paging" }
+									: yield* this.#ledger!.artifactEffect(identity.context, { read: args.ref as string });
+						return {
+							output: [{ type: "text", text: "content" in reply ? reply.content.toString("utf8") : JSON.stringify(reply) }],
+							isError: !("content" in reply),
+						};
+					}),
+				),
 		});
 		const webTools = (["search", "contents"] as const).map((capability) =>
 			defineTool({
@@ -481,35 +500,38 @@ export class Engine {
 				{ additionalProperties: false },
 			),
 			replay: "safe",
-			execute: async (args, api) => {
-				const identity = await runPromise(this.#identity(api, "read_web_result"));
-				const reply =
-					"code" in identity
-						? identity
-						: !args.handle.startsWith("web:")
-							? { code: "invalid_working_handle" }
-							: await this.#ledger!.artifact(identity.context, { read: args.handle });
-				const text = "content" in reply ? reply.content.toString("utf8") : undefined;
-				const offset = args.offset ?? 0;
-				const limit = args.limit ?? 16384;
-				return {
-					output: [
-						{
-							type: "text",
-							text: JSON.stringify(
-								text === undefined
-									? reply
-									: {
-											text: text.slice(offset, offset + limit),
-											next: offset + limit < text.length ? offset + limit : null,
-											total: text.length,
-										},
-							),
-						},
-					],
-					isError: text === undefined,
-				};
-			},
+			execute: (args, api) =>
+				runPromise(
+					Effect.gen({ self: this }, function* () {
+						const identity = yield* this.#identity(api, "read_web_result");
+						const reply =
+							"code" in identity
+								? identity
+								: !args.handle.startsWith("web:")
+									? { code: "invalid_working_handle" }
+									: yield* this.#ledger!.artifactEffect(identity.context, { read: args.handle });
+						const text = "content" in reply ? reply.content.toString("utf8") : undefined;
+						const offset = args.offset ?? 0;
+						const limit = args.limit ?? 16384;
+						return {
+							output: [
+								{
+									type: "text",
+									text: JSON.stringify(
+										text === undefined
+											? reply
+											: {
+													text: text.slice(offset, offset + limit),
+													next: offset + limit < text.length ? offset + limit : null,
+													total: text.length,
+												},
+									),
+								},
+							],
+							isError: text === undefined,
+						};
+					}),
+				),
 		});
 		const retain = defineTool({
 			name: "retain_web_evidence",
@@ -527,10 +549,13 @@ export class Engine {
 				{ additionalProperties: false },
 			),
 			replay: "safe",
-			execute: async (args, api) => {
-				const reply = await runPromise(this.#toolCommand(api, "retain_web_evidence", { type: "retainWebEvidence", ...args }));
-				return { output: [{ type: "text", text: JSON.stringify(reply) }], isError: reply.status !== "accepted" };
-			},
+			execute: (args, api) =>
+				runPromise(
+					Effect.gen({ self: this }, function* () {
+						const reply = yield* this.#toolCommand(api, "retain_web_evidence", { type: "retainWebEvidence", ...args });
+						return { output: [{ type: "text", text: JSON.stringify(reply) }], isError: reply.status !== "accepted" };
+					}),
+				),
 		});
 		const implementation = (name: string, parameters: ReturnType<typeof Type.Object>) =>
 			defineTool({
@@ -542,61 +567,81 @@ export class Engine {
 				parameters,
 				// Arbitrary coding commands cannot be replayed after an uncertain tool outcome.
 				replay: name === "implementation_execute" ? "unsafe" : "safe",
-				execute: async (args, api) => {
-					const identity = await runPromise(this.#identity(api, name));
-					if ("code" in identity) return { output: [{ type: "text", text: JSON.stringify(identity) }], isError: true };
-					const a = identity.a;
-					if (!a.passRef || a.packet.role !== "implementer" || a.packet.execution !== "linux-writer")
-						return { output: [{ type: "text", text: "Only the current accepted implementing writer may use this tool." }], isError: true };
-					if (this.#implementationActive.has(a.id))
-						return {
-							output: [{ type: "text", text: "Implementation operation already in flight; serialize coding, capture and handoff." }],
-							isError: true,
-						};
-					this.#implementationActive.add(a.id);
-					try {
-						if (name === "implementation_execute") {
-							const workspace = await runPromise(this.#implementationWorkspace(a));
-							const result = await this.#sandboxes!.execute(workspace.handle, {
-								scope: this.#scope(a),
-								argv: (args as { argv: string[] }).argv,
-								timeoutMs: this.#config.ownedChecks!.checks[a.packet.profile]!.timeoutMs,
-							});
-							await runPromise(this.#diagnostic(a, this.#scope(a), workspace.source, result));
-							return { output: [{ type: "text", text: JSON.stringify(result) }], isError: result.exitCode !== 0 };
-						}
-						if (name === "implementation_reproduce") {
-							const reply = await runPromise(this.#captureImplementation(a, "reproduction"));
-							return { output: [{ type: "text", text: JSON.stringify(reply) }], isError: reply.result.reproduction !== "red" };
-						}
-						const kind = name === "implementation_audit" ? "audit" : "final";
-						const existing = this.#implementationPass(a);
-						const captured =
-							kind === "audit" ? !!existing.captureA : existing.captureB === existing.workspace && !!this.#workspaces.get(a.id)?.sealed;
-						if (!captured && !existing.handoff) await runPromise(this.#captureImplementation(a, kind));
-						if (name === "implementation_check")
-							return { output: [{ type: "text", text: JSON.stringify({ source: this.#implementationPass(a).captureB }) }], isError: false };
-						const reply = await runPromise(
-							this.#toolCommand(
-								api,
-								name,
-								kind === "audit"
-									? { type: "requestImplementationAudit" }
-									: { type: "submitImplementationHandoff", ...(args as JsonObject) },
-							),
-						);
-						return {
-							output: [{ type: "text", text: JSON.stringify(reply) }],
-							isError: reply.status !== "accepted",
-							...(reply.status === "accepted" ? { control: { handoff: `${name} durably accepted.` } } : {}),
-						};
-					} catch (error) {
-						return { output: [{ type: "text", text: `Implementation remains unaccepted: ${error}` }], isError: true };
-					} finally {
-						this.#implementationActive.delete(a.id);
-						void runPromise(this.reconcileEffect()).catch(() => {});
-					}
-				},
+				execute: (args, api) =>
+					runPromise(
+						Effect.gen({ self: this }, function* () {
+							const identity = yield* this.#identity(api, name);
+							if ("code" in identity) return { output: [{ type: "text" as const, text: JSON.stringify(identity) }], isError: true };
+							const a = identity.a;
+							if (!a.passRef || a.packet.role !== "implementer" || a.packet.execution !== "linux-writer")
+								return {
+									output: [{ type: "text" as const, text: "Only the current accepted implementing writer may use this tool." }],
+									isError: true,
+								};
+							if (this.#implementationActive.has(a.id))
+								return {
+									output: [
+										{ type: "text" as const, text: "Implementation operation already in flight; serialize coding, capture and handoff." },
+									],
+									isError: true,
+								};
+							this.#implementationActive.add(a.id);
+							return yield* Effect.gen({ self: this }, function* () {
+								if (name === "implementation_execute") {
+									const workspace = yield* this.#implementationWorkspace(a);
+									const result = yield* this.#sandboxes!.executeEffect(workspace.handle, {
+										scope: this.#scope(a),
+										argv: (args as { argv: string[] }).argv,
+										timeoutMs: this.#config.ownedChecks!.checks[a.packet.profile]!.timeoutMs,
+									});
+									yield* this.#diagnostic(a, this.#scope(a), workspace.source, result);
+									return { output: [{ type: "text" as const, text: JSON.stringify(result) }], isError: result.exitCode !== 0 };
+								}
+								if (name === "implementation_reproduce") {
+									const reply = yield* this.#captureImplementation(a, "reproduction");
+									return { output: [{ type: "text" as const, text: JSON.stringify(reply) }], isError: reply.result.reproduction !== "red" };
+								}
+								const kind = name === "implementation_audit" ? "audit" : "final";
+								const existing = this.#implementationPass(a);
+								const captured =
+									kind === "audit" ? !!existing.captureA : existing.captureB === existing.workspace && !!this.#workspaces.get(a.id)?.sealed;
+								if (!captured && !existing.handoff) yield* this.#captureImplementation(a, kind);
+								if (name === "implementation_check")
+									return {
+										output: [{ type: "text" as const, text: JSON.stringify({ source: this.#implementationPass(a).captureB }) }],
+										isError: false,
+									};
+								const reply = yield* this.#toolCommand(
+									api,
+									name,
+									kind === "audit"
+										? { type: "requestImplementationAudit" }
+										: { type: "submitImplementationHandoff", ...(args as JsonObject) },
+								);
+								return {
+									output: [{ type: "text" as const, text: JSON.stringify(reply) }],
+									isError: reply.status !== "accepted",
+									...(reply.status === "accepted" ? { control: { handoff: `${name} durably accepted.` } } : {}),
+								};
+							}).pipe(
+								Effect.catchCause((cause) => {
+									if (Cause.hasInterrupts(cause)) return Effect.failCause(cause);
+									const error = Cause.squash(cause);
+									return Effect.succeed({
+										output: [{ type: "text" as const, text: `Implementation remains unaccepted: ${error}` }],
+										isError: true,
+									});
+								}),
+								Effect.ensuring(
+									Effect.sync(() => {
+										this.#implementationActive.delete(a.id);
+										void runPromise(this.reconcileEffect()).catch(() => {});
+									}),
+								),
+								Effect.uninterruptible,
+							);
+						}),
+					),
 			});
 		const executeImplementation = implementation(
 			"implementation_execute",
@@ -659,25 +704,36 @@ export class Engine {
 				handoffImplementation,
 			],
 			sections: [
-				section("role-packet", async (input) => {
-					const binding = await input.read.snapshot(RoleBinding, input.conversationId, ctx);
-					const a = binding ? this.#assignment(binding.assignment) : undefined;
-					if (!a) throw new Error("No role assignment");
-					return runPromise(this.renderEffect(a));
-				}),
+				section("role-packet", (input) =>
+					runPromise(
+						Effect.gen({ self: this }, function* () {
+							const binding = yield* fromPromise(() => input.read.snapshot(RoleBinding, input.conversationId, ctx));
+							const a = binding ? this.#assignment(binding.assignment) : undefined;
+							if (!a) throw new Error("No role assignment");
+							return yield* this.renderEffect(a);
+						}),
+					),
+				),
 			],
 			hooks: [
 				hook(GenerationTask, {
-					beforeRequest: async (_request, api) => {
-						const binding = await api.snapshot(RoleBinding, api.conversationId, ctx);
-						const session = await api.snapshot(ProviderDoc, api.conversationId, ctx);
-						if (binding && session) this.#sessions.set(session.sessionId, { assignment: binding.assignment, task: api.taskId });
-					},
-					afterTools: async (assistant, _results, api) => {
-						const binding = await api.snapshot(RoleBinding, api.conversationId, ctx);
-						const a = binding ? this.#assignment(binding.assignment) : undefined;
-						if (a) await runPromise(this.#command(a, { type: "recordRuntimeHistory", key: `tools:${api.taskId}:${assistant}` }));
-					},
+					beforeRequest: (_request, api) =>
+						runPromise(
+							Effect.gen({ self: this }, function* () {
+								const binding = yield* fromPromise(() => api.snapshot(RoleBinding, api.conversationId, ctx));
+								const session = yield* fromPromise(() => api.snapshot(ProviderDoc, api.conversationId, ctx));
+								if (binding && session) this.#sessions.set(session.sessionId, { assignment: binding.assignment, task: api.taskId });
+								return undefined;
+							}),
+						),
+					afterTools: (assistant, _results, api) =>
+						runPromise(
+							Effect.gen({ self: this }, function* () {
+								const binding = yield* fromPromise(() => api.snapshot(RoleBinding, api.conversationId, ctx));
+								const a = binding ? this.#assignment(binding.assignment) : undefined;
+								if (a) yield* this.#command(a, { type: "recordRuntimeHistory", key: `tools:${api.taskId}:${assistant}` });
+							}),
+						),
 				}),
 			],
 		});
