@@ -176,7 +176,7 @@ export function openLedgerEffect(options: OpenLedgerOptions): Effect.Effect<Open
 				);
 			}
 			const executorEpoch = `executor-${randomUUID()}`;
-			const ledger = yield* fromPromise(() => Ledger.load(harness, opened.persistence, options.onFatal, runtime.roleTasks)).pipe(
+			const ledger = yield* Ledger.loadEffect(harness, opened.persistence, options.onFatal, runtime.roleTasks).pipe(
 				Effect.mapError((error) =>
 					blocked(
 						"unsupported_schema",
@@ -199,16 +199,14 @@ export function openLedgerEffect(options: OpenLedgerOptions): Effect.Effect<Open
 				);
 				const admin = mintContext({ kind: "human", human: "human:owner", route: "local-admin" });
 				const settings = (yield* fromPromise(() => harness.snapshot(CheckpointSettings, ctx))) ?? { currentRevision: "settings:initial" };
-				const seeded = yield* fromPromise(() =>
-					ledger.command(
-						{
-							version: 1,
-							authorityEpoch: ledger.status().authorityEpoch,
-							commandId: `settings-seed:${executorEpoch}`,
-							command: { type: "importCheckpointSettings", expectedRevision: settings.currentRevision, modes },
-						},
-						admin,
-					),
+				const seeded = yield* ledger.commandEffect(
+					{
+						version: 1,
+						authorityEpoch: ledger.status().authorityEpoch,
+						commandId: `settings-seed:${executorEpoch}`,
+						command: { type: "importCheckpointSettings", expectedRevision: settings.currentRevision, modes },
+					},
+					admin,
 				);
 				if (seeded.status !== "accepted")
 					return yield* Effect.fail(
@@ -216,16 +214,14 @@ export function openLedgerEffect(options: OpenLedgerOptions): Effect.Effect<Open
 					);
 			}
 			runtime.bindLedger?.(ledger, harness);
-			const fence = yield* fromPromise(() =>
-				ledger.command(
-					{
-						version: 1,
-						authorityEpoch: ledger.status().authorityEpoch,
-						commandId: `startup:${executorEpoch}`,
-						command: { type: "recordStartup", executorEpoch, persistence: opened.persistence },
-					},
-					mintContext({ kind: "host", scope: "recovery" }),
-				),
+			const fence = yield* ledger.commandEffect(
+				{
+					version: 1,
+					authorityEpoch: ledger.status().authorityEpoch,
+					commandId: `startup:${executorEpoch}`,
+					command: { type: "recordStartup", executorEpoch, persistence: opened.persistence },
+				},
+				mintContext({ kind: "host", scope: "recovery" }),
 			);
 			if (fence.status !== "accepted")
 				return yield* Effect.fail(blocked("startup_fence_refused", JSON.stringify(fence), "Inspect the store; nothing was dispatched."));
@@ -233,7 +229,7 @@ export function openLedgerEffect(options: OpenLedgerOptions): Effect.Effect<Open
 			yield* fromPromise(async () => runtime.beforeResume?.());
 			harness.resume();
 			runtime.afterResume?.();
-			closeStore = fromPromise(() => ledger.close());
+			closeStore = ledger.closeEffect();
 			return {
 				ledger,
 				persistence: opened.persistence,

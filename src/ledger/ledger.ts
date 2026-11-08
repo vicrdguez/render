@@ -1769,7 +1769,7 @@ export class Ledger {
 		context: AuthenticatedContext,
 		sink: { send(frame: Frame): void; end(frame: Frame): void } | { history: HistoryQuery },
 	): { snapshot: Frame; stop(): void } | LedgerRefusal | Promise<HistoryPage | LedgerRefusal> {
-		if ("history" in sink) return runPromise(this.#history(context, sink.history, false));
+		if ("history" in sink) return runPromise(this.historyEffect(context, sink.history, false));
 		const principal = principalOf(context);
 		if (principal === undefined || !this.#current(principal)) return UNAUTHORIZED;
 		if (this.#mode !== "active") return { status: "refused", code: "host_unavailable", reason: `The host is ${this.#mode}.` };
@@ -1944,7 +1944,7 @@ export class Ledger {
 		context: AuthenticatedContext,
 		request: { read: string } | { upload: unknown } | { export: HistoryQuery },
 	): Effect.Effect<Artifact | HistoryExport | LedgerRefusal, unknown> {
-		if ("export" in request) return this.#history(context, request.export, true);
+		if ("export" in request) return this.historyEffect(context, request.export, true);
 		return this.#read(context, (principal) =>
 			Effect.gen({ self: this }, function* () {
 				if ("upload" in request && principal.kind === "host" && principal.scope === "scheduling") {
@@ -2156,9 +2156,9 @@ export class Ledger {
 		});
 	}
 
-	#history(context: AuthenticatedContext, query: HistoryQuery, exporting: false): Effect.Effect<HistoryPage | LedgerRefusal, unknown>;
-	#history(context: AuthenticatedContext, query: HistoryQuery, exporting: true): Effect.Effect<HistoryExport | LedgerRefusal, unknown>;
-	#history(
+	historyEffect(context: AuthenticatedContext, query: HistoryQuery, exporting: false): Effect.Effect<HistoryPage | LedgerRefusal, unknown>;
+	historyEffect(context: AuthenticatedContext, query: HistoryQuery, exporting: true): Effect.Effect<HistoryExport | LedgerRefusal, unknown>;
+	historyEffect(
 		context: AuthenticatedContext,
 		query: HistoryQuery,
 		exporting: boolean,

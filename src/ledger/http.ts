@@ -80,8 +80,7 @@ function command(ledger: Ledger, context: AuthenticatedContext, req: IncomingMes
 					),
 				),
 			// No request-close signal reaches admitted domain work.
-			onSuccess: (body) =>
-				fromPromise(() => ledger.command(body, context)).pipe(Effect.flatMap((reply) => Effect.sync(() => send(res, reply)))),
+			onSuccess: (body) => ledger.commandEffect(body, context).pipe(Effect.flatMap((reply) => Effect.sync(() => send(res, reply)))),
 		}),
 	);
 }
@@ -151,27 +150,26 @@ function route(ledger: Ledger, context: AuthenticatedContext, req: IncomingMessa
 			return send(
 				res,
 				path === "/v1/history"
-					? yield* fromPromise(() => ledger.observe(context, { history: query as HistoryQuery }))
-					: yield* fromPromise(() => ledger.artifact(context, { export: query as HistoryQuery })),
+					? yield* ledger.historyEffect(context, query as HistoryQuery, false)
+					: yield* ledger.artifactEffect(context, { export: query as HistoryQuery }),
 			);
 		}
 		const receipt = /^\/v1\/commands\/([^/]+)$/.exec(path);
-		if (req.method === "GET" && receipt)
-			return send(res, yield* fromPromise(() => ledger.receipt(context, decodeURIComponent(receipt[1] as string))));
+		if (req.method === "GET" && receipt) return send(res, yield* ledger.receiptEffect(context, decodeURIComponent(receipt[1] as string)));
 		const artifact = /^\/v1\/artifacts\/([^/]+)$/.exec(path);
 		if (req.method === "GET" && artifact)
-			return send(
-				res,
-				artifactBody(yield* fromPromise(() => ledger.artifact(context, { read: decodeURIComponent(artifact[1] as string) }))),
-			);
+			return send(res, artifactBody(yield* ledger.artifactEffect(context, { read: decodeURIComponent(artifact[1] as string) })));
 		const messages = /^\/v1\/workflows\/([^/]+)\/messages$/.exec(path);
 		if (req.method === "GET" && messages) {
 			const cursor = url.searchParams.get("cursor");
 			const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") ?? 100) || 100));
 			return send(
 				res,
-				yield* fromPromise(() =>
-					ledger.messages(context, decodeURIComponent(messages[1] as string), cursor === null ? undefined : Number(cursor), limit),
+				yield* ledger.messagesEffect(
+					context,
+					decodeURIComponent(messages[1] as string),
+					cursor === null ? undefined : Number(cursor),
+					limit,
 				),
 			);
 		}
