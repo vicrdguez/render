@@ -5,6 +5,7 @@ import { constants } from "node:fs";
 import { chmod, chown, lstat, mkdir, open, readdir, readFile, readlink, rename, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { blobOid, type LiteralEntry, type Source, treeOid, validateEntries } from "../effects/source.ts";
+import type { ExecutionResult } from "../kernel/evidence-schema.ts";
 import { validatePath } from "../kernel/source-path.ts";
 import { faultBarrier } from "../ledger/barrier.ts";
 
@@ -13,16 +14,7 @@ export type LinuxProfile = { image: string; exclusions: string[]; maxBytes: numb
 type Inputs = Source & { readOnly?: Record<string, Source> };
 export type SandboxHandle = { id: string; runtime: string; scope: ExecutionScope };
 export type PreparationInputs = Inputs | { source: Source; after: SandboxHandle };
-export type ExecutionResult = {
-	argv: string[];
-	exitCode: number | null;
-	stdout: string;
-	stderr: string;
-	platform: { os: "linux"; cpu: string };
-	image: string;
-	timedOut: boolean;
-	verifierRevision?: string;
-};
+export type { ExecutionResult } from "../kernel/evidence-schema.ts";
 export type ExecutionDiagnostic = {
 	id: string;
 	scope: ExecutionScope;

@@ -1,6 +1,8 @@
 // Kernel: pure domain legality. No I/O, clock reads, randomness or ID minting; Ledger supplies resolved state
 // and verified facts, and stages the returned writes atomically.
 
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import { type CheckpointSettings, changeCheckpointSettings, type SettingsCommand } from "./checkpoint-settings.ts";
 import {
 	CHECKPOINT_COMMANDS,
@@ -53,7 +55,7 @@ export type Persistence = {
 	readonly checkpoint_fullfsync: number;
 };
 
-export type Command =
+export type KnownCommand =
 	| IntakeCommand
 	| CheckpointCommand
 	| RoleCommand
@@ -77,8 +79,16 @@ export type Command =
 	| { readonly type: "postCoordinatorMessage"; readonly workflow: string; readonly text: string }
 	| { readonly type: "enrollDevice"; readonly label: string; readonly scope: DeviceScope }
 	| { readonly type: "revokeDevice"; readonly device: string }
-	| { readonly type: "recordStartup"; readonly executorEpoch: string; readonly persistence: Persistence }
-	| { readonly type: string; readonly workflow?: string };
+	| { readonly type: "recordStartup"; readonly executorEpoch: string; readonly persistence: Persistence };
+
+// Unknown or unavailable wire commands keep their actual type for refusal and fingerprinting, but a
+// malformed known command cannot use this alternative to evade the typed command union.
+declare const unparsedCommandType: unique symbol;
+export type UnparsedCommand = {
+	readonly type: string & { readonly [unparsedCommandType]: true };
+	readonly workflow?: string;
+};
+export type Command = KnownCommand | UnparsedCommand;
 
 export type KernelState = {
 	readonly intakes?: Intakes;
@@ -171,7 +181,19 @@ export type RefusalCode =
 	| "content_corrupt"
 	| "missing_content"
 	| "already_revoked"
-	| "contract_superseded";
+	| "contract_superseded"
+	| "checkpoint_pending"
+	| "seams_required"
+	| "concern_required"
+	| "review_required"
+	| "annotation_mapping_required"
+	| "dependency_blocked"
+	| "decision_required"
+	| "contract_frozen"
+	| "fidelity_required"
+	| "dependent_disposition_required"
+	| "missing_candidate_evidence"
+	| "human_decision_required";
 
 export type Repair = { readonly action: string; readonly [key: string]: string | null };
 
@@ -281,6 +303,12 @@ export function isAvailableCommand(type: string): boolean {
 	return CATALOGUE[type]?.available === true;
 }
 
+/** The envelope keeps unknown/unavailable commands for the established permission refusal. */
+export function unparsedCommand(type: string, workflow: string | null): UnparsedCommand {
+	if (isAvailableCommand(type)) throw new Error("Available commands must be parsed before entering the Kernel");
+	return { type: type as UnparsedCommand["type"], ...(workflow === null ? {} : { workflow }) };
+}
+
 function refuse(code: RefusalCode, reason: string, refs?: Record<string, string | null>, repair?: Repair[]): Refusal {
 	return { outcome: "refused", code, reason, ...(refs === undefined ? {} : { refs }), ...(repair === undefined ? {} : { repair }) };
 }
@@ -311,20 +339,32 @@ export function commandPermission(type: string, principal: Principal): Refusal |
 	return undefined;
 }
 
-export function change(state: KernelState, command: Command, facts: VerifiedFacts): Decision {
+type Accepted = Extract<Decision, { outcome: "accepted" }>;
+
+// Transitional bridge for command families not yet migrated to Effect. It never catches defects.
+function fromDecision(decision: Decision): Effect.Effect<Accepted, Refusal> {
+	return decision.outcome === "refused" ? Effect.fail(decision) : Effect.succeed(decision);
+}
+function fail(code: RefusalCode, reason: string, refs?: Record<string, string | null>, repair?: Repair[]): Effect.Effect<never, Refusal> {
+	return Effect.fail(refuse(code, reason, refs, repair));
+}
+
+/** Pure, synchronous-interpretable Kernel program. Refusals use the typed error channel; defects stay defects. */
+export const changeEffect = Effect.fnUntraced(function* (state: KernelState, command: Command, facts: VerifiedFacts) {
 	const denied = commandPermission(command.type, facts.principal);
-	if (denied) return denied;
+	if (denied) return yield* Effect.fail(denied);
 
 	if (command.type === "changeCheckpointSettings" || command.type === "importCheckpointSettings")
-		return changeCheckpointSettings(state, command as SettingsCommand, facts);
-	if (command.type === "changePolicy" || command.type === "adoptPolicy") return changePolicy(state, command as PolicyCommand, facts);
-	if (INTAKE_COMMANDS.includes(command.type)) return changeIntake(state, command as IntakeCommand, facts);
-	if (CHECKPOINT_COMMANDS.includes(command.type)) return changeCheckpoint(state, command as CheckpointCommand, facts);
-	if (ROLE_COMMANDS.includes(command.type)) return changeRole(state, command as RoleCommand, facts);
+		return yield* fromDecision(changeCheckpointSettings(state, command as SettingsCommand, facts));
+	if (command.type === "changePolicy" || command.type === "adoptPolicy")
+		return yield* fromDecision(changePolicy(state, command as PolicyCommand, facts));
+	if (INTAKE_COMMANDS.includes(command.type)) return yield* fromDecision(changeIntake(state, command as IntakeCommand, facts));
+	if (CHECKPOINT_COMMANDS.includes(command.type)) return yield* fromDecision(changeCheckpoint(state, command as CheckpointCommand, facts));
+	if (ROLE_COMMANDS.includes(command.type)) return yield* changeRole(state, command as RoleCommand, facts);
 	if (PUBLICATION_COMMANDS.includes(command.type)) {
 		const c = command as PublicationCommand;
-		if (!inScope(facts.principal, c.workflow)) return refuse("forbidden_scope", `${c.workflow} is outside this device's scope.`);
-		return changePublication(state, c, facts);
+		if (!inScope(facts.principal, c.workflow)) return yield* fail("forbidden_scope", `${c.workflow} is outside this device's scope.`);
+		return yield* fromDecision(changePublication(state, c, facts));
 	}
 
 	const c = command as Extract<
@@ -342,17 +382,17 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 	>;
 	switch (c.type) {
 		case "requestLocalVerificationPrompt": {
-			if (!inScope(facts.principal, c.workflow)) return refuse("forbidden_scope", `${c.workflow} is outside this device's scope.`);
-			if (state.workflow === null) return refuse("not_found", `${c.workflow} does not exist.`);
+			if (!inScope(facts.principal, c.workflow)) return yield* fail("forbidden_scope", `${c.workflow} is outside this device's scope.`);
+			if (state.workflow === null) return yield* fail("not_found", `${c.workflow} does not exist.`);
 			if (c.expectedSequence !== facts.sequence - 1)
-				return refuse("stale_basis", "The retained snapshot changed; observe again before requesting a new prompt.", undefined, [
+				return yield* fail("stale_basis", "The retained snapshot changed; observe again before requesting a new prompt.", undefined, [
 					{ action: "observe", workflow: c.workflow },
 				]);
 			const source = state.roleWork?.assignments.find(
 				(a) => a.workflow === c.workflow && (a.investigationSource === c.source || a.report === c.source),
 			);
 			if (!source)
-				return refuse(
+				return yield* fail(
 					"missing_content",
 					`Select an exact retained source observation, not a branch or an unverified document: ${c.source}.`,
 				);
@@ -385,14 +425,15 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 			};
 		}
 		case "saveDocument": {
-			if (!inScope(facts.principal, c.workflow)) return refuse("forbidden_scope", `${c.workflow} is outside this device's scope.`);
-			if (state.workflow === null) return refuse("not_found", `${c.workflow} does not exist.`, { workflow: c.workflow });
+			if (!inScope(facts.principal, c.workflow)) return yield* fail("forbidden_scope", `${c.workflow} is outside this device's scope.`);
+			if (state.workflow === null) return yield* fail("not_found", `${c.workflow} does not exist.`, { workflow: c.workflow });
 			const content = facts.content;
-			if (content === undefined || !content.validUtf8) return refuse("invalid_content", "Document content must be complete UTF-8 bytes.");
+			if (content === undefined || !content.validUtf8)
+				return yield* fail("invalid_content", "Document content must be complete UTF-8 bytes.");
 			const current = state.document?.current ?? null;
 			if (state.document !== null && state.document.integrity !== "intact") {
 				const code = state.document.integrity === "corrupt" ? "content_corrupt" : "missing_content";
-				return refuse(
+				return yield* fail(
 					code,
 					`The retained bytes of ${state.document.current} failed integrity checks; restore that exact revision before saving over it.`,
 					{ restore: state.document.current },
@@ -400,7 +441,7 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 				);
 			}
 			if (c.expected !== current) {
-				return refuse(
+				return yield* fail(
 					"stale_basis",
 					current === null
 						? `${c.document} has no saved revision, but the save expected ${c.expected}.`
@@ -437,8 +478,8 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 			};
 		}
 		case "postCoordinatorMessage": {
-			if (!inScope(facts.principal, c.workflow)) return refuse("forbidden_scope", `${c.workflow} is outside this device's scope.`);
-			if (state.workflow === null) return refuse("not_found", `${c.workflow} does not exist.`, { workflow: c.workflow });
+			if (!inScope(facts.principal, c.workflow)) return yield* fail("forbidden_scope", `${c.workflow} is outside this device's scope.`);
+			if (state.workflow === null) return yield* fail("not_found", `${c.workflow} does not exist.`, { workflow: c.workflow });
 			const message = required(facts.ids.message);
 			return {
 				outcome: "accepted",
@@ -457,8 +498,8 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 			};
 		}
 		case "revokeDevice": {
-			if (state.device === null) return refuse("not_found", `${c.device} is not enrolled.`, { device: c.device });
-			if (state.device.revoked) return refuse("already_revoked", `${c.device} is already revoked.`, { device: c.device });
+			if (state.device === null) return yield* fail("not_found", `${c.device} is not enrolled.`, { device: c.device });
+			if (state.device.revoked) return yield* fail("already_revoked", `${c.device} is already revoked.`, { device: c.device });
 			return {
 				outcome: "accepted",
 				result: { device: c.device, revokedAtSequence: facts.sequence },
@@ -477,8 +518,14 @@ export function change(state: KernelState, command: Command, facts: VerifiedFact
 				facts: [facts.ids.fact],
 			};
 		default:
-			return refuse("unknown_command", `Unknown command type "${command.type}".`);
+			return yield* fail("unknown_command", `Unknown command type "${command.type}".`);
 	}
+}) satisfies (state: KernelState, command: Command, facts: VerifiedFacts) => Effect.Effect<Accepted, Refusal>;
+
+/** Existing Ledger seam: interpret synchronously, preserving plain decisions and fail-stop defects. */
+export function change(state: KernelState, command: Command, facts: VerifiedFacts): Decision {
+	const result = Effect.runSync(Effect.result(changeEffect(state, command, facts)));
+	return Result.isFailure(result) ? result.failure : result.success;
 }
 
 function required(id: string | undefined): string {

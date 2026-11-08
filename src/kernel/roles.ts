@@ -1,6 +1,7 @@
 // Pure role ownership and execution legality, reached only through Kernel.change.
 
 import { isDeepStrictEqual } from "node:util";
+import * as Effect from "effect/Effect";
 import { validCandidateAnswer } from "./candidates.ts";
 import { blockedBySeams } from "./checkpoints.ts";
 import { type Experiment, experimentCandidates, experimentOutcome } from "./experiments.ts";
@@ -41,7 +42,7 @@ import {
 	unresolved,
 } from "./integration.ts";
 import { type Investigation, readInvestigationOutcome, shapeConfirmed } from "./investigation.ts";
-import type { Decision, DomainWrite, KernelState, Principal, VerifiedFacts } from "./kernel.ts";
+import type { Decision, DomainWrite, KernelState, Principal, Refusal, RefusalCode, VerifiedFacts } from "./kernel.ts";
 import { type Comparison, comparePerformance, readCommitment } from "./performance.ts";
 import { bindingFor, initialPolicy, policyBasis } from "./policy.ts";
 import {
@@ -287,8 +288,8 @@ export const ROLE_COMMANDS = [
 	"rebindAttempt",
 ];
 
-function refusal(code: string, reason: string): Decision {
-	return { outcome: "refused", code, reason } as Decision;
+function refusal(code: RefusalCode, reason: string): Refusal {
+	return { outcome: "refused", code, reason };
 }
 export function sameAgent(a: RoleAssignment, p: Principal): boolean {
 	return (
@@ -323,8 +324,9 @@ export function packetRefs(p: RolePacket): string[] {
 		]),
 	];
 }
-export function changeRole(state: KernelState, command: RoleCommand, facts: VerifiedFacts): Decision {
-	if (!state.workflow || state.workflow.id !== command.workflow) return refusal("not_found", "Role work requires an existing workflow.");
+export const changeRole = Effect.fnUntraced(function* (state: KernelState, command: RoleCommand, facts: VerifiedFacts) {
+	if (!state.workflow || state.workflow.id !== command.workflow)
+		return yield* Effect.fail(refusal("not_found", "Role work requires an existing workflow."));
 	const work: RoleWorkState = structuredClone(state.roleWork ?? { assignments: [] });
 	const p = facts.principal;
 	const c = command;
@@ -334,11 +336,11 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 	const a = work.assignments.find((a) => a.id === target);
 	if (p.kind === "assignment-agent") {
 		if (!a || a.generation !== p.generation || a.attempt !== p.attempt || a.status === "canceling" || a.status === "canceled")
-			return refusal("stale_assignment", "This assignment generation or Attempt is fenced.");
+			return yield* Effect.fail(refusal("stale_assignment", "This assignment generation or Attempt is fenced."));
 		if (a.workflow !== c.workflow || a.packet.role !== p.role)
-			return refusal("forbidden_scope", "Effective assignment role or workflow differs.");
+			return yield* Effect.fail(refusal("forbidden_scope", "Effective assignment role or workflow differs."));
 		if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
-			return refusal("assignment_not_running", "A new call requires current executing authority.");
+			return yield* Effect.fail(refusal("assignment_not_running", "A new call requires current executing authority."));
 	}
 	// Check proposed experiment authority first, then Seams and accepted-Contract gaps, before command-specific fidelity.
 	const proposedPacket =
@@ -348,11 +350,12 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				? a?.packet.requests.find((request) => request.key === c.key)?.packet
 				: undefined;
 	if (proposedPacket && ["experiment-candidate", "experiment-parent"].includes(proposedPacket.role) && !proposedPacket.experiment)
-		return refusal("invalid_content", "Every experiment role requires an immutable preregistered protocol.");
+		return yield* Effect.fail(refusal("invalid_content", "Every experiment role requires an immutable preregistered protocol."));
 	if (proposedPacket?.experiment) {
 		const e = proposedPacket.experiment;
 		const protocol = facts.experimentProtocols?.[e.protocol];
-		if (!protocol) return refusal("invalid_content", "Retain the complete immutable protocol before assigning experiment work.");
+		if (!protocol)
+			return yield* Effect.fail(refusal("invalid_content", "Retain the complete immutable protocol before assigning experiment work."));
 		if (
 			proposedPacket.investigation ||
 			proposedPacket.verification ||
@@ -361,15 +364,17 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			proposedPacket.role !== (e.candidate === null ? "experiment-parent" : "experiment-candidate") ||
 			(c.type === "assignTask" && c.delivery)
 		)
-			return refusal("forbidden_scope", "Experiments confer no delivery/adoption authority or child role requests.");
+			return yield* Effect.fail(refusal("forbidden_scope", "Experiments confer no delivery/adoption authority or child role requests."));
 		if (e.candidate !== null && !protocol.candidates.includes(e.candidate))
-			return refusal("forbidden_scope", "Candidate is outside the preregistered protocol.");
+			return yield* Effect.fail(refusal("forbidden_scope", "Candidate is outside the preregistered protocol."));
 		if (
 			work.assignments.some(
 				(other) => other.packet.experiment?.protocol === e.protocol && other.packet.experiment.candidate === e.candidate,
 			)
 		)
-			return refusal("ownership_conflict", "This protocol/round already owns that candidate or comparison; use a new round.");
+			return yield* Effect.fail(
+				refusal("ownership_conflict", "This protocol/round already owns that candidate or comparison; use a new round."),
+			);
 		if (e.candidate === null) {
 			const candidates = experimentCandidates(work.assignments, e.protocol);
 			if (
@@ -385,7 +390,9 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 						),
 				)
 			)
-				return refusal("missing_content", "Retain sealed source and report for every exact protocol candidate before comparison.");
+				return yield* Effect.fail(
+					refusal("missing_content", "Retain sealed source and report for every exact protocol candidate before comparison."),
+				);
 		}
 	}
 	const affectedPacket = c.type === "assignTask" || c.type === "replaceTask" ? c.packet : a?.packet;
@@ -404,7 +411,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		].includes(c.type) &&
 		blockedBySeams(state.checkpoints, affectedPacket, c.type === "assignTask" ? c.delivery : (a?.delivery ?? false), state.intakes)
 	)
-		return refusal("seams_required", "Revised Seams block affected execution; historical approvals remain retained.");
+		return yield* Effect.fail(refusal("seams_required", "Revised Seams block affected execution; historical approvals remain retained."));
 	const slice = c.type === "assignTask" ? c.slice : a?.slice;
 	const acceptedSlice = state.intakes?.slices.find((s) => s.id === slice);
 	// An accepted implementer cannot opt out of exclusive delivery ownership.
@@ -426,17 +433,22 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		].includes(c.type)
 	) {
 		const gap = intakeAssignmentGap(state, slice, affectedPacket, facts.mainDeliveries ?? []);
-		if (gap) return gap;
+		if (gap) return yield* Effect.fail(gap);
 	}
 	if (proposedPacket?.investigation) {
 		if (proposedPacket.role !== "coordinator" || proposedPacket.execution !== "read-only" || proposedPacket.requests.length)
-			return refusal("forbidden_scope", "Investigation is coordinator-only, read-only and cannot schedule child/delivery roles.");
-		if (!facts.investigationGround) return refusal("missing_content", "Restore the exact human Ground revision.");
+			return yield* Effect.fail(
+				refusal("forbidden_scope", "Investigation is coordinator-only, read-only and cannot schedule child/delivery roles."),
+			);
+		if (!facts.investigationGround) return yield* Effect.fail(refusal("missing_content", "Restore the exact human Ground revision."));
 		if (!shapeConfirmed(facts.investigationGround))
-			return refusal("shape_confirmation_required", "Human confirmation is required for a classifier-proposed task shape.");
+			return yield* Effect.fail(
+				refusal("shape_confirmation_required", "Human confirmation is required for a classifier-proposed task shape."),
+			);
 	}
 	const pass = work.passes?.find((p) => p.ref === (a?.passRef ?? a?.auditReview?.passRef));
-	if ((a?.passRef || a?.auditReview) && !pass) return refusal("missing_content", "Retained implementation pass is missing.");
+	if ((a?.passRef || a?.auditReview) && !pass)
+		return yield* Effect.fail(refusal("missing_content", "Retained implementation pass is missing."));
 	if (
 		(a?.passRef || a?.auditReview) &&
 		![
@@ -459,7 +471,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		].includes(c.type) &&
 		a?.policyBinding !== bindingFor(state.policy ?? initialPolicy(), c.workflow).revision
 	)
-		return refusal("stale_basis", "Implementation authority belongs to an older policy binding.");
+		return yield* Effect.fail(refusal("stale_basis", "Implementation authority belongs to an older policy binding."));
 	if (
 		a?.passRef &&
 		[
@@ -472,7 +484,9 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		].includes(c.type) &&
 		(a.implementationBinding ?? pass?.policyBinding) !== a.policyBinding
 	)
-		return refusal("stale_basis", "Policy adoption fenced this implementation execution; quiesce and replace it explicitly.");
+		return yield* Effect.fail(
+			refusal("stale_basis", "Policy adoption fenced this implementation execution; quiesce and replace it explicitly."),
+		);
 	// A pass enters Kernel state only through this configuration; a successor inherits it.
 	let configuration: PassConfiguration | undefined;
 	// Debt: repeated current-policy lookups below could share one command-local binding without changing adoption semantics.
@@ -570,29 +584,38 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 	}
 	if (c.type === "assignTask") {
 		if (!c.packet || !c.slice || typeof c.delivery !== "boolean")
-			return refusal("invalid_content", "Assignment requires an explicit packet, Slice and ownership mode.");
-		if (c.delivery && c.packet.investigation) return refusal("forbidden_scope", "Investigation creates no delivery commitment.");
+			return yield* Effect.fail(refusal("invalid_content", "Assignment requires an explicit packet, Slice and ownership mode."));
+		if (c.delivery && c.packet.investigation)
+			return yield* Effect.fail(refusal("forbidden_scope", "Investigation creates no delivery commitment."));
 		if (acceptedSlice && c.packet.role === "watchdog")
-			return refusal("forbidden_scope", "Watchdog rounds on accepted work are host-launched on exact prepared X/T, never assigned.");
+			return yield* Effect.fail(
+				refusal("forbidden_scope", "Watchdog rounds on accepted work are host-launched on exact prepared X/T, never assigned."),
+			);
 		if (hasOwner(work, c.packet, c.slice, delivery))
-			return refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer.");
+			return yield* Effect.fail(refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer."));
 		if (delivery && work.passes?.some((p) => p.workflow === c.workflow && p.slice === c.slice))
-			return refusal(
-				"ownership_conflict",
-				"Resume the retained implementation pass with a linked replacement; assignment is not a return to implementation.",
+			return yield* Effect.fail(
+				refusal(
+					"ownership_conflict",
+					"Resume the retained implementation pass with a linked replacement; assignment is not a return to implementation.",
+				),
 			);
 		if (acceptedSlice && delivery) {
 			configuration = passConfiguration(c.packet, acceptedSlice.contract);
 			if (!configuration)
-				return refusal(
-					"invalid_content",
-					"Accepted implementation needs a Linux-writer implementer, a verification selection for its Contract with a retainable path and unique required and behavioral rows, and exactly one read-only reviewer per Audit axis, in its required family, with no verifier, investigation, experiment or nested requests.",
+				return yield* Effect.fail(
+					refusal(
+						"invalid_content",
+						"Accepted implementation needs a Linux-writer implementer, a verification selection for its Contract with a retainable path and unique required and behavioral rows, and exactly one read-only reviewer per Audit axis, in its required family, with no verifier, investigation, experiment or nested requests.",
+					),
 				);
 		}
 		create(c.packet, c.slice, delivery, null, null);
 	} else if (c.type === "replaceTask") {
 		if ((a?.passRef || a?.auditReview) && (!pass || pass.handoff))
-			return refusal("assignment_closed", "Handed-off implementation cannot be replaced; only an authorized return opens its successor.");
+			return yield* Effect.fail(
+				refusal("assignment_closed", "Handed-off implementation cannot be replaced; only an authorized return opens its successor."),
+			);
 		if (
 			a?.auditReview &&
 			(c.packet.role !== a.packet.role ||
@@ -604,27 +627,37 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				c.packet.policy !== a.packet.policy ||
 				c.packet.profile !== a.packet.profile)
 		)
-			return refusal("forbidden_scope", "Audit replacement must preserve its exact axis, source, obligations and private input scope.");
+			return yield* Effect.fail(
+				refusal("forbidden_scope", "Audit replacement must preserve its exact axis, source, obligations and private input scope."),
+			);
 		if (
 			a?.passRef &&
 			(JSON.stringify(c.packet.inputs) !== JSON.stringify(a.packet.inputs) ||
 				!isDeepStrictEqual(passConfiguration(c.packet, pass!.contract), pass!.configuration) ||
 				c.packet.profile !== a.packet.profile)
 		)
-			return refusal("forbidden_scope", "Implementation replacement cannot widen source scope or change its frozen pass configuration.");
+			return yield* Effect.fail(
+				refusal("forbidden_scope", "Implementation replacement cannot widen source scope or change its frozen pass configuration."),
+			);
 		if (a?.packet.experiment)
-			return refusal("forbidden_scope", "Experimental corrections require a new protocol/round, not replacement or adoption.");
+			return yield* Effect.fail(
+				refusal("forbidden_scope", "Experimental corrections require a new protocol/round, not replacement or adoption."),
+			);
 		if (a?.watchdogReview && !samePacket(a.packet, c.packet))
-			return refusal("forbidden_scope", "A Watchdog round keeps its exact frozen reviewer, inputs and read-only scope.");
+			return yield* Effect.fail(
+				refusal("forbidden_scope", "A Watchdog round keeps its exact frozen reviewer, inputs and read-only scope."),
+			);
 		if (a?.checkpointCandidate) {
 			if (!samePacket(a.packet, c.packet))
-				return refusal(
-					"forbidden_scope",
-					"Candidate replacement retains exact question, conditions and role; changed comparison needs a new checkpoint.",
+				return yield* Effect.fail(
+					refusal(
+						"forbidden_scope",
+						"Candidate replacement retains exact question, conditions and role; changed comparison needs a new checkpoint.",
+					),
 				);
 		}
 		if (a?.intakeReview && (c.packet.role !== "challenger" || !a.packet.inputs.every((ref) => c.packet.inputs.includes(ref))))
-			return refusal("forbidden_scope", "Replacement fidelity must retain exact intake, decisions and concerns.");
+			return yield* Effect.fail(refusal("forbidden_scope", "Replacement fidelity must retain exact intake, decisions and concerns."));
 		if (
 			a?.checkpointReview &&
 			(c.packet.role !== "challenger" ||
@@ -632,31 +665,37 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				!c.packet.inputs.includes(a.checkpointReview.manifest) ||
 				!a.packet.inputs.every((ref) => c.packet.inputs.includes(ref)))
 		)
-			return refusal("forbidden_scope", "Replacement challenge must retain its exact emission/manifest inputs and independent role.");
+			return yield* Effect.fail(
+				refusal("forbidden_scope", "Replacement challenge must retain its exact emission/manifest inputs and independent role."),
+			);
 		if (a?.packet.investigation && !c.packet.investigation)
-			return refusal("forbidden_scope", "Investigation replacement cannot authorize a different playbook; retain an escalation instead.");
+			return yield* Effect.fail(
+				refusal("forbidden_scope", "Investigation replacement cannot authorize a different playbook; retain an escalation instead."),
+			);
 		if (!a || a.generation !== c.generation || a.attempt !== c.attempt || a.workflow !== c.workflow)
-			return refusal("stale_assignment", "Replacement predecessor differs.");
+			return yield* Effect.fail(refusal("stale_assignment", "Replacement predecessor differs."));
 		if (a.status !== "canceled" || a.executing)
-			return refusal("quiescence_unconfirmed", "Fence and quiesce the predecessor before replacement.");
+			return yield* Effect.fail(refusal("quiescence_unconfirmed", "Fence and quiesce the predecessor before replacement."));
 		if (work.assignments.some((child) => child.predecessor === a.id))
-			return refusal("ownership_conflict", "Predecessor already has a replacement.");
+			return yield* Effect.fail(refusal("ownership_conflict", "Predecessor already has a replacement."));
 		if (hasOwner(work, c.packet, a.slice, a.delivery))
-			return refusal("ownership_conflict", "Replacement would overlap a current delivery owner or writer.");
+			return yield* Effect.fail(refusal("ownership_conflict", "Replacement would overlap a current delivery owner or writer."));
 		create(c.packet, a.slice, a.delivery, a.parent, a.requestKey);
 		result.predecessor = a.id;
 	} else if (c.type === "requestImplementationAudit") {
 		if (!a?.passRef || !pass || pass.assignment !== a.id || pass.handoff || !pass.captureA)
-			return refusal("missing_content", "Current implementation requires retained Audit source A.");
-		if (pass.audit) return refusal("role_already_requested", "This pass already has its one Audit invocation.");
+			return yield* Effect.fail(refusal("missing_content", "Current implementation requires retained Audit source A."));
+		if (pass.audit) return yield* Effect.fail(refusal("role_already_requested", "This pass already has its one Audit invocation."));
 		const gap = implementationEvidenceGap(facts.implementationSource, pass);
-		if (gap) return refusal("missing_content", gap);
+		if (gap) return yield* Effect.fail(refusal("missing_content", gap));
 		const policy = state.policy ?? initialPolicy();
 		if (
 			Object.values(pass.configuration.reviewers).some((reviewer) => reviewer.packet.family === a.packet.family) &&
 			policy.revisions[bindingFor(policy, a.workflow).policy]?.reviewerDiversity !== "human-directed-same-family"
 		)
-			return refusal("capability_unavailable", "Same-family independent Audit needs recorded human policy direction; no family fallback.");
+			return yield* Effect.fail(
+				refusal("capability_unavailable", "Same-family independent Audit needs recorded human policy direction; no family fallback."),
+			);
 		const audit = {
 			ref: `audit:${facts.sequence}`,
 			record: `implementation-audit:${facts.sequence}`,
@@ -693,7 +732,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		};
 	} else if (c.type === "submitImplementationHandoff") {
 		if (!a?.passRef || !pass || pass.assignment !== a.id || pass.handoff || !pass.audit || !pass.captureA || !pass.captureB)
-			return refusal("missing_content", "Handoff requires current pass A, Audit and final B, with no prior handoff.");
+			return yield* Effect.fail(refusal("missing_content", "Handoff requires current pass A, Audit and final B, with no prior handoff."));
 		if (
 			!c.text ||
 			Buffer.byteLength(c.text) > 1024 * 1024 ||
@@ -701,7 +740,9 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			!validAssessment(c.verification) ||
 			c.verification.outcome !== "pass"
 		)
-			return refusal("invalid_content", "Handoff requires literal text, complete dispositions and a passing assessment.");
+			return yield* Effect.fail(
+				refusal("invalid_content", "Handoff requires literal text, complete dispositions and a passing assessment."),
+			);
 		const reports: AuditResult[] = [];
 		for (const axis of ["standards", "contracts"] as const) {
 			const binding = pass.audit.roles[axis],
@@ -716,12 +757,12 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				reviewer.auditReview?.audit !== pass.audit.ref ||
 				reviewer.auditReview.source !== pass.captureA
 			)
-				return refusal("missing_content", "Both current Audit axes must complete on this pass and A.");
+				return yield* Effect.fail(refusal("missing_content", "Both current Audit axes must complete on this pass and A."));
 			reports.push(report);
 		}
 		const evidence = facts.implementationSource;
 		if (pass.workspace !== pass.captureB || !sourceScopeMatches(evidence, a))
-			return refusal("stale_basis", "Final B must be the current owner's latest captured workspace.");
+			return yield* Effect.fail(refusal("stale_basis", "Final B must be the current owner's latest captured workspace."));
 		const policy = state.policy ?? initialPolicy();
 		const gap = implementationEvidenceGap(
 			evidence,
@@ -729,15 +770,16 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			c.verification,
 			policy.revisions[bindingFor(policy, a.workflow).policy]!.minimumEvidenceRank,
 		);
-		if (gap) return refusal("missing_content", gap);
+		if (gap) return yield* Effect.fail(refusal("missing_content", gap));
 		const findings = reports.flatMap((r) => r.findings.map((f) => ({ ...f, report: r.report })));
-		if (c.dispositions.length !== findings.length) return refusal("invalid_content", "Every finding needs exactly one disposition.");
+		if (c.dispositions.length !== findings.length)
+			return yield* Effect.fail(refusal("invalid_content", "Every finding needs exactly one disposition."));
 		for (const finding of findings) {
 			const dispositions = c.dispositions.filter((d) => d.report === finding.report && d.finding === finding.id);
-			if (dispositions.length !== 1) return refusal("invalid_content", "Missing or duplicate finding disposition.");
+			if (dispositions.length !== 1) return yield* Effect.fail(refusal("invalid_content", "Missing or duplicate finding disposition."));
 			const d = dispositions[0]!;
 			if (finding.needsHuman || d.disposition === "needs-human")
-				return refusal("capability_unavailable", "Unresolved product/Contract questions require human resolution.");
+				return yield* Effect.fail(refusal("capability_unavailable", "Unresolved product/Contract questions require human resolution."));
 			// Debt: extract the successful-row predicate if reused; keep exact B, row selection and verifier identity checks together.
 			if (
 				d.disposition === "fixed" &&
@@ -757,7 +799,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 						),
 					))
 			)
-				return refusal("missing_content", "Fixed findings need exact B and successful relevant catalog row rechecks.");
+				return yield* Effect.fail(refusal("missing_content", "Fixed findings need exact B and successful relevant catalog row rechecks."));
 		}
 		pass.handoff = { record: `implementation-handoff:${facts.sequence}`, source: pass.captureB };
 		a.status = "submitted";
@@ -773,34 +815,37 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		};
 	} else if (c.type === "requestWatchdogReview") {
 		if (!a?.passRef || !pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work.passes, pass))
-			return refusal("assignment_closed", "Watchdog reviews only the current handed-off pass.");
-		if (handoffClosed(pass)) return refusal("assignment_closed", handoffClosed(pass)!);
+			return yield* Effect.fail(refusal("assignment_closed", "Watchdog reviews only the current handed-off pass."));
+		if (handoffClosed(pass)) return yield* Effect.fail(refusal("assignment_closed", handoffClosed(pass)!));
 		if (a.workflow !== c.workflow || a.generation !== c.generation || a.attempt !== c.attempt)
-			return refusal("stale_assignment", "Generation or Attempt is no longer current.");
+			return yield* Effect.fail(refusal("stale_assignment", "Generation or Attempt is no longer current."));
 		if (pass.handoff.preparations?.at(-1) !== c.preparation)
-			return refusal("stale_basis", "Review only this handoff's latest prepared source.");
+			return yield* Effect.fail(refusal("stale_basis", "Review only this handoff's latest prepared source."));
 		const sealed = facts.implementationSource;
 		const record = sealed
 			? preparationRecord(facts.checkpointInputs?.[c.preparation]?.text ?? "", sealed.source.source.objectFormat)
 			: undefined;
-		if (!record) return refusal("missing_content", "Restore the exact preparation record and sealed handoff source.");
+		if (!record) return yield* Effect.fail(refusal("missing_content", "Restore the exact preparation record and sealed handoff source."));
 		if (record.outcome !== "checked" || !record.preparation || !record.checks)
-			return refusal("forbidden_scope", "Only prepared X whose required checks passed can be reviewed.");
+			return yield* Effect.fail(refusal("forbidden_scope", "Only prepared X whose required checks passed can be reviewed."));
 		if (record.target.commit !== c.target)
-			return refusal("stale_basis", "Target moved since X was prepared; prepare the current target before review.");
+			return yield* Effect.fail(refusal("stale_basis", "Target moved since X was prepared; prepare the current target before review."));
 		const basis = policyBasis(state.policy ?? initialPolicy(), c.workflow);
 		if (!basis || record.policy.binding !== basis.binding || record.policy.revision !== basis.revision)
-			return refusal("stale_basis", "X was qualified under a superseded policy binding; prepare again.");
+			return yield* Effect.fail(refusal("stale_basis", "X was qualified under a superseded policy binding; prepare again."));
 		if (work.assignments.some((r) => r.watchdogReview?.preparation === c.preparation && r.status !== "canceled"))
-			return refusal("role_already_requested", "This prepared X already has its Watchdog round.");
+			return yield* Effect.fail(refusal("role_already_requested", "This prepared X already has its Watchdog round."));
 		const reviewer = pass.configuration.watchdog;
-		if (!reviewer) return refusal("capability_unavailable", "This pass froze no Watchdog reviewer; no review is invented.");
+		if (!reviewer)
+			return yield* Effect.fail(refusal("capability_unavailable", "This pass froze no Watchdog reviewer; no review is invented."));
 		const policy = state.policy ?? initialPolicy();
 		if (
 			reviewer.packet.family === a.packet.family &&
 			policy.revisions[bindingFor(policy, a.workflow).policy]?.reviewerDiversity !== "human-directed-same-family"
 		)
-			return refusal("capability_unavailable", "Same-family independent review needs recorded human policy direction; no family fallback.");
+			return yield* Effect.fail(
+				refusal("capability_unavailable", "Same-family independent review needs recorded human policy direction; no family fallback."),
+			);
 		// Return observations and the human directions that resolved stopped rounds, oldest first.
 		const lineage: string[] = [];
 		for (let p: ImplementationPass | undefined = pass; p; p = work.passes!.find((x) => x.ref === p!.predecessor))
@@ -833,18 +878,21 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		Object.assign(result, { review: w.id, passRef: pass.ref, handoff: pass.handoff.record, preparation: c.preparation });
 	} else if (c.type === "openSuccessorPass") {
 		if (!a?.passRef || !pass || a.workflow !== c.workflow)
-			return refusal("not_found", "Successor requires the owner of a retained implementation pass.");
+			return yield* Effect.fail(refusal("not_found", "Successor requires the owner of a retained implementation pass."));
 		if (a.generation !== c.generation || a.attempt !== c.attempt)
-			return refusal("stale_assignment", "Generation or Attempt is no longer current.");
-		if (!pass.handoff) return refusal("missing_content", "Only an accepted handoff can return to implementation; the pass stays open.");
-		if (handoffClosed(pass)) return refusal("assignment_closed", handoffClosed(pass)!);
+			return yield* Effect.fail(refusal("stale_assignment", "Generation or Attempt is no longer current."));
+		if (!pass.handoff)
+			return yield* Effect.fail(refusal("missing_content", "Only an accepted handoff can return to implementation; the pass stays open."));
+		if (handoffClosed(pass)) return yield* Effect.fail(refusal("assignment_closed", handoffClosed(pass)!));
 		const latest = Math.max(...work.passes!.filter((p) => p.workflow === pass.workflow && p.slice === pass.slice).map((p) => p.ordinal));
 		if (pass.assignment !== a.id || pass.ordinal !== latest)
-			return refusal("assignment_closed", "This pass already has its one successor.");
-		if (a.executing) return refusal("quiescence_unconfirmed", "The handed-off writer must be quiescent before another writer.");
+			return yield* Effect.fail(refusal("assignment_closed", "This pass already has its one successor."));
+		if (a.executing)
+			return yield* Effect.fail(refusal("quiescence_unconfirmed", "The handed-off writer must be quiescent before another writer."));
 		const sealed = facts.implementationSource;
 		const observation = sealed && c.text ? returnObservation(c.text, sealed) : undefined;
-		if (!sealed || !observation) return refusal("invalid_content", "Return requires a closed trusted result; a reason alone is not one.");
+		if (!sealed || !observation)
+			return yield* Effect.fail(refusal("invalid_content", "Return requires a closed trusted result; a reason alone is not one."));
 		const receipt = sealed.source;
 		if (
 			observation.source !== pass.handoff.source ||
@@ -852,7 +900,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			observation.baseCommit !== preparationBase(pass) ||
 			observation.repository !== receipt.source.repository
 		)
-			return refusal("stale_basis", "Result names other lineage than this pass's sealed source.");
+			return yield* Effect.fail(refusal("stale_basis", "Result names other lineage than this pass's sealed source."));
 		const policy = state.policy ?? initialPolicy();
 		const limit = policy.revisions[bindingFor(policy, c.workflow).policy]!.completedReviewLimit;
 		const reviews = completedReviews(work.assignments, c.workflow, a.slice);
@@ -867,18 +915,25 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			pass.handoff.direction.revision === observation.direction;
 		// A return is human-directed only by that recorded direction, whatever automatic budget remains.
 		if (observation.cause === "human-direction" && !directed)
-			return refusal("human_direction_required", "A human-directed return must cite the direction recorded for its exact round.");
+			return yield* Effect.fail(
+				refusal("human_direction_required", "A human-directed return must cite the direction recorded for its exact round."),
+			);
 		if (!directed && verdicts.some((v) => v.verdict === "needs-human" || (v.verdict === "rework" && reviews.length >= limit)))
-			return refusal(
-				"human_direction_required",
-				`Needs Human or ${reviews.length} completed reviews at limit ${limit} stop automatic return; adopt policy or direct explicitly.`,
+			return yield* Effect.fail(
+				refusal(
+					"human_direction_required",
+					`Needs Human or ${reviews.length} completed reviews at limit ${limit} stop automatic return; adopt policy or direct explicitly.`,
+				),
 			);
 		if (observation.cause === "watchdog-rework" || observation.cause === "human-direction") {
 			const review = reviews.find((r) => r.id === observation.review && r.report === observation.report);
 			const verdict = watchdogVerdict(review && facts.checkpointInputs?.[review.report!]?.text);
-			if (!review || !verdict) return refusal("missing_content", "Rework must cite a submitted Watchdog report on this Slice.");
+			if (!review || !verdict)
+				return yield* Effect.fail(refusal("missing_content", "Rework must cite a submitted Watchdog report on this Slice."));
 			if (verdict.verdict === "pass" || (observation.cause === "watchdog-rework" && verdict.verdict !== "rework"))
-				return refusal("forbidden_scope", "Only a rework verdict, or a human-directed stopped round, authorizes this return.");
+				return yield* Effect.fail(
+					refusal("forbidden_scope", "Only a rework verdict, or a human-directed stopped round, authorizes this return."),
+				);
 			if (
 				// Only a host-launched round authorizes rework; its verdict was bound to that round's exact X/T on submission.
 				review.watchdogReview?.passRef !== pass.ref ||
@@ -889,10 +944,10 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				verdict.prepared !== observation.preparedCommit ||
 				verdict.target !== observation.targetCommit
 			)
-				return refusal("stale_basis", "Rework verdict is bound to other lineage.");
+				return yield* Effect.fail(refusal("stale_basis", "Rework verdict is bound to other lineage."));
 		}
 		if (hasOwner(work, a.packet, a.slice, a.delivery))
-			return refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer.");
+			return yield* Effect.fail(refusal("ownership_conflict", "Slice already has a delivery owner or workspace writer."));
 		returned = observation;
 		configuration = pass.configuration;
 		const predecessor = pass.ref;
@@ -909,11 +964,14 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		create({ ...a.packet, inputs: [...new Set(inputs)] }, a.slice, a.delivery, null, null);
 		Object.assign(result, { predecessorPass: predecessor, observation: facts.ids.revision!, document0: facts.ids.revision! });
 	} else if (c.type === "requestRole") {
-		if (a?.passRef) return refusal("forbidden_scope", "Accepted implementation requires its pass-bound paired Audit on retained source.");
-		if (!a) return refusal("stale_assignment", "No current assignment.");
+		if (a?.passRef)
+			return yield* Effect.fail(
+				refusal("forbidden_scope", "Accepted implementation requires its pass-bound paired Audit on retained source."),
+			);
+		if (!a) return yield* Effect.fail(refusal("stale_assignment", "No current assignment."));
 		const request = a.packet.requests.find((r) => r.key === c.key);
 		if (a.packet.investigation || request?.packet.investigation || !request || !mayRequest(a.packet.role, request.packet.role))
-			return refusal("forbidden_scope", "Request is not a predefined role within this packet.");
+			return yield* Effect.fail(refusal("forbidden_scope", "Request is not a predefined role within this packet."));
 		if (c.request) {
 			const checkpoint = state.checkpoints?.requests.find((r) => r.id === c.request);
 			if (
@@ -922,40 +980,46 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				checkpoint.coordinator !== a.id ||
 				!checkpoint.candidateKeys?.includes(c.key)
 			)
-				return refusal("forbidden_scope", "Candidate must belong to this coordinator's pending comparison and captured request key.");
+				return yield* Effect.fail(
+					refusal("forbidden_scope", "Candidate must belong to this coordinator's pending comparison and captured request key."),
+				);
 		}
 		const policy = state.policy ?? initialPolicy();
 		if (
 			request.packet.family === a.packet.family &&
 			policy.revisions[bindingFor(policy, a.workflow).policy]?.reviewerDiversity !== "human-directed-same-family"
 		)
-			return refusal("capability_unavailable", "Same-family independent work needs recorded human policy direction; no family fallback.");
+			return yield* Effect.fail(
+				refusal("capability_unavailable", "Same-family independent work needs recorded human policy direction; no family fallback."),
+			);
 		if (
 			work.assignments.some(
 				(child) => child.parent === a.id && child.requestKey === c.key && child.checkpointCandidate?.request === c.request,
 			)
 		)
-			return refusal("role_already_requested", "This bounded role request already has durable work.");
+			return yield* Effect.fail(refusal("role_already_requested", "This bounded role request already has durable work."));
 		create(request.packet, a.slice, false, a.id, c.key);
 	} else if (c.type === "recordRunnerDiagnostic") {
 		if (!a || a.workflow !== c.workflow || c.attempt !== a.attempt || c.generation > a.generation)
-			return refusal("stale_assignment", "Diagnostic identity must belong to the original assignment Attempt.");
+			return yield* Effect.fail(refusal("stale_assignment", "Diagnostic identity must belong to the original assignment Attempt."));
 		if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024)
-			return refusal("invalid_content", "Diagnostic exceeds retained evidence bounds.");
+			return yield* Effect.fail(refusal("invalid_content", "Diagnostic exceeds retained evidence bounds."));
 		result = { assignment: a.id, diagnostic: facts.ids.revision ?? null };
 	} else if (c.type === "recordRecoveryState") {
 		if (!a || a.workflow !== c.workflow || (c.generation >= a.generation && c.attempt === a.attempt))
-			return refusal("invalid_content", "Only evidence from a fenced prior identity is quarantined.");
+			return yield* Effect.fail(refusal("invalid_content", "Only evidence from a fenced prior identity is quarantined."));
 		result = { assignment: a.id, quarantined: facts.ids.revision ?? null };
 	} else if (c.type === "retainWebEvidence") {
-		if (!a || !facts.ids.revision) return refusal("stale_assignment", "No current assignment.");
+		if (!a || !facts.ids.revision) return yield* Effect.fail(refusal("stale_assignment", "No current assignment."));
 		a.evidence ??= [];
 		a.evidence.push(facts.ids.revision);
 		result = { assignment: a.id, evidence: facts.ids.revision };
 	} else if (c.type === "submitRoleResult") {
 		if (a?.passRef)
-			return refusal("forbidden_scope", "Accepted implementation closes only through its sealed pass handoff, not a generic report.");
-		if (!a) return refusal("stale_assignment", "No current assignment.");
+			return yield* Effect.fail(
+				refusal("forbidden_scope", "Accepted implementation closes only through its sealed pass handoff, not a generic report."),
+			);
+		if (!a) return yield* Effect.fail(refusal("stale_assignment", "No current assignment."));
 		if (a.auditReview) {
 			const axis = a.packet.role === "audit-standards" ? "standards" : a.packet.role === "audit-contracts" ? "contracts" : undefined;
 			if (
@@ -967,9 +1031,12 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				pass.contract !== a.auditReview.contract ||
 				pass.audit.results[axis]
 			)
-				return refusal("forbidden_scope", "Report is not the current host-bound Audit axis.");
+				return yield* Effect.fail(refusal("forbidden_scope", "Report is not the current host-bound Audit axis."));
 			const findings = auditFindings(c.text, a.auditReview);
-			if (!findings) return refusal("invalid_content", "Audit report must name its exact host binding and unique structured findings.");
+			if (!findings)
+				return yield* Effect.fail(
+					refusal("invalid_content", "Audit report must name its exact host binding and unique structured findings."),
+				);
 			pass.audit.results[axis] = { assignment: a.id, report: facts.ids.revision!, findings };
 		}
 		// A launched round judges exact X/T from its own retained checks; its verdict is bound, never restated.
@@ -978,17 +1045,20 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		let comparison: Comparison | undefined;
 		if (binding) {
 			if (!reviewed?.handoff || reviewed.handoff.record !== binding.handoff)
-				return refusal("missing_content", "The handed-off pass this round reviews is not retained.");
-			if (!binding.checks) return refusal("missing_content", "Run and retain this round's own checks of exact X before judging it.");
+				return yield* Effect.fail(refusal("missing_content", "The handed-off pass this round reviews is not retained."));
+			if (!binding.checks)
+				return yield* Effect.fail(refusal("missing_content", "Run and retain this round's own checks of exact X before judging it."));
 			if (!c.text || !boundVerdict(c.text, binding))
-				return refusal(
-					"invalid_content",
-					"Submit JSON schema:1 with verdict pass|rework|needs-human and this round's exact passRef, handoff, source, prepared and target.",
+				return yield* Effect.fail(
+					refusal(
+						"invalid_content",
+						"Submit JSON schema:1 with verdict pass|rework|needs-human and this round's exact passRef, handoff, source, prepared and target.",
+					),
 				);
 			if (!c.verification || !validAssessment(c.verification))
-				return refusal("invalid_content", "Declare your own assessment of exact X's checks, with its reason.");
+				return yield* Effect.fail(refusal("invalid_content", "Declare your own assessment of exact X's checks, with its reason."));
 			if (boundVerdict(c.text, binding)!.verdict === "pass" && c.verification.outcome !== "pass")
-				return refusal("invalid_content", "A passing verdict needs a passing assessment of your own checks.");
+				return yield* Effect.fail(refusal("invalid_content", "A passing verdict needs a passing assessment of your own checks."));
 			if (c.verification.outcome === "pass") {
 				const policy = state.policy ?? initialPolicy();
 				const minimum = policy.revisions[bindingFor(policy, a.workflow).policy]!.minimumEvidenceRank;
@@ -999,7 +1069,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 					facts.verificationEvidence ?? [],
 					minimum,
 				);
-				if (gap) return refusal("missing_content", gap);
+				if (gap) return yield* Effect.fail(refusal("missing_content", gap));
 			}
 			// A performance Slice's target is judged only on this round's own measurement of exact X.
 			const commitment = readCommitment(facts.checkpointInputs?.[reviewed.contract]?.text);
@@ -1010,44 +1080,53 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 					facts.verificationEvidence?.find((e) => e.role === "watchdog"),
 				);
 			if (comparison && comparison.outcome !== "met" && c.verification.outcome === "pass")
-				return {
+				return yield* Effect.fail<Refusal>({
 					outcome: "refused",
 					code: "missing_content",
 					reason: `Performance ${comparison.outcome}: ${comparison.reason}`,
 					refs: { performance: comparison.outcome },
-				};
+				});
 		}
 		if (!c.text || Buffer.byteLength(c.text) > 1024 * 1024)
-			return refusal("invalid_content", "Report must contain at most 1 MiB of complete UTF-8 text.");
+			return yield* Effect.fail(refusal("invalid_content", "Report must contain at most 1 MiB of complete UTF-8 text."));
 		if (a.checkpointCandidate && !validCandidateAnswer(c.text))
-			return refusal(
-				"invalid_content",
-				"Candidate result needs schema:1, answer, assumptions, consequences and incidentalChoices arrays; no winner authority.",
+			return yield* Effect.fail(
+				refusal(
+					"invalid_content",
+					"Candidate result needs schema:1, answer, assumptions, consequences and incidentalChoices arrays; no winner authority.",
+				),
 			);
-		if (!Array.isArray(c.supports)) return refusal("invalid_content", "Declare required retained supports, or [] for no web reliance.");
+		if (!Array.isArray(c.supports))
+			return yield* Effect.fail(refusal("invalid_content", "Declare required retained supports, or [] for no web reliance."));
 		if (c.supports.some((ref) => !a.evidence?.includes(ref)))
-			return refusal("missing_content", "Promote exact required web support before reliance.");
+			return yield* Effect.fail(refusal("missing_content", "Promote exact required web support before reliance."));
 		if (a.packet.experiment && (!a.experimentSource || !experimentOutcome(c.text, a.packet.experiment.protocol)))
-			return refusal(
-				"invalid_content",
-				"Seal exact source and decisive raw results before submitting a protocol-bound outcome, numbers, failures and limitations.",
+			return yield* Effect.fail(
+				refusal(
+					"invalid_content",
+					"Seal exact source and decisive raw results before submitting a protocol-bound outcome, numbers, failures and limitations.",
+				),
 			);
 		const maintenance = a.packet.verification?.maintenance;
 		if (maintenance) {
 			if (a.packet.execution !== "read-only")
-				return refusal("forbidden_scope", "Only a read-only maintenance assignment classifies; its runner records observations.");
+				return yield* Effect.fail(
+					refusal("forbidden_scope", "Only a read-only maintenance assignment classifies; its runner records observations."),
+				);
 			const rows = maintenanceReport(c.text);
 			if (!rows)
-				return refusal(
-					"invalid_content",
-					"Submit JSON schema:1, maintenance:{row:{status:clean|changed|blocked, reason, cause:product|prerequisite when blocked, compared:[rows] for discovery}}.",
+				return yield* Effect.fail(
+					refusal(
+						"invalid_content",
+						"Submit JSON schema:1, maintenance:{row:{status:clean|changed|blocked, reason, cause:product|prerequisite when blocked, compared:[rows] for discovery}}.",
+					),
 				);
 			const prior = work.assignments.find(
 				(b) =>
 					b.id === maintenance.basis && b.workflow === a.workflow && b.maintenance && b.packet.verification?.maintenance?.basis === null,
 			);
 			if (maintenance.basis !== null && !prior)
-				return refusal("missing_content", "Basis must be a retained pre-edit maintenance classification.");
+				return yield* Effect.fail(refusal("missing_content", "Basis must be a retained pre-edit maintenance classification."));
 			const gap = maintenanceGap(
 				a.packet.verification!,
 				a.packet.role,
@@ -1055,21 +1134,24 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				facts.verificationEvidence ?? [],
 				prior && { selection: prior.packet.verification!, rows: prior.maintenance! },
 			);
-			if (gap) return refusal("missing_content", gap);
+			if (gap) return yield* Effect.fail(refusal("missing_content", gap));
 			a.maintenance = rows;
 		} else if (a.packet.verification) {
 			if (!c.verification?.reason || !["pass", "non-pass"].includes(c.verification.outcome))
-				return refusal("invalid_content", "Declare catalog adequacy and rationale; command exit is not judgment.");
+				return yield* Effect.fail(refusal("invalid_content", "Declare catalog adequacy and rationale; command exit is not judgment."));
 			const policy = state.policy ?? initialPolicy();
 			const minimum = policy.revisions[bindingFor(policy, a.workflow).policy]!.minimumEvidenceRank;
 			const gap = completionGap(a.packet.verification, a.packet.role, c.verification, facts.verificationEvidence ?? [], minimum);
-			if (gap) return refusal("missing_content", gap);
-		} else if (c.verification && !binding) return refusal("invalid_content", "Assessment requires a selected verification catalog.");
+			if (gap) return yield* Effect.fail(refusal("missing_content", gap));
+		} else if (c.verification && !binding)
+			return yield* Effect.fail(refusal("invalid_content", "Assessment requires a selected verification catalog."));
 		const outcome = a.packet.investigation
 			? readInvestigationOutcome(c.text, [...packetRefs(a.packet), ...c.supports], a.investigationSource, a.packet.investigation.paths)
 			: undefined;
 		if (a.packet.investigation && !outcome)
-			return refusal("invalid_content", "Investigation requires cited facts, uncertainty, limits and a finding or actionable escalation.");
+			return yield* Effect.fail(
+				refusal("invalid_content", "Investigation requires cited facts, uncertainty, limits and a finding or actionable escalation."),
+			);
 		a.status = outcome?.outcome === "escalation" ? "blocked" : "submitted";
 		if (outcome?.next)
 			a.blocker = `${outcome.next.playbook === "experiment" ? "experiment_preregistration_required" : `playbook_unavailable:${outcome.next.playbook}`}; ${outcome.next.reason}; ${outcome.next.question}`;
@@ -1090,66 +1172,73 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		};
 		if (a.parent) intents.push({ kind: "notify-role", assignment: a.id });
 	} else {
-		if (!a || a.workflow !== c.workflow) return refusal("not_found", "Assignment is outside this workflow.");
+		if (!a || a.workflow !== c.workflow) return yield* Effect.fail(refusal("not_found", "Assignment is outside this workflow."));
 		if ("generation" in c && (a.generation !== c.generation || a.attempt !== c.attempt))
-			return refusal("stale_assignment", "Generation or Attempt is no longer current.");
+			return yield* Effect.fail(refusal("stale_assignment", "Generation or Attempt is no longer current."));
 		result = { assignment: a.id };
 		switch (c.type) {
 			case "stageOperation":
 			case "admitEffect":
 			case "recordIntegration": {
-				const outcome = changeIntegration(state, work, a, pass, c, facts, !!pass && latestPass(work.passes, pass));
-				if ("code" in outcome) return outcome as Decision;
-				Object.assign(result, outcome);
+				const outcome = yield* changeIntegration(state, work, a, pass, c, facts, !!pass && latestPass(work.passes, pass));
+				Object.assign(result, outcome.value);
 				break;
 			}
 			case "recordImplementationExecution":
 			case "recordImplementationSource": {
 				if (!a.passRef || !pass || pass.assignment !== a.id || pass.handoff)
-					return refusal("forbidden_scope", "Only current accepted implementation can record execution or source.");
+					return yield* Effect.fail(refusal("forbidden_scope", "Only current accepted implementation can record execution or source."));
 				if (c.type === "recordImplementationExecution") {
 					if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
-						return refusal("stale_assignment", "Mutable execution admission requires the current executing owner and executor.");
+						return yield* Effect.fail(
+							refusal("stale_assignment", "Mutable execution admission requires the current executing owner and executor."),
+						);
 					result.source = pass.captureB ?? null;
 					result.passRef = pass.ref;
 					delete pass.captureB;
 					break;
 				}
 				if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024 || !["audit", "final", "checkpoint", "reproduction"].includes(c.kind))
-					return refusal("invalid_content", "Complete literal source must fit retained source bounds.");
+					return yield* Effect.fail(refusal("invalid_content", "Complete literal source must fit retained source bounds."));
 				if (
 					!sourceScopeMatches(facts.implementationSource, a) ||
 					!["running", ...(c.kind === "checkpoint" ? ["blocked"] : [])].includes(a.status) ||
 					(c.kind !== "checkpoint" && (!a.executing || a.executorEpoch !== facts.executorEpoch))
 				)
-					return refusal(
-						"stale_assignment",
-						"Source freeze must identify this actual executing scope; a checkpoint observes an already-admitted current Attempt.",
+					return yield* Effect.fail(
+						refusal(
+							"stale_assignment",
+							"Source freeze must identify this actual executing scope; a checkpoint observes an already-admitted current Attempt.",
+						),
 					);
 				if (pass.opening && !pass.workspace && facts.implementationSource?.source.base.commit !== pass.opening.base)
-					return refusal(
-						"stale_basis",
-						"A successor's first capture must descend from its host-selected base, not a worker-chosen parent.",
+					return yield* Effect.fail(
+						refusal("stale_basis", "A successor's first capture must descend from its host-selected base, not a worker-chosen parent."),
 					);
-				if (c.kind === "audit" && pass.captureA) return refusal("assignment_closed", "Audit A is immutable and captured once.");
+				if (c.kind === "audit" && pass.captureA)
+					return yield* Effect.fail(refusal("assignment_closed", "Audit A is immutable and captured once."));
 				const bug = bugReproduction(state.intakes, pass.contract);
 				if (c.kind === "reproduction") {
-					if (pass.captureA) return refusal("assignment_closed", "Reproduction precedes product code: record it before Audit source A.");
-					if (!bug) return refusal("invalid_content", "Only a bug Contract records a reproduction.");
+					if (pass.captureA)
+						return yield* Effect.fail(refusal("assignment_closed", "Reproduction precedes product code: record it before Audit source A."));
+					if (!bug) return yield* Effect.fail(refusal("invalid_content", "Only a bug Contract records a reproduction."));
 				}
 				if (
 					c.kind === "audit" &&
 					bug &&
 					!work.passes!.some((p) => p.workflow === pass.workflow && p.contract === pass.contract && p.reproduction?.red)
 				)
-					return refusal(
-						"missing_content",
-						`Bug correction needs red-on-the-bug reproduction before Audit: ${pass.reproduction?.reason ?? "record the regression check failing on the reported wrong behavior before product code."}`,
+					return yield* Effect.fail(
+						refusal(
+							"missing_content",
+							`Bug correction needs red-on-the-bug reproduction before Audit: ${pass.reproduction?.reason ?? "record the regression check failing on the reported wrong behavior before product code."}`,
+						),
 					);
-				if (c.kind === "final" && !pass.audit) return refusal("missing_content", "Request this pass's Audit before final capture.");
+				if (c.kind === "final" && !pass.audit)
+					return yield* Effect.fail(refusal("missing_content", "Request this pass's Audit before final capture."));
 				if (c.kind !== "checkpoint") {
 					const gap = implementationEvidenceGap(facts.implementationSource, pass);
-					if (gap) return refusal("missing_content", gap);
+					if (gap) return yield* Effect.fail(refusal("missing_content", gap));
 				}
 				const ref = facts.ids.revision!;
 				pass.workspace = ref;
@@ -1167,15 +1256,20 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			}
 			case "recordPreparation": {
 				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work.passes, pass))
-					return refusal("assignment_closed", "Preparation attempts belong to the current handed-off pass.");
+					return yield* Effect.fail(refusal("assignment_closed", "Preparation attempts belong to the current handed-off pass."));
 				if (reviewing(work, pass))
-					return refusal("stale_basis", "A Watchdog round of this handoff is in progress; it settles before another preparation.");
-				if (handoffClosed(pass)) return refusal("assignment_closed", handoffClosed(pass)!);
+					return yield* Effect.fail(
+						refusal("stale_basis", "A Watchdog round of this handoff is in progress; it settles before another preparation."),
+					);
+				if (handoffClosed(pass)) return yield* Effect.fail(refusal("assignment_closed", handoffClosed(pass)!));
 				if (unresolved(pass.handoff.integrations?.at(-1)))
-					return refusal("stale_basis", "This handoff's admitted integration is unresolved; reconcile it before preparing again.");
+					return yield* Effect.fail(
+						refusal("stale_basis", "This handoff's admitted integration is unresolved; reconcile it before preparing again."),
+					);
 				const sealed = facts.implementationSource;
 				const record = sealed && c.text ? preparationRecord(c.text, sealed.source.source.objectFormat) : undefined;
-				if (!sealed || !record) return refusal("invalid_content", "Preparation requires a complete closed host result.");
+				if (!sealed || !record)
+					return yield* Effect.fail(refusal("invalid_content", "Preparation requires a complete closed host result."));
 				const prior = pass.handoff.preparations ?? [];
 				if (
 					record.passRef !== pass.ref ||
@@ -1187,7 +1281,9 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 							record.preparation.source !== sealed.source.source.commit ||
 							record.preparation.target !== record.target.commit))
 				)
-					return refusal("stale_basis", "Preparation names other lineage, attempt order or recorded base than this handoff.");
+					return yield* Effect.fail(
+						refusal("stale_basis", "Preparation names other lineage, attempt order or recorded base than this handoff."),
+					);
 				const basis = policyBasis(state.policy ?? initialPolicy(), c.workflow);
 				if (
 					!basis ||
@@ -1195,7 +1291,9 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 					record.policy.revision !== basis.revision ||
 					record.policy.minimumEvidenceRank !== basis.minimumEvidenceRank
 				)
-					return refusal("stale_basis", "Preparation qualified X against another policy than the workflow's current binding.");
+					return yield* Effect.fail(
+						refusal("stale_basis", "Preparation qualified X against another policy than the workflow's current binding."),
+					);
 				const ref = `implementation-preparation:${facts.sequence}`;
 				pass.handoff.preparations = [...prior, ref];
 				pass.handoff.preparationResult = ref;
@@ -1208,17 +1306,19 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			}
 			case "retryPreparation": {
 				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work.passes, pass))
-					return refusal("assignment_closed", "Only the current handed-off pass can be prepared again.");
+					return yield* Effect.fail(refusal("assignment_closed", "Only the current handed-off pass can be prepared again."));
 				// A canceled handoff may still reconcile an attempt admitted before the cancellation.
 				if (handoffClosed(pass) && !unresolved(pass.handoff.integrations?.at(-1)))
-					return refusal("assignment_closed", handoffClosed(pass)!);
+					return yield* Effect.fail(refusal("assignment_closed", handoffClosed(pass)!));
 				// A blocker is recorded only by a settled preparation task, so this also keeps one preparation in flight. A round
 				// canceled without replacement leaves no blocker; its handoff is settled too and may be prepared again.
 				const latest = pass.handoff.preparations?.at(-1);
 				const rounds = work.assignments.filter((r) => !!latest && r.watchdogReview?.preparation === latest);
 				const abandoned = rounds.length > 0 && rounds.every((r) => r.status === "canceled");
 				if ((!pass.handoff.blocker && !abandoned) || reviewing(work, pass))
-					return refusal("stale_basis", "Preparation or review is still in progress; retry a settled blocked preparation.");
+					return yield* Effect.fail(
+						refusal("stale_basis", "Preparation or review is still in progress; retry a settled blocked preparation."),
+					);
 				delete pass.handoff.blocker;
 				a.blocker = null;
 				// A completed round's verdict is settled again under current policy and target, never re-prepared away.
@@ -1230,8 +1330,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			}
 			case "directRework": {
 				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !latestPass(work.passes, pass))
-					return refusal("assignment_closed", "Only the current handed-off pass takes direction.");
-				if (handoffClosed(pass)) return refusal("assignment_closed", handoffClosed(pass)!);
+					return yield* Effect.fail(refusal("assignment_closed", "Only the current handed-off pass takes direction."));
+				if (handoffClosed(pass)) return yield* Effect.fail(refusal("assignment_closed", handoffClosed(pass)!));
 				const latest = pass.handoff.preparations?.at(-1);
 				const round = work.assignments.find((r) => r.id === c.review);
 				// The human directs the exact settled stop they saw: this handoff's latest completed round, once.
@@ -1244,12 +1344,15 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 					pass.handoff.direction ||
 					reviewing(work, pass)
 				)
-					return refusal("stale_basis", "Direct only the settled stop of this handoff's latest completed Watchdog round, once.");
+					return yield* Effect.fail(
+						refusal("stale_basis", "Direct only the settled stop of this handoff's latest completed Watchdog round, once."),
+					);
 				const verdict = boundVerdict(facts.checkpointInputs?.[round.report!]?.text ?? "", round.watchdogReview);
-				if (!verdict) return refusal("missing_content", "Restore the exact Watchdog report this direction answers.");
-				if (verdict.verdict === "pass") return refusal("forbidden_scope", "A passing round is not a stop; it needs no direction.");
+				if (!verdict) return yield* Effect.fail(refusal("missing_content", "Restore the exact Watchdog report this direction answers."));
+				if (verdict.verdict === "pass")
+					return yield* Effect.fail(refusal("forbidden_scope", "A passing round is not a stop; it needs no direction."));
 				if (!c.text?.trim() || Buffer.byteLength(c.text) > 1024 * 1024)
-					return refusal("invalid_content", "Direction must contain at most 1 MiB of nonblank UTF-8 text.");
+					return yield* Effect.fail(refusal("invalid_content", "Direction must contain at most 1 MiB of nonblank UTF-8 text."));
 				// Direction is implementer input within the frozen Contract, not a waiver; the count and reports stay.
 				pass.handoff.direction = { review: round.id, revision: facts.ids.revision! };
 				delete pass.handoff.blocker;
@@ -1268,12 +1371,13 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			case "recordReviewChecks": {
 				const binding = a.watchdogReview;
 				if (!binding || a.packet.role !== "watchdog")
-					return refusal("forbidden_scope", "Only a host-launched Watchdog round retains its own checks.");
-				if (binding.checks) return refusal("assignment_closed", "This round's checks are retained once.");
+					return yield* Effect.fail(refusal("forbidden_scope", "Only a host-launched Watchdog round retains its own checks."));
+				if (binding.checks) return yield* Effect.fail(refusal("assignment_closed", "This round's checks are retained once."));
 				if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
-					return refusal("stale_assignment", "Checks belong to the current executing review.");
+					return yield* Effect.fail(refusal("stale_assignment", "Checks belong to the current executing review."));
 				const receipt = c.text && Buffer.byteLength(c.text) <= 16 * 1024 * 1024 ? reviewChecks(c.text) : undefined;
-				if (!receipt) return refusal("invalid_content", "Checks require literal X and a complete scoped catalog receipt.");
+				if (!receipt)
+					return yield* Effect.fail(refusal("invalid_content", "Checks require literal X and a complete scoped catalog receipt."));
 				const reviewed = work.passes?.find((p) => p.ref === binding.passRef);
 				const e = receipt.evidence;
 				const selection = reviewed && reviewSelection(reviewed, binding);
@@ -1290,7 +1394,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 					e.verification.inputTree !== binding.tree ||
 					!(["repository", "commit", "path", "digest", "contract"] as const).every((k) => e.catalog.selection[k] === selection[k])
 				)
-					return refusal("stale_basis", "Checks must be this round's own run on exact X under X's own verifier.");
+					return yield* Effect.fail(refusal("stale_basis", "Checks must be this round's own run on exact X under X's own verifier."));
 				binding.checks = facts.ids.revision!;
 				Object.assign(result, { checks: binding.checks, document0: binding.checks });
 				break;
@@ -1298,7 +1402,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			case "recordPreparationBlocker":
 				// A blocker is visible state only: Watchdog launch and qualification recheck the current verified policy basis.
 				if (!pass?.handoff || pass.assignment !== a.id || a.status !== "submitted" || !c.reason?.trim())
-					return refusal("assignment_closed", "Preparation blockage requires a handed-off pass.");
+					return yield* Effect.fail(refusal("assignment_closed", "Preparation blockage requires a handed-off pass."));
 				pass.handoff.blocker = c.reason;
 				pass.handoff.preparationResult = `implementation-preparation:${facts.sequence}`;
 				a.blocker = c.reason;
@@ -1309,32 +1413,32 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			case "recordSourceObservation":
 				if (a.packet.experiment) {
 					if (a.experimentSource || a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
-						return refusal("stale_assignment", "Only a current open experiment can retain its sealed source.");
+						return yield* Effect.fail(refusal("stale_assignment", "Only a current open experiment can retain its sealed source."));
 					if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024)
-						return refusal("invalid_content", "Complete experiment evidence exceeds retention bounds.");
+						return yield* Effect.fail(refusal("invalid_content", "Complete experiment evidence exceeds retention bounds."));
 					a.experimentSource = facts.ids.revision!;
 					result.source = a.experimentSource;
 					break;
 				}
 				if (!a.packet.investigation || a.investigationSource || !["queued", "running"].includes(a.status))
-					return refusal(
-						"forbidden_scope",
-						"Only an open investigation without a retained source can accept its exact source observation.",
+					return yield* Effect.fail(
+						refusal("forbidden_scope", "Only an open investigation without a retained source can accept its exact source observation."),
 					);
 				if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024)
-					return refusal("invalid_content", "Investigation source exceeds retained evidence bounds.");
+					return yield* Effect.fail(refusal("invalid_content", "Investigation source exceeds retained evidence bounds."));
 				a.investigationSource = facts.ids.revision!;
 				result.source = a.investigationSource;
 				break;
 			case "recordRunnerObservation":
-				if (a.passRef) return refusal("forbidden_scope", "An owned-check receipt cannot close an implementation pass.");
-				if (a.checkpointCandidate) return refusal("forbidden_scope", "Only the assigned candidate can submit its competing answer.");
+				if (a.passRef) return yield* Effect.fail(refusal("forbidden_scope", "An owned-check receipt cannot close an implementation pass."));
+				if (a.checkpointCandidate)
+					return yield* Effect.fail(refusal("forbidden_scope", "Only the assigned candidate can submit its competing answer."));
 				if (a.packet.investigation || a.packet.experiment)
-					return refusal("forbidden_scope", "Only the assigned coordinator can submit a cited investigation outcome.");
+					return yield* Effect.fail(refusal("forbidden_scope", "Only the assigned coordinator can submit a cited investigation outcome."));
 				if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
-					return refusal("stale_assignment", "Owned check receipt requires the current executing generation.");
+					return yield* Effect.fail(refusal("stale_assignment", "Owned check receipt requires the current executing generation."));
 				if (!c.text || Buffer.byteLength(c.text) > 16 * 1024 * 1024)
-					return refusal("invalid_content", "Owned check receipt exceeds evidence bounds.");
+					return yield* Effect.fail(refusal("invalid_content", "Owned check receipt exceeds evidence bounds."));
 				a.report = facts.ids.revision ?? null;
 				a.status = "submitted";
 				result.report = a.report;
@@ -1345,17 +1449,19 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 				result.runtimeHistory = a.runtimeHistory;
 				break;
 			case "stageTask":
-				if (a.status !== "queued") return refusal("assignment_not_queued", "Only queued work starts.");
-				if (c.executorEpoch !== facts.executorEpoch) return refusal("stale_executor", "Dispatch belongs to another executor epoch.");
+				if (a.status !== "queued") return yield* Effect.fail(refusal("assignment_not_queued", "Only queued work starts."));
+				if (c.executorEpoch !== facts.executorEpoch)
+					return yield* Effect.fail(refusal("stale_executor", "Dispatch belongs to another executor epoch."));
 				if (work.assignments.filter((a) => a.executing).length >= 4)
-					return refusal("capacity_exhausted", "Four executing attempts already consume capacity.");
+					return yield* Effect.fail(refusal("capacity_exhausted", "Four executing attempts already consume capacity."));
 				a.status = "running";
 				a.executing = true;
 				a.executionOrdinal++;
 				a.executorEpoch = c.executorEpoch ?? null;
 				break;
 			case "recordBlocker":
-				if (a.status === "submitted" || a.status === "canceled") return refusal("assignment_closed", "Closed work cannot become blocked.");
+				if (a.status === "submitted" || a.status === "canceled")
+					return yield* Effect.fail(refusal("assignment_closed", "Closed work cannot become blocked."));
 				a.blocker = c.reason;
 				if (a.status !== "canceling") a.status = "blocked";
 				break;
@@ -1364,15 +1470,16 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			case "fenceAttempt":
 				// A handed-off pass is canceled through its handoff: the owner's generation fences new admissions.
 				if (c.type === "cancelWork" && a.status === "submitted" && a.passRef) {
-					const canceled = pass && latestPass(work.passes, pass) ? cancelHandoff(pass, a, facts.sequence) : undefined;
-					if (!canceled || "outcome" in canceled)
-						return canceled ?? refusal("assignment_closed", "Only the current handed-off pass can be canceled.");
+					const canceled =
+						pass && latestPass(work.passes, pass)
+							? yield* cancelHandoff(pass, a, facts.sequence)
+							: yield* Effect.fail(refusal("assignment_closed", "Only the current handed-off pass can be canceled."));
 					const inFlight = Object.fromEntries(canceled.inFlight.map((id, i) => [`inFlight${i}`, id]));
 					Object.assign(result, { generation: a.generation, inFlight: canceled.inFlight.length, ...inFlight });
 					break;
 				}
 				if (a.status === "canceled" || a.status === "canceling" || a.status === "submitted")
-					return refusal("assignment_closed", "Work is closed or already fenced.");
+					return yield* Effect.fail(refusal("assignment_closed", "Work is closed or already fenced."));
 				a.generation++;
 				a.status = "canceling";
 				a.blocker = "stop_pending";
@@ -1381,9 +1488,11 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 			case "recordQuiescence":
 			case "rebindAttempt":
 				if (!c.providerIdle || (c.environment !== "absent" && c.environment !== "stopped") || c.effects !== "reconciled")
-					return refusal(
-						"quiescence_unconfirmed",
-						"Provider, whole environment and outstanding effects must all be reconciled; timeout is not death.",
+					return yield* Effect.fail(
+						refusal(
+							"quiescence_unconfirmed",
+							"Provider, whole environment and outstanding effects must all be reconciled; timeout is not death.",
+						),
 					);
 				if (c.type === "rebindAttempt") {
 					if (a.passRef) {
@@ -1396,9 +1505,11 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 							c.environment !== "stopped" ||
 							c.executorEpoch !== facts.executorEpoch
 						)
-							return refusal(
-								"recovery_required",
-								"Writer continuation requires retained workspace, confirmed whole-runtime stop and current pass authority.",
+							return yield* Effect.fail(
+								refusal(
+									"recovery_required",
+									"Writer continuation requires retained workspace, confirmed whole-runtime stop and current pass authority.",
+								),
 							);
 						a.status = "queued";
 						a.blocker = null;
@@ -1410,7 +1521,7 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 						(a.packet.execution !== "read-only" && !(a.packet.experiment && a.experimentSource && c.environment === "stopped")) ||
 						c.executorEpoch !== facts.executorEpoch
 					)
-						return refusal("recovery_required", "Only checked read-only same-assignment continuation is available.");
+						return yield* Effect.fail(refusal("recovery_required", "Only checked read-only same-assignment continuation is available."));
 					if (
 						a.status === "blocked" &&
 						a.blocker === "awaiting_role_results" &&
@@ -1419,7 +1530,8 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 					) {
 						a.status = "queued";
 						a.blocker = null;
-					} else if (a.status !== "running") return refusal("recovery_required", "Blocked work needs resolution before continuation.");
+					} else if (a.status !== "running")
+						return yield* Effect.fail(refusal("recovery_required", "Blocked work needs resolution before continuation."));
 					a.executorEpoch = c.executorEpoch ?? null;
 				} else {
 					a.executing = false;
@@ -1453,7 +1565,11 @@ export function changeRole(state: KernelState, command: RoleCommand, facts: Veri
 		}
 	}
 	return { outcome: "accepted", result, writes, facts: [facts.ids.fact] };
-}
+}) satisfies (
+	state: KernelState,
+	command: RoleCommand,
+	facts: VerifiedFacts,
+) => Effect.Effect<Extract<Decision, { outcome: "accepted" }>, Refusal>;
 /** The same packet apart from the Ledger-generated policy binding a replacement receives. */
 function samePacket(old: RolePacket, next: RolePacket): boolean {
 	const { policyBinding: _old, ...a } = old;

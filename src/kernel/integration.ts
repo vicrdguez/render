@@ -1,6 +1,7 @@
 // Pure autonomous proposal integration legality (spec §§9.1, 9.3). Ledger supplies the exact retained bytes; Effects
 // performs the canonical-ref CAS. Intent is never permission, and only a recorded `applied` observation qualifies.
 import { isDeepStrictEqual } from "node:util";
+import * as Effect from "effect/Effect";
 import { boundVerdict, preparationRecord, reviewQualification } from "./implementation.ts";
 import type { KernelState, Refusal, VerifiedFacts } from "./kernel.ts";
 import { initialPolicy, type PolicyBasis, policyBasis } from "./policy.ts";
@@ -208,10 +209,10 @@ export function qualifiedSlices(
 		.map((s) => s.id);
 }
 /** In-flight attempts a cancellation cannot retract: the view and the receipt name them, and their observations still record. */
-export function cancelHandoff(pass: ImplementationPass, a: RoleAssignment, sequence: number): Refusal | { inFlight: string[] } {
+export const cancelHandoff = Effect.fnUntraced(function* (pass: ImplementationPass, a: RoleAssignment, sequence: number) {
 	const h = pass.handoff;
 	if (!h || pass.assignment !== a.id || integrated(pass) || h.canceled)
-		return refusal("assignment_closed", "Only an unintegrated, uncanceled current handoff can be canceled.");
+		return yield* Effect.fail(refusal("assignment_closed", "Only an unintegrated, uncanceled current handoff can be canceled."));
 	const latest = h.integrations?.at(-1);
 	const attempt = latest?.attempts.at(-1);
 	const inFlight = unresolved(latest) && attempt && !attempt.outcome ? [attempt.id] : [];
@@ -220,10 +221,10 @@ export function cancelHandoff(pass: ImplementationPass, a: RoleAssignment, seque
 	h.blocker = `canceled: no further preparation, review or integration admission; ${inFlight.length} admitted attempt(s) in flight`;
 	a.blocker = h.blocker;
 	return { inFlight };
-}
+}) satisfies (pass: ImplementationPass, a: RoleAssignment, sequence: number) => Effect.Effect<{ inFlight: string[] }, Refusal>;
 
 /** Current eligibility shared by staging and every admission: lineage, Contract, exact review, policy and serialization. */
-function eligibility(
+const eligibility = Effect.fnUntraced(function* (
 	state: KernelState,
 	work: RoleWorkState,
 	a: RoleAssignment,
@@ -232,7 +233,7 @@ function eligibility(
 	facts: VerifiedFacts,
 	format: "sha1" | "sha256",
 	except?: string,
-): Refusal | undefined {
+) {
 	const h = pass.handoff!;
 	const results = pass.audit?.results;
 	if (
@@ -248,19 +249,21 @@ function eligibility(
 		intent.generation !== a.generation ||
 		intent.attempt !== a.attempt
 	)
-		return refusal("stale_basis", "Intent names other lineage than this handoff and its current owner generation.");
+		return yield* Effect.fail(refusal("stale_basis", "Intent names other lineage than this handoff and its current owner generation."));
 	const slice = state.intakes?.slices.find((s) => s.id === pass.slice);
-	if (slice?.status !== "accepted") return refusal("contract_superseded", "Superseded work is not integrated.");
+	if (slice?.status !== "accepted") return yield* Effect.fail(refusal("contract_superseded", "Superseded work is not integrated."));
 	if (slice.contract !== pass.contract || intent.contract !== pass.contract)
-		return refusal("stale_basis", "Intent must bind the Slice's current accepted Contract.");
-	if (h.preparations?.at(-1) !== intent.preparation) return refusal("stale_basis", "Integrate only this handoff's latest prepared X.");
+		return yield* Effect.fail(refusal("stale_basis", "Intent must bind the Slice's current accepted Contract."));
+	if (h.preparations?.at(-1) !== intent.preparation)
+		return yield* Effect.fail(refusal("stale_basis", "Integrate only this handoff's latest prepared X."));
 	const record = preparationRecord(facts.checkpointInputs?.[intent.preparation]?.text ?? "", format);
-	if (!record?.preparation) return refusal("missing_content", "Restore the exact preparation record this intent names.");
+	if (!record?.preparation)
+		return yield* Effect.fail(refusal("missing_content", "Restore the exact preparation record this intent names."));
 	const review = work.assignments.find((r) => r.id === intent.review);
 	if (!review?.watchdogReview || !review.report || review.report !== intent.report)
-		return refusal("stale_basis", "Intent must name a completed host-launched Watchdog round and its exact report.");
+		return yield* Effect.fail(refusal("stale_basis", "Intent must name a completed host-launched Watchdog round and its exact report."));
 	const basis = policyBasis(state.policy ?? initialPolicy(), a.workflow);
-	if (!basis) return refusal("missing_content", "The workflow's current policy is unavailable.");
+	if (!basis) return yield* Effect.fail(refusal("missing_content", "The workflow's current policy is unavailable."));
 	const gap = reviewQualification({
 		pass,
 		preparation: intent.preparation,
@@ -270,23 +273,37 @@ function eligibility(
 		target: intent.target,
 		basis,
 	});
-	if (gap) return refusal(gap.code as Refusal["code"], gap.reason);
-	if (!isDeepStrictEqual(intent.policy, basis)) return refusal("stale_basis", "Intent names another policy basis than the current one.");
+	if (gap) return yield* Effect.fail(refusal(gap.code, gap.reason));
+	if (!isDeepStrictEqual(intent.policy, basis))
+		return yield* Effect.fail(refusal("stale_basis", "Intent names another policy basis than the current one."));
 	if (intent.prepared !== record.preparation.result || intent.tree !== record.preparation.tree || intent.ref !== record.target.ref)
-		return refusal("stale_basis", "Intent names other prepared X or canonical ref than the reviewed record.");
+		return yield* Effect.fail(refusal("stale_basis", "Intent names other prepared X or canonical ref than the reviewed record."));
 	if (intent.result.tree !== intent.tree || intent.result.parent !== intent.target)
-		return refusal("invalid_content", "R must carry exactly prepared X's tree on parent T; nothing is recomputed after review.");
+		return yield* Effect.fail(
+			refusal("invalid_content", "R must carry exactly prepared X's tree on parent T; nothing is recomputed after review."),
+		);
 	const blocking = serializing(work.passes ?? [], a.workflow, except);
 	if (blocking)
-		return refusal("ownership_conflict", `Proposal integration is serialized: ${blocking.operation} is unresolved; reconcile it first.`);
-	return undefined;
-}
+		return yield* Effect.fail(
+			refusal("ownership_conflict", `Proposal integration is serialized: ${blocking.operation} is unresolved; reconcile it first.`),
+		);
+}) satisfies (
+	state: KernelState,
+	work: RoleWorkState,
+	a: RoleAssignment,
+	pass: ImplementationPass,
+	intent: IntegrationIntent,
+	facts: VerifiedFacts,
+	format: "sha1" | "sha256",
+	except?: string,
+) => Effect.Effect<void, Refusal>;
 
 /**
  * Host Effects staging, admission and observation of one handoff's integration. Mutates the caller's working copy of
  * role state; returns the receipt result or a refusal with no writes.
  */
-export function changeIntegration(
+const integrationResult = (value: Record<string, string | number | null>) => ({ value });
+export const changeIntegration = Effect.fnUntraced(function* (
 	state: KernelState,
 	work: RoleWorkState,
 	a: RoleAssignment,
@@ -294,24 +311,27 @@ export function changeIntegration(
 	c: IntegrationCommand,
 	facts: VerifiedFacts,
 	latest: boolean,
-): Refusal | Record<string, string | number | null> {
+) {
 	const h = pass?.handoff;
 	if (!pass || !h || pass.assignment !== a.id || a.status !== "submitted" || !latest)
-		return refusal("assignment_closed", "Integration belongs to the current handed-off pass.");
+		return yield* Effect.fail(refusal("assignment_closed", "Integration belongs to the current handed-off pass."));
 	const format = facts.implementationSource?.source.source.objectFormat;
-	if (!format) return refusal("missing_content", "Restore the exact sealed handoff source.");
+	if (!format) return yield* Effect.fail(refusal("missing_content", "Restore the exact sealed handoff source."));
 	const revision = facts.ids.revision!;
 	if (c.type === "stageOperation") {
 		const closedReason = handoffClosed(pass);
-		if (closedReason) return refusal("assignment_closed", closedReason);
+		if (closedReason) return yield* Effect.fail(refusal("assignment_closed", closedReason));
 		const intent = integrationIntent(c.text, format);
-		if (!intent) return refusal("invalid_content", "Stage the complete closed integration intent with an empty unresolved basis.");
-		const gap = eligibility(state, work, a, pass, intent, facts, format);
-		if (gap) return gap;
+		if (!intent)
+			return yield* Effect.fail(refusal("invalid_content", "Stage the complete closed integration intent with an empty unresolved basis."));
+		yield* eligibility(state, work, a, pass, intent, facts, format);
 		const prior = h.integrations?.filter((i) => i.preparation === intent.preparation) ?? [];
 		if (prior.some((i) => i.status === "stale"))
-			return refusal("stale_basis", "This prepared X's CAS was refused on a moved target; prepare the current target again.");
-		if (prior.length) return refusal("role_already_requested", "This prepared X already has its integration operation.");
+			return yield* Effect.fail(
+				refusal("stale_basis", "This prepared X's CAS was refused on a moved target; prepare the current target again."),
+			);
+		if (prior.length)
+			return yield* Effect.fail(refusal("role_already_requested", "This prepared X already has its integration operation."));
 		h.integrations = [
 			...(h.integrations ?? []),
 			{
@@ -325,35 +345,38 @@ export function changeIntegration(
 				attempts: [],
 			},
 		];
-		return { operation: revision, passRef: pass.ref, document0: revision };
+		return integrationResult({ operation: revision, passRef: pass.ref, document0: revision });
 	}
 	const op = h.integrations?.at(-1);
-	if (!op || op.operation !== c.operation) return refusal("stale_basis", "Name this handoff's latest integration operation.");
+	if (!op || op.operation !== c.operation)
+		return yield* Effect.fail(refusal("stale_basis", "Name this handoff's latest integration operation."));
 	const intent = integrationIntent(facts.checkpointInputs?.[op.operation]?.text ?? "", format);
-	if (!intent) return refusal("missing_content", "Restore the exact staged integration intent.");
+	if (!intent) return yield* Effect.fail(refusal("missing_content", "Restore the exact staged integration intent."));
 	if (c.type === "admitEffect") {
 		// Cancellation and admission share the Ledger's serialized order: a committed fence refuses every later admission.
-		if (h.canceled) return refusal("assignment_closed", "Cancellation fenced this handoff before admission.");
+		if (h.canceled) return yield* Effect.fail(refusal("assignment_closed", "Cancellation fenced this handoff before admission."));
 		if (op.status !== "planned" && op.status !== "unapplied")
-			return refusal("stale_basis", "Only a planned or observed-unapplied operation takes a fresh admission.");
-		if (!facts.executorEpoch) return refusal("capability_unavailable", "No current executor epoch can consume a permit.");
-		const gap = eligibility(state, work, a, pass, intent, facts, format, op.operation);
-		if (gap) return gap;
+			return yield* Effect.fail(refusal("stale_basis", "Only a planned or observed-unapplied operation takes a fresh admission."));
+		if (!facts.executorEpoch)
+			return yield* Effect.fail(refusal("capability_unavailable", "No current executor epoch can consume a permit."));
+		yield* eligibility(state, work, a, pass, intent, facts, format, op.operation);
 		const id = `integration-attempt:${facts.sequence}`;
 		op.attempts.push({ id, executorEpoch: facts.executorEpoch, sequence: facts.sequence, observations: [] });
 		op.status = "admitted";
-		return { operation: op.operation, integrationAttempt: id, executorEpoch: facts.executorEpoch, passRef: pass.ref };
+		return integrationResult({ operation: op.operation, integrationAttempt: id, executorEpoch: facts.executorEpoch, passRef: pass.ref });
 	}
 	const attempt = op.attempts.at(-1);
 	if (!attempt || attempt.outcome || !unresolved(op))
-		return refusal("assignment_closed", "This operation has no unresolved admitted attempt to observe.");
+		return yield* Effect.fail(refusal("assignment_closed", "This operation has no unresolved admitted attempt to observe."));
 	const observation = integrationObservation(c.text, format);
-	if (!observation) return refusal("invalid_content", "Record a complete closed canonical-ref observation.");
+	if (!observation) return yield* Effect.fail(refusal("invalid_content", "Record a complete closed canonical-ref observation."));
 	if (observation.operation !== op.operation || observation.attempt !== attempt.id || observation.ref !== intent.ref)
-		return refusal("stale_basis", "Observation names another operation, attempt or ref.");
+		return yield* Effect.fail(refusal("stale_basis", "Observation names another operation, attempt or ref."));
 	// Only the executor that consumed the permit knows what its dispatch did; any other executor reconciles.
 	if (observation.mode === "dispatch" && attempt.executorEpoch !== facts.executorEpoch)
-		return refusal("stale_executor", "Another executor epoch cannot report this attempt's dispatch; reconcile the canonical ref.");
+		return yield* Effect.fail(
+			refusal("stale_executor", "Another executor epoch cannot report this attempt's dispatch; reconcile the canonical ref."),
+		);
 	const outcome = integrationOutcome(observation, intent);
 	attempt.observations.push(revision);
 	if (outcome === "divergent") {
@@ -369,12 +392,20 @@ export function changeIntegration(
 			a.blocker = null;
 		}
 	}
-	return {
+	return integrationResult({
 		operation: op.operation,
 		integrationAttempt: attempt.id,
 		outcome,
 		observation: revision,
 		passRef: pass.ref,
 		document0: revision,
-	};
-}
+	});
+}) satisfies (
+	state: KernelState,
+	work: RoleWorkState,
+	a: RoleAssignment,
+	pass: ImplementationPass | undefined,
+	c: IntegrationCommand,
+	facts: VerifiedFacts,
+	latest: boolean,
+) => Effect.Effect<{ value: Record<string, string | number | null> }, Refusal>;

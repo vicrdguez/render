@@ -2,7 +2,7 @@
 import { catalogDefinition } from "./catalog.ts";
 import type { CheckpointInput, Checkpoints } from "./checkpoints.ts";
 import { qualifiedSlices } from "./integration.ts";
-import type { Decision, DomainWrite, KernelState, VerifiedFacts } from "./kernel.ts";
+import type { Decision, DomainWrite, KernelState, Refusal, RefusalCode, VerifiedFacts } from "./kernel.ts";
 import { performanceCommitment } from "./performance.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
 import { type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
@@ -434,8 +434,8 @@ export function bugReproduction(intakes: Intakes | undefined, contract: string):
 	const checks = m.mapping.find((x) => x.slice === slice.id && x.obligation === m.reproduction!.obligation)?.checks ?? [];
 	return { rows: m.checks.filter((c) => checks.includes(c.id)).map((c) => c.row), observed: m.reproduction.observed };
 }
-function refused(code: string, reason: string): Decision {
-	return { outcome: "refused", code, reason } as Decision;
+function refused(code: RefusalCode, reason: string): Refusal {
+	return { outcome: "refused", code, reason };
 }
 function claimed(state: KernelState, slice: string): boolean {
 	return !!state.roleWork?.assignments.some(
@@ -447,7 +447,7 @@ export function intakeAssignmentGap(
 	slice: string,
 	packet: RolePacket,
 	delivered: readonly string[],
-): Decision | undefined {
+): Refusal | undefined {
 	const s = state.intakes?.slices.find((s) => s.id === slice);
 	if (!s) return state.intakes?.slices.length ? refused("not_found", "Delivery must name an accepted Slice in this workflow.") : undefined;
 	if (s.status !== "accepted") return refused("contract_superseded", "Superseded work is not completed or assignable.");

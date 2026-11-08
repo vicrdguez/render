@@ -90,7 +90,7 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/roles.ts",
-				find: 'if (pass.audit) return refusal("role_already_requested", "This pass already has its one Audit invocation.");',
+				find: 'if (pass.audit) return yield* Effect.fail(refusal("role_already_requested", "This pass already has its one Audit invocation."));',
 				replace: "",
 			},
 		],
@@ -146,7 +146,7 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/roles.ts",
-				find: 'if (a?.passRef)\n\t\t\treturn refusal("forbidden_scope", "Accepted implementation closes only through its sealed pass handoff, not a generic report.");',
+				find: 'if (a?.passRef)\n\t\t\treturn yield* Effect.fail(\n\t\t\t\trefusal("forbidden_scope", "Accepted implementation closes only through its sealed pass handoff, not a generic report."),\n\t\t\t);',
 				replace: "",
 			},
 		],
@@ -160,7 +160,7 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/roles.ts",
-				find: 'if (a?.passRef) return refusal("forbidden_scope", "Accepted implementation requires its pass-bound paired Audit on retained source.");',
+				find: 'if (a?.passRef)\n\t\t\treturn yield* Effect.fail(\n\t\t\t\trefusal("forbidden_scope", "Accepted implementation requires its pass-bound paired Audit on retained source."),\n\t\t\t);',
 				replace: "",
 			},
 		],
@@ -314,7 +314,7 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/roles.ts",
-				find: '\t\tif (observation.cause === "human-direction" && !directed)\n\t\t\treturn refusal("human_direction_required", "A human-directed return must cite the direction recorded for its exact round.");\n',
+				find: '\t\tif (observation.cause === "human-direction" && !directed)\n\t\t\treturn yield* Effect.fail(\n\t\t\t\trefusal("human_direction_required", "A human-directed return must cite the direction recorded for its exact round."),\n\t\t\t);\n',
 				replace: "",
 			},
 		],
@@ -376,7 +376,11 @@ const CONTROLS: Control[] = [
 		expect: /Experimental corrections require a new protocol\/round/,
 		behavior: "replace an experiment with an ordinary role instead of requiring a new round",
 		edits: [
-			{ file: "src/kernel/roles.ts", find: "if (a?.packet.experiment)\n\t\t\treturn refusal", replace: "if (false)\n\t\t\treturn refusal" },
+			{
+				file: "src/kernel/roles.ts",
+				find: "if (a?.packet.experiment)\n\t\t\treturn yield* Effect.fail(",
+				replace: "if (false)\n\t\t\treturn yield* Effect.fail(",
+			},
 		],
 		test: "test/experiment-design-candidates.test.ts",
 		pattern: "E18",
@@ -403,7 +407,13 @@ const CONTROLS: Control[] = [
 		name: "design-candidate-runner-answer",
 		expect: /Only the assigned candidate can submit its competing answer/,
 		behavior: "accept a host runner receipt as an independent design answer",
-		edits: [{ file: "src/kernel/roles.ts", find: "if (a.checkpointCandidate) return refusal", replace: "if (false) return refusal" }],
+		edits: [
+			{
+				file: "src/kernel/roles.ts",
+				find: "if (a.checkpointCandidate)\n\t\t\t\t\treturn yield* Effect.fail(",
+				replace: "if (false)\n\t\t\t\t\treturn yield* Effect.fail(",
+			},
+		],
 		test: "test/experiment-design-candidates.test.ts",
 		pattern: "E19",
 	},
@@ -1461,9 +1471,9 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/kernel.ts",
-				find: 'if (state.workflow === null) return refuse("not_found", `${c.workflow} does not exist.`, { workflow: c.workflow });\n\t\t\tconst message = required',
+				find: 'if (state.workflow === null) return yield* fail("not_found", `${c.workflow} does not exist.`, { workflow: c.workflow });\n\t\t\tconst message = required',
 				replace:
-					'if (state.workflow === null || state.workflow.messageCount > 0) return refuse("not_found", `${c.workflow} does not exist.`, { workflow: c.workflow });\n\t\t\tconst message = required',
+					'if (state.workflow === null || state.workflow.messageCount > 0) return yield* fail("not_found", `${c.workflow} does not exist.`, { workflow: c.workflow });\n\t\t\tconst message = required',
 			},
 		],
 		test: "test/kernel-authority-schedules.test.ts",
@@ -1521,8 +1531,8 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/roles.ts",
-				find: 'if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)\n\t\t\treturn refusal("assignment_not_running"',
-				replace: 'if (false)\n\t\t\treturn refusal("assignment_not_running"',
+				find: 'if (a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)\n\t\t\treturn yield* Effect.fail(refusal("assignment_not_running"',
+				replace: 'if (false)\n\t\t\treturn yield* Effect.fail(refusal("assignment_not_running"',
 			},
 		],
 		test: "test/workflow-task-survival.test.ts",
@@ -1588,7 +1598,7 @@ const CONTROLS: Control[] = [
 				file: "src/kernel/integration.ts",
 				find: "\t\tconst closedReason = handoffClosed(pass);\n",
 				replace:
-					'\t\tif (!facts.checkpointInputs?.grant) return refusal("forbidden_scope", "Integration needs a human grant.");\n\t\tconst closedReason = handoffClosed(pass);\n',
+					'\t\tif (!facts.checkpointInputs?.grant) return yield* Effect.fail(refusal("forbidden_scope", "Integration needs a human grant."));\n\t\tconst closedReason = handoffClosed(pass);\n',
 			},
 		],
 		test: "test/canonical-integration.test.ts",
@@ -1603,7 +1613,7 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/integration.ts",
-				find: '\t\tif (h.canceled) return refusal("assignment_closed", "Cancellation fenced this handoff before admission.");\n',
+				find: '\t\tif (h.canceled) return yield* Effect.fail(refusal("assignment_closed", "Cancellation fenced this handoff before admission."));\n',
 				replace: "",
 			},
 			{ file: "src/kernel/integration.ts", find: "\t\tintent.generation !== a.generation ||\n", replace: "" },
@@ -2009,8 +2019,8 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/roles.ts",
-				find: 'if (pass.captureA) return refusal("assignment_closed", "Reproduction precedes product code',
-				replace: 'if (false) return refusal("assignment_closed", "Reproduction precedes product code',
+				find: 'if (pass.captureA)\n\t\t\t\t\t\treturn yield* Effect.fail(refusal("assignment_closed", "Reproduction precedes product code',
+				replace: 'if (false)\n\t\t\t\t\t\treturn yield* Effect.fail(refusal("assignment_closed", "Reproduction precedes product code',
 			},
 		],
 		test: "test/bug-journey.test.ts",

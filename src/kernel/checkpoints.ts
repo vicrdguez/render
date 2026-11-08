@@ -3,7 +3,7 @@ import { candidateEvidence, candidatePlan, validCandidateAnswer } from "./candid
 import { initialCheckpointSettings } from "./checkpoint-settings.ts";
 import type { Intakes } from "./intake.ts";
 import { readGround, shapeConfirmed } from "./investigation.ts";
-import type { Decision, DomainWrite, KernelState, VerifiedFacts } from "./kernel.ts";
+import type { Decision, DomainWrite, KernelState, Refusal, RefusalCode, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
 import { type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
 
@@ -219,13 +219,13 @@ export function blockedBySeams(
 			(pending || (r.stage === "seams" ? r.approved !== latest : r.seams !== latest)),
 	);
 }
-function refuse(code: string, reason: string, r?: CheckpointRequest): Decision {
+function refuse(code: RefusalCode, reason: string, r?: CheckpointRequest): Refusal {
 	return {
 		outcome: "refused",
 		code,
 		reason,
 		...(r ? { refs: { request: r.id, emission: r.emission, annotations: String(r.annotations) } } : {}),
-	} as Decision;
+	};
 }
 export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts: VerifiedFacts): Decision {
 	if (!state.workflow || state.workflow.id !== c.workflow) return refuse("not_found", "Checkpoint requires an existing workflow.");

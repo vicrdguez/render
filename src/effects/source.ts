@@ -3,31 +3,13 @@ import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, open, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import type { LiteralEntry, Source, SourceReceipt } from "../kernel/evidence-schema.ts";
 import { validatePath } from "../kernel/source-path.ts";
 import { faultBarrier } from "../ledger/barrier.ts";
 import type { Capture } from "../sandboxes/sandboxes.ts";
 import { type ForgeConfig, type ForgeDispatch, type ForgeSnapshot, GitHubForge } from "./forge.ts";
 
-export type LiteralEntry = { path: string; mode: "100644" | "100755" | "120000"; oid: string; content: string };
-export type Source = {
-	repository: string;
-	objectFormat: "sha1" | "sha256";
-	commit: string;
-	tree: string;
-	root: string;
-	entries: LiteralEntry[];
-};
-export type SourceReceipt = {
-	base: Source;
-	source: Source;
-	freeze: Capture["freeze"];
-	exclusions: string[];
-	bytes: number;
-	entries: number;
-	deleted: string[];
-	configurationChanges: string[];
-	durability: { git: string; fsync: "all"; method: "fsync" };
-};
+export type { LiteralEntry, Source, SourceReceipt } from "../kernel/evidence-schema.ts";
 export type Resolve = { type: "resolve"; repository: string; commit: string };
 /** An already rooted host source (such as prepared X) read back exactly, with no fetch. */
 export type Read = { type: "read"; repository: string; commit: string };

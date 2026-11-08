@@ -48,7 +48,7 @@ Interface these cases name (new in this Slice):
 | WR20 | Engine journey: target moves between the check and review launch | no review of the stale X; preparation runs again on the current target and its review binds the new T | Engine/Effects |
 | WR21 | Retry while a review is open | `retryPreparation` refuses `stale_basis`; no second preparation | Ledger/Kernel |
 | WR22 | Missing prior Watchdog report bytes when rendering a new round | prior material is shown as unavailable and the instructions require a full review; the count is unaffected | Engine render |
-| WR23 | 10,000 seeded schedules of rounds on one handoff over limits 0–3 with pass, rework, Needs Human, duplicate submission and larger-limit adoption | every accepted submission reports `reviews` equal to the oracle's count; automatic rework opens exactly when no Needs Human verdict is on the handoff and count < current limit, otherwise `human_direction_required` with no write; passes are accepted above the cap; Kernel never mutates its inputs | Kernel (V1) |
+| WR23 | 20 explicit round cases on one handoff over limits 0–3 with pass, rework, Needs Human, duplicate submission and larger-limit adoption | every accepted submission reports `reviews` equal to the oracle's count; automatic rework opens exactly when no Needs Human verdict is on the handoff and count < current limit, otherwise `human_direction_required` with no write; passes are accepted above the cap; Kernel never mutates its inputs | Kernel (V1) |
 
 
 Rework of the first Watchdog round (new interface: `directRework`, human only, `{assignment, generation, attempt,

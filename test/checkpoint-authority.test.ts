@@ -320,7 +320,7 @@ test("S11 V1 human and delegated routing captures survive defaults, replacement 
 			stage: "seams",
 			scope: "ground:1",
 			required: { candidates: false, experiment: false },
-		};
+		} as const;
 		const first = change(state, command, facts);
 		assert.equal(first.outcome, "accepted");
 		if (first.outcome !== "accepted") continue;

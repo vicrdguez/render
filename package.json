@@ -19,7 +19,7 @@
 		"verify:complete": "npm run verify:gate && npm run test:extended && npm run verify:v9-budgets && npm run verify:unsafe-controls",
 		"typecheck": "tsc --noEmit -p .",
 		"lint": "biome check .",
-		"verify:implementation-pass": "node --test --test-concurrency=1 test/implementation-pass.test.ts test/implementation-pass-schedules.test.ts test/implementation-lifecycle.test.ts test/implementation-successor.test.ts test/implementation-lifecycle-crash.integration.ts test/accepted-contracts.test.ts test/intake-retention.test.ts test/role-capability-refusal.test.ts test/implementation-capture.integration.ts test/implementation-engine.integration.ts",
+		"verify:implementation-pass": "node --test --test-concurrency=1 test/implementation-source.test.ts test/implementation-pass.test.ts test/implementation-pass-schedules.test.ts test/implementation-lifecycle.test.ts test/implementation-successor.test.ts test/implementation-lifecycle-crash.integration.ts test/accepted-contracts.test.ts test/intake-retention.test.ts test/role-capability-refusal.test.ts test/implementation-capture.integration.ts test/implementation-engine.integration.ts",
 		"verify:implementation-crash": "node --test test/implementation-lifecycle-crash.integration.ts",
 		"verify:protocol-experiments": "node --test --test-concurrency=1 test/protocol-experiments.test.ts test/experiment-intake.test.ts test/experiment-design-candidates.test.ts test/experiment-isolation.integration.ts test/experiment-journey.integration.ts test/experiment-crash.integration.ts test/experiment-cancel.integration.ts",
 		"verify:experiment-crash": "node --test test/experiment-crash.integration.ts",
@@ -29,7 +29,7 @@
 		"verify:editable-checkpoints": "node --test --test-concurrency=1 test/checkpoint-authority.test.ts test/editable-checkpoints.test.ts",
 		"verify:ground-investigation": "node --test --test-concurrency=1 test/ground-investigation.test.ts test/investigation-crash.integration.ts",
 		"verify:investigation-crash": "node --test test/investigation-crash.integration.ts",
-		"verify:kernel-authority-schedules": "RENDER_V1_SCHEDULES=10000 node --test test/kernel-authority-schedules.test.ts test/implementation-pass-schedules.test.ts test/watchdog-rework-schedules.test.ts test/canonical-integration-schedules.test.ts",
+		"verify:kernel-authority-schedules": "RENDER_V1_SCHEDULES=10000 node --test test/kernel-effect.test.ts test/kernel-authority-schedules.test.ts test/implementation-pass-schedules.test.ts test/watchdog-rework-schedules.test.ts test/canonical-integration-schedules.test.ts",
 		"verify:sqlite-command-atomicity": "RENDER_V2_SCHEDULES=256 node --test test/sqlite-command-atomicity.test.ts test/sqlite-command-schedules.integration.ts",
 		"verify:command-crash-recovery": "node --test test/command-crash-recovery.integration.ts",
 		"verify:two-client-reattach": "node --test --test-concurrency=1 test/two-client-reattach.integration.ts test/stalled-observer.performance.ts test/history-cutoff-export.test.ts test/history-cursor-transfer.test.ts",
@@ -42,7 +42,6 @@
 		"verify:role-capability-refusal": "node --test test/role-capability-refusal.test.ts",
 		"verify:cancellation-capacity": "node --test test/cancellation-capacity.test.ts test/role-recovery-startup.integration.ts test/role-waiting.integration.ts test/role-wait-restart.integration.ts",
 		"verify:history-cutoff-export": "node --test test/history-cutoff-export.test.ts test/history-missing-data.integration.ts test/history-message.test.ts test/history-completeness.integration.ts test/history-cursor-transfer.test.ts test/role-history.test.ts",
-
 		"verify:history-command-load": "node --test test/history-command-load.ts",
 		"verify:context-continuation-independence": "node --test test/context-continuation-independence.test.ts test/workflow-task-survival.test.ts test/role-wait-restart.integration.ts test/child-replacement.test.ts",
 		"verify:native-compaction-history": "node --test test/native-compaction-history.test.ts",
@@ -78,6 +77,7 @@
 		"@earendil-works/chord": "1.4.0",
 		"@earendil-works/pi-ai": "1.4.0",
 		"@earendil-works/pi-durable": "1.4.0",
+		"effect": "4.1.2",
 		"webfox": "4.8.0"
 	},
 	"devDependencies": {

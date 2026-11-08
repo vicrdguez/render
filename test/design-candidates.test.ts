@@ -440,7 +440,13 @@ test("D3 exhaustive candidate status and request matrix requires both submitted 
 							},
 						},
 						{
-							principal: { kind: "assignment-agent", assignment: x.parent.id, generation: 1, attempt: x.parent.attempt, role: "coordinator" },
+							principal: {
+								kind: "assignment-agent",
+								assignment: x.parent.id,
+								generation: 1,
+								attempt: x.parent.attempt,
+								role: "coordinator",
+							},
 							executorEpoch: x.parent.executorEpoch!,
 							sequence: 1000,
 							ids: { fact: "fact:1000" },

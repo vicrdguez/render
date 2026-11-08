@@ -142,7 +142,7 @@ test("B3/B5 identical bytes remain distinct observations; own tail paging is sco
 	}
 });
 
-test("B4 selected negative evidence survives expiry/reopen/export; old working handle never refetches", async () => {
+test("B4 selected negative evidence is exported by ref and readable after expiry/reopen; old working handle never refetches", async () => {
 	const http = await fixture(() => ({
 		body: { results: [{ url: "https://example.org/negative", text: "Context: no support for this claim. Conflicting result remains." }] },
 	}));
