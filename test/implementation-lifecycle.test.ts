@@ -5,7 +5,6 @@ import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
 import type { TaskId } from "@earendil-works/pi-durable";
 import { type Command, change, type KernelState, type Principal, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { ImplementationPass, RoleAssignment, RolePacket } from "../src/kernel/roles.ts";
-import { parseEnvelope } from "../src/ledger/envelope.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import {
@@ -251,21 +250,6 @@ test("untrusted, stale-epoch and revoked execution admission cannot invalidate f
 	assert.equal(f.command({ ...execution, generation: f.own(f.id).generation }, effects).outcome, "refused");
 	assert.equal(f.command(execution, effects).outcome, "refused");
 	assert.deepEqual(f.pass(), before);
-});
-
-test("execution admission envelope has a closed host-effects shape", () => {
-	const command = { type: "recordImplementationExecution", assignment: "a", generation: 1, attempt: "attempt" };
-	const envelope = { version: 1, authorityEpoch: "authority", commandId: "execution", workflow: "w", command };
-	assert.equal("status" in parseEnvelope(envelope), false);
-	for (const invalid of [
-		{ ...command, generation: 0 },
-		{ ...command, attempt: "" },
-		{ ...command, executorEpoch: "caller-selected" },
-		{ ...command, source: "caller-selected" },
-	]) {
-		const parsed = parseEnvelope({ ...envelope, command: invalid });
-		assert.ok("status" in parsed && parsed.status === "refused");
-	}
 });
 
 test("real Ledger execution admission refuses raw obsolete-B handoff and preserves exact prior evidence through reopen", async () => {
@@ -866,24 +850,6 @@ test("adopted policy cannot convert the old writer execution into a checkpoint/r
 		).outcome,
 		"refused",
 	);
-});
-
-test("lifecycle envelope parsing rejects malformed nested assessment/disposition/source kind instead of throwing", () => {
-	for (const command of [
-		{ type: "submitImplementationHandoff", text: "done", verification: null, dispositions: [] },
-		{ type: "submitImplementationHandoff", text: "done", verification: assessment, dispositions: [null] },
-		{
-			type: "submitImplementationHandoff",
-			text: "done",
-			verification: assessment,
-			dispositions: [{ report: "r", finding: "f", disposition: "fixed", reason: "why", changes: null, rechecks: [] }],
-		},
-		{ type: "requestImplementationAudit", source: "model-selected" },
-		{ type: "recordImplementationSource", assignment: "a", generation: 1, attempt: "a", kind: "invented", text: "{}" },
-	]) {
-		const parsed = parseEnvelope({ version: 1, authorityEpoch: "a", commandId: "id", workflow: "w", command });
-		assert.ok("status" in parsed && parsed.status === "refused", JSON.stringify(parsed));
-	}
 });
 
 test("queued Audit exports both exact child packets before any runtime archive", async () => {

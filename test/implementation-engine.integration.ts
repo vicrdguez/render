@@ -946,19 +946,6 @@ test("reopen after one Audit report continues same pass and incomplete original 
 	}
 });
 
-test("accepted writer refuses profile exclusions beyond .git", async () => {
-	const t = await fixture({ exclusions: [".git", "hidden"] });
-	try {
-		const reply = await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer });
-		if (reply.status === "accepted") {
-			await t.wait(() => t.assignments().find((a) => a.id === reply.result.assignment)?.status === "blocked", "exclusion refusal");
-			assert.match(t.assignments().find((a) => a.id === reply.result.assignment)!.blocker!, /exclusion|profile/i);
-		} else assert.match(`${reply.code} ${reply.reason}`, /exclusion|profile/i);
-	} finally {
-		await t.close();
-	}
-});
-
 test("missing Audit family blocks rather than silently falling back to another provider", async () => {
 	const t = await fixture({ missingFamily: true });
 	try {

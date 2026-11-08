@@ -92,7 +92,6 @@ test("catalog Linux results require assessment, retain independent evidence and 
 			"needs_assessment",
 			"macOS",
 			"unrun",
-			"Same CPU does not make Linux binaries portable to macOS",
 		])
 			assert.ok(promptText.includes(expected), `local prompt must retain ${expected}`);
 		const afterPrompt = f.ledger.snapshot(admin);

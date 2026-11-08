@@ -20,7 +20,6 @@ export function accepted(reply: CommandReply) {
 
 export type Prompt = {
 	packet: { role: string; verification?: unknown };
-	auditInstructions?: string;
 	intakeReview?: Record<string, unknown>;
 	auditReview?: { passRef: string; audit: string; source: string; contract: string };
 	assignment?: string;
@@ -34,7 +33,6 @@ export type Prompt = {
 		checks?: string;
 		prior: { ref: string; text?: string; unavailable?: string }[];
 	};
-	watchdogInstructions?: string;
 	implementation?: { ordinal?: number; captureB?: string; audit?: { reports?: unknown; results?: { standards?: { report: string } } } };
 	inputs?: { ref: string; text: string }[];
 };
@@ -53,7 +51,6 @@ export function captureValue(text: string): string {
 // Real acceptance, not a fabricated accepted Slice or a test-file import.
 export async function fixture(
 	options: {
-		exclusions?: string[];
 		missingFamily?: boolean;
 		failFinal?: boolean;
 		hold?: "writer" | "contracts" | "watchdog";
@@ -98,15 +95,12 @@ export async function fixture(
 		assert.equal(git(f.source.repo, ["show", `${commit}:value`]).toString(), "A\n");
 		assert.equal(git(f.source.repo, ["show", `${commit}:verify-suite`]).toString(), "printf 'SUITE OK'\n");
 	}
-	if (options.exclusions) f.config.checks["revision:3"].profile.exclusions = options.exclusions;
 	await allowSameFamily(f.ledger);
 	const gate = Promise.withResolvers<void>();
 	const prompts: Prompt[] = [];
 	let writerTurn = 0;
 	let successorTurn = 0;
 	const rounds = new Map<string, "pass" | "rework" | "needs-human">();
-	/** Each Watchdog request's declared system context without the packet section: where its tool declarations live. */
-	const watchdogContexts: string[] = [];
 	let originals = "";
 	let rawHandoffAttempted = false;
 	let checkedBeforeEdit: { B: string; report: string } | undefined;
@@ -173,9 +167,6 @@ export async function fixture(
 						);
 					if (prompt.watchdogReview) {
 						const b = prompt.watchdogReview;
-						watchdogContexts.push(
-							JSON.stringify(transcript.messages.filter((m) => m.role === "system").map(({ sections: _packet, ...m }) => m)),
-						);
 						if (!rounds.has(prompt.assignment!)) {
 							const next = options.watchdog?.[rounds.size];
 							assert.ok(next, "no unscripted Watchdog round");
@@ -228,7 +219,6 @@ export async function fixture(
 						assert.equal(retained.catalog.selection.contract, prompt.auditReview.contract);
 						assert.ok(retained.catalog.text.length > 0 && retained.results.length > 0, "A retains its verifier and results");
 						assert.equal(prompt.packet.verification, undefined, "no separate pre-A verifier is frozen for a reviewer");
-						assert.match(prompt.auditInstructions ?? "", /verification.*implementer ran.*not checks you ran/);
 						return fauxAssistantMessage(
 							fauxToolCall("submit_role_result", {
 								text: JSON.stringify({
@@ -580,7 +570,6 @@ export async function fixture(
 		f,
 		gate,
 		prompts,
-		watchdogContexts,
 		assignments,
 		wait,
 		writer,

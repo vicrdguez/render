@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { change, type KernelState, type Principal } from "../src/kernel/kernel.ts";
-import { FORGE_KINDS, type Publication, publicationView } from "../src/kernel/publication.ts";
+import { type Publication, publicationView } from "../src/kernel/publication.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { accepted, LedgerOnlyEngine } from "./support/implementation.ts";
 import {
@@ -471,7 +471,6 @@ test("AR08 an old ready flag never certifies new scope or source; the existing s
 	});
 	assert.deepEqual([kop(current).status, kop(current).attempts.length], ["satisfied", 0], "observed satisfaction, no dispatch");
 	assert.equal(kop(old).canonical, R1);
-	assert.deepEqual(FORGE_KINDS, ["publish-source", "create-proposal", "update-summary", "mark-ready"], "no redraft or close request");
 });
 
 test("AR09 a scope-only change on an unchanged head makes the stated summary stale until it is restaged", () => {

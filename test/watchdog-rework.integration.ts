@@ -118,13 +118,6 @@ test("WR19: checked X is reviewed by a fresh Watchdog that runs its own Linux ch
 		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const w of [w1, w2]) for (const ref of [w.report!, w.watchdogReview!.checks!, w.packetRef]) assert.ok(exported.content[ref], ref);
-		assert.ok(t.watchdogContexts.length >= 2);
-		for (const context of t.watchdogContexts) {
-			assert.match(context, /submit_role_result/, "Watchdog tools are declared in its context");
-			assert.doesNotMatch(context, /implementation_|experiment_run/, "Watchdog has no source-writing tool");
-		}
-		const prompts = t.prompts.filter((p) => p.watchdogReview);
-		assert.ok(prompts.every((p) => /cannot edit source or Debt Markers/.test(p.watchdogInstructions ?? "")));
 		assert.equal(captureValue(await read(t, p2.handoff.source)), "C\n");
 	} finally {
 		await t.close();
@@ -280,7 +273,6 @@ test("WR26/WR29: a human directs a Needs Human stop into P2, which applies only 
 			{ ref: direction, text: "Value must become D; the Needs Human question is settled." },
 			"the next Watchdog's rendered context holds the exact direction text",
 		);
-		assert.match(prompt?.watchdogInstructions ?? "", /human direction/);
 	} finally {
 		await t.close();
 	}

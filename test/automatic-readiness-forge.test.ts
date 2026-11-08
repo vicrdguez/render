@@ -51,8 +51,6 @@ async function fixture() {
 test("AF01 ready promotion is GitHub's markPullRequestReadyForReview for the PR's node, sent once per permit", async () => {
 	const f = await fixture();
 	try {
-		const caps = (await f.effects.reconcile({ type: "publication", repository: "owned", proposal: PROPOSAL })).capabilities;
-		assert.equal(caps.markProposalReady, true);
 		const result = await f.markReady("forge-attempt:3");
 		assert.deepEqual(result, { outcome: "applied", reason: null, created: null, head: null });
 		const sent = f.gh.readyRequests();

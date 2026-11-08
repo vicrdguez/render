@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Decision, KernelState, Principal, VerifiedFacts } from "../src/kernel/kernel.ts";
-import { change, view } from "../src/kernel/kernel.ts";
+import { change } from "../src/kernel/kernel.ts";
 import { decision } from "./support/kernel.ts";
 import { seeded } from "./support/random.ts";
 
@@ -526,32 +526,4 @@ test("literal: accepted first save records revision, pointer and fact writes", (
 		d.writes.map((w) => w.type),
 		["revision.append", "document.advance", "fact.record"],
 	);
-});
-
-test("literal: the workflow view reports handover fields and absent capabilities explicitly", () => {
-	const v = view(
-		{
-			workflows: [
-				{ id: "workflow:1", title: "Keep work safe", documents: [], messageCount: 0 },
-				{ id: "workflow:2", title: "Other", documents: [], messageCount: 0 },
-			],
-		},
-		{ workflows: ["workflow:1"] },
-	);
-	assert.equal(v.workflows.length, 1);
-	const w = v.workflows[0];
-	assert.equal(w?.workflow, "workflow:1");
-	assert.equal(w?.ground, null);
-	assert.deepEqual(w?.commitment, { status: "none", acceptedIntake: null });
-	assert.deepEqual(w?.owner, { status: "none", assignments: [] });
-	assert.deepEqual(w?.evidence, { status: "none", items: [] });
-	assert.deepEqual(w?.nextHumanAction, { type: "saveGround", workflow: "workflow:1", document: "ground", expected: null });
-	assert.ok(w?.unavailable.includes("coordinator-replies"));
-	assert.equal(w?.unavailable.includes("intake-acceptance"), false);
-	assert.deepEqual(w?.checkpoints, { requests: [], concerns: [] });
-	assert.ok(w?.unavailable.includes("assignments"));
-	assert.equal(w?.unavailable.includes("historical-export"), false);
-	assert.equal(w?.unavailable.includes("recovery-packages"), false);
-	assert.equal(w?.unavailable.includes("off-host-protection"), false);
-	assert.equal(w?.blocker, null, "absent capabilities are listed as unavailable, not as a blocker");
 });

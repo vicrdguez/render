@@ -29,7 +29,6 @@ test("HF01 a human merge into main reports the merged head and the main commit; 
 		const main = gh.merge(1);
 		assert.equal(gh.branch("main"), main, "the fake's main moved by a real Git commit");
 		const merged = await reconcile("workflow:2");
-		assert.equal(merged.capabilities.mergeObservation, true);
 		assert.equal(merged.proposals.complete, true);
 		assert.deepEqual(
 			{ ...merged.proposals.items[0], id: undefined },

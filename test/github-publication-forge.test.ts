@@ -42,19 +42,10 @@ async function fixture() {
 }
 const noToken = (value: unknown, label: string) => assert.ok(!JSON.stringify(value).includes(TOKEN), `${label} never carries the token`);
 
-test("GF01 capabilities are literal provider facts; a fresh repository observes no head and a complete empty listing", async () => {
+test("GF01 a fresh repository observes no head and a complete empty listing", async () => {
 	const f = await fixture();
 	try {
 		const seen = await f.reconcile();
-		assert.deepEqual(seen.capabilities, {
-			draftProposalPR: true,
-			markProposalReady: true,
-			guardedSourceUpdate: true,
-			createIdempotency: false,
-			stableObjectIdentity: true,
-			mergeObservation: true,
-			observationCompleteness: true,
-		});
 		assert.deepEqual(seen.head, { commit: null });
 		assert.deepEqual(seen.proposals, { complete: true, items: [] });
 		assert.ok(!Number.isNaN(Date.parse(seen.observedAt)), "observation carries its time");

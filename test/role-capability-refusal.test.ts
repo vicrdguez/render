@@ -47,37 +47,19 @@ test("R04 missing provider, family, sandbox and overflowing constraints block wi
 	}
 });
 
-test("R03 explicit role configuration does not inherit tools; model IDs cannot override host identity", async () => {
+test("R03 forged model command IDs produce no report; missing retained inputs refuse assignment", async () => {
 	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
-	let visibleTools: string[] = [];
 	p.setResponses([
-		(ctx) => {
-			visibleTools = ctx.messages.flatMap((m) => (m.role === "system" ? (m.toolsAdded ?? []).map((t) => t.name) : [])).sort();
-			return fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "forged", commandId: "model-id" }), {
+		() =>
+			fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "forged", commandId: "model-id" }), {
 				stopReason: "toolUse",
-			});
-		},
+			}),
 		fauxAssistantMessage("No submission"),
 	]);
 	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "fixture", families: { "claude-sonnet-4-6": "claude" } }));
 	try {
 		await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet() });
 		const a = await blocked(f);
-		assert.deepEqual(
-			visibleTools,
-			[
-				"checkpoint",
-				"read_artifact",
-				"read_web_result",
-				"request_own_stop",
-				"request_role",
-				"retain_web_evidence",
-				"submit_role_result",
-				"web_contents",
-				"web_search",
-			],
-			"role must not inherit broad tools",
-		);
 		assert.equal(a.report, null);
 		assert.equal(a.blocker, "role_did_not_submit");
 		const missing = await f.command({

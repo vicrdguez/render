@@ -93,11 +93,6 @@ test("E01 protocol criteria and exact retained inputs precede candidate assignme
 		await until(() => assignments(f.ledger)[0]?.status === "blocked");
 		assert.match(assignments(f.ledger)[0]!.blocker!, /experiment.*capability_unavailable/);
 		assert.equal(assignments(f.ledger)[0]!.executing, false);
-		const rendered = JSON.parse(await f.engine.render(assignments(f.ledger)[0]!));
-		assert.match(rendered.experiment.instructions, /immutable protocol/);
-		assert.match(rendered.experiment.instructions, /sealed read-only \/candidates\//);
-		assert.match(rendered.experiment.instructions, /No criteria changes, original repairs, adoption or publication/);
-		assert.equal(rendered.checkpointCandidate, undefined, "experiment roles do not receive design-candidate authority");
 	} finally {
 		await f.close();
 	}

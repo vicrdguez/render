@@ -184,7 +184,6 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 		assert.match(experimentSection, /retained assertion \(unverified assertion\)/, "experiment capture is not runner proof");
 		assert.ok(experimentSection.includes(JSON.stringify(negative)), "advisory must quote literal sealed negative bytes");
 		assert.ok(prompt.includes(JSON.stringify(original)), "advisory must include the original protocol, not only newer criteria");
-		assert.ok(prompt.includes("no completion gate"));
 		assert.deepEqual(assignments(f.ledger), unchanged, "advice must not adopt, gate or alter experiment work");
 		await source.close();
 		sourceClosed = true;

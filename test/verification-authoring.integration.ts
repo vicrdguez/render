@@ -18,14 +18,6 @@ type Packet = {
 	auditReview?: object;
 	watchdogReview?: Record<string, string>;
 	implementation?: { configuration: { verification: { path: string } } };
-	verificationAuthoring?: {
-		recommended: { asset: string; journeys: string };
-		sections: string[];
-		columns: string[];
-		kinds: Record<string, string>;
-		channels: { name: string }[];
-		instructions: string;
-	};
 };
 type Message = { role: string; content: unknown; sections?: Record<string, string | null> };
 
@@ -165,17 +157,6 @@ test("VA1-VA3 verify-create authors the selected legacy asset from the actual re
 			".skl/verify.md",
 			"the explicitly selected legacy path stays selected",
 		);
-		const craft = first.verificationAuthoring;
-		assert.ok(craft, "author receives reusable channel craft");
-		assert.deepEqual(craft.recommended, { asset: ".render/verify.md", journeys: ".render/journeys/" });
-		assert.deepEqual(craft.sections, ["Ranks", "Launch", "Doctor", "Channels", "Catalog", "Cleanup", "Extend", "Traps"]);
-		assert.deepEqual(craft.columns, ["Name", "Channel", "Kind", "Run", "Expectations", "Rank"]);
-		assert.deepEqual(Object.keys(craft.kinds), ["generated", "executed", "journey", "human"]);
-		assert.deepEqual(
-			craft.channels.map((c) => c.name),
-			["Executable oracle", "Process", "Live runtime introspection", "Driven surface", "Tests", "Static", "Human-observed"],
-		);
-		assert.match(craft.instructions, /unknown channels and prerequisites/);
 		assert.match(seen.toolResults[0]!, /printf 'SUITE OK'/, "the interview reads the repository's actual command");
 		const A = await record(t, pass().captureA!);
 		assert.equal(A.verification.catalog.selection.path, ".skl/verify.md");

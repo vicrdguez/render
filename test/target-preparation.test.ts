@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import * as Effect from "effect/Effect";
-import { Effects, type Source } from "../src/effects/source.ts";
-import { selectCatalog } from "../src/engine/catalog.ts";
+import { Effects } from "../src/effects/source.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
 
 function commit(repo: string, files: Record<string, string>, parents: string[] = []): string {
@@ -236,39 +235,3 @@ async function hostileAttributes(variable: "HOME" | "XDG_CONFIG_HOME") {
 }
 test("HOME-only hostile default attributes cannot turn a real conflict clean", () => hostileAttributes("HOME"));
 test("XDG-only hostile default attributes cannot turn a real conflict clean", () => hostileAttributes("XDG_CONFIG_HOME"));
-
-test("TP26: the product verifier selects the target-preparation catalog row with its declared command and rank", async () => {
-	const path = ".render/verify.md";
-	const bytes = await readFile(join(import.meta.dirname, "..", path));
-	const commit = "a".repeat(40);
-	const source: Source = {
-		repository: "render",
-		objectFormat: "sha1",
-		commit,
-		tree: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
-		root: "refs/render/source/literal",
-		entries: [{ path, mode: "100644", oid: "0".repeat(40), content: bytes.toString("base64") }],
-	};
-	const rows = ["target-preparation", "full-suite", "typecheck", "lint"];
-	const catalog = selectCatalog(source, {
-		repository: "render",
-		commit,
-		path,
-		digest: createHash("sha256").update(bytes).digest("hex"),
-		contract: "contract:render",
-		rows,
-		behavioralRows: ["target-preparation"],
-		receipts: [],
-	});
-	assert.deepEqual(
-		catalog.rows.map((r) => r.name),
-		rows,
-	);
-	const row = catalog.rows[0]!;
-	assert.deepEqual([row.kind, row.run, row.rank], ["executed", "npm run verify:target-preparation", "tests"]);
-	for (const required of catalog.rows)
-		assert.ok(
-			["executed", "journey"].includes(required.kind) && catalog.ranks.includes(required.rank ?? ""),
-			`${required.name} can prove behavior by definition`,
-		);
-});

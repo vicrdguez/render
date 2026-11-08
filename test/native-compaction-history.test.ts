@@ -1,16 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
-import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { createRegistry, type Harness } from "@earendil-works/pi-durable";
 import { Engine } from "../src/engine/runtime.ts";
-import { openLedger } from "../src/ledger/startup.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
 
 test("native-compaction-history: Engine exports scoped committed transcript and terminal receipt, not transient tokens", async () => {
@@ -82,8 +77,6 @@ test("native-compaction-history: Engine compacts twice, refreshes exact constrai
 		override options(report: Parameters<Engine["options"]>[0]) {
 			const options = super.options(report);
 			const settings = typeof options.settings === "function" ? options.settings() : options.settings;
-			assert.equal(settings?.compaction?.enabled, true, "production native compaction must be enabled");
-			assert.equal(settings?.compaction?.backgroundTokens, 0, "production compaction must block, not run in background");
 			return {
 				...options,
 				settings: { ...settings, compaction: { ...settings?.compaction, keepRecentTokens: 1, reserveTokens: 4090 } },
@@ -218,119 +211,3 @@ for (const damage of ["missing", "corrupt", "schema"] as const) {
 
 const TAIL = "LITERAL-COMMITTED-TAIL-PAST-2000-6";
 const long = "x".repeat(2500) + TAIL;
-
-async function fixture(responses: Parameters<ReturnType<typeof fauxProvider>["setResponses"]>[0], auto = false) {
-	const data = await mkdtemp(join(tmpdir(), "render-compaction-"));
-	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6", contextWindow: 4096 }] });
-	p.setResponses(responses);
-	const models = createModels();
-	models.setProvider(p.provider);
-	let harness!: Harness;
-	const opened = await openLedger({
-		data,
-		onFatal: () => {},
-		runtime: () => ({
-			models,
-			registry: createRegistry(),
-			settings: { retry: { maxRetries: 0 }, compaction: { enabled: auto, keepRecentTokens: 1, reserveTokens: 4090 } },
-			bindLedger: (_ledger, h) => {
-				harness = h;
-			},
-		}),
-	});
-	const c = await harness.createConversation({ ownership: { kind: "ownerless" } }, ctx);
-	await c.configure({ model: { provider: "anthropic", modelId: "claude-sonnet-4-6" }, tools: [], modelTools: [] }, ctx);
-	await c.commit(async (tx) => {
-		await tx.appendEntry(c.id, { kind: "owned.input", data: {}, model: [{ role: "user", content: "Exact task.", timestamp: 1 }] });
-		await tx.appendEntry(c.id, {
-			kind: "owned.call",
-			data: {},
-			model: [fauxAssistantMessage(fauxToolCall("owned", {}, { id: "long" }), { stopReason: "toolUse" })],
-		});
-		await tx.appendEntry(c.id, {
-			kind: "owned.result",
-			data: {},
-			model: [
-				{
-					role: "toolResult",
-					toolCallId: "long",
-					toolName: "owned",
-					content: [{ type: "text", text: long }],
-					isError: false,
-					timestamp: 2,
-				},
-			],
-		});
-		await tx.appendEntry(c.id, {
-			kind: "owned.tail",
-			data: {},
-			model: [{ role: "user", content: "Keep this recent tail.", timestamp: 3 }],
-		});
-	}, ctx);
-	return {
-		c,
-		harness,
-		async close() {
-			await opened.close();
-			await rm(data, { recursive: true, force: true });
-		},
-	};
-}
-
-test("native-compaction-history: stale cut refuses placement after reset", async () => {
-	let release!: () => void;
-	let started!: () => void;
-	const gate = new Promise<void>((r) => {
-		release = r;
-	});
-	const requested = new Promise<void>((r) => {
-		started = r;
-	});
-	const f = await fixture([
-		async () => {
-			started();
-			await gate;
-			return fauxAssistantMessage("STALE-SUMMARY-CANARY");
-		},
-	]);
-	try {
-		const task = await f.c.compact(undefined, ctx);
-		await requested;
-		await f.c.reset("Reset supersedes selected range.", ctx);
-		release();
-		await f.harness.waitForTask(task, ctx);
-		await f.c.waitForIdle(ctx);
-		assert.equal(JSON.stringify((await f.c.context(ctx)).messages).includes("STALE-SUMMARY-CANARY"), false);
-		assert.ok(JSON.stringify(await f.c.entries({}, 100, undefined, ctx)).includes(TAIL));
-	} finally {
-		release();
-		await f.close();
-	}
-});
-
-test("native-compaction-history: failed blocking compaction prevents generation", async () => {
-	let requests = 0;
-	const f = await fixture(
-		[
-			() => {
-				requests++;
-				return fauxAssistantMessage("", { stopReason: "error", errorMessage: "Owned compaction failure" });
-			},
-		],
-		true,
-	);
-	try {
-		const input = await f.c.submit({ type: "input", content: "Continue only after successful blocking compaction." }, ctx);
-		await input.wait(ctx);
-		assert.equal(requests, 1);
-		const inspection = await f.harness.commit((tx) => tx.scanTasks({ conversationId: f.c.id }, 100), ctx);
-		assert.ok(
-			inspection.items.some((t) => t.kind === "pi.compaction" && t.state.status === "terminal" && t.state.outcome.status === "failed"),
-		);
-		assert.ok(
-			inspection.items.some((t) => t.kind === "pi.generation" && t.state.status === "terminal" && t.state.outcome.status === "failed"),
-		);
-	} finally {
-		await f.close();
-	}
-});

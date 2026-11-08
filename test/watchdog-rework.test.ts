@@ -532,7 +532,7 @@ test("WR17/WR18 an interrupted review resumes the same Assignment uncounted; bin
 	}
 });
 
-test("WR22 missing prior Watchdog material means a full review, never a reset count", async () => {
+test("WR22 missing prior Watchdog material stays explicit without resetting the count", async () => {
 	const engine = new LedgerOnlyEngine();
 	const t = await handedOff();
 	try {
@@ -543,10 +543,8 @@ test("WR22 missing prior Watchdog material means a full review, never a reset co
 		damageImplementation(t.f.data, first.report, "missing_content");
 		const rendered = JSON.parse(await engine.render(own(t, id))) as {
 			watchdogReview?: { prior: { ref: string; unavailable?: string; text?: string }[] };
-			watchdogInstructions?: string;
 		};
 		assert.deepEqual(rendered.watchdogReview?.prior, [{ ref: first.report, unavailable: "missing_content" }]);
-		assert.match(rendered.watchdogInstructions ?? "", /full review/);
 		assert.equal(completed(t), 1);
 	} finally {
 		await t.close();

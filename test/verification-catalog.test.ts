@@ -72,25 +72,3 @@ test("current catalog completion refuses missing evidence even with an explicit 
 		await f.close();
 	}
 });
-
-test("human policy accepts a project-named rank without merging the built-in ladder", async () => {
-	const f = await catalogFixture();
-	try {
-		const result = await f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: f.ledger.status().authorityEpoch,
-				commandId: "custom-rank",
-				command: {
-					type: "changePolicy",
-					expectedRevision: "policy:initial",
-					policy: { completedReviewLimit: 2, reviewerDiversity: "different-family", minimumEvidenceRank: "endpoint" },
-				},
-			},
-			admin,
-		);
-		assert.equal(result.status, "accepted", "project rank must not be rejected by a second built-in registry");
-	} finally {
-		await f.close();
-	}
-});

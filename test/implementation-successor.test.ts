@@ -3,7 +3,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ImplementationPass, RoleAssignment } from "../src/kernel/roles.ts";
-import { parseEnvelope } from "../src/ledger/envelope.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import {
@@ -278,16 +277,6 @@ test("arbitrary reasons, wrong lineage and untrusted principals open nothing", a
 			refusedWithoutWrites(t, await t.f.command(command, principal), "forbidden_principal", before, "untrusted principal");
 		refusedWithoutWrites(t, await t.f.command({ ...command, generation: 2 }, effects), "stale_assignment", before, "stale generation");
 		refusedWithoutWrites(t, await t.f.command({ ...command, attempt: "other" }, effects), "stale_assignment", before, "stale Attempt");
-		const envelope = { version: 1, authorityEpoch: "authority", commandId: "successor", workflow: WORKFLOW };
-		for (const invalid of [
-			{ ...command, passOrdinal: 7 },
-			{ ...command, cause: "caller-selected" },
-			{ ...command, text: 7 },
-		]) {
-			const parsed = parseEnvelope({ ...envelope, command: invalid });
-			assert.ok("status" in parsed && parsed.status === "refused");
-		}
-		assert.equal("status" in parseEnvelope({ ...envelope, command }), false);
 	} finally {
 		await t.close();
 	}

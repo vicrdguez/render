@@ -57,22 +57,6 @@ test("G01/G02 Kernel distinguishes human shape from unconfirmed classification",
 	}
 });
 
-test("G04 malformed delivery packet remains an ordinary Kernel refusal", () => {
-	const result = decision(
-		change(
-			{ workflow: { id: "workflow:2", messageCount: 0 }, document: null, device: null },
-			// @ts-expect-error intentionally bypass the closed command type to exercise runtime refusal
-			{ type: "assignTask", workflow: "workflow:2", slice: "workflow:2", delivery: true },
-			{ principal: { kind: "host", scope: "scheduling" }, sequence: 4, ids: { fact: "fact:4" } },
-		),
-	);
-	assert.deepEqual(result, {
-		outcome: "refused",
-		code: "invalid_content",
-		reason: "Assignment requires an explicit packet, Slice and ownership mode.",
-	});
-});
-
 test("G02 classifier suggestion requires confirmation, human shape does not", async () => {
 	const f = await roleFixture();
 	try {

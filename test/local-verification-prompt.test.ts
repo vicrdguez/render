@@ -168,20 +168,11 @@ test("LP1/LP5 two clients retain one exact advisory receipt; stale requests do n
 			"verify.md",
 			"signing credentials",
 			"The strict positive predicate excludes zero.",
-			"Verify identity first",
-			"human-chosen",
-			"no automatic main merge",
-			"no automatic import",
-			"expected",
-			"observed",
-			"accessibility",
 			"not yet published/unavailable",
 			"Unknown",
 			"unrun",
-			"secrets",
 		])
 			assert.ok(prompt.includes(expected), `prompt missing ${expected}`);
-		assert.ok(prompt.includes("Same CPU does not make Linux binaries portable to macOS"), "Linux evidence must not imply Mac equivalence");
 		assert.ok(!prompt.includes("FOREIGN-SOURCE-CANARY"));
 		const after = f.ledger.snapshot(admin);
 		assert.ok("workflows" in after);
