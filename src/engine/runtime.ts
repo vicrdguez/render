@@ -463,7 +463,7 @@ export class Engine {
 								context.abortSignal ?? new AbortController().signal,
 								current,
 							);
-							const saved = yield* fromPromise(() => this.#ledger!.artifact(scheduling, { upload: { webWorking: result } }));
+							const saved = yield* this.#ledger!.artifactEffect(scheduling, { upload: { webWorking: result } });
 							return output({ ...previewWeb(result), ...("code" in saved ? { handle: undefined, workingUnavailable: saved.code } : {}) });
 						}),
 					),
@@ -1064,13 +1064,13 @@ export class Engine {
 							if (!a.executing || a.packet.execution !== "linux-writer" || !this.#sandboxes) continue;
 							yield* Effect.gen({ self: this }, function* () {
 								const scope = this.#scope(a, a.status === "canceling");
-								const stopped = yield* fromPromise(() => this.#sandboxes!.stop({ scope }));
+								const stopped = yield* this.#sandboxes!.stopEffect({ scope });
 								for (const diagnostic of stopped.executions)
 									yield* this.#diagnostic(a, scope, diagnostic.source ?? stopped.source, diagnostic.result, diagnostic);
 								if (a.passRef && a.status === "running") {
-									const capture = yield* fromPromise(() => this.#sandboxes!.seal(stopped.handle));
-									const source = yield* fromPromise(() => this.#effects!.perform({ type: "retain", base: stopped.source, capture }));
-									yield* fromPromise(() => this.#effects!.reconcile(source));
+									const capture = yield* this.#sandboxes!.sealEffect(stopped.handle);
+									const source = yield* this.#effects!.performEffect({ type: "retain", base: stopped.source, capture });
+									yield* this.#effects!.reconcileEffect(source);
 									yield* this.#recordImplementationSource(a, "checkpoint", source);
 									yield* this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "stopped", effects: "reconciled" });
 									const reply = yield* this.#command(this.#assignment(a.id)!, {
@@ -1190,7 +1190,7 @@ export class Engine {
 				attempt: a.attempt,
 				role: a.packet.role,
 			});
-			const retained = yield* fromPromise(() => this.#ledger!.artifact(context, { read: a.packetRef }));
+			const retained = yield* this.#ledger!.artifactEffect(context, { read: a.packetRef });
 			if (!("content" in retained) || retained.content.toString("utf8") !== JSON.stringify(a.packet))
 				throw new Error(`Restore exact packet ${a.packetRef}; binding is missing, corrupt or incompatible.`);
 			const inputs: { ref: string; text: string }[] = [];
@@ -1203,14 +1203,14 @@ export class Engine {
 				...(current.investigationSource ? [current.investigationSource] : []),
 				...(current.watchdogReview?.checks ? [current.watchdogReview.checks] : []),
 			]) {
-				const value = yield* fromPromise(() => this.#ledger!.artifact(context, { read: ref }));
+				const value = yield* this.#ledger!.artifactEffect(context, { read: ref });
 				if (!("content" in value)) throw new Error(`Required exact input ${ref}: ${value.code}`);
 				inputs.push({ ref, text: value.content.toString("utf8") });
 			}
 			// Earlier rounds are context, not required inputs: an unavailable one means a full review, never a reset count.
 			const prior: { ref: string; text?: string; unavailable?: string }[] = [];
 			for (const ref of current.watchdogReview?.prior ?? []) {
-				const value = yield* fromPromise(() => this.#ledger!.artifact(context, { read: ref }));
+				const value = yield* this.#ledger!.artifactEffect(context, { read: ref });
 				prior.push("content" in value ? { ref, text: value.content.toString("utf8") } : { ref, unavailable: value.code });
 			}
 			const results = currentChildren(this.#assignments(), a.id)
@@ -1225,13 +1225,11 @@ export class Engine {
 			let verification: SelectedCatalog | undefined;
 			if (a.packet.verification && !a.passRef) {
 				if (!this.#effects) throw new Error("Verification catalog trusted source capability unavailable.");
-				const source = yield* fromPromise(() =>
-					this.#effects!.perform({
-						type: "resolve",
-						repository: a.packet.verification!.repository,
-						commit: a.packet.verification!.commit,
-					}),
-				);
+				const source = yield* this.#effects!.performEffect({
+					type: "resolve",
+					repository: a.packet.verification!.repository,
+					commit: a.packet.verification!.commit,
+				});
 				verification = selectCatalog(source, a.packet.verification);
 			}
 			const workflow = (frame.workflows as import("../kernel/kernel.ts").WorkflowView[]).find((w) => w.workflow === a.workflow);
@@ -1394,7 +1392,7 @@ export class Engine {
 									if (!conversation) throw new Error("Missing implementing conversation");
 									yield* fromPromise(() => conversation.abort(ctx));
 								}
-								yield* fromPromise(() => this.#sandboxes!.stop({ scope: this.#scope(a, true) }));
+								yield* this.#sandboxes!.stopEffect({ scope: this.#scope(a, true) });
 								if (!this.#ownedActive.has(a.id) && !this.#implementationActive.has(a.id))
 									yield* this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "stopped", effects: "reconciled" });
 							}).pipe(
@@ -1525,17 +1523,15 @@ export class Engine {
 			const final = this.#implementationPass(a).captureB;
 			if (final) {
 				// A direct role command must not hand off obsolete B after this workspace becomes writable.
-				const admitted = yield* fromPromise(() =>
-					this.#ledger!.command(
-						{
-							version: 1,
-							authorityEpoch: this.#ledger!.status().authorityEpoch,
-							commandId: `implementation-execution:${a.id}:${a.generation}:${a.attempt}:${final}`,
-							workflow: a.workflow,
-							command: { type: "recordImplementationExecution", assignment: a.id, generation: a.generation, attempt: a.attempt },
-						},
-						mintContext({ kind: "host", scope: "effects" }),
-					),
+				const admitted = yield* this.#ledger!.commandEffect(
+					{
+						version: 1,
+						authorityEpoch: this.#ledger!.status().authorityEpoch,
+						commandId: `implementation-execution:${a.id}:${a.generation}:${a.attempt}:${final}`,
+						workflow: a.workflow,
+						command: { type: "recordImplementationExecution", assignment: a.id, generation: a.generation, attempt: a.attempt },
+					},
+					mintContext({ kind: "host", scope: "effects" }),
 				);
 				if (admitted.status !== "accepted") throw new Error(`Execution admission refused: ${admitted.reason}`);
 			}
@@ -1546,27 +1542,27 @@ export class Engine {
 			let source = previous?.source;
 			if (!source) {
 				if (pass.workspace) {
-					const read = yield* fromPromise(() => this.#ledger!.artifact(scheduling, { read: pass.workspace! }));
+					const read = yield* this.#ledger!.artifactEffect(scheduling, { read: pass.workspace! });
 					if (!("content" in read)) throw new Error(`Restore exact workspace source ${pass.workspace}`);
 					const receipt = (JSON.parse(read.content.toString()) as { source: SourceReceipt }).source;
-					yield* fromPromise(() => this.#effects!.reconcile(receipt));
+					yield* this.#effects!.reconcileEffect(receipt);
 					source = receipt.source;
 				} else
-					source = yield* fromPromise(() =>
-						this.#effects!.perform({
-							type: "resolve",
-							repository: check.repository,
-							commit: pass.opening?.base ?? check.commit,
-						}),
-					);
+					source = yield* this.#effects!.performEffect({
+						type: "resolve",
+						repository: check.repository,
+						commit: pass.opening?.base ?? check.commit,
+					});
 			}
 			const readOnly = yield* this.#conflictOriginals(pass, check.repository);
 			const inputs = readOnly ? { ...source, readOnly } : source;
 			this.#implementationAdmitted.add(a.id);
 			let handle!: SandboxHandle;
 			yield* Effect.gen({ self: this }, function* () {
-				handle = yield* fromPromise(() =>
-					this.#sandboxes!.prepare(this.#scope(a), check.profile, previous ? { source: inputs, after: previous.handle } : inputs),
+				handle = yield* this.#sandboxes!.prepareEffect(
+					this.#scope(a),
+					check.profile,
+					previous ? { source: inputs, after: previous.handle } : inputs,
 				);
 			}).pipe(
 				Effect.catchCause((cause) => {
@@ -1587,9 +1583,9 @@ export class Engine {
 		return Effect.gen({ self: this }, function* () {
 			const workspace = this.#workspaces.get(a.id);
 			if (!workspace) throw new Error("No current implementation workspace to capture");
-			const capture = yield* fromPromise(() => this.#sandboxes!.seal(workspace.handle));
-			const receipt = yield* fromPromise(() => this.#effects!.perform({ type: "retain", base: workspace.source, capture }));
-			yield* fromPromise(() => this.#effects!.reconcile(receipt));
+			const capture = yield* this.#sandboxes!.sealEffect(workspace.handle);
+			const receipt = yield* this.#effects!.performEffect({ type: "retain", base: workspace.source, capture });
+			yield* this.#effects!.reconcileEffect(receipt);
 			workspace.source = receipt.source;
 			workspace.sealed = true;
 			return receipt;
@@ -1603,17 +1599,15 @@ export class Engine {
 	) {
 		return Effect.gen({ self: this }, function* () {
 			const text = JSON.stringify({ schema: 1, source, ...(verification ? { verification } : {}) });
-			const reply = yield* fromPromise(() =>
-				this.#ledger!.command(
-					{
-						version: 1,
-						authorityEpoch: this.#ledger!.status().authorityEpoch,
-						commandId: `implementation-source:${a.id}:${kind}:${createHash("sha256").update(text).digest("hex")}`,
-						workflow: a.workflow,
-						command: { type: "recordImplementationSource", assignment: a.id, generation: a.generation, attempt: a.attempt, kind, text },
-					},
-					mintContext({ kind: "host", scope: "effects" }),
-				),
+			const reply = yield* this.#ledger!.commandEffect(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId: `implementation-source:${a.id}:${kind}:${createHash("sha256").update(text).digest("hex")}`,
+					workflow: a.workflow,
+					command: { type: "recordImplementationSource", assignment: a.id, generation: a.generation, attempt: a.attempt, kind, text },
+				},
+				mintContext({ kind: "host", scope: "effects" }),
 			);
 			if (reply.status !== "accepted") throw new Error(`Source retention refused: ${reply.reason}`);
 			return reply;
@@ -1623,7 +1617,7 @@ export class Engine {
 	#unproven(a: RoleAssignment): Effect.Effect<string | undefined, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			const ref = a.passRef ? this.#implementationPass(a).workspace : undefined;
-			const read = ref ? yield* fromPromise(() => this.#ledger!.artifact(scheduling, { read: ref })) : undefined;
+			const read = ref ? yield* this.#ledger!.artifactEffect(scheduling, { read: ref }) : undefined;
 			const e =
 				read && "content" in read ? (JSON.parse(read.content.toString()) as { verification?: CatalogEvidence }).verification : undefined;
 			if (!e || e.verification.status === "needs_assessment") return;
@@ -1646,14 +1640,12 @@ export class Engine {
 			const workspace = yield* this.#implementationWorkspace(a);
 			const run = (argv: string[]) =>
 				Effect.gen({ self: this }, function* () {
-					const result = yield* fromPromise(() =>
-						this.#sandboxes!.execute(workspace.handle, {
-							scope: this.#scope(a),
-							argv,
-							timeoutMs: this.#config.ownedChecks!.checks[a.packet.profile]!.timeoutMs,
-							verifierRevision: digest,
-						}),
-					);
+					const result = yield* this.#sandboxes!.executeEffect(workspace.handle, {
+						scope: this.#scope(a),
+						argv,
+						timeoutMs: this.#config.ownedChecks!.checks[a.packet.profile]!.timeoutMs,
+						verifierRevision: digest,
+					});
 					yield* this.#diagnostic(a, this.#scope(a), workspace.source, result);
 					return result;
 				});
@@ -1717,8 +1709,7 @@ export class Engine {
 					const source = yield* this.#sealImplementation(a);
 					yield* this.#recordImplementationSource(a, "checkpoint", source);
 				}
-				if (!workspace && this.#implementationAdmitted.has(a.id))
-					yield* fromPromise(() => this.#sandboxes!.stop({ scope: this.#scope(a) }));
+				if (!workspace && this.#implementationAdmitted.has(a.id)) yield* this.#sandboxes!.stopEffect({ scope: this.#scope(a) });
 				yield* this.#command(this.#assignment(a.id)!, {
 					type: "recordQuiescence",
 					providerIdle: true,
@@ -1748,24 +1739,20 @@ export class Engine {
 			// Debt: a cancellation landing during trusted resolve fences prepare, finds no journal and stays quarantined.
 			let environment: "absent" | "stopped" | undefined = "absent";
 			return yield* Effect.gen({ self: this }, function* () {
-				const base = yield* fromPromise(() =>
-					this.#effects!.perform({ type: "resolve", repository: check.repository, commit: check.commit }),
-				);
+				const base = yield* this.#effects!.performEffect({ type: "resolve", repository: check.repository, commit: check.commit });
 				if ("catalog" in check !== !!a.packet.verification)
 					throw new Error("Catalog execution must be explicitly authorized; no operator-command fallback.");
 				const catalog = a.packet.verification ? selectCatalog(base, a.packet.verification) : undefined;
 				environment = undefined;
-				const handle = yield* fromPromise(() => this.#sandboxes!.prepare(this.#scope(a), check.profile, base));
+				const handle = yield* this.#sandboxes!.prepareEffect(this.#scope(a), check.profile, base);
 				const run = (argv: string[]) =>
 					Effect.gen({ self: this }, function* () {
-						const execution = yield* fromPromise(() =>
-							this.#sandboxes!.execute(handle, {
-								scope: this.#scope(a),
-								argv,
-								timeoutMs: check.timeoutMs,
-								verifierRevision: catalog?.selection.digest ?? ("verifierRevision" in check ? check.verifierRevision : undefined),
-							}),
-						);
+						const execution = yield* this.#sandboxes!.executeEffect(handle, {
+							scope: this.#scope(a),
+							argv,
+							timeoutMs: check.timeoutMs,
+							verifierRevision: catalog?.selection.digest ?? ("verifierRevision" in check ? check.verifierRevision : undefined),
+						});
 						yield* this.#diagnostic(a, this.#scope(a), base, execution);
 						return execution;
 					});
@@ -1774,10 +1761,10 @@ export class Engine {
 					? yield* this.#catalogResults(a, catalog, run)
 					: { results: [], cleanup: { status: "complete", results: [] } };
 				if (!catalog && "argv" in check) execution = yield* run(check.argv);
-				const capture = yield* fromPromise(() => this.#sandboxes!.seal(handle));
+				const capture = yield* this.#sandboxes!.sealEffect(handle);
 				environment = "stopped";
-				const source = yield* fromPromise(() => this.#effects!.perform({ type: "retain", base, capture }));
-				yield* fromPromise(() => this.#effects!.reconcile(source));
+				const source = yield* this.#effects!.performEffect({ type: "retain", base, capture });
+				yield* this.#effects!.reconcileEffect(source);
 				const compact = (value: SourceReceipt["source"]) => ({
 					...value,
 					entries: value.entries.map(({ content, ...entry }) => ({ ...entry, byteLength: Buffer.from(content, "base64").length })),
@@ -1812,31 +1799,27 @@ export class Engine {
 						: null,
 				};
 				const text = JSON.stringify(receipt);
-				const reply = yield* fromPromise(() =>
-					this.#ledger!.command(
-						{
-							version: 1,
-							authorityEpoch: this.#ledger!.status().authorityEpoch,
-							commandId: `owned-check:${a.id}:${a.generation}`,
-							workflow: a.workflow,
-							command: { type: "recordRunnerObservation", assignment: a.id, generation: a.generation, attempt: a.attempt, text },
-						},
-						mintContext({ kind: "host", scope: "effects" }),
-					),
+				const reply = yield* this.#ledger!.commandEffect(
+					{
+						version: 1,
+						authorityEpoch: this.#ledger!.status().authorityEpoch,
+						commandId: `owned-check:${a.id}:${a.generation}`,
+						workflow: a.workflow,
+						command: { type: "recordRunnerObservation", assignment: a.id, generation: a.generation, attempt: a.attempt, text },
+					},
+					mintContext({ kind: "host", scope: "effects" }),
 				);
 				if (reply.status !== "accepted") {
 					if (this.#assignment(a.id)!.generation !== a.generation)
-						yield* fromPromise(() =>
-							this.#ledger!.command(
-								{
-									version: 1,
-									authorityEpoch: this.#ledger!.status().authorityEpoch,
-									commandId: `owned-quarantine:${a.id}:${a.generation}`,
-									workflow: a.workflow,
-									command: { type: "recordRecoveryState", assignment: a.id, generation: a.generation, attempt: a.attempt, text },
-								},
-								mintContext({ kind: "host", scope: "recovery" }),
-							),
+						yield* this.#ledger!.commandEffect(
+							{
+								version: 1,
+								authorityEpoch: this.#ledger!.status().authorityEpoch,
+								commandId: `owned-quarantine:${a.id}:${a.generation}`,
+								workflow: a.workflow,
+								command: { type: "recordRecoveryState", assignment: a.id, generation: a.generation, attempt: a.attempt, text },
+							},
+							mintContext({ kind: "host", scope: "recovery" }),
 						);
 					else {
 						// Policy adoption keeps the generation current, so this evidence cannot enter the fenced-identity quarantine.
@@ -1861,7 +1844,7 @@ export class Engine {
 						});
 						if (!environment) {
 							return yield* Effect.gen({ self: this }, function* () {
-								const result = yield* fromPromise(() => this.#sandboxes!.stop({ scope: this.#scope(a) }));
+								const result = yield* this.#sandboxes!.stopEffect({ scope: this.#scope(a) });
 								for (const diagnostic of result.executions)
 									yield* this.#diagnostic(
 										a,
@@ -1919,23 +1902,21 @@ export class Engine {
 	}
 	#retainDiagnostic(workflow: string, scope: ExecutionScope, text: string): Effect.Effect<void, unknown> {
 		return Effect.gen({ self: this }, function* () {
-			const reply = yield* fromPromise(() =>
-				this.#ledger!.command(
-					{
-						version: 1,
-						authorityEpoch: this.#ledger!.status().authorityEpoch,
-						commandId: `owned-diagnostic:${createHash("sha256").update(text).digest("hex")}`,
-						workflow,
-						command: {
-							type: "recordRunnerDiagnostic",
-							assignment: scope.assignment,
-							generation: scope.generation,
-							attempt: scope.attempt,
-							text,
-						},
+			const reply = yield* this.#ledger!.commandEffect(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId: `owned-diagnostic:${createHash("sha256").update(text).digest("hex")}`,
+					workflow,
+					command: {
+						type: "recordRunnerDiagnostic",
+						assignment: scope.assignment,
+						generation: scope.generation,
+						attempt: scope.attempt,
+						text,
 					},
-					mintContext({ kind: "host", scope: "effects" }),
-				),
+				},
+				mintContext({ kind: "host", scope: "effects" }),
 			);
 			if (reply.status !== "accepted") throw new Error(`Owned diagnostic retention refused: ${reply.code}`);
 		});
@@ -1944,9 +1925,11 @@ export class Engine {
 		return Effect.gen({ self: this }, function* () {
 			if (a.investigationSource) return; // Exact retained bytes, never refetch a damaged historical citation.
 			const input = a.packet.investigation!;
-			const source = yield* fromPromise(() =>
-				this.#investigationEffects!.perform({ type: "resolve", repository: input.repository, commit: input.commit }),
-			);
+			const source = yield* this.#investigationEffects!.performEffect({
+				type: "resolve",
+				repository: input.repository,
+				commit: input.commit,
+			});
 			const entries = input.paths.map((path) => {
 				const entry = source.entries.find((e) => e.path === path);
 				if (!entry) throw new Error(`Restore exact source ${source.commit}:${path}.`);
@@ -1965,17 +1948,15 @@ export class Engine {
 				objectFormat: source.objectFormat,
 				entries,
 			});
-			const reply = yield* fromPromise(() =>
-				this.#ledger!.command(
-					{
-						version: 1,
-						authorityEpoch: this.#ledger!.status().authorityEpoch,
-						commandId: `investigation-source:${a.id}:${a.generation}`,
-						workflow: a.workflow,
-						command: { type: "recordSourceObservation", assignment: a.id, generation: a.generation, attempt: a.attempt, text },
-					},
-					mintContext({ kind: "host", scope: "effects" }),
-				),
+			const reply = yield* this.#ledger!.commandEffect(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId: `investigation-source:${a.id}:${a.generation}`,
+					workflow: a.workflow,
+					command: { type: "recordSourceObservation", assignment: a.id, generation: a.generation, attempt: a.attempt, text },
+				},
+				mintContext({ kind: "host", scope: "effects" }),
 			);
 			if (reply.status !== "accepted") throw new Error(`Source retention refused: ${reply.reason}`);
 		});
@@ -2079,9 +2060,12 @@ export class Engine {
 					}
 					const observed =
 						reviewed ??
-						(yield* fromPromise(() =>
-							this.#effects!.perform({ type: "observe", repository: check.repository, proposal: owner.workflow, initial: check.commit }),
-						));
+						(yield* this.#effects!.performEffect({
+							type: "observe",
+							repository: check.repository,
+							proposal: owner.workflow,
+							initial: check.commit,
+						}));
 					const basis = this.#policyBasis(owner.workflow);
 					if (!done && latest && latest.target.commit === observed.target.commit && latest.policy.binding === basis.binding) {
 						if (!pass.configuration.watchdog)
@@ -2089,47 +2073,43 @@ export class Engine {
 								`awaiting_watchdog: prepared ${latest.preparation!.result} checked on current target ${observed.target.commit}; Watchdog capability unavailable: no Watchdog reviewer configured`,
 							);
 						// The launch carries this final pre-launch observation; Kernel binds the round to exactly this X/T and policy.
-						const launched = yield* fromPromise(() =>
-							this.#ledger!.command(
-								{
-									version: 1,
-									authorityEpoch: this.#ledger!.status().authorityEpoch,
-									commandId: `watchdog-launch:${pass.ref}:${ref}`,
-									workflow: owner.workflow,
-									command: {
-										type: "requestWatchdogReview",
-										assignment: owner.id,
-										generation: owner.generation,
-										attempt: owner.attempt,
-										preparation: ref,
-										target: observed.target.commit,
-									},
+						const launched = yield* this.#ledger!.commandEffect(
+							{
+								version: 1,
+								authorityEpoch: this.#ledger!.status().authorityEpoch,
+								commandId: `watchdog-launch:${pass.ref}:${ref}`,
+								workflow: owner.workflow,
+								command: {
+									type: "requestWatchdogReview",
+									assignment: owner.id,
+									generation: owner.generation,
+									attempt: owner.attempt,
+									preparation: ref,
+									target: observed.target.commit,
 								},
-								mintContext({ kind: "host", scope: "effects" }),
-							),
+							},
+							mintContext({ kind: "host", scope: "effects" }),
 						);
 						if (launched.status === "accepted") return;
 						if (launched.code !== "stale_basis" || this.#policyBasis(owner.workflow).binding === basis.binding)
 							return yield* block(`watchdog_launch_refused: ${launched.code}: ${launched.reason}`);
 					}
 					const record = yield* this.#preparationAttempt({ owner, pass, check, save }, refs.length + 1, observed, basis);
-					const reply = yield* fromPromise(() =>
-						this.#ledger!.command(
-							{
-								version: 1,
-								authorityEpoch: this.#ledger!.status().authorityEpoch,
-								commandId: `preparation:${pass.ref}:${record.attempt}`,
-								workflow: owner.workflow,
-								command: {
-									type: "recordPreparation",
-									assignment: owner.id,
-									generation: owner.generation,
-									attempt: owner.attempt,
-									text: JSON.stringify(record),
-								},
+					const reply = yield* this.#ledger!.commandEffect(
+						{
+							version: 1,
+							authorityEpoch: this.#ledger!.status().authorityEpoch,
+							commandId: `preparation:${pass.ref}:${record.attempt}`,
+							workflow: owner.workflow,
+							command: {
+								type: "recordPreparation",
+								assignment: owner.id,
+								generation: owner.generation,
+								attempt: owner.attempt,
+								text: JSON.stringify(record),
 							},
-							mintContext({ kind: "host", scope: "effects" }),
-						),
+						},
+						mintContext({ kind: "host", scope: "effects" }),
 					);
 					// A policy adopted while this attempt ran supersedes its qualification: nothing was retained, so prepare again.
 					// Each rerun needs another human adoption first, so the loop is paced by human policy changes.
@@ -2183,22 +2163,20 @@ export class Engine {
 		block: (reason: string) => Effect.Effect<void, unknown>,
 	): Effect.Effect<"settled" | "again" | "wait" | TargetObservation, unknown> {
 		return Effect.gen({ self: this }, function* () {
-			const observed = yield* fromPromise(() =>
-				this.#effects!.perform({
-					type: "observe",
-					repository: check.repository,
-					proposal: owner.workflow,
-					initial: check.commit,
-				}),
-			);
+			const observed = yield* this.#effects!.performEffect({
+				type: "observe",
+				repository: check.repository,
+				proposal: owner.workflow,
+				initial: check.commit,
+			});
 			const basis = this.#policyBasis(owner.workflow);
 			const verdict = watchdogVerdict(yield* this.#reportText(review));
 			const stale = reviewQualification({ pass, preparation, record, review, verdict, target: observed.target.commit, basis });
 			const operation = pass.handoff!.integrations?.at(-1);
 			if (stale || (operation?.preparation === preparation && operation.status === "stale")) return observed;
 			const current = this.#assignment(owner.id)!;
-			const command = async (commandId: string, body: Record<string, unknown>) =>
-				this.#ledger!.command(
+			const command = (commandId: string, body: Record<string, unknown>) =>
+				this.#ledger!.commandEffect(
 					{
 						version: 1,
 						authorityEpoch: this.#ledger!.status().authorityEpoch,
@@ -2218,15 +2196,13 @@ export class Engine {
 				const X = record.preparation!;
 				const T = observed.target;
 				const message = `Render proposal integration\n\nproposal ${owner.workflow}\npass ${pass.ref}\nprepared ${X.result}\ntarget ${T.commit}\nreview ${review.id}\n`;
-				const prepared = yield* fromPromise(() => this.#effects!.perform({ type: "read", repository: check.repository, commit: X.result }));
-				const R = yield* fromPromise(() =>
-					this.#effects!.perform({
-						type: "squash",
-						prepared,
-						target: T,
-						message,
-					}),
-				);
+				const prepared = yield* this.#effects!.performEffect({ type: "read", repository: check.repository, commit: X.result });
+				const R = yield* this.#effects!.performEffect({
+					type: "squash",
+					prepared,
+					target: T,
+					message,
+				});
 				const audit = pass.audit!;
 				const intent = {
 					schema: 1,
@@ -2254,21 +2230,17 @@ export class Engine {
 					attempt: current.attempt,
 					unresolved: [],
 				};
-				const staged = yield* fromPromise(() =>
-					command(`integration-stage:${pass.ref}:${preparation}`, {
-						type: "stageOperation",
-						text: JSON.stringify(intent),
-					}),
-				);
+				const staged = yield* command(`integration-stage:${pass.ref}:${preparation}`, {
+					type: "stageOperation",
+					text: JSON.stringify(intent),
+				});
 				return staged.status === "accepted" ? "again" : yield* refused(staged);
 			}
 			yield* fromPromise(() => faultBarrier("before-integration-admission", `integration:${pass.ref}`));
-			const admitted = yield* fromPromise(() =>
-				command(`integration-admit:${operation.operation}:${operation.attempts.length + 1}`, {
-					type: "admitEffect",
-					operation: operation.operation,
-				}),
-			);
+			const admitted = yield* command(`integration-admit:${operation.operation}:${operation.attempts.length + 1}`, {
+				type: "admitEffect",
+				operation: operation.operation,
+			});
 			if (admitted.status !== "accepted") return yield* refused(admitted);
 			yield* fromPromise(() => faultBarrier("after-integration-admission", `integration:${pass.ref}`));
 			return "again";
@@ -2288,7 +2260,7 @@ export class Engine {
 	): Effect.Effect<IntegrationOutcome | "blocked", unknown> {
 		return Effect.gen({ self: this }, function* () {
 			const attempt = operation.attempts.at(-1)!;
-			const read = yield* fromPromise(() => this.#ledger!.artifact(scheduling, { read: operation.operation }));
+			const read = yield* this.#ledger!.artifactEffect(scheduling, { read: operation.operation });
 			if (!("content" in read)) {
 				yield* block(`integration_operational_error: restore exact integration intent ${operation.operation}`);
 				return "blocked";
@@ -2300,19 +2272,15 @@ export class Engine {
 			if (operation.status === "admitted" && attempt.executorEpoch === epoch) {
 				yield* Effect.gen({ self: this }, function* () {
 					yield* fromPromise(() => faultBarrier("before-integration-cas", `integration:${pass.ref}`));
-					const result = yield* fromPromise(() =>
-						this.#effects!.perform({ type: "read", repository: check.repository, commit: intent.result.commit }),
-					);
-					const dispatched = yield* fromPromise(() =>
-						this.#effects!.perform({
-							type: "integrate",
-							repository: check.repository,
-							proposal: owner.workflow,
-							expected: intent.target,
-							result,
-							attempt: attempt.id,
-						}),
-					);
+					const result = yield* this.#effects!.performEffect({ type: "read", repository: check.repository, commit: intent.result.commit });
+					const dispatched = yield* this.#effects!.performEffect({
+						type: "integrate",
+						repository: check.repository,
+						proposal: owner.workflow,
+						expected: intent.target,
+						result,
+						attempt: attempt.id,
+					});
 					const { dispatch, ...observed } = dispatched;
 					seen = { mode: "dispatch", dispatch, ...observed };
 					if (dispatch === "refused") failure = "canonical CAS refused";
@@ -2329,29 +2297,25 @@ export class Engine {
 			seen ??= {
 				mode: "reconcile",
 				dispatch: null,
-				...(yield* fromPromise(() =>
-					this.#effects!.reconcile({ type: "integration", repository: check.repository, proposal: owner.workflow }),
-				)),
+				...(yield* this.#effects!.reconcileEffect({ type: "integration", repository: check.repository, proposal: owner.workflow })),
 			};
 			const current = this.#assignment(owner.id)!;
-			const reply = yield* fromPromise(() =>
-				this.#ledger!.command(
-					{
-						version: 1,
-						authorityEpoch: this.#ledger!.status().authorityEpoch,
-						commandId: `integration-observe:${attempt.id}:${attempt.observations.length}:${seen.mode}:${epoch}`,
-						workflow: owner.workflow,
-						command: {
-							type: "recordIntegration",
-							assignment: current.id,
-							generation: current.generation,
-							attempt: current.attempt,
-							operation: operation.operation,
-							text: JSON.stringify({ schema: 1, operation: operation.operation, attempt: attempt.id, ...seen }),
-						},
+			const reply = yield* this.#ledger!.commandEffect(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId: `integration-observe:${attempt.id}:${attempt.observations.length}:${seen.mode}:${epoch}`,
+					workflow: owner.workflow,
+					command: {
+						type: "recordIntegration",
+						assignment: current.id,
+						generation: current.generation,
+						attempt: current.attempt,
+						operation: operation.operation,
+						text: JSON.stringify({ schema: 1, operation: operation.operation, attempt: attempt.id, ...seen }),
 					},
-					mintContext({ kind: "host", scope: "effects" }),
-				),
+				},
+				mintContext({ kind: "host", scope: "effects" }),
 			);
 			if (reply.status !== "accepted") {
 				yield* block(`integration_observation_refused: ${reply.code}: ${reply.reason}`);
@@ -2408,17 +2372,15 @@ export class Engine {
 			const send = (command: Record<string, unknown>) =>
 				Effect.gen({ self: this }, function* () {
 					const ledger = this.#ledger!;
-					const reply = yield* fromPromise(() =>
-						ledger.command(
-							{
-								version: 1,
-								authorityEpoch: ledger.status().authorityEpoch,
-								commandId: `forge:${workflow}:${ledger.status().sequence}:${command.type}`,
-								workflow,
-								command,
-							},
-							effects,
-						),
+					const reply = yield* ledger.commandEffect(
+						{
+							version: 1,
+							authorityEpoch: ledger.status().authorityEpoch,
+							commandId: `forge:${workflow}:${ledger.status().sequence}:${command.type}`,
+							workflow,
+							command,
+						},
+						effects,
 					);
 					if (reply.status !== "accepted") throw new Error(`publication_refused: ${reply.code}: ${reply.reason}`);
 					return reply.result;
@@ -2427,28 +2389,26 @@ export class Engine {
 				send({ type: "recordForgeObservation", text: JSON.stringify({ schema: 1, ...o }) });
 			const observe = (operation: string | null) =>
 				Effect.gen({ self: this }, function* () {
-					const seen = yield* fromPromise(() => this.#effects!.reconcile({ type: "publication", repository, proposal: workflow }));
+					const seen = yield* this.#effects!.reconcileEffect({ type: "publication", repository, proposal: workflow });
 					yield* record({ operation, attempt: null, mode: "reconcile", outcome: null, reason: null, created: null, ...seen });
 				});
 			const dispatch = (op: ForgeOperation) =>
 				Effect.gen({ self: this }, function* () {
 					const attempt = (yield* send({ type: "admitForgeOperation", operation: op.operation })).forgeAttempt as string;
-					const read = yield* fromPromise(() => this.#ledger!.artifact(scheduling, { read: op.operation }));
+					const read = yield* this.#ledger!.artifactEffect(scheduling, { read: op.operation });
 					if (!("content" in read)) throw new Error(`Restore exact forge intent ${op.operation}`);
 					const intent = JSON.parse(read.content.toString()) as Record<string, string>;
 					const common = { repository, proposal: workflow, attempt };
 					let result!: ForgeDispatch;
 					yield* Effect.gen({ self: this }, function* () {
-						result = yield* fromPromise(() =>
-							this.#effects!.perform(
-								op.kind === "publish-source"
-									? { type: "publish", ...common, commit: intent.canonical!, expected: intent.expected ?? null }
-									: op.kind === "create-proposal"
-										? { type: "createProposal", ...common, title: intent.title!, body: intent.body! }
-										: op.kind === "mark-ready"
-											? { type: "markReady", ...common, pr: intent.pr! }
-											: { type: "updateSummary", ...common, pr: intent.pr!, summary: intent.summary! },
-							),
+						result = yield* this.#effects!.performEffect(
+							op.kind === "publish-source"
+								? { type: "publish", ...common, commit: intent.canonical!, expected: intent.expected ?? null }
+								: op.kind === "create-proposal"
+									? { type: "createProposal", ...common, title: intent.title!, body: intent.body! }
+									: op.kind === "mark-ready"
+										? { type: "markReady", ...common, pr: intent.pr! }
+										: { type: "updateSummary", ...common, pr: intent.pr!, summary: intent.summary! },
 						);
 					}).pipe(
 						Effect.catchCause((cause) => {
@@ -2541,14 +2501,14 @@ export class Engine {
 	}
 	#preparationRecord(ref: string): Effect.Effect<PreparationRecord, unknown> {
 		return Effect.gen({ self: this }, function* () {
-			const read = yield* fromPromise(() => this.#ledger!.artifact(scheduling, { read: ref }));
+			const read = yield* this.#ledger!.artifactEffect(scheduling, { read: ref });
 			if (!("content" in read)) throw new Error(`Restore exact preparation record ${ref}`);
 			return JSON.parse(read.content.toString()) as PreparationRecord;
 		});
 	}
 	#handoffSource(pass: ImplementationPass): Effect.Effect<SourceReceipt, unknown> {
 		return Effect.gen({ self: this }, function* () {
-			const read = yield* fromPromise(() => this.#ledger!.artifact(scheduling, { read: pass.handoff!.source }));
+			const read = yield* this.#ledger!.artifactEffect(scheduling, { read: pass.handoff!.source });
 			if (!("content" in read)) throw new Error(`Restore exact sealed handoff source ${pass.handoff!.source}`);
 			return (JSON.parse(read.content.toString()) as { source: SourceReceipt }).source;
 		});
@@ -2578,12 +2538,12 @@ export class Engine {
 			const prepared = yield* Effect.exit(
 				Effect.gen({ self: this }, function* () {
 					const sealed = yield* this.#handoffSource(pass);
-					const base = yield* fromPromise(() =>
-						this.#effects!.perform({ type: "resolve", repository: sealed.source.repository, commit: preparationBase(pass) }),
-					);
-					return yield* fromPromise(() =>
-						this.#effects!.perform({ type: "prepare", base, source: sealed.source, target: observed.target }),
-					);
+					const base = yield* this.#effects!.performEffect({
+						type: "resolve",
+						repository: sealed.source.repository,
+						commit: preparationBase(pass),
+					});
+					return yield* this.#effects!.performEffect({ type: "prepare", base, source: sealed.source, target: observed.target });
 				}),
 			);
 			if (Exit.isFailure(prepared)) {
@@ -2674,13 +2634,13 @@ export class Engine {
 			const key = JSON.stringify(scope);
 			this.#preparing.add(key);
 			return yield* Effect.gen({ self: this }, function* () {
-				const handle = yield* fromPromise(() => this.#sandboxes!.prepare(scope, check.profile, x));
+				const handle = yield* this.#sandboxes!.prepareEffect(scope, check.profile, x);
 				return yield* Effect.gen({ self: this }, function* () {
 					yield* fromPromise(() => faultBarrier("before-prepared-check", `prepared-check:${pass.ref}:${attempt}`));
 					const run = (argv: string[]) =>
-						fromPromise(() => this.#sandboxes!.execute(handle, { scope, argv, timeoutMs: check.timeoutMs, verifierRevision: digest }));
+						this.#sandboxes!.executeEffect(handle, { scope, argv, timeoutMs: check.timeoutMs, verifierRevision: digest });
 					const { results, cleanup } = yield* this.#catalogResults(null, catalog, run);
-					const capture = yield* fromPromise(() => this.#sandboxes!.seal(handle));
+					const capture = yield* this.#sandboxes!.sealEffect(handle);
 					const resultTree = treeOid(capture.entries, x.objectFormat);
 					const rows = results.filter((r) => required.includes(r.name));
 					const runs = (r: CatalogResult) => [...r.steps, ...(r.sanity ? [r.sanity] : [])];
@@ -2736,7 +2696,7 @@ export class Engine {
 	#stopPreparationScope(scope: ExecutionScope): Effect.Effect<"absent" | "stopped", unknown> {
 		return Effect.gen({ self: this }, function* () {
 			return yield* Effect.gen({ self: this }, function* () {
-				yield* fromPromise(() => this.#sandboxes!.stop({ scope }));
+				yield* this.#sandboxes!.stopEffect({ scope });
 				return "stopped" as const;
 			}).pipe(
 				Effect.catchCause((cause) => {
@@ -2801,17 +2761,15 @@ export class Engine {
 					failed: record.checks!.failed,
 				};
 			const text = JSON.stringify({ schema: 1, ...observation });
-			const reply = yield* fromPromise(() =>
-				this.#ledger!.command(
-					{
-						version: 1,
-						authorityEpoch: this.#ledger!.status().authorityEpoch,
-						commandId: `preparation-return:${pass.ref}:${record.attempt}${review ? `:${review.id}` : ""}${direction ? ":directed" : ""}`,
-						workflow: owner.workflow,
-						command: { type: "openSuccessorPass", assignment: owner.id, generation: owner.generation, attempt: owner.attempt, text },
-					},
-					mintContext({ kind: "host", scope: "effects" }),
-				),
+			const reply = yield* this.#ledger!.commandEffect(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId: `preparation-return:${pass.ref}:${record.attempt}${review ? `:${review.id}` : ""}${direction ? ":directed" : ""}`,
+					workflow: owner.workflow,
+					command: { type: "openSuccessorPass", assignment: owner.id, generation: owner.generation, attempt: owner.attempt, text },
+				},
+				mintContext({ kind: "host", scope: "effects" }),
 			);
 			if (reply.status !== "accepted") {
 				const current = this.#implementationPass(owner);
@@ -2823,7 +2781,7 @@ export class Engine {
 	}
 	#reportText(a: RoleAssignment): Effect.Effect<string, unknown> {
 		return Effect.gen({ self: this }, function* () {
-			const read = yield* fromPromise(() => this.#ledger!.artifact(scheduling, { read: a.report! }));
+			const read = yield* this.#ledger!.artifactEffect(scheduling, { read: a.report! });
 			if (!("content" in read)) throw new Error(`Restore exact Watchdog report ${a.report}`);
 			return read.content.toString();
 		});
@@ -2847,21 +2805,19 @@ export class Engine {
 				return "watchdog_check_capability_unavailable: owned Effects/Sandboxes are not configured";
 			const scope = this.#scope(a);
 			return yield* Effect.gen({ self: this }, function* () {
-				const x = yield* fromPromise(() =>
-					this.#effects!.perform({ type: "read", repository: check.repository, commit: binding.prepared }),
-				);
+				const x = yield* this.#effects!.performEffect({ type: "read", repository: check.repository, commit: binding.prepared });
 				if (x.tree !== binding.tree) throw new Error("Prepared X differs from the reviewed tree");
 				const catalog = selectCatalog(x, reviewSelection(pass, binding));
-				const handle = yield* fromPromise(() => this.#sandboxes!.prepare(scope, check.profile, x));
-				let evidence: CatalogEvidence & { scope: ExecutionScope };
-				yield* Effect.gen({ self: this }, function* () {
+				const handle = yield* this.#sandboxes!.prepareEffect(scope, check.profile, x);
+				const evidence = yield* Effect.gen({ self: this }, function* (): Effect.gen.Return<
+					CatalogEvidence & { scope: ExecutionScope },
+					unknown
+				> {
 					yield* fromPromise(() => faultBarrier("before-review-check", `review-check:${binding.passRef}`));
 					const run = (argv: string[]) =>
-						fromPromise(() =>
-							this.#sandboxes!.execute(handle, { scope, argv, timeoutMs: check.timeoutMs, verifierRevision: binding.verifier }),
-						);
+						this.#sandboxes!.executeEffect(handle, { scope, argv, timeoutMs: check.timeoutMs, verifierRevision: binding.verifier });
 					const { results, cleanup } = yield* this.#catalogResults(a, catalog, run);
-					const capture = yield* fromPromise(() => this.#sandboxes!.seal(handle));
+					const capture = yield* this.#sandboxes!.sealEffect(handle);
 					const resultTree = treeOid(capture.entries, x.objectFormat);
 					const required = requiredCatalogRows(catalog.selection);
 					const rows = results.filter((r) => required.includes(r.name));
@@ -2869,7 +2825,7 @@ export class Engine {
 					if (resultTree !== x.tree) status = "source_changed";
 					else if (cleanup.status !== "complete" || rows.some((r) => r.status === "unrun")) status = "non-pass";
 					else if (rows.some((r) => r.status === "failed")) status = "failed";
-					evidence = {
+					return {
 						kind: "catalog-check",
 						role: "watchdog",
 						scope,
@@ -2888,23 +2844,21 @@ export class Engine {
 						});
 					}),
 				);
-				const reply = yield* fromPromise(() =>
-					this.#ledger!.command(
-						{
-							version: 1,
-							authorityEpoch: this.#ledger!.status().authorityEpoch,
-							commandId: `watchdog-checks:${a.id}:${a.attempt}:${a.executionOrdinal}`,
-							workflow: a.workflow,
-							command: {
-								type: "recordReviewChecks",
-								assignment: a.id,
-								generation: a.generation,
-								attempt: a.attempt,
-								text: JSON.stringify({ schema: 1, source: x, evidence }),
-							},
+				const reply = yield* this.#ledger!.commandEffect(
+					{
+						version: 1,
+						authorityEpoch: this.#ledger!.status().authorityEpoch,
+						commandId: `watchdog-checks:${a.id}:${a.attempt}:${a.executionOrdinal}`,
+						workflow: a.workflow,
+						command: {
+							type: "recordReviewChecks",
+							assignment: a.id,
+							generation: a.generation,
+							attempt: a.attempt,
+							text: JSON.stringify({ schema: 1, source: x, evidence }),
 						},
-						mintContext({ kind: "host", scope: "effects" }),
-					),
+					},
+					mintContext({ kind: "host", scope: "effects" }),
 				);
 				if (reply.status !== "accepted") throw new Error(`Review checks refused: ${reply.code}: ${reply.reason}`);
 				return undefined;
@@ -2931,7 +2885,7 @@ export class Engine {
 			if (!pass.opening || pass.workspace) return undefined;
 			const repository = this.#config.ownedChecks!.checks[a.packet.profile]!.repository;
 			return yield* Effect.gen({ self: this }, function* () {
-				yield* fromPromise(() => this.#effects!.perform({ type: "resolve", repository, commit: pass.opening!.base }));
+				yield* this.#effects!.performEffect({ type: "resolve", repository, commit: pass.opening!.base });
 				yield* this.#conflictOriginals(pass, repository);
 				return undefined;
 			}).pipe(
@@ -2951,18 +2905,18 @@ export class Engine {
 			if (pass.cause !== "preparation-conflict" || !pass.opening) return undefined;
 			const read = (ref: string) =>
 				Effect.gen({ self: this }, function* () {
-					const value = yield* fromPromise(() => this.#ledger!.artifact(scheduling, { read: ref }));
+					const value = yield* this.#ledger!.artifactEffect(scheduling, { read: ref });
 					if (!("content" in value)) throw new Error(`Restore exact conflict input ${ref}`);
 					return JSON.parse(value.content.toString());
 				});
 			const observation = (yield* read(pass.opening.observation)) as { source: string; baseCommit: string; targetCommit: string };
 			const sealed = ((yield* read(observation.source)) as { source: SourceReceipt }).source;
-			yield* fromPromise(() => this.#effects!.reconcile(sealed));
-			const resolve = (commit: string) => this.#effects!.perform({ type: "resolve", repository, commit });
+			yield* this.#effects!.reconcileEffect(sealed);
+			const resolve = (commit: string) => this.#effects!.performEffect({ type: "resolve", repository, commit });
 			return {
 				implementation: sealed.source,
-				base: yield* fromPromise(() => resolve(observation.baseCommit)),
-				target: yield* fromPromise(() => resolve(observation.targetCommit)),
+				base: yield* resolve(observation.baseCommit),
+				target: yield* resolve(observation.targetCommit),
 			};
 		});
 	}
@@ -3005,17 +2959,15 @@ export class Engine {
 	/** `occurrence` distinguishes a command that may legitimately repeat with identical text in a later settlement. */
 	#command(a: RoleAssignment, command: Record<string, unknown>, occurrence?: string) {
 		return Effect.gen({ self: this }, function* () {
-			const reply = yield* fromPromise(() =>
-				this.#ledger!.command(
-					{
-						version: 1,
-						authorityEpoch: this.#ledger!.status().authorityEpoch,
-						commandId: `engine:${a.id}:${a.generation}:${a.executionOrdinal}:${a.status}:${command.type}:${createHash("sha256").update(JSON.stringify(command)).digest("hex").slice(0, 24)}${occurrence ? `:${occurrence}` : ""}`,
-						workflow: a.workflow,
-						command: { assignment: a.id, generation: a.generation, attempt: a.attempt, ...command },
-					},
-					scheduling,
-				),
+			const reply = yield* this.#ledger!.commandEffect(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId: `engine:${a.id}:${a.generation}:${a.executionOrdinal}:${a.status}:${command.type}:${createHash("sha256").update(JSON.stringify(command)).digest("hex").slice(0, 24)}${occurrence ? `:${occurrence}` : ""}`,
+					workflow: a.workflow,
+					command: { assignment: a.id, generation: a.generation, attempt: a.attempt, ...command },
+				},
+				scheduling,
 			);
 			return reply;
 		});
@@ -3085,7 +3037,7 @@ export class Engine {
 					ctx,
 				),
 			);
-			const reply = yield* fromPromise(() => this.#ledger!.command(envelope, identity.context));
+			const reply = yield* this.#ledger!.commandEffect(envelope, identity.context);
 			if (
 				reply.status === "refused" &&
 				(reply.code === "unauthorized" || reply.code === "stale_assignment") &&
@@ -3100,23 +3052,21 @@ export class Engine {
 			const binding = yield* fromPromise(() => api.snapshot(RoleBinding, api.conversationId, ctx));
 			const a = binding ? this.#assignment(binding.assignment) : undefined;
 			if (!a || !binding || typeof command.text !== "string") return;
-			yield* fromPromise(() =>
-				this.#ledger!.command(
-					{
-						version: 1,
-						authorityEpoch: this.#ledger!.status().authorityEpoch,
-						commandId: `quarantine:${api.taskId}:${createHash("sha256").update(api.callId).digest("hex")}`,
-						workflow: a.workflow,
-						command: {
-							type: "recordRecoveryState",
-							assignment: binding.assignment,
-							generation: binding.generation,
-							attempt: binding.attempt,
-							text: command.text,
-						},
+			yield* this.#ledger!.commandEffect(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId: `quarantine:${api.taskId}:${createHash("sha256").update(api.callId).digest("hex")}`,
+					workflow: a.workflow,
+					command: {
+						type: "recordRecoveryState",
+						assignment: binding.assignment,
+						generation: binding.generation,
+						attempt: binding.attempt,
+						text: command.text,
 					},
-					mintContext({ kind: "host", scope: "recovery" }),
-				),
+				},
+				mintContext({ kind: "host", scope: "recovery" }),
 			);
 		});
 	}

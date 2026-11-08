@@ -43,7 +43,7 @@ export class Experiments {
 	}
 	#read(ref: string) {
 		return Effect.gen({ self: this }, function* () {
-			const result = yield* fromPromise(() => this.#ledger().artifact(effectsContext, { read: ref }));
+			const result = yield* this.#ledger().artifactEffect(effectsContext, { read: ref });
 			if (!("content" in result)) throw new Error(`Restore exact experiment input ${ref}: ${result.code}`);
 			return result.content.toString();
 		});
@@ -57,7 +57,7 @@ export class Experiments {
 				const bytes = yield* this.#read(e.protocol);
 				const protocol = readExperimentProtocol(bytes);
 				if (!protocol) throw new Error(`Restore exact compatible protocol ${e.protocol}`);
-				const base = yield* fromPromise(() => this.#effects.perform({ type: "resolve", ...protocol.source }));
+				const base = yield* this.#effects.performEffect({ type: "resolve", ...protocol.source });
 				const readOnly: Record<string, Source> = {};
 				if (e.candidate === null) {
 					for (const candidate of experimentCandidates(this.#assignments(), e.protocol)) {
@@ -66,18 +66,16 @@ export class Experiments {
 						yield* this.#read(candidate.report);
 						const retained = JSON.parse(yield* this.#read(candidate.experimentSource)) as { protocol: string; source: SourceReceipt };
 						if (retained.protocol !== e.protocol) throw new Error("Candidate protocol differs; new round required.");
-						yield* fromPromise(() => this.#effects.reconcile(retained.source));
+						yield* this.#effects.reconcileEffect(retained.source);
 						readOnly[candidate.packet.experiment!.candidate!] = retained.source.source;
 					}
 					if (protocol.candidates.some((id) => !Object.hasOwn(readOnly, id))) throw new Error("Required sealed candidate missing.");
 				}
 				allocationStarted = true;
-				const handle = yield* fromPromise(() =>
-					this.#sandboxes.prepare(
-						experimentScope(a),
-						{ ...protocol.profile, maxCommands: protocol.budget.maxCommands },
-						{ ...base, ...(e.candidate === null ? { readOnly } : {}) },
-					),
+				const handle = yield* this.#sandboxes.prepareEffect(
+					experimentScope(a),
+					{ ...protocol.profile, maxCommands: protocol.budget.maxCommands },
+					{ ...base, ...(e.candidate === null ? { readOnly } : {}) },
 				);
 				this.#prepared.set(a.id, { handle, base, protocol, digest: createHash("sha256").update(bytes).digest("hex") });
 			}).pipe(
@@ -100,14 +98,12 @@ export class Experiments {
 			if (!prepared) throw new Error("Experiment environment unavailable; reconcile original execution, never fall back to host.");
 			this.#active.add(a.id);
 			return yield* Effect.gen({ self: this }, function* () {
-				const result = yield* fromPromise(() =>
-					this.#sandboxes.execute(prepared.handle, {
-						scope: experimentScope(a),
-						argv,
-						timeoutMs: prepared.protocol.budget.timeoutMs,
-						verifierRevision: prepared.digest,
-					}),
-				);
+				const result = yield* this.#sandboxes.executeEffect(prepared.handle, {
+					scope: experimentScope(a),
+					argv,
+					timeoutMs: prepared.protocol.budget.timeoutMs,
+					verifierRevision: prepared.digest,
+				});
 				yield* this.#retain(a, "recordRunnerDiagnostic", {
 					schema: 1,
 					kind: "experiment-execution",
@@ -131,12 +127,12 @@ export class Experiments {
 			if (this.#active.has(a.id)) throw new Error("Experiment command has not settled; cannot seal concurrent execution.");
 			const prepared = this.#prepared.get(a.id);
 			if (!prepared) throw new Error("Original experiment environment must be reconciled before sealing.");
-			const capture = yield* fromPromise(() => this.#sandboxes.seal(prepared.handle));
-			const stopped = yield* fromPromise(() => this.#sandboxes.stop(prepared.handle));
+			const capture = yield* this.#sandboxes.sealEffect(prepared.handle);
+			const stopped = yield* this.#sandboxes.stopEffect(prepared.handle);
 			if (!stopped.executions.length)
 				throw new Error("Independent execution evidence required; a model report alone is not a measurement.");
-			const source = yield* fromPromise(() => this.#effects.perform({ type: "retain", base: prepared.base, capture }));
-			yield* fromPromise(() => this.#effects.reconcile(source));
+			const source = yield* this.#effects.performEffect({ type: "retain", base: prepared.base, capture });
+			yield* this.#effects.reconcileEffect(source);
 			yield* this.#retain(a, "recordSourceObservation", {
 				schema: 1,
 				kind: "experiment-source",
@@ -171,7 +167,7 @@ export class Experiments {
 					throw new Error("Sealed experiment execution identity differs; reconcile the exact original runtime.");
 				scope = retained.scope;
 			}
-			const stopped = yield* fromPromise(() => this.#sandboxes.stop({ scope }));
+			const stopped = yield* this.#sandboxes.stopEffect({ scope });
 			if (this.#active.has(a.id)) throw new Error("Admitted experiment execution still settling; capacity remains held.");
 			yield* this.#retain(a, "recordRunnerDiagnostic", {
 				schema: 1,
@@ -193,17 +189,15 @@ export class Experiments {
 	): Effect.Effect<void, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			const text = JSON.stringify(value);
-			const result = yield* fromPromise(() =>
-				this.#ledger().command(
-					{
-						version: 1,
-						authorityEpoch: this.#ledger().status().authorityEpoch,
-						commandId: `experiment:${a.id}:${type}:${createHash("sha256").update(text).digest("hex")}`,
-						workflow: a.workflow,
-						command: { type, assignment: a.id, generation: a.generation, attempt: a.attempt, text },
-					},
-					effectsContext,
-				),
+			const result = yield* this.#ledger().commandEffect(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger().status().authorityEpoch,
+					commandId: `experiment:${a.id}:${type}:${createHash("sha256").update(text).digest("hex")}`,
+					workflow: a.workflow,
+					command: { type, assignment: a.id, generation: a.generation, attempt: a.attempt, text },
+				},
+				effectsContext,
 			);
 			if (result.status !== "accepted") {
 				// A fence denies acceptance, not retention of the exact already-admitted source/effect result.
