@@ -1769,7 +1769,7 @@ export class Ledger {
 		context: AuthenticatedContext,
 		sink: { send(frame: Frame): void; end(frame: Frame): void } | { history: HistoryQuery },
 	): { snapshot: Frame; stop(): void } | LedgerRefusal | Promise<HistoryPage | LedgerRefusal> {
-		if ("history" in sink) return this.#history(context, sink.history, false);
+		if ("history" in sink) return runPromise(this.#history(context, sink.history, false));
 		const principal = principalOf(context);
 		if (principal === undefined || !this.#current(principal)) return UNAUTHORIZED;
 		if (this.#mode !== "active") return { status: "refused", code: "host_unavailable", reason: `The host is ${this.#mode}.` };
@@ -1786,6 +1786,10 @@ export class Ledger {
 	}
 
 	receipt(context: AuthenticatedContext, commandId: string): Promise<ReceiptBody | LedgerRefusal> {
+		return runPromise(this.receiptEffect(context, commandId));
+	}
+
+	receiptEffect(context: AuthenticatedContext, commandId: string): Effect.Effect<ReceiptBody | LedgerRefusal, unknown> {
 		return this.#read(context, (principal) =>
 			Effect.gen({ self: this }, function* () {
 				const record = yield* fromPromise(() => this.#harness.snapshot(Receipt, `${namespaceOf(principal)} ${commandId}`, ctx));
@@ -1924,6 +1928,22 @@ export class Ledger {
 		context: AuthenticatedContext,
 		request: { read: string } | { upload: unknown } | { export: HistoryQuery },
 	): Promise<Artifact | HistoryExport | LedgerRefusal> {
+		return runPromise(this.artifactEffect(context, request));
+	}
+
+	artifactEffect(context: AuthenticatedContext, request: { export: HistoryQuery }): Effect.Effect<HistoryExport | LedgerRefusal, unknown>;
+	artifactEffect(
+		context: AuthenticatedContext,
+		request: { read: string } | { upload: unknown },
+	): Effect.Effect<Artifact | LedgerRefusal, unknown>;
+	artifactEffect(
+		context: AuthenticatedContext,
+		request: { read: string } | { upload: unknown } | { export: HistoryQuery },
+	): Effect.Effect<Artifact | HistoryExport | LedgerRefusal, unknown>;
+	artifactEffect(
+		context: AuthenticatedContext,
+		request: { read: string } | { upload: unknown } | { export: HistoryQuery },
+	): Effect.Effect<Artifact | HistoryExport | LedgerRefusal, unknown> {
 		if ("export" in request) return this.#history(context, request.export, true);
 		return this.#read(context, (principal) =>
 			Effect.gen({ self: this }, function* () {
@@ -2067,6 +2087,15 @@ export class Ledger {
 		cursor: number | undefined,
 		limit: number,
 	): Promise<{ messages: Record<string, unknown>[]; next: string | null; complete: boolean } | LedgerRefusal> {
+		return runPromise(this.messagesEffect(context, workflow, cursor, limit));
+	}
+
+	messagesEffect(
+		context: AuthenticatedContext,
+		workflow: string,
+		cursor: number | undefined,
+		limit: number,
+	): Effect.Effect<{ messages: Record<string, unknown>[]; next: string | null; complete: boolean } | LedgerRefusal, unknown> {
 		return this.#read(context, (principal) =>
 			Effect.gen({ self: this }, function* () {
 				const w = this.#workflows.get(workflow);
@@ -2127,9 +2156,13 @@ export class Ledger {
 		});
 	}
 
-	#history(context: AuthenticatedContext, query: HistoryQuery, exporting: false): Promise<HistoryPage | LedgerRefusal>;
-	#history(context: AuthenticatedContext, query: HistoryQuery, exporting: true): Promise<HistoryExport | LedgerRefusal>;
-	#history(context: AuthenticatedContext, query: HistoryQuery, exporting: boolean): Promise<HistoryPage | HistoryExport | LedgerRefusal> {
+	#history(context: AuthenticatedContext, query: HistoryQuery, exporting: false): Effect.Effect<HistoryPage | LedgerRefusal, unknown>;
+	#history(context: AuthenticatedContext, query: HistoryQuery, exporting: true): Effect.Effect<HistoryExport | LedgerRefusal, unknown>;
+	#history(
+		context: AuthenticatedContext,
+		query: HistoryQuery,
+		exporting: boolean,
+	): Effect.Effect<HistoryPage | HistoryExport | LedgerRefusal, unknown> {
 		return this.#read(context, (principal) =>
 			Effect.gen({ self: this }, function* () {
 				if (principal.kind !== "human") return refusal("forbidden_principal", "History requires a scoped human reader in this version.");
@@ -2345,7 +2378,7 @@ export class Ledger {
 				for (const ref of artifacts) {
 					const artifact = ref.startsWith("message:")
 						? (messages.get(ref) ?? refusal("missing_content", `Restore exact message ${ref}.`))
-						: yield* fromPromise(() => this.artifact(context, { read: ref }));
+						: yield* this.artifactEffect(context, { read: ref });
 					if ("status" in artifact) {
 						missing.push({ ref, code: artifact.code === "unauthorized" ? "missing_content" : artifact.code });
 						continue;
@@ -2376,17 +2409,15 @@ export class Ledger {
 	#read<T>(
 		context: AuthenticatedContext,
 		read: (principal: Principal) => Effect.Effect<T | LedgerRefusal, unknown>,
-	): Promise<T | LedgerRefusal> {
-		return runPromise(
-			Effect.gen({ self: this }, function* () {
-				const principal = principalOf(context);
-				if (principal === undefined || !this.#current(principal)) return UNAUTHORIZED;
-				if (this.#mode === "failed") return { status: "refused", code: "host_unavailable", reason: "The host failed." };
-				const result = yield* read(principal);
-				// Revocation during a multi-read page/export must also prevent its final disclosure.
-				return this.#current(principal) ? result : UNAUTHORIZED;
-			}),
-		);
+	): Effect.Effect<T | LedgerRefusal, unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const principal = principalOf(context);
+			if (principal === undefined || !this.#current(principal)) return UNAUTHORIZED;
+			if (this.#mode === "failed") return { status: "refused", code: "host_unavailable", reason: "The host failed." };
+			const result = yield* read(principal);
+			// Revocation during a multi-read page/export must also prevent its final disclosure.
+			return this.#current(principal) ? result : UNAUTHORIZED;
+		});
 	}
 
 	#entry(conversation: number, id: number) {
