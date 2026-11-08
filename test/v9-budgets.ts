@@ -1,6 +1,6 @@
 // V9 time budgets (B6, spec §13): cheap deterministic V1 (10,000 schedules per remaining seeded oracle and explicit
-// Watchdog cases) plus sampled V2
-// (32 real-SQLite schedules) under 60 s, and the subprocess smoke (every V3 process-fault barrier once, plus the real
+// Watchdog and checkpoint cases) plus sampled V2 (32 real-SQLite schedules) under 60 s, and the subprocess smoke
+// (every V3 process-fault barrier once, plus the real
 // two-process owner lock) under 5 min, on the checked-out source. The CPU-bound V1/V2 files run four at a time, as the
 // fast selection does; process faults and containers run serially. A failing or slow selection fails this job. Prints measured wall times with source and selections; nothing here weakens a check.
 import { spawnSync } from "node:child_process";

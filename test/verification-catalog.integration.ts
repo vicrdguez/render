@@ -24,6 +24,17 @@ test("catalog Linux results require assessment, retain independent evidence and 
 			"accepted",
 			"weaker static gates and optional advisory rows must not cap behavioral rank",
 		);
+		for (const kind of ["discover", "human"]) {
+			const result = await assess(f, [a.report!], {
+				rows: [...f.selection.rows, kind],
+				behavioralRows: ["behavior", kind],
+			});
+			assert.equal(result.status, "refused", `${kind} cannot discharge required behavior`);
+			if (result.status === "refused") {
+				assert.equal(result.code, "missing_content");
+				assert.equal(result.reason, "Discovery/human/missing rows cannot prove behavior.");
+			}
+		}
 		const excessive = await assess(f, [a.report!], {}, "live");
 		assert.equal(excessive.status, "refused", "rank cannot exceed weakest required evidence");
 		const otherRole = await assess(f, [a.report!], {}, "endpoint", "watchdog");
@@ -121,21 +132,6 @@ test("generated discovery and advisory human observation cannot hide failed jour
 		await f.close();
 	}
 });
-
-for (const kind of ["discover", "human"])
-	test(`${kind} cannot discharge required behavior despite green executable checks`, async () => {
-		const f = await catalogFixture(true);
-		try {
-			const { a } = await runCatalog(f, [kind]);
-			assert.equal(
-				(await assess(f, [a.report!], { rows: [...f.selection.rows, kind], behavioralRows: ["behavior", kind] })).status,
-				"refused",
-				"non-executable evidence must not qualify as behavioral proof",
-			);
-		} finally {
-			await f.close();
-		}
-	});
 
 for (const [label, text, expected] of [
 	["missing command", "render-fixture-command-not-installed", "unrun"],

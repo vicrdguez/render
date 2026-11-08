@@ -799,7 +799,7 @@ const CONTROLS: Control[] = [
 	},
 	{
 		name: "catalog-discovery-proof",
-		expect: /non-executable evidence must not qualify as behavioral proof/,
+		expect: /discover cannot discharge required behavior/,
 		behavior: "silently omit generated discovery from required behavioral coverage",
 		edits: [
 			{
@@ -810,7 +810,7 @@ const CONTROLS: Control[] = [
 			},
 		],
 		test: "test/verification-catalog.integration.ts",
-		pattern: "discover cannot discharge",
+		pattern: "catalog Linux results require assessment",
 	},
 	{
 		name: "catalog-old-source-proof",
@@ -841,7 +841,7 @@ const CONTROLS: Control[] = [
 		behavior: "classify a row clean although its maintenance run failed",
 		edits: [{ file: "src/kernel/verification.ts", find: 'if (c.status === "clean" && !executed)', replace: "if (false)" }],
 		test: "test/verification-maintenance.integration.ts",
-		pattern: "VM01|VM02 classification refuses a failed row",
+		pattern: "VM01|VM02 classification refuses each invalid",
 	},
 	{
 		name: "maintenance-unchanged-definition",

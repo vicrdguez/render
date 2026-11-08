@@ -9,7 +9,7 @@
 	"scripts": {
 		"start": "node src/host/main.ts serve",
 		"test": "node --test --test-concurrency=8 test/*.test.ts",
-		"test:integration": "node --test --test-concurrency=1 test/*.integration.ts",
+		"test:integration": "node --test --test-concurrency=2 test/*.integration.ts",
 		"test:performance": "node --test --test-concurrency=1 test/*.performance.ts",
 		"test:full": "npm test && npm run test:integration && npm run test:performance",
 		"test:extended": "npm run test:extended:host && npm run test:extended:containers",

@@ -3,7 +3,6 @@ import { test } from "node:test";
 import type { CheckpointRequest } from "../src/kernel/checkpoints.ts";
 import { change, type KernelState, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
-import { seeded } from "./support/random.ts";
 import { packet } from "./support/roles.ts";
 
 const accepted: CheckpointRequest = {
@@ -216,10 +215,11 @@ test("C05 replacement of a canceled exact challenge preserves its reviewed basis
 	assert.deepEqual(work.state.assignments.at(-1)!.checkpointReview, child.checkpointReview);
 });
 
-test("V1 checkpoint exact-basis seeded save/approval schedules preserve every concern and accepted bytes", () => {
-	const count = Number(process.env.RENDER_V1_SCHEDULES ?? 10000);
-	for (let seed = 0; seed < count; seed++) {
-		const random = seeded(seed + 841);
+test("V1 checkpoint save and approval preserve exact concerns in either order", () => {
+	for (const { label, saveFirst, text } of [
+		{ label: "save before approval", saveFirst: true, text: "First concern\nwith two lines" },
+		{ label: "approval before save", saveFirst: false, text: "Second concern: café" },
+	]) {
 		const pending: CheckpointRequest = {
 			...accepted,
 			status: "pending",
@@ -268,9 +268,8 @@ test("V1 checkpoint exact-basis seeded save/approval schedules preserve every co
 			workflow: "workflow:1",
 			request: pending.id,
 			base: "emission:old",
-			text: `complete concern ${seed}`,
+			text,
 		};
-		const saveFirst = random() < 0.5;
 		let sequence = 30;
 		for (const command of saveFirst ? [save, approve] : [approve, save]) {
 			const before = structuredClone(state);
@@ -280,24 +279,40 @@ test("V1 checkpoint exact-basis seeded save/approval schedules preserve every co
 				sequence: sequence++,
 				checkpointInputs: { "emission:old": { text: "original bytes", human: false, document: "emission" } },
 			});
-			assert.deepEqual(state, before, `seed ${seed}: pure transformation`);
+			assert.deepEqual(state, before, `${label}: pure transformation`);
 			assert.equal(
 				d.outcome === "accepted" ? d.outcome : d.code,
 				command.type === "approveCheckpoint" && saveFirst ? "stale_basis" : "accepted",
-				`seed ${seed}: exact commit order`,
+				`${label}: exact commit order`,
 			);
 			if (d.outcome === "accepted") {
 				const write = d.writes.find((w) => w.type === "checkpoints.replace");
 				assert.ok(write && write.type === "checkpoints.replace");
+				if (command.type === "saveCheckpointConcern") {
+					const savedAt = saveFirst ? 30 : 31;
+					assert.deepEqual(
+						write.documents.find((document) => document.ref === `checkpoint-edit:${savedAt}`),
+						{
+							ref: `checkpoint-edit:${savedAt}`,
+							text,
+							markdown: true,
+						},
+					);
+					const diff = write.documents.find((document) => document.ref === `checkpoint-diff:${savedAt}`);
+					assert.ok(diff);
+					assert.deepEqual(JSON.parse(diff.text), {
+						schema: 1,
+						base: "emission:old",
+						edited: `checkpoint-edit:${savedAt}`,
+						hunks: [{ id: `concern:${savedAt}:1`, removed: "original bytes", added: text }],
+						kind: "edit",
+					});
+				}
 				state = { ...state, checkpoints: write.state };
 			}
 		}
-		assert.equal(state.checkpoints!.concerns.length, 1, `seed ${seed}: no acknowledged concern loss`);
-		assert.equal(
-			state.checkpoints!.requests[0]!.approved,
-			saveFirst ? null : "emission:old",
-			`seed ${seed}: immutable original acceptance`,
-		);
+		assert.equal(state.checkpoints!.concerns.length, 1, `${label}: no acknowledged concern loss`);
+		assert.equal(state.checkpoints!.requests[0]!.approved, saveFirst ? null : "emission:old", `${label}: immutable original acceptance`);
 		assert.equal(state.checkpoints!.concerns[0]!.changeRequest, !saveFirst);
 	}
 });

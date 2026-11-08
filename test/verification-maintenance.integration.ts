@@ -131,7 +131,7 @@ async function classify(
 	rows: Classification,
 	refs: string[],
 	basisRef: string | null = null,
-	others: Context[] = [],
+	options: { others?: Context[]; beforeSubmit?: (context: Context) => Promise<void> } = {},
 ): Promise<{ reply: CommandReply | { status: "unsubmitted"; reason: string }; others: CommandReply[]; assignment: RoleAssignment }> {
 	let reply: CommandReply | undefined;
 	const refused: CommandReply[] = [];
@@ -139,7 +139,7 @@ async function classify(
 	provider.setResponses([
 		async () => {
 			const a = assignments().at(-1)!;
-			for (const context of others) refused.push(await f.command({ type: "submitRoleResult", text, supports: [] }, context));
+			for (const context of options.others ?? []) refused.push(await f.command({ type: "submitRoleResult", text, supports: [] }, context));
 			const context = mintContext({
 				kind: "assignment-agent",
 				assignment: a.id,
@@ -147,6 +147,7 @@ async function classify(
 				attempt: a.attempt,
 				role: "implementer",
 			});
+			await options.beforeSubmit?.(context);
 			reply = await f.command({ type: "submitRoleResult", text, supports: [] }, context);
 			return fauxAssistantMessage(fauxToolCall("submit_role_result", { text, supports: [] }), { stopReason: "toolUse" });
 		},
@@ -252,7 +253,7 @@ test("VM01 maintenance runs every non-human row and keeps an unresolvable row as
 	assert.deepEqual(receipt.catalog.selection.maintenance, { basis: null });
 });
 
-for (const [label, rows, code, reason] of [
+const invalidClassifications = [
 	["an omitted row", { ...honest, lint: undefined }, "missing_content", /Classify every non-human row/],
 	["an unknown row", { ...honest, absent: { status: "clean", reason: "x" } }, "missing_content", /Classify every non-human row/],
 	[
@@ -303,30 +304,39 @@ for (const [label, rows, code, reason] of [
 		"invalid_content",
 		/cause:product\|prerequisite when blocked/,
 	],
-] as const)
-	test(`VM02 classification refuses ${label}`, async () => {
-		const { reply } = await classify("c0", JSON.parse(JSON.stringify(rows)), [receipts.c0!]);
-		assert.equal(reply.status, "refused", `${label} must not be retained as a classification`);
-		if (reply.status !== "refused") throw new Error("unreachable");
-		assert.equal(reply.code, code, label);
-		assert.match(reply.reason, reason, label);
+] as const;
+
+test("VM02 classification refuses each invalid row or classification", async () => {
+	const attempts: CommandReply[] = [];
+	const { reply } = await classify("c0", honest, [receipts.c0!], null, {
+		beforeSubmit: async (context) => {
+			for (const [, rows] of invalidClassifications) {
+				const text = JSON.stringify({ schema: 1, maintenance: rows });
+				attempts.push(await f.command({ type: "submitRoleResult", text, supports: [] }, context));
+			}
+		},
 	});
+	assert.equal(attempts.length, invalidClassifications.length);
+	for (const [index, [label, , code, reason]] of invalidClassifications.entries()) {
+		const attempt = attempts[index]!;
+		assert.equal(attempt.status, "refused", `${label} must not be retained as a classification`);
+		if (attempt.status !== "refused") throw new Error("unreachable");
+		assert.equal(attempt.code, code, label);
+		assert.match(attempt.reason, reason, label);
+	}
+	assert.equal(reply.status, "accepted", "the assignment remains usable after the refused submissions");
+});
 
 test("VM02 classification refuses without an exact maintenance receipt", async () => {
 	assert.equal((await classify("c0", honest, [])).reply.status, "refused", "no observed basis");
 });
 
-test("VM11 humans and host scheduling cannot submit an agent's classification", async () => {
-	const { reply, others } = await classify("c0", honest, [receipts.c0!], null, [admin, scheduler]);
+test("VM03/VM11 only the agent retains the honest pre-edit classification per row", async () => {
+	const { reply, others, assignment } = await classify("c0", honest, [receipts.c0!], null, { others: [admin, scheduler] });
 	assert.deepEqual(
 		others.map((r) => r.status),
 		["refused", "refused"],
 	);
-	assert.equal(reply.status, "accepted", JSON.stringify(reply));
-});
-
-test("VM03 the honest pre-edit classification is retained per row before any corrected source exists", async () => {
-	const { reply, assignment } = await classify("c0", honest, [receipts.c0!]);
 	assert.equal(reply.status, "accepted", JSON.stringify(reply));
 	basis = assignment.id;
 	assert.deepEqual(statuses(assignment), {
@@ -415,7 +425,7 @@ test("VM07 a drift correction keeps the row's expectations", async () => {
 test("VM12 receipts and classifications survive export and reopen exactly", async () => {
 	const reports = assignments().filter((a) => a.report && a.slice.startsWith("maintenance:"));
 	const classified = reports.filter((a) => (a as { maintenance?: unknown }).maintenance);
-	assert.equal(classified.length, 3, "VM11, VM03 and VM04 classifications");
+	assert.equal(classified.length, 3, "VM02, VM03/VM11 and VM04 classifications");
 	const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
 	assert.ok("manifest" in exported);
 	const bytes = new Map<string, string>();
