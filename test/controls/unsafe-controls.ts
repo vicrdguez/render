@@ -367,7 +367,7 @@ const CONTROLS: Control[] = [
 		name: "local-prompt-experiment-evidence",
 		expect: /advisory must retain exact experiment source and raw negative evidence/,
 		behavior: "omit sealed experiment source and decisive negative bytes from advisory inputs",
-		edits: [{ file: "src/ledger/ledger.ts", find: "\n\t\t\t\t\t\t\ta.experimentSource,", replace: "" }],
+		edits: [{ file: "src/ledger/ledger.ts", find: "\n\t\t\t\t\t\t\t\ta.experimentSource,", replace: "" }],
 		test: "test/experiment-journey.integration.ts",
 		pattern: "E02/E09/E10",
 	},
@@ -537,9 +537,9 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/ledger/ledger.ts",
-				find: 'if (principal.kind === "assignment-agent") {\n\t\t\t\tconst own = this.#roleWork.assignments.find',
+				find: 'if (principal.kind === "assignment-agent") {\n\t\t\t\t\tconst own = this.#roleWork.assignments.find',
 				replace:
-					'if (principal.kind === "assignment-agent" && principal.role !== "candidate") {\n\t\t\t\tconst own = this.#roleWork.assignments.find',
+					'if (principal.kind === "assignment-agent" && principal.role !== "candidate") {\n\t\t\t\t\tconst own = this.#roleWork.assignments.find',
 			},
 		],
 		test: "test/design-candidates.test.ts",
@@ -1013,8 +1013,9 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/ledger/ledger.ts",
-				find: 'if (!entry || entry.data.schema !== 1 || !intact(entry.data.text, entry.data.digest, entry.data.byteLength))\n\t\t\t\t\tthrow new Abort({\n\t\t\t\t\t\tstatus: "refused",\n\t\t\t\t\t\tcode: "content_corrupt",',
-				replace: 'if (false)\n\t\t\t\t\tthrow new Abort({\n\t\t\t\t\t\tstatus: "refused",\n\t\t\t\t\t\tcode: "content_corrupt",',
+				find: 'if (!entry || entry.data.schema !== 1 || !intact(entry.data.text, entry.data.digest, entry.data.byteLength))\n\t\t\t\t\t\treturn yield* Effect.fail(\n\t\t\t\t\t\t\tnew Abort({\n\t\t\t\t\t\t\t\tstatus: "refused",\n\t\t\t\t\t\t\t\tcode: "content_corrupt",',
+				replace:
+					'if (false)\n\t\t\t\t\t\treturn yield* Effect.fail(\n\t\t\t\t\t\t\tnew Abort({\n\t\t\t\t\t\t\t\tstatus: "refused",\n\t\t\t\t\t\t\t\tcode: "content_corrupt",',
 			},
 		],
 		test: "test/web-evidence-retention.test.ts",
@@ -1319,15 +1320,15 @@ const CONTROLS: Control[] = [
 			},
 			{
 				file: "src/ledger/ledger.ts",
-				find: "\t\tif (!this.#current(principal)) return UNAUTHORIZED;\n\t\tconst env = parseEnvelope(raw);",
-				replace: "\t\tconst env = parseEnvelope(raw);",
+				find: "\t\t\tif (!this.#current(principal)) return UNAUTHORIZED;\n\t\t\tconst env = parseEnvelope(raw);",
+				replace: "\t\t\tconst env = parseEnvelope(raw);",
 			},
 			{
 				file: "src/ledger/ledger.ts",
-				find: '\t\tlet current = principal;\n\t\tif (principal.kind === "human" && principal.route === "device") {',
+				find: '\t\t\tlet current = principal;\n\t\t\tif (principal.kind === "human" && principal.route === "device") {',
 				replace:
 					// biome-ignore lint/suspicious/noTemplateCurlyInString: this is mutated source text, not a template.
-					'\t\tconst early = await tx.doc(Receipt, `${namespaceOf(principal)} ${env.commandId}`, null);\n\t\tif (early.exists && early.fingerprint === env.fingerprint) return { duplicate: true as const, body: plain(early.body) as ReceiptBody };\n\t\tlet current = principal;\n\t\tif (principal.kind === "human" && principal.route === "device") {',
+					'\t\t\tconst early = yield* fromPromise(() => tx.doc(Receipt, `${namespaceOf(principal)} ${env.commandId}`, null));\n\t\t\tif (early.exists && early.fingerprint === env.fingerprint) return { duplicate: true as const, body: plain(early.body) as ReceiptBody };\n\t\t\tlet current = principal;\n\t\t\tif (principal.kind === "human" && principal.route === "device") {',
 			},
 		],
 		test: "test/sqlite-command-atomicity.test.ts",
@@ -1340,8 +1341,8 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/ledger/ledger.ts",
-				find: "if (receipt.fingerprint !== env.fingerprint || !readable(receipt.body, current)) throw new Abort(CONFLICT);",
-				replace: "if (!readable(receipt.body, current)) throw new Abort(CONFLICT);",
+				find: "if (receipt.fingerprint !== env.fingerprint || !readable(receipt.body, current)) return yield* Effect.fail(new Abort(CONFLICT));",
+				replace: "if (!readable(receipt.body, current)) return yield* Effect.fail(new Abort(CONFLICT));",
 			},
 		],
 		test: "test/sqlite-command-atomicity.test.ts",
@@ -1404,9 +1405,9 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/ledger/ledger.ts",
-				find: '\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\t\tcase "document.advance": {',
+				find: '\t\t\t\t\t\tbreak;\n\t\t\t\t\t}\n\t\t\t\t\tcase "document.advance": {',
 				replace:
-					'\t\t\t\t\tif (write.parent !== null) Object.assign(await tx.doc(RevisionLocation, write.parent, null), { entry: entry.id });\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\t\tcase "document.advance": {',
+					'\t\t\t\t\t\tif (write.parent !== null) Object.assign(yield* fromPromise(() => tx.doc(RevisionLocation, write.parent!, null)), { entry: entry.id });\n\t\t\t\t\t\tbreak;\n\t\t\t\t\t}\n\t\t\t\t\tcase "document.advance": {',
 			},
 			{ file: "src/ledger/ledger.ts", find: "if (data.revision !== ref || !intact(", replace: "if (!intact(" },
 		],
@@ -1420,8 +1421,8 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/ledger/ledger.ts",
-				find: "\t\t\tif (data.revision !== ref || !intact(data.text, data.digest, data.byteLength))\n\t\t\t\treturn {",
-				replace: "\t\t\tif (false)\n\t\t\t\treturn {",
+				find: "\t\t\t\tif (data.revision !== ref || !intact(data.text, data.digest, data.byteLength))\n\t\t\t\t\treturn {",
+				replace: "\t\t\t\tif (false)\n\t\t\t\t\treturn {",
 			},
 		],
 		test: "test/sqlite-command-atomicity.test.ts",
