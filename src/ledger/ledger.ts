@@ -280,6 +280,7 @@ export class Ledger {
 		return runPromise(this.commandEffect(raw, context));
 	}
 
+	/** An admitted transaction and its read-model adoption must finish even if the caller leaves. */
 	commandEffect(raw: unknown, context: AuthenticatedContext): Effect.Effect<CommandReply, unknown> {
 		return Effect.gen({ self: this }, function* (): Effect.gen.Return<CommandReply, unknown> {
 			const principal = principalOf(context);

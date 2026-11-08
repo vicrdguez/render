@@ -407,7 +407,7 @@ export class Sandboxes {
 			);
 		});
 	}
-	async stop(handle: SandboxHandle | { scope: ExecutionScope }): Promise<StopResult> {
+	stop(handle: SandboxHandle | { scope: ExecutionScope }): Promise<StopResult> {
 		return runPromise(this.stopEffect(handle));
 	}
 	/** Fences admission immediately. Evaluate the Effect to stop and confirm the journaled runtimes. */
