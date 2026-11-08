@@ -167,5 +167,5 @@ async function cut({ barrier, key, moved, recovery, staleLock }: Cut) {
 
 for (const c of CUTS)
 	test(`CI20 SIGKILL ${c.barrier}${c.staleLock ? " leaving a ref lock" : ""}: recovery qualifies exactly once`, async () => {
-		for (let iteration = 0; iteration < Number(process.env.RENDER_V3_REPETITIONS ?? 1); iteration++) await cut(c);
+		await cut(c);
 	});
