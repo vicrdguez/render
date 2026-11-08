@@ -8,7 +8,6 @@ import type { RoleAssignment, RolePacket } from "../src/kernel/roles.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { until } from "./support/investigation.ts";
-import { seeded } from "./support/random.ts";
 import { admin, allowSameFamily, packet, roleFixture } from "./support/roles.ts";
 
 function accepted(reply: CommandReply) {
@@ -401,7 +400,7 @@ test("D1 required family cannot be replaced by an unrecorded same-family fallbac
 	}
 });
 
-test("D3 seeded completion schedules reject missing, blocked, canceled or foreign-request candidates", async () => {
+test("D3 exhaustive candidate status and request matrix requires both submitted candidates for synthesis", async () => {
 	const x = await fixture();
 	try {
 		const request = accepted(await x.request()).request as string;
@@ -409,52 +408,56 @@ test("D3 seeded completion schedules reject missing, blocked, canceled or foreig
 		await x.start(request, 1);
 		const frame = x.f.ledger.snapshot(admin) as Frame;
 		const checkpoints = (frame.workflows as { checkpoints: Checkpoints }[])[0]!.checkpoints;
-		const random = seeded(1010);
-		for (let i = 0; i < 10000; i++) {
-			const assignments = structuredClone(x.assignments());
-			const statuses = ["submitted", "blocked", "canceled", "running"] as const;
-			for (const [n, a] of assignments.slice(1).entries()) {
-				a.status = statuses[Math.floor(random() * statuses.length)]!;
-				a.report = `answer:${n}`;
+		const statuses = ["submitted", "blocked", "canceled", "running"] as const;
+		for (const firstStatus of statuses) {
+			for (const secondStatus of statuses) {
+				for (const foreignRequest of [false, true]) {
+					const assignments = structuredClone(x.assignments());
+					assignments[1]!.status = firstStatus;
+					assignments[2]!.status = secondStatus;
+					for (const [n, a] of assignments.slice(1).entries()) {
+						a.report = `answer:${n}`;
+					}
+					if (foreignRequest) assignments[1]!.checkpointCandidate!.request = "checkpoint:foreign";
+					const state: KernelState = {
+						workflow: { id: "workflow:2", messageCount: 0 },
+						document: null,
+						device: null,
+						roleWork: { assignments },
+						checkpoints,
+					};
+					const decision = change(
+						state,
+						{
+							type: "stageCheckpoint",
+							workflow: "workflow:2",
+							request,
+							text: "Synthesis",
+							manifest: {
+								...manifest,
+								stage: "seams",
+								nodes: [{ ...manifest.nodes[0]!, classification: "judgment", evidence: ["answer:0", "answer:1"] }],
+							},
+						},
+						{
+							principal: { kind: "assignment-agent", assignment: x.parent.id, generation: 1, attempt: x.parent.attempt, role: "coordinator" },
+							executorEpoch: x.parent.executorEpoch!,
+							sequence: 1000,
+							ids: { fact: "fact:1000" },
+							checkpointInputs: {
+								[x.ground]: { text: "Ground", human: true, document: "ground" },
+								"answer:0": { text: answer("A"), human: false, document: "role-report/A" },
+								"answer:1": { text: answer("B"), human: false, document: "role-report/B" },
+							},
+						},
+					);
+					assert.equal(
+						decision.outcome === "refused" ? decision.code : decision.outcome,
+						!foreignRequest && firstStatus === "submitted" && secondStatus === "submitted" ? "accepted" : "missing_candidate_evidence",
+						`firstStatus=${firstStatus}, secondStatus=${secondStatus}, foreignRequest=${foreignRequest}`,
+					);
+				}
 			}
-			if (i % 5 === 0) assignments[1]!.checkpointCandidate!.request = "checkpoint:foreign";
-			const state: KernelState = {
-				workflow: { id: "workflow:2", messageCount: 0 },
-				document: null,
-				device: null,
-				roleWork: { assignments },
-				checkpoints,
-			};
-			const decision = change(
-				state,
-				{
-					type: "stageCheckpoint",
-					workflow: "workflow:2",
-					request,
-					text: "Synthesis",
-					manifest: {
-						...manifest,
-						stage: "seams",
-						nodes: [{ ...manifest.nodes[0]!, classification: "judgment", evidence: ["answer:0", "answer:1"] }],
-					},
-				},
-				{
-					principal: { kind: "assignment-agent", assignment: x.parent.id, generation: 1, attempt: x.parent.attempt, role: "coordinator" },
-					executorEpoch: x.parent.executorEpoch!,
-					sequence: 1000,
-					ids: { fact: "fact:1000" },
-					checkpointInputs: {
-						[x.ground]: { text: "Ground", human: true, document: "ground" },
-						"answer:0": { text: answer("A"), human: false, document: "role-report/A" },
-						"answer:1": { text: answer("B"), human: false, document: "role-report/B" },
-					},
-				},
-			);
-			assert.equal(
-				decision.outcome === "refused" ? decision.code : decision.outcome,
-				i % 5 !== 0 && assignments.slice(1).every((a) => a.status === "submitted") ? "accepted" : "missing_candidate_evidence",
-				`candidate schedule ${i}`,
-			);
 		}
 	} finally {
 		await x.close();
