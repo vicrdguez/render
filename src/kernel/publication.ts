@@ -1,9 +1,11 @@
 // Pure proposal publication legality (spec §§9.1–9.3): guarded source publication, one draft proposal PR and its
 // host-owned summary. Kernel derives every payload from current state; Effects only reports what the forge did.
 // Local integration never reads this state: forge outcomes cannot block it.
+
+import * as Effect from "effect/Effect";
 import type { Intakes } from "./intake.ts";
 import { integrated, qualifiedSlices } from "./integration.ts";
-import type { DomainWrite, KernelState, Refusal, VerifiedFacts } from "./kernel.ts";
+import type { Decision, DomainWrite, KernelState, Refusal, VerifiedFacts } from "./kernel.ts";
 import type { RoleWorkState } from "./roles.ts";
 
 export type ForgeKind = "publish-source" | "create-proposal" | "update-summary" | "mark-ready";
@@ -240,12 +242,12 @@ export function forgeObservation(value: string): ForgeObservation | undefined {
 }
 
 /** Host Effects and human publication commands over the proposal's publication state. */
-export function changePublication(
+export const changePublication = Effect.fnUntraced(function* (
 	state: KernelState,
 	command: PublicationCommand,
 	facts: VerifiedFacts,
-): { outcome: "accepted"; result: Record<string, string | number | null>; writes: DomainWrite[]; facts: string[] } | Refusal {
-	if (state.workflow === null) return refusal("not_found", `${command.workflow} does not exist.`);
+): Effect.fn.Return<Extract<Decision, { outcome: "accepted" }>, Refusal> {
+	if (state.workflow === null) return yield* Effect.fail(refusal("not_found", `${command.workflow} does not exist.`));
 	const p = structuredClone(state.publication ?? emptyPublication());
 	const workflow = command.workflow;
 	const title = state.workflow.title ?? workflow;
@@ -265,8 +267,9 @@ export function changePublication(
 	const find = (operation: string) => p.operations.find((o) => o.operation === operation);
 	switch (command.type) {
 		case "stageForgeOperation": {
-			if (p.main) return refusal("stale_basis", "The human merged this proposal to main; it publishes nothing more.");
-			if (!head) return refusal("stale_basis", "Nothing publishes before the proposal's first recorded qualifying integration.");
+			if (p.main) return yield* Effect.fail(refusal("stale_basis", "The human merged this proposal to main; it publishes nothing more."));
+			if (!head)
+				return yield* Effect.fail(refusal("stale_basis", "Nothing publishes before the proposal's first recorded qualifying integration."));
 			const published = p.remote?.head ?? null;
 			let intent: Record<string, unknown>;
 			const op: ForgeOperation = {
@@ -280,21 +283,24 @@ export function changePublication(
 			};
 			if (command.kind === "publish-source") {
 				if (p.unsupported?.includes("guardedSourceUpdate"))
-					return refusal("capability_unavailable", "The forge offers no guarded source update; publish manually.");
-				if (p.divergence) return refusal("stale_basis", `The published head ${p.divergence} diverged from canonical lineage.`);
-				if (!p.remote) return refusal("stale_basis", "Observe the published head before publishing.");
+					return yield* Effect.fail(refusal("capability_unavailable", "The forge offers no guarded source update; publish manually."));
+				if (p.divergence)
+					return yield* Effect.fail(refusal("stale_basis", `The published head ${p.divergence} diverged from canonical lineage.`));
+				if (!p.remote) return yield* Effect.fail(refusal("stale_basis", "Observe the published head before publishing."));
 				if (p.operations.some((o) => o.kind === "publish-source" && ["planned", "admitted", "unknown"].includes(o.status)))
-					return refusal("ownership_conflict", "Another source publication is unresolved.");
-				if (published === head) return refusal("stale_basis", "The canonical head is already published.");
+					return yield* Effect.fail(refusal("ownership_conflict", "Another source publication is unresolved."));
+				if (published === head) return yield* Effect.fail(refusal("stale_basis", "The canonical head is already published."));
 				op.expected = published;
 				intent = { schema: 1, kind: command.kind, proposal: workflow, canonical: head, expected: published };
 			} else if (command.kind === "create-proposal") {
 				if (p.operations.some((o) => o.kind === "create-proposal"))
-					return refusal("role_already_requested", "The proposal has its one logical draft PR create.");
+					return yield* Effect.fail(refusal("role_already_requested", "The proposal has its one logical draft PR create."));
 				if (p.unsupported?.includes("draftProposalPR"))
-					return refusal("capability_unavailable", "The forge cannot create a draft proposal PR; no non-draft substitute.");
+					return yield* Effect.fail(
+						refusal("capability_unavailable", "The forge cannot create a draft proposal PR; no non-draft substitute."),
+					);
 				if (!published || !lineage.has(published) || p.divergence)
-					return refusal("stale_basis", "Publish a valid canonical head before creating the draft PR.");
+					return yield* Effect.fail(refusal("stale_basis", "Publish a valid canonical head before creating the draft PR."));
 				op.marker = `render-proposal:${workflow}:${revision}`;
 				const summary = proposalSummary(title, state.roleWork, state.intakes, workflow, published, gaps());
 				intent = {
@@ -308,24 +314,25 @@ export function changePublication(
 				};
 			} else if (command.kind === "mark-ready") {
 				if (p.unsupported?.includes("markProposalReady"))
-					return refusal(
-						"capability_unavailable",
-						"The forge offers no ready promotion; a ready state set on the forge is still observed.",
+					return yield* Effect.fail(
+						refusal("capability_unavailable", "The forge offers no ready promotion; a ready state set on the forge is still observed."),
 					);
 				const current = gaps();
-				if (current.length) return refusal("stale_basis", `Not eligible for ready promotion: ${current.join("; ")}`);
+				if (current.length) return yield* Effect.fail(refusal("stale_basis", `Not eligible for ready promotion: ${current.join("; ")}`));
 				const same = p.operations.filter((o) => o.kind === "mark-ready" && o.canonical === head);
 				if (same.some((o) => ["planned", "admitted", "unknown"].includes(o.status)))
-					return refusal("ownership_conflict", "A ready promotion on this basis is unresolved.");
+					return yield* Effect.fail(refusal("ownership_conflict", "A ready promotion on this basis is unresolved."));
 				if (same.some((o) => ["applied", "satisfied"].includes(o.status)))
-					return refusal("stale_basis", "Ready promotion on this basis is already applied or observed.");
+					return yield* Effect.fail(refusal("stale_basis", "Ready promotion on this basis is already applied or observed."));
 				op.pr = p.association!.pr;
 				intent = { schema: 1, kind: command.kind, proposal: workflow, pr: op.pr, canonical: head, published };
 			} else {
 				if (!p.association || riskOpen(p))
-					return refusal("stale_basis", "Summary updates need a verified association without unresolved duplicate risk.");
+					return yield* Effect.fail(
+						refusal("stale_basis", "Summary updates need a verified association without unresolved duplicate risk."),
+					);
 				if (p.operations.some((o) => o.kind === "update-summary" && o.status === "admitted"))
-					return refusal("ownership_conflict", "A summary update is in flight.");
+					return yield* Effect.fail(refusal("ownership_conflict", "A summary update is in flight."));
 				for (const o of p.operations) if (o.kind === "update-summary" && o.status === "planned") o.status = "superseded";
 				op.gaps = gaps();
 				const summary = proposalSummary(title, state.roleWork, state.intakes, workflow, published, op.gaps);
@@ -337,23 +344,32 @@ export function changePublication(
 		}
 		case "admitForgeOperation": {
 			const op = find(command.operation);
-			if (!op) return refusal("stale_basis", "Name a staged forge operation.");
-			if (p.main) return refusal("stale_basis", "The human merged this proposal to main; it publishes nothing more.");
-			if (!facts.executorEpoch) return refusal("capability_unavailable", "No current executor epoch can consume a permit.");
+			if (!op) return yield* Effect.fail(refusal("stale_basis", "Name a staged forge operation."));
+			if (p.main) return yield* Effect.fail(refusal("stale_basis", "The human merged this proposal to main; it publishes nothing more."));
+			if (!facts.executorEpoch)
+				return yield* Effect.fail(refusal("capability_unavailable", "No current executor epoch can consume a permit."));
 			const reissue = op.kind === "create-proposal" && op.reissue;
 			if (op.status !== "planned" && !reissue)
-				return refusal("stale_basis", `A ${op.status} forge operation takes no new admission; unknown outcomes reconcile, never resend.`);
+				return yield* Effect.fail(
+					refusal("stale_basis", `A ${op.status} forge operation takes no new admission; unknown outcomes reconcile, never resend.`),
+				);
 			if (op.kind === "create-proposal" && !reissue && (!op.checked || p.duplicates?.length))
-				return refusal("stale_basis", "Admit the create only after a complete listing finds no open PR on the proposal branch.");
-			if (op.kind === "publish-source" && p.divergence) return refusal("stale_basis", "The published head diverged.");
+				return yield* Effect.fail(
+					refusal("stale_basis", "Admit the create only after a complete listing finds no open PR on the proposal branch."),
+				);
+			if (op.kind === "publish-source" && p.divergence) return yield* Effect.fail(refusal("stale_basis", "The published head diverged."));
 			if (op.kind === "update-summary" && (!p.association || riskOpen(p)))
-				return refusal("stale_basis", "Summary updates need a verified association without unresolved duplicate risk.");
+				return yield* Effect.fail(refusal("stale_basis", "Summary updates need a verified association without unresolved duplicate risk."));
 			if (op.kind === "mark-ready") {
 				const current = gaps();
 				if (current.length || op.canonical !== head || op.pr !== p.association?.pr)
-					return refusal("stale_basis", `The promotion basis is no longer current: ${current.join("; ") || "canonical or PR changed"}`);
+					return yield* Effect.fail(
+						refusal("stale_basis", `The promotion basis is no longer current: ${current.join("; ") || "canonical or PR changed"}`),
+					);
 				if (!op.checked)
-					return refusal("stale_basis", "Reobserve the associated PR open and draft on the exact published head before admitting.");
+					return yield* Effect.fail(
+						refusal("stale_basis", "Reobserve the associated PR open and draft on the exact published head before admitting."),
+					);
 			}
 			const id = `forge-attempt:${facts.sequence}`;
 			op.attempts.push({ id, executorEpoch: facts.executorEpoch, sequence: facts.sequence });
@@ -364,16 +380,20 @@ export function changePublication(
 		}
 		case "recordForgeObservation": {
 			const o = forgeObservation(command.text);
-			if (!o) return refusal("invalid_content", "Record a complete closed forge observation.");
+			if (!o) return yield* Effect.fail(refusal("invalid_content", "Record a complete closed forge observation."));
 			const op = o.operation === null ? undefined : find(o.operation);
-			if (o.operation !== null && !op) return refusal("stale_basis", "The observation names no staged forge operation.");
+			if (o.operation !== null && !op)
+				return yield* Effect.fail(refusal("stale_basis", "The observation names no staged forge operation."));
 			if (o.mode === "dispatch") {
 				const attempt = op!.attempts.at(-1);
-				if (!attempt || attempt.id !== o.attempt) return refusal("stale_basis", "Only the latest admitted attempt reports a dispatch.");
+				if (!attempt || attempt.id !== o.attempt)
+					return yield* Effect.fail(refusal("stale_basis", "Only the latest admitted attempt reports a dispatch."));
 				// Only the executor that consumed the permit knows what its request did; any other executor reconciles.
 				if (attempt.executorEpoch !== facts.executorEpoch)
-					return refusal("stale_executor", "Another executor epoch cannot report this attempt's dispatch; reconcile it.");
-				if (attempt.outcome || op!.status !== "admitted") return refusal("stale_basis", "A dispatch is reported once.");
+					return yield* Effect.fail(
+						refusal("stale_executor", "Another executor epoch cannot report this attempt's dispatch; reconcile it."),
+					);
+				if (attempt.outcome || op!.status !== "admitted") return yield* Effect.fail(refusal("stale_basis", "A dispatch is reported once."));
 				attempt.outcome = o.outcome!;
 			}
 			if (o.capabilities)
@@ -410,7 +430,7 @@ export function changePublication(
 		case "authorizeForgeReissue": {
 			const op = find(command.operation);
 			if (!op || op.kind !== "create-proposal" || op.status !== "unknown" || op.reissue)
-				return refusal("stale_basis", "Only an unknown draft PR create can be explicitly reissued.");
+				return yield* Effect.fail(refusal("stale_basis", "Only an unknown draft PR create can be explicitly reissued."));
 			op.reissue = true;
 			p.risk = riskOpen(p) ? p.risk! : { attempts: op.attempts.map((a) => a.id), resolved: null };
 			return done({ operation: op.operation, attempts: op.attempts.length });
@@ -418,9 +438,10 @@ export function changePublication(
 		case "resolveForgeRisk": {
 			const op = find(command.operation);
 			if (!op || op.kind !== "create-proposal" || (!riskOpen(p) && !p.duplicates?.length))
-				return refusal("stale_basis", "There is no duplicate risk or duplicate PR to resolve.");
+				return yield* Effect.fail(refusal("stale_basis", "There is no duplicate risk or duplicate PR to resolve."));
 			const chosen = op.candidates?.find((c) => c.id === command.pr);
-			if (!chosen) return refusal("stale_basis", "Associate only a verified candidate from the latest complete listing.");
+			if (!chosen)
+				return yield* Effect.fail(refusal("stale_basis", "Associate only a verified candidate from the latest complete listing."));
 			p.association = { pr: chosen.id, by: "resolved", draft: chosen.draft, state: chosen.state };
 			p.duplicates = op.candidates!.filter((c) => c.id !== chosen.id).map((c) => c.id);
 			if (p.risk) p.risk.resolved = { statement: revision, attempts: op.attempts.map((a) => a.id) };
@@ -430,7 +451,7 @@ export function changePublication(
 			return done({ operation: op.operation, association: chosen.id, statement: revision });
 		}
 	}
-}
+});
 
 /** What one observation means for its operation (spec §9.2 operation rules); negative listing is never absence. */
 function observeOperation(p: Publication, op: ForgeOperation, o: ForgeObservation): void {

@@ -1801,7 +1801,7 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/publication.ts",
-				find: '\t\t\t\tif (p.divergence) return refusal("stale_basis", `The published head ${p.divergence} diverged from canonical lineage.`);\n',
+				find: '\t\t\t\tif (p.divergence)\n\t\t\t\t\treturn yield* Effect.fail(refusal("stale_basis", `The published head ${p.divergence} diverged from canonical lineage.`));\n',
 				replace: "",
 			},
 		],
@@ -2076,7 +2076,7 @@ const CONTROLS: Control[] = [
 		edits: [
 			{
 				file: "src/kernel/publication.ts",
-				find: '\t\t\t\tif (!op.checked)\n\t\t\t\t\treturn refusal("stale_basis", "Reobserve the associated PR open and draft on the exact published head before admitting.");\n',
+				find: '\t\t\t\tif (!op.checked)\n\t\t\t\t\treturn yield* Effect.fail(\n\t\t\t\t\t\trefusal("stale_basis", "Reobserve the associated PR open and draft on the exact published head before admitting."),\n\t\t\t\t\t);\n',
 				replace: "",
 			},
 		],

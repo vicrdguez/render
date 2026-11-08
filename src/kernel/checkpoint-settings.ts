@@ -1,5 +1,6 @@
 // Project routing defaults are independent of workflow execution-policy adoption.
-import type { Decision, KernelState, VerifiedFacts } from "./kernel.ts";
+import * as Effect from "effect/Effect";
+import type { Decision, KernelState, Refusal, VerifiedFacts } from "./kernel.ts";
 
 export type CheckpointModes = { seams: "human" | "delegated"; modules: "human" | "delegated"; proposal: "human" };
 export type CheckpointSettings = { currentRevision: string; modes: CheckpointModes };
@@ -22,12 +23,24 @@ export function validCheckpointModes(value: unknown): value is CheckpointModes {
 		v.proposal === "human"
 	);
 }
-export function changeCheckpointSettings(state: KernelState, c: SettingsCommand, facts: VerifiedFacts): Decision {
+export const changeCheckpointSettings = Effect.fnUntraced(function* (
+	state: KernelState,
+	c: SettingsCommand,
+	facts: VerifiedFacts,
+): Effect.fn.Return<Extract<Decision, { outcome: "accepted" }>, Refusal> {
 	const settings = state.checkpointSettings ?? initialCheckpointSettings();
 	if (c.expectedRevision !== settings.currentRevision)
-		return { outcome: "refused", code: "stale_basis", reason: "Checkpoint settings changed; read the latest accepted revision." };
+		return yield* Effect.fail<Refusal>({
+			outcome: "refused",
+			code: "stale_basis",
+			reason: "Checkpoint settings changed; read the latest accepted revision.",
+		});
 	if (!validCheckpointModes(c.modes))
-		return { outcome: "refused", code: "invalid_content", reason: "Seams/Modules must be human or delegated; Proposal must remain human." };
+		return yield* Effect.fail<Refusal>({
+			outcome: "refused",
+			code: "invalid_content",
+			reason: "Seams/Modules must be human or delegated; Proposal must remain human.",
+		});
 	const next: CheckpointSettings = { currentRevision: `settings:${facts.sequence}`, modes: { ...c.modes } };
 	return {
 		outcome: "accepted",
@@ -38,4 +51,4 @@ export function changeCheckpointSettings(state: KernelState, c: SettingsCommand,
 		],
 		facts: [facts.ids.fact],
 	};
-}
+});
