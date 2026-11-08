@@ -19,10 +19,7 @@ Accepted-intake, amendment, supersession and Record/integration qualification al
 | ES06 | A pending Seams revision while `read-fix` has a handed-off pass and a passing Watchdog round | Staging its integration and admitting a staged operation both refuse `seams_required`; each succeeds once the request is cancelled; an operation admitted before a later revision still records its observation and qualifies (admitted effects are reconciled, never retracted) | B4 | `existing-seam-change.test.ts` ES06 |
 | ES05 | `read-next`'s Contract bytes are corrupt after reopen | Reading it refuses `content_corrupt`, export is incomplete without it; no newer bytes substitute | B5/A2 | `existing-seam-change.test.ts` ES05 |
 
-Unsafe controls (`test/controls/unsafe-controls.ts`) must make the targeted check fail with its own assertion:
-`existing-seam-ground-unchecked` (ES01 accepts a Ground without a done predicate), `existing-seam-change-waives-seams`
-(ES04 leaves change-shape work running under a revised Seams request) and `existing-seam-handover-hides-delivery`
-(ES05 omits partial delivery from the view).
+The historical source-mutation runner was removed. ES01, ES04 and ES05 remain direct product checks for missing Ground predicates, revised Seams and partial delivery.
 
 Limits. Scripted coordinator, fidelity and Watchdog reports are not model judgment. The ≤2-minute human handover
 trial is separately authorized and unrun. Full V8 delivery composition remains partial: Forge publication, ready
