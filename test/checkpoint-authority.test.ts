@@ -302,9 +302,8 @@ test("V1 checkpoint exact-basis seeded save/approval schedules preserve every co
 	}
 });
 
-test("S11 V1 10000 routing captures survive defaults, replacement coordinators and all principals", () => {
-	for (let seed = 0; seed < 10000; seed++) {
-		const mode = seeded(seed + 71)() < 0.5 ? "human" : "delegated";
+test("S11 V1 human and delegated routing captures survive defaults, replacement coordinators and all principals", () => {
+	for (const mode of ["human", "delegated"] as const) {
 		const other = mode === "human" ? "delegated" : "human";
 		const state: KernelState = {
 			workflow: { id: "workflow:1", messageCount: 0 },
