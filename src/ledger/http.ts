@@ -2,6 +2,8 @@
 // OS-owner route. No header, query parameter or body field selects a principal.
 import { chmod, rm } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import * as Effect from "effect/Effect";
+import { fromPromise, runPromise } from "../effect.ts";
 import { PROTOCOL_VERSION } from "./envelope.ts";
 import type { HistoryQuery } from "./history.ts";
 import type { Artifact, Frame, Ledger, LedgerRefusal } from "./ledger.ts";
@@ -65,21 +67,23 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 	return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-async function command(ledger: Ledger, context: AuthenticatedContext, req: IncomingMessage, res: ServerResponse): Promise<void> {
-	let body: unknown;
-	try {
-		body = await readJson(req);
-	} catch (error) {
-		send(
-			res,
-			error instanceof BodyTooLarge
-				? { status: "refused", code: "payload_too_large", reason: `Request bodies are limited to ${MAX_BODY_BYTES} bytes.` }
-				: { status: "refused", code: "malformed_envelope", reason: "The request body is not JSON." },
-		);
-		return;
-	}
-	// Transport cancellation is not domain cancellation: the command runs to completion even if the client left.
-	send(res, await ledger.command(body, context));
+function command(ledger: Ledger, context: AuthenticatedContext, req: IncomingMessage, res: ServerResponse): Effect.Effect<void, unknown> {
+	return fromPromise(() => readJson(req)).pipe(
+		Effect.matchEffect({
+			onFailure: (error) =>
+				Effect.sync(() =>
+					send(
+						res,
+						error instanceof BodyTooLarge
+							? { status: "refused", code: "payload_too_large", reason: `Request bodies are limited to ${MAX_BODY_BYTES} bytes.` }
+							: { status: "refused", code: "malformed_envelope", reason: "The request body is not JSON." },
+					),
+				),
+			// No request-close signal reaches admitted domain work.
+			onSuccess: (body) =>
+				fromPromise(() => ledger.command(body, context)).pipe(Effect.flatMap((reply) => Effect.sync(() => send(res, reply)))),
+		}),
+	);
 }
 
 function artifactBody(a: Artifact | LedgerRefusal): object {
@@ -126,44 +130,53 @@ function observe(ledger: Ledger, context: AuthenticatedContext, req: IncomingMes
 	write(observation.snapshot);
 }
 
-async function route(ledger: Ledger, context: AuthenticatedContext, req: IncomingMessage, res: ServerResponse): Promise<void> {
-	const url = new URL(req.url ?? "/", "http://render.invalid");
-	const path = url.pathname;
-	const version = url.searchParams.get("version");
-	if (req.method === "POST" && path === "/v1/commands") return command(ledger, context, req, res);
-	if (req.method === "GET" && (path === "/v1/snapshot" || path === "/v1/observe")) {
-		if (version !== null && version !== String(PROTOCOL_VERSION)) return send(res, UNSUPPORTED_VERSION);
-		if (path === "/v1/snapshot") return send(res, ledger.snapshot(context));
-		return observe(ledger, context, req, res);
-	}
-	if (req.method === "GET" && (path === "/v1/history" || path === "/v1/export")) {
-		const query: Record<string, string> = {};
-		for (const [key, value] of url.searchParams) {
-			if (Object.hasOwn(query, key)) return send(res, { status: "refused", code: "invalid_query", reason: "Duplicate history selector." });
-			query[key] = value;
+function route(ledger: Ledger, context: AuthenticatedContext, req: IncomingMessage, res: ServerResponse): Effect.Effect<void, unknown> {
+	return Effect.gen(function* () {
+		const url = new URL(req.url ?? "/", "http://render.invalid");
+		const path = url.pathname;
+		const version = url.searchParams.get("version");
+		if (req.method === "POST" && path === "/v1/commands") return yield* command(ledger, context, req, res);
+		if (req.method === "GET" && (path === "/v1/snapshot" || path === "/v1/observe")) {
+			if (version !== null && version !== String(PROTOCOL_VERSION)) return send(res, UNSUPPORTED_VERSION);
+			if (path === "/v1/snapshot") return send(res, ledger.snapshot(context));
+			return observe(ledger, context, req, res);
 		}
-		return send(
-			res,
-			path === "/v1/history"
-				? await ledger.observe(context, { history: query as HistoryQuery })
-				: await ledger.artifact(context, { export: query as HistoryQuery }),
-		);
-	}
-	const receipt = /^\/v1\/commands\/([^/]+)$/.exec(path);
-	if (req.method === "GET" && receipt) return send(res, await ledger.receipt(context, decodeURIComponent(receipt[1] as string)));
-	const artifact = /^\/v1\/artifacts\/([^/]+)$/.exec(path);
-	if (req.method === "GET" && artifact)
-		return send(res, artifactBody(await ledger.artifact(context, { read: decodeURIComponent(artifact[1] as string) })));
-	const messages = /^\/v1\/workflows\/([^/]+)\/messages$/.exec(path);
-	if (req.method === "GET" && messages) {
-		const cursor = url.searchParams.get("cursor");
-		const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") ?? 100) || 100));
-		return send(
-			res,
-			await ledger.messages(context, decodeURIComponent(messages[1] as string), cursor === null ? undefined : Number(cursor), limit),
-		);
-	}
-	send(res, { status: "refused", code: "not_found", reason: "No such route." });
+		if (req.method === "GET" && (path === "/v1/history" || path === "/v1/export")) {
+			const query: Record<string, string> = {};
+			for (const [key, value] of url.searchParams) {
+				if (Object.hasOwn(query, key))
+					return send(res, { status: "refused", code: "invalid_query", reason: "Duplicate history selector." });
+				query[key] = value;
+			}
+			return send(
+				res,
+				path === "/v1/history"
+					? yield* fromPromise(() => ledger.observe(context, { history: query as HistoryQuery }))
+					: yield* fromPromise(() => ledger.artifact(context, { export: query as HistoryQuery })),
+			);
+		}
+		const receipt = /^\/v1\/commands\/([^/]+)$/.exec(path);
+		if (req.method === "GET" && receipt)
+			return send(res, yield* fromPromise(() => ledger.receipt(context, decodeURIComponent(receipt[1] as string))));
+		const artifact = /^\/v1\/artifacts\/([^/]+)$/.exec(path);
+		if (req.method === "GET" && artifact)
+			return send(
+				res,
+				artifactBody(yield* fromPromise(() => ledger.artifact(context, { read: decodeURIComponent(artifact[1] as string) }))),
+			);
+		const messages = /^\/v1\/workflows\/([^/]+)\/messages$/.exec(path);
+		if (req.method === "GET" && messages) {
+			const cursor = url.searchParams.get("cursor");
+			const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") ?? 100) || 100));
+			return send(
+				res,
+				yield* fromPromise(() =>
+					ledger.messages(context, decodeURIComponent(messages[1] as string), cursor === null ? undefined : Number(cursor), limit),
+				),
+			);
+		}
+		send(res, { status: "refused", code: "not_found", reason: "No such route." });
+	});
 }
 
 function failSafe(res: ServerResponse, error: unknown): void {
@@ -180,31 +193,52 @@ export function deviceServer(ledger: Ledger): Server {
 			send(res, UNAUTHORIZED);
 			return;
 		}
-		route(ledger, context, req, res).catch((error: unknown) => failSafe(res, error));
+		runPromise(route(ledger, context, req, res)).catch((error: unknown) => failSafe(res, error));
 	});
 }
 
 /** Local-admin route on a Unix socket inside the 0700 data directory; reaching it is the OS owner's authentication. */
-export async function adminServer(ledger: Ledger, socketPath: string): Promise<Server> {
-	await rm(socketPath, { force: true });
-	const server = createServer((req, res) => {
-		const context = mintContext({ kind: "human", human: ledger.status().human, route: "local-admin" });
-		const url = new URL(req.url ?? "/", "http://render.invalid");
-		const handle = async () => {
-			if (req.method === "POST" && url.pathname === "/v1/admin/commands") return command(ledger, context, req, res);
-			if (req.method === "GET" && url.pathname === "/v1/admin/devices") return send(res, { devices: ledger.status().devices });
-			if (req.method === "GET" && url.pathname === "/v1/admin/status") {
-				const { devices: _devices, ...status } = ledger.status();
-				return send(res, status);
-			}
-			return route(ledger, context, req, res);
-		};
-		handle().catch((error: unknown) => failSafe(res, error));
-	});
-	await new Promise<void>((resolve, reject) => {
-		server.once("error", reject);
-		server.listen(socketPath, () => resolve());
-	});
-	await chmod(socketPath, 0o600);
-	return server;
+export function adminServer(ledger: Ledger, socketPath: string): Promise<Server> {
+	return runPromise(adminServerEffect(ledger, socketPath));
+}
+
+export function adminServerEffect(ledger: Ledger, socketPath: string): Effect.Effect<Server, unknown> {
+	return Effect.gen(function* () {
+		yield* fromPromise(() => rm(socketPath, { force: true }));
+		const server = createServer((req, res) => {
+			const context = mintContext({ kind: "human", human: ledger.status().human, route: "local-admin" });
+			const handle = Effect.gen(function* () {
+				const url = new URL(req.url ?? "/", "http://render.invalid");
+				if (req.method === "POST" && url.pathname === "/v1/admin/commands") return yield* command(ledger, context, req, res);
+				if (req.method === "GET" && url.pathname === "/v1/admin/devices") return send(res, { devices: ledger.status().devices });
+				if (req.method === "GET" && url.pathname === "/v1/admin/status") {
+					const { devices: _devices, ...status } = ledger.status();
+					return send(res, status);
+				}
+				return yield* route(ledger, context, req, res);
+			});
+			runPromise(handle).catch((error: unknown) => failSafe(res, error));
+		});
+		return yield* Effect.gen(function* () {
+			yield* fromPromise(
+				() =>
+					new Promise<void>((resolve, reject) => {
+						server.once("error", reject);
+						server.listen(socketPath, () => resolve());
+					}),
+			);
+			yield* fromPromise(() => chmod(socketPath, 0o600));
+			return server;
+		}).pipe(
+			Effect.onError(() =>
+				fromPromise(
+					() =>
+						new Promise<void>((resolve) => {
+							server.closeAllConnections();
+							server.close(() => resolve());
+						}),
+				).pipe(Effect.ignore),
+			),
+		);
+	}).pipe(Effect.uninterruptible);
 }
