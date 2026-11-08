@@ -658,7 +658,7 @@ export class Effects {
 	#git(path: string, cwd: string, args: string[], input?: Buffer): Effect.Effect<Buffer, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			const result = yield* fromPromise(() => this.#gitResult(path, cwd, args, input));
-			if (result.exitCode !== 0 || result.signal) throw gitFailure(args[0]!, result);
+			if (result.exitCode !== 0 || result.signal) return yield* Effect.fail(gitFailure(args[0]!, result));
 			return result.stdout;
 		});
 	}

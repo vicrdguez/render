@@ -83,7 +83,7 @@ export class GitHubForge {
 	observeEffect(proposal: string): Effect.Effect<ForgeSnapshot, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			const head = yield* this.#head(proposal);
-			if (head === undefined) throw new Error("Forge source ref unobservable: remote unreachable.");
+			if (head === undefined) return yield* Effect.fail(new Error("Forge source ref unobservable: remote unreachable."));
 			const branch = forgeBranch(proposal);
 			const items: ProposalItem[] = [];
 			let url: string | null =

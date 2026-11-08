@@ -531,9 +531,7 @@ export class Sandboxes {
 		});
 	}
 	#save(state: State): Effect.Effect<void, unknown> {
-		return Effect.gen({ self: this }, function* () {
-			yield* this.#saveJson(state.handle.id, "state.json", state);
-		});
+		return this.#saveJson(state.handle.id, "state.json", state);
 	}
 	#saveJson(id: string, name: string, value: unknown): Effect.Effect<void, unknown> {
 		return Effect.gen({ self: this }, function* () {
