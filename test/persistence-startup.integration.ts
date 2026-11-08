@@ -9,6 +9,7 @@ import { openNodeSqliteDatabase } from "@earendil-works/chord/sqlite/node";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { createRegistry, defineExtension, defineTask, Harness } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
+import { Meta } from "../src/ledger/records.ts";
 import { adminRequest, createWorkflow, enroll, http, save, sha256, spawnHost, startHost, tempDir } from "./support/host.ts";
 import { G1 } from "./support/literals.ts";
 
@@ -148,6 +149,31 @@ describe("B4 startup", () => {
 			const g = await fileDigest(join(garbage, "render.db"));
 			await expectBlocked(garbage, "store_unreadable");
 			assert.equal(await fileDigest(join(garbage, "render.db")), g);
+		} finally {
+			await dir.remove();
+		}
+	});
+
+	test("B4 malformed retained Ledger metadata blocks startup with structured restoration guidance", async () => {
+		const dir = await tempDir("v7-malformed-meta");
+		try {
+			const host = await startHost(dir.path);
+			await host.stop();
+			const adapter = await openNodeSqliteDatabase(join(dir.path, "render.db"));
+			const harness = await Harness.open(
+				await SqliteStorage.open(adapter),
+				{ models: createModels(), registry: createRegistry() },
+				BACKGROUND_CONTEXT,
+			);
+			await harness.commit(async (tx) => {
+				Object.assign(await tx.doc(Meta), { workflows: null });
+			}, BACKGROUND_CONTEXT);
+			await harness.close(BACKGROUND_CONTEXT);
+			const before = await fileDigest(join(dir.path, "render.db"));
+			const blocked = await expectBlocked(dir.path, "unsupported_schema");
+			assert.match(String(blocked.detail), /Retained Ledger records are unreadable/);
+			assert.match(String(blocked.action), /compatible Render version/);
+			assert.equal(await fileDigest(join(dir.path, "render.db")), before, "startup refusal retains the damaged metadata bytes");
 		} finally {
 			await dir.remove();
 		}
