@@ -1,6 +1,8 @@
 // Forge: an internal Effects submodule (spec §9.2), never a workflow-visible provider. GitHub is the one actual
 // adapter; Node's fetch carries REST, and Effects' trusted Git carries source with an expected-old lease. The token
 // comes from trusted host configuration and is only ever placed in request headers.
+import * as Effect from "effect/Effect";
+import { fromPromise, runPromise } from "../effect.ts";
 import type { Capabilities, ProposalItem } from "../kernel/publication.ts";
 
 export type ForgeConfig = {
@@ -75,127 +77,152 @@ export class GitHubForge {
 		};
 	}
 	/** Read-only. Throws when the forge is unreachable; a later page failing is an incomplete listing, never absence. */
-	async observe(proposal: string): Promise<ForgeSnapshot> {
-		const head = await this.#head(proposal);
-		if (head === undefined) throw new Error("Forge source ref unobservable: remote unreachable.");
-		const branch = forgeBranch(proposal);
-		const items: ProposalItem[] = [];
-		let url: string | null =
-			`${this.#base()}/pulls?${new URLSearchParams({ state: "all", head: `${this.#repo.owner}:${branch}`, per_page: "100" })}`;
-		let complete = true;
-		while (url) {
-			const response: Response | undefined = await this.#request("GET", url).catch(() => undefined);
-			if (!response?.ok) {
-				complete = false;
-				break;
-			}
-			const pulls = (await response.json()) as Pull[];
-			for (const p of pulls) {
-				if (p.head.ref !== branch || p.head.repo?.full_name !== `${this.#repo.owner}/${this.#repo.name}`) continue;
-				items.push({
-					id: `github:pr:${p.number}:${p.node_id}`,
-					state: p.merged_at ? "merged" : p.state === "open" ? "open" : "closed",
-					draft: p.draft === true,
-					head: p.head.sha,
-					marker: MARKER.exec(p.body ?? "")?.[1] ?? null,
-					actor: p.user?.login === this.#config.actor,
-					merge: p.merged_at && p.merge_commit_sha ? { main: p.base.ref === this.#repo.base, commit: p.merge_commit_sha } : null,
-				});
-			}
-			url = /<([^>]+)>;\s*rel="next"/.exec(response.headers.get("link") ?? "")?.[1] ?? null;
-		}
-		return {
-			capabilities: this.capabilities(),
-			head: { commit: head },
-			proposals: { complete, items },
-			observedAt: new Date().toISOString(),
-		};
+	observe(proposal: string): Promise<ForgeSnapshot> {
+		return runPromise(this.observeEffect(proposal));
 	}
-	async apply(request: ForgeRequest): Promise<ForgeDispatch> {
-		const result = (outcome: ForgeDispatch["outcome"], reason: string | null, created: string | null = null): ForgeDispatch => ({
-			outcome,
-			reason,
-			created,
-			head: null,
-		});
-		const branch = forgeBranch(request.proposal);
-		if (request.type === "publishSource") {
-			const pushed = await this.#git(
-				[
-					"push",
-					"--porcelain",
-					`--force-with-lease=refs/heads/${branch}:${request.expected ?? ""}`,
-					this.#remote(),
-					`${request.commit}:refs/heads/${branch}`,
-				],
-				this.#auth(),
-			);
-			const line = pushed.stdout.split("\n").find((l) => l.endsWith(`refs/heads/${branch}`) || l.includes(`:refs/heads/${branch}\t`));
-			const head = await this.#head(request.proposal);
-			const seen = head === undefined ? null : { commit: head };
-			if (line && pushed.exitCode === 0 && !line.startsWith("!")) return { ...result("applied", null), head: seen };
-			if (line?.startsWith("!"))
-				return {
-					...result("rejected", line.includes("stale info") ? "stale-expected" : `rejected: ${line.split("\t").at(-1)}`),
-					head: seen,
-				};
-			return { ...result("unknown", `push outcome unknown (exit ${pushed.exitCode})`), head: seen };
-		}
-		if (request.type === "createDraftProposal") {
-			const response = await this.#request("POST", `${this.#base()}/pulls`, {
-				title: request.title,
-				head: branch,
-				base: this.#repo.base,
-				body: request.body,
-				draft: true,
-			}).catch((error: Error) => error);
-			if (response instanceof Error) return result("unknown", `create reply lost: ${response.name}`);
-			if (response.status === 201) {
-				const pull = (await response.json().catch(() => undefined)) as Pull | undefined;
-				return pull ? result("applied", null, `github:pr:${pull.number}:${pull.node_id}`) : result("unknown", "unreadable create reply");
+	observeEffect(proposal: string): Effect.Effect<ForgeSnapshot, unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const head = yield* this.#head(proposal);
+			if (head === undefined) throw new Error("Forge source ref unobservable: remote unreachable.");
+			const branch = forgeBranch(proposal);
+			const items: ProposalItem[] = [];
+			let url: string | null =
+				`${this.#base()}/pulls?${new URLSearchParams({ state: "all", head: `${this.#repo.owner}:${branch}`, per_page: "100" })}`;
+			let complete = true;
+			while (url) {
+				const page: string = url;
+				const response: Response | undefined = yield* fromPromise(() => this.#request("GET", page)).pipe(
+					Effect.catch(() => Effect.succeed(undefined)),
+				);
+				if (!response?.ok) {
+					complete = false;
+					break;
+				}
+				const pulls = (yield* fromPromise(() => response.json())) as Pull[];
+				for (const p of pulls) {
+					if (p.head.ref !== branch || p.head.repo?.full_name !== `${this.#repo.owner}/${this.#repo.name}`) continue;
+					items.push({
+						id: `github:pr:${p.number}:${p.node_id}`,
+						state: p.merged_at ? "merged" : p.state === "open" ? "open" : "closed",
+						draft: p.draft === true,
+						head: p.head.sha,
+						marker: MARKER.exec(p.body ?? "")?.[1] ?? null,
+						actor: p.user?.login === this.#config.actor,
+						merge: p.merged_at && p.merge_commit_sha ? { main: p.base.ref === this.#repo.base, commit: p.merge_commit_sha } : null,
+					});
+				}
+				url = /<([^>]+)>;\s*rel="next"/.exec(response.headers.get("link") ?? "")?.[1] ?? null;
 			}
-			const text = await response.text().catch(() => "");
-			if (response.status === 422 && /draft pull requests are not supported/i.test(text)) return result("rejected", "draft-unsupported");
-			return response.status >= 400 && response.status < 500
-				? result("rejected", `http-${response.status}`)
-				: result("unknown", `http-${response.status}`);
-		}
-		const [, number, node] = /^github:pr:(\d+):(.+)$/.exec(request.pr) ?? [];
-		if (!number || !node) return result("rejected", "foreign-pr-id");
-		if (request.type === "markProposalReady") {
-			const response = await this.#request("POST", `${this.#config.api}/graphql`, {
-				query: "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }",
-				variables: { id: node },
-			}).catch((error: Error) => error);
-			if (response instanceof Error) return result("unknown", `ready reply lost: ${response.name}`);
-			if (response.status >= 500) return result("unknown", `http-${response.status}`);
-			if (!response.ok) return result("rejected", `http-${response.status}`);
-			const reply = (await response.json().catch(() => undefined)) as { errors?: { type?: string }[] } | undefined;
-			if (!reply) return result("unknown", "unreadable ready reply");
-			return reply.errors?.length ? result("rejected", `graphql: ${reply.errors[0]!.type ?? "error"}`) : result("applied", null);
-		}
-		const url = `${this.#base()}/pulls/${number}`;
-		const current = await this.#request("GET", url).catch((error: Error) => error);
-		if (current instanceof Error || current.status >= 500) return result("unknown", "summary read failed");
-		if (!current.ok) return result("rejected", `http-${current.status}`);
-		const body = ((await current.json()) as Pull).body ?? "";
-		const next = SECTION.test(body) ? body.replace(SECTION, () => request.summary) : `${body}\n\n${request.summary}`;
-		const patched = await this.#request("PATCH", url, { body: next }).catch((error: Error) => error);
-		if (patched instanceof Error) return result("unknown", `summary reply lost: ${patched.name}`);
-		if (patched.ok) return result("applied", null);
-		return patched.status < 500 ? result("rejected", `http-${patched.status}`) : result("unknown", `http-${patched.status}`);
+			return {
+				capabilities: this.capabilities(),
+				head: { commit: head },
+				proposals: { complete, items },
+				observedAt: new Date().toISOString(),
+			};
+		}).pipe(Effect.uninterruptible);
+	}
+	apply(request: ForgeRequest): Promise<ForgeDispatch> {
+		return runPromise(this.applyEffect(request));
+	}
+	applyEffect(request: ForgeRequest): Effect.Effect<ForgeDispatch, unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const result = (outcome: ForgeDispatch["outcome"], reason: string | null, created: string | null = null): ForgeDispatch => ({
+				outcome,
+				reason,
+				created,
+				head: null,
+			});
+			const branch = forgeBranch(request.proposal);
+			if (request.type === "publishSource") {
+				const pushed = yield* fromPromise(() =>
+					this.#git(
+						[
+							"push",
+							"--porcelain",
+							`--force-with-lease=refs/heads/${branch}:${request.expected ?? ""}`,
+							this.#remote(),
+							`${request.commit}:refs/heads/${branch}`,
+						],
+						this.#auth(),
+					),
+				);
+				const line = pushed.stdout.split("\n").find((l) => l.endsWith(`refs/heads/${branch}`) || l.includes(`:refs/heads/${branch}\t`));
+				const head = yield* this.#head(request.proposal);
+				const seen = head === undefined ? null : { commit: head };
+				if (line && pushed.exitCode === 0 && !line.startsWith("!")) return { ...result("applied", null), head: seen };
+				if (line?.startsWith("!"))
+					return {
+						...result("rejected", line.includes("stale info") ? "stale-expected" : `rejected: ${line.split("\t").at(-1)}`),
+						head: seen,
+					};
+				return { ...result("unknown", `push outcome unknown (exit ${pushed.exitCode})`), head: seen };
+			}
+			if (request.type === "createDraftProposal") {
+				const response = yield* fromPromise(() =>
+					this.#request("POST", `${this.#base()}/pulls`, {
+						title: request.title,
+						head: branch,
+						base: this.#repo.base,
+						body: request.body,
+						draft: true,
+					}),
+				).pipe(Effect.catch((error) => Effect.succeed(error as Error)));
+				if (response instanceof Error) return result("unknown", `create reply lost: ${response.name}`);
+				if (response.status === 201) {
+					const pull = (yield* fromPromise(() => response.json()).pipe(Effect.catch(() => Effect.succeed(undefined)))) as Pull | undefined;
+					return pull ? result("applied", null, `github:pr:${pull.number}:${pull.node_id}`) : result("unknown", "unreadable create reply");
+				}
+				const text = yield* fromPromise(() => response.text()).pipe(Effect.catch(() => Effect.succeed("")));
+				if (response.status === 422 && /draft pull requests are not supported/i.test(text)) return result("rejected", "draft-unsupported");
+				return response.status >= 400 && response.status < 500
+					? result("rejected", `http-${response.status}`)
+					: result("unknown", `http-${response.status}`);
+			}
+			const [, number, node] = /^github:pr:(\d+):(.+)$/.exec(request.pr) ?? [];
+			if (!number || !node) return result("rejected", "foreign-pr-id");
+			if (request.type === "markProposalReady") {
+				const response = yield* fromPromise(() =>
+					this.#request("POST", `${this.#config.api}/graphql`, {
+						query: "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }",
+						variables: { id: node },
+					}),
+				).pipe(Effect.catch((error) => Effect.succeed(error as Error)));
+				if (response instanceof Error) return result("unknown", `ready reply lost: ${response.name}`);
+				if (response.status >= 500) return result("unknown", `http-${response.status}`);
+				if (!response.ok) return result("rejected", `http-${response.status}`);
+				const reply = (yield* fromPromise(() => response.json()).pipe(Effect.catch(() => Effect.succeed(undefined)))) as
+					| { errors?: { type?: string }[] }
+					| undefined;
+				if (!reply) return result("unknown", "unreadable ready reply");
+				return reply.errors?.length ? result("rejected", `graphql: ${reply.errors[0]!.type ?? "error"}`) : result("applied", null);
+			}
+			const url = `${this.#base()}/pulls/${number}`;
+			const current = yield* fromPromise(() => this.#request("GET", url)).pipe(Effect.catch((error) => Effect.succeed(error as Error)));
+			if (current instanceof Error || current.status >= 500) return result("unknown", "summary read failed");
+			if (!current.ok) return result("rejected", `http-${current.status}`);
+			const body = ((yield* fromPromise(() => current.json())) as Pull).body ?? "";
+			const next = SECTION.test(body) ? body.replace(SECTION, () => request.summary) : `${body}\n\n${request.summary}`;
+			const patched = yield* fromPromise(() => this.#request("PATCH", url, { body: next })).pipe(
+				Effect.catch((error) => Effect.succeed(error as Error)),
+			);
+			if (patched instanceof Error) return result("unknown", `summary reply lost: ${patched.name}`);
+			if (patched.ok) return result("applied", null);
+			return patched.status < 500 ? result("rejected", `http-${patched.status}`) : result("unknown", `http-${patched.status}`);
+		}).pipe(Effect.uninterruptible);
 	}
 	/** The authorized source ref's head; `null` when absent, `undefined` when the remote cannot be read. */
-	async #head(proposal: string): Promise<string | null | undefined> {
-		const ref = `refs/heads/${forgeBranch(proposal)}`;
-		const listed = await this.#git(["ls-remote", this.#remote(), ref], this.#auth());
-		if (listed.exitCode !== 0) return undefined;
-		return (
-			listed.stdout
-				.split("\n")
-				.find((l) => l.endsWith(`\t${ref}`))
-				?.split("\t")[0] ?? null
-		);
+	#head(proposal: string): Effect.Effect<string | null | undefined, unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const ref = `refs/heads/${forgeBranch(proposal)}`;
+			const listed = yield* fromPromise(() => this.#git(["ls-remote", this.#remote(), ref], this.#auth()));
+			if (listed.exitCode !== 0) return undefined;
+			return (
+				listed.stdout
+					.split("\n")
+					.find((l) => l.endsWith(`\t${ref}`))
+					?.split("\t")[0] ?? null
+			);
+		});
 	}
 	#base(): string {
 		return `${this.#config.api}/repos/${this.#repo.owner}/${this.#repo.name}`;
