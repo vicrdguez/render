@@ -228,7 +228,7 @@ async function hostileAttributes(variable: "HOME" | "XDG_CONFIG_HOME") {
 test("HOME-only hostile default attributes cannot turn a real conflict clean", () => hostileAttributes("HOME"));
 test("XDG-only hostile default attributes cannot turn a real conflict clean", () => hostileAttributes("XDG_CONFIG_HOME"));
 
-test("TP26: the repository's target-preparation catalog row is selectable and executable through the product verifier", async () => {
+test("TP26: the product verifier selects the target-preparation catalog row with its declared command and rank", async () => {
 	const path = ".render/verify.md";
 	const bytes = await readFile(join(import.meta.dirname, "..", path));
 	const commit = "a".repeat(40);

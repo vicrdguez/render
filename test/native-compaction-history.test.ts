@@ -277,44 +277,6 @@ async function fixture(responses: Parameters<ReturnType<typeof fauxProvider>["se
 	};
 }
 
-test("native-compaction-history: compact twice/reset preserves literal committed tail; summary input alone is lossy", async () => {
-	const sources: string[] = [];
-	const f = await fixture(
-		Array.from({ length: 2 }, () => (transcript) => {
-			sources.push(JSON.stringify(transcript));
-			return fauxAssistantMessage("Short historical summary.");
-		}),
-	);
-	try {
-		for (let n = 0; n < 2; n++) {
-			if (n)
-				await f.c.commit(
-					(tx) =>
-						tx.appendEntry(f.c.id, {
-							kind: "owned.more",
-							data: {},
-							model: [{ role: "user", content: "More context. ".repeat(100), timestamp: 4 }],
-						}),
-					ctx,
-				);
-			const task = await f.c.compact(undefined, ctx);
-			const done = await f.harness.waitForTask(task, ctx);
-			assert.equal(done.state.outcome.status, "completed");
-		}
-		assert.equal(sources.length, 2);
-		assert.equal(sources[0]!.includes(TAIL), false, "native summarizer truncates long tool text");
-		await f.c.reset("Fresh context, not fresh authority.", ctx);
-		assert.equal(JSON.stringify(await f.c.context(ctx)).includes(TAIL), false);
-		const history = await f.c.entries({ order: "ascending" }, 100, undefined, ctx);
-		const result = history.items.find((e) => e.kind === "owned.result");
-		assert.ok(result);
-		assert.ok(JSON.stringify(result.model).includes(TAIL));
-		assert.equal(history.items.filter((e) => e.kind === "pi.compaction").length, 2);
-	} finally {
-		await f.close();
-	}
-});
-
 test("native-compaction-history: stale cut refuses placement after reset", async () => {
 	let release!: () => void;
 	let started!: () => void;

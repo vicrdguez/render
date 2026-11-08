@@ -252,21 +252,64 @@ test("VM01 maintenance runs every non-human row and keeps an unresolvable row as
 	assert.deepEqual(receipt.catalog.selection.maintenance, { basis: null });
 });
 
-for (const [label, rows] of [
-	["an omitted row", { ...honest, lint: undefined }],
-	["an unknown row", { ...honest, absent: { status: "clean", reason: "x" } }],
-	["a classified human row", { ...honest, human: { status: "clean", reason: "looked" } }],
-	["discovery without compared rows", { ...honest, discover: { status: "clean", reason: "listed" } }],
-	["discovery compared with a non-row", { ...honest, discover: { ...honest.discover!, compared: ["absent"] } }],
-	["a failed row called clean", { ...honest, stale: { status: "clean", reason: "looks fine" } }],
-	["a product failure called clean", { ...honest, product: { status: "clean", reason: "close enough" } }],
-	["an unrun sanity called clean", { ...honest, fixture: { status: "clean", reason: "steps passed" } }],
-	["an invalid row called clean", { ...honest, moved: { status: "clean", reason: "skipped" } }],
-	["blocked without a cause", { ...honest, product: { status: "blocked", reason: "fails" } }],
+for (const [label, rows, code, reason] of [
+	["an omitted row", { ...honest, lint: undefined }, "missing_content", /Classify every non-human row/],
+	["an unknown row", { ...honest, absent: { status: "clean", reason: "x" } }, "missing_content", /Classify every non-human row/],
+	[
+		"a classified human row",
+		{ ...honest, human: { status: "clean", reason: "looked" } },
+		"missing_content",
+		/Classify every non-human row/,
+	],
+	[
+		"discovery without compared rows",
+		{ ...honest, discover: { status: "clean", reason: "listed" } },
+		"missing_content",
+		/Compare discovery discover/,
+	],
+	[
+		"discovery compared with a non-row",
+		{ ...honest, discover: { ...honest.discover!, compared: ["absent"] } },
+		"missing_content",
+		/Compare discovery discover/,
+	],
+	[
+		"a failed row called clean",
+		{ ...honest, stale: { status: "clean", reason: "looks fine" } },
+		"missing_content",
+		/Row stale did not execute successfully/,
+	],
+	[
+		"a product failure called clean",
+		{ ...honest, product: { status: "clean", reason: "close enough" } },
+		"missing_content",
+		/Row product did not execute successfully/,
+	],
+	[
+		"an unrun sanity called clean",
+		{ ...honest, fixture: { status: "clean", reason: "steps passed" } },
+		"missing_content",
+		/Row fixture did not execute successfully/,
+	],
+	[
+		"an invalid row called clean",
+		{ ...honest, moved: { status: "clean", reason: "skipped" } },
+		"missing_content",
+		/Row moved did not execute successfully/,
+	],
+	[
+		"blocked without a cause",
+		{ ...honest, product: { status: "blocked", reason: "fails" } },
+		"invalid_content",
+		/cause:product\|prerequisite when blocked/,
+	],
 ] as const)
 	test(`VM02 classification refuses ${label}`, async () => {
 		const { reply } = await classify("c0", JSON.parse(JSON.stringify(rows)), [receipts.c0!]);
 		assert.equal(reply.status, "refused", `${label} must not be retained as a classification`);
+		if (reply.status !== "refused") throw new Error("unreachable");
+		assert.equal(reply.code, code, label);
+		assert.match(reply.reason, reason, label);
 	});
 
 test("VM02 classification refuses without an exact maintenance receipt", async () => {

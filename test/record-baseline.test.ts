@@ -108,8 +108,7 @@ test("RB06/RB07/RB12 only recorded qualifying integration of the Record pass rel
 	const t = await handedOff("record");
 	try {
 		await saveDocument(t, "docs/adr/0001-retained-seam.md", "# ADR 1\nRetain the seam.\n");
-		refused(await assignNext(t), "dependency_blocked", "document-only");
-		refused(await assignNext(t), "dependency_blocked", "fidelity-only: intake fidelity, Audit and handoff");
+		refused(await assignNext(t), "dependency_blocked", "document, fidelity, Audit and handoff without qualification");
 		const r = await passedRound(t);
 		carries(own(t, r.id).packet.inputs, [t.contract, ...basis(t)], "Watchdog");
 		refused(await assignNext(t), "dependency_blocked", "Watchdog-only");

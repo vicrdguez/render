@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
-import { sourceFixture } from "./support/source.ts";
+import { gitSourceFixture, sourceFixture } from "./support/source.ts";
 
 test("literal-source-roundtrip: literal bytes, symlinks and actual deletions ignore worker Git", async () => {
 	const f = await sourceFixture();
@@ -94,7 +94,7 @@ test("literal-source-roundtrip: declared caches are excluded, base conflicts ref
 });
 
 test("literal-source-roundtrip unsafe archive control loses an accepted literal file", async () => {
-	const f = await sourceFixture();
+	const f = await gitSourceFixture();
 	try {
 		const listing = execFileSync("git", ["--git-dir", f.repo, "archive", f.commit]);
 		// This is the unsafe operation itself, not a product mock or a setup error.
