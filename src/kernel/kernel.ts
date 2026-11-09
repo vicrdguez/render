@@ -12,6 +12,7 @@ import {
 	changeCheckpoint,
 	emptyCheckpoints,
 } from "./checkpoints.ts";
+import { changeEngineSettings, type EngineSettingsCommand, type EngineSettingsRevision } from "./engine-settings.ts";
 import { changeIntake, cleared, emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, type Intakes, type IntakeWrite } from "./intake.ts";
 import type { Ground } from "./investigation.ts";
 import { changePolicy, initialPolicy, type PolicyCommand, type PolicyState } from "./policy.ts";
@@ -63,6 +64,7 @@ export type KnownCommand =
 	| PolicyCommand
 	| SettingsCommand
 	| ProjectCommand
+	| EngineSettingsCommand
 	| {
 			readonly type: "requestLocalVerificationPrompt";
 			readonly workflow: string;
@@ -95,6 +97,7 @@ export type Command = KnownCommand | UnparsedCommand;
 export type KernelState = {
 	readonly intakes?: Intakes;
 	readonly checkpointSettings?: CheckpointSettings;
+	readonly engineSettings?: EngineSettingsRevision;
 	readonly checkpoints?: Checkpoints;
 	readonly roleWork?: RoleWorkState;
 	readonly policy?: PolicyState;
@@ -142,6 +145,7 @@ export type DomainWrite =
 	| CheckpointWrite
 	| PublicationWrite
 	| { readonly type: "checkpoint-settings.replace"; readonly state: CheckpointSettings }
+	| { readonly type: "engine-settings.replace"; readonly state: EngineSettingsRevision }
 	| { readonly type: "policy.replace"; readonly state: PolicyState }
 	| { readonly type: "roles.replace"; readonly state: RoleWorkState; readonly intents: readonly RoleIntent[] }
 	| { readonly type: "workflow.create"; readonly workflow: string; readonly title: string; readonly project: string }
@@ -255,6 +259,7 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	adoptPolicy: { family: "human-decision", available: true },
 	changeCheckpointSettings: { family: "human-decision", available: true },
 	importCheckpointSettings: { family: "local-admin", available: true },
+	changeEngineSettings: { family: "human-decision", available: true },
 	cancelWork: { family: "human-decision", available: true },
 	requestLocalVerificationPrompt: { family: "human-decision", available: true },
 	enrollDevice: { family: "local-admin", available: true },
@@ -338,7 +343,7 @@ export function commandPermission(type: string, principal: Principal): Refusal |
 		return refuse("forbidden_principal", `${type} belongs to the ${entry.family} family, which does not admit this principal.`);
 	if (!entry.available) return refuse("capability_unavailable", `${type} is not available in this host version.`);
 	if (
-		["createWorkflow", "changePolicy", "changeCheckpointSettings", ...PROJECT_COMMANDS].includes(type) &&
+		["createWorkflow", "changePolicy", "changeCheckpointSettings", "changeEngineSettings", ...PROJECT_COMMANDS].includes(type) &&
 		principal.kind === "human" &&
 		principal.route === "device" &&
 		principal.workflows !== "all"
@@ -360,6 +365,7 @@ export const change = Effect.fnUntraced(function* (state: KernelState, command: 
 
 	if (command.type === "changeCheckpointSettings" || command.type === "importCheckpointSettings")
 		return yield* changeCheckpointSettings(state, command as SettingsCommand, facts);
+	if (command.type === "changeEngineSettings") return yield* changeEngineSettings(state, command as EngineSettingsCommand, facts);
 	if (command.type === "changePolicy" || command.type === "adoptPolicy") return yield* changePolicy(state, command as PolicyCommand, facts);
 	if (PROJECT_COMMANDS.includes(command.type)) return yield* changeProject(state, command as ProjectCommand, facts);
 	if (INTAKE_COMMANDS.includes(command.type)) return yield* changeIntake(state, command as IntakeCommand, facts);

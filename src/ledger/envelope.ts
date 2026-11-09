@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { PROVIDERS } from "../engine/providers.ts";
 import { validCheckpointModes } from "../kernel/checkpoint-settings.ts";
 import { CHECKPOINT_COMMANDS, type CheckpointCommand } from "../kernel/checkpoints.ts";
+import { validEngineSettingsShape } from "../kernel/engine-settings.ts";
 import { validAssessment, validDispositions } from "../kernel/implementation.ts";
 import { INTAKE_COMMANDS, type IntakeCommand, validDependencies } from "../kernel/intake.ts";
 import { type Command, isAvailableCommand, type MediaType, type Persistence, unparsedCommand } from "../kernel/kernel.ts";
@@ -146,6 +147,12 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 			if (!validCheckpointModes(c.modes))
 				malformed("Settings require seams/modules human|delegated and proposal human, with no extra fields");
 			return { command: { type, expectedRevision: text(c.expectedRevision, "expectedRevision", 128), modes: c.modes } };
+		case "changeEngineSettings":
+			only(c, ["type", "expectedRevision", "settings"], "command");
+			if (!Number.isSafeInteger(c.expectedRevision) || Number(c.expectedRevision) < 1)
+				malformed("expectedRevision must be a revision number");
+			if (!validEngineSettingsShape(c.settings)) malformed("settings must be a schema 1 Engine settings object with no extra fields");
+			return { command: { type, expectedRevision: c.expectedRevision as number, settings: c.settings } };
 		case "changePolicy": {
 			only(c, ["type", "expectedRevision", "policy"], "command");
 			const p = object(c.policy, "policy");
@@ -542,9 +549,12 @@ function parsePacket(raw: unknown, depth = 0): RolePacket {
 			"submission",
 			"requests",
 			"verification",
+			"settingsRevision",
 		],
 		"role packet",
 	);
+	if (p.settingsRevision !== undefined && (!Number.isSafeInteger(p.settingsRevision) || Number(p.settingsRevision) < 1))
+		malformed("settingsRevision must be a revision number");
 	if (p.experiment !== undefined) {
 		const e = object(p.experiment, "experiment");
 		only(e, ["protocol", "candidate"], "experiment");

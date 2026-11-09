@@ -30,6 +30,7 @@ import * as Exit from "effect/Exit";
 import { fromPromise, runPromise } from "../effect.ts";
 import type { ForgeConfig, ForgeDispatch } from "../effects/forge.ts";
 import { Effects, type Source, type SourceReceipt, type TargetObservation, treeOid } from "../effects/source.ts";
+import { type EngineSettings, type EngineSettingsRevision, initialEngineSettings } from "../kernel/engine-settings.ts";
 import { experimentInputs } from "../kernel/experiments.ts";
 import {
 	auditReviewerPacket,
@@ -75,7 +76,7 @@ import {
 import { faultBarrier } from "../ledger/barrier.ts";
 import type { CommandReply, Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
-import { Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
+import { EngineSettingsEntry, Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
 import {
 	type ExecutionResult,
 	type ExecutionScope,
@@ -87,7 +88,8 @@ import {
 import { selectCatalog, VERIFICATION_AUTHORING } from "./catalog.ts";
 import { credentialStore, type SecretsFile } from "./credentials.ts";
 import { type ExperimentConfig, Experiments } from "./experiments.ts";
-import { type Family, PROVIDERS } from "./providers.ts";
+import { PROVIDERS, type ProviderId } from "./providers.ts";
+import { entryModel, withSettingsModels } from "./settings.ts";
 import { previewWeb, research, type WebConfig } from "./web.ts";
 
 const ctx = BACKGROUND_CONTEXT;
@@ -135,8 +137,6 @@ type PreparationJob = {
 /** X's own verifier bytes cannot define its required checks; deterministic, so repair needs a new pass, not a retry. */
 class VerifierDefect extends Error {}
 type EngineConfig = {
-	/** The family table until settings own it. Engine registers one provider per configured family's provider. */
-	families?: readonly Family[];
 	/** pi's login file, named explicitly (`render serve --pi-auth`); without it every pi-login family is unconfigured. */
 	piAuth?: string;
 	secrets?: SecretsFile;
@@ -179,6 +179,7 @@ export class Engine {
 	readonly #run;
 	readonly #notify;
 	readonly #models;
+	readonly #settingsRevisions = new Map<number, EngineSettings>();
 	readonly #credentials;
 
 	constructor(config: EngineConfig = {}) {
@@ -215,8 +216,8 @@ export class Engine {
 		}
 		this.#credentials = credentialStore({
 			piAuth: config.piAuth,
-			secrets: config.secrets ?? (() => ({ apiKeys: {} })),
-			families: () => config.families ?? [],
+			secrets: config.secrets ?? { apiKeys: () => ({}) },
+			families: () => this.#settings().families,
 		});
 		// Only the store supplies credentials: no environment variable or ambient file.
 		this.#models = createModels({
@@ -301,14 +302,21 @@ export class Engine {
 									}
 								}, ctx),
 							);
-							return provider.streamSimple(model, transcript, { ...options, maxTokens: a.packet.maxOutputTokens });
+							// A running assignment keeps the model entry of its packet's settings revision, not the current one.
+							const entry = (yield* this.#settingsAt(a.packet.settingsRevision)).models.find(
+								(e) => e.provider === model.provider && e.id === model.id,
+							);
+							const pinned = (entry && entryModel(provider.getModels(), entry)) ?? model;
+							return provider.streamSimple(pinned, transcript, { ...options, maxTokens: a.packet.maxOutputTokens });
 						}),
 					),
 				),
 		});
-		for (const id of new Set((config.families ?? []).map((family) => family.provider))) {
+		// Every provider is registered, because a later settings revision may add its family; the family check gates use.
+		for (const id of Object.keys(PROVIDERS) as ProviderId[]) {
 			const native = PROVIDERS[id]();
-			this.#models.setProvider(admitted(config.provider?.id === id ? { ...config.provider, auth: native.auth } : native));
+			const provider = config.provider?.id === id ? { ...config.provider, auth: native.auth } : native;
+			this.#models.setProvider(admitted(withSettingsModels(provider, () => this.#settings().models)));
 		}
 		const schema = <T extends Record<string, ReturnType<typeof Type.String>>>(fields: T) =>
 			Type.Object(fields, { additionalProperties: false });
@@ -1572,6 +1580,42 @@ export class Engine {
 	/** A check's Linux profile on the project's check image, by tag; Sandboxes records the digest it resolves to (X10). */
 	#profile(check: OwnedChecks["checks"][string], workflow: string): LinuxProfile {
 		return { ...check.profile, image: this.#projectOf(workflow).checkImage };
+	}
+	/** The current Engine settings revision's value; the default before Ledger binds. */
+	#settings(): EngineSettings {
+		const frame = this.#frame();
+		return frame && "settings" in frame && frame.settings
+			? (frame.settings as EngineSettingsRevision).value
+			: initialEngineSettings().value;
+	}
+	/** An immutable settings revision: the current one, or its retained entry, which a packet without one reads as current. */
+	#settingsAt(revision: number | undefined): Effect.Effect<EngineSettings, unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const frame = this.#frame();
+			const current = frame && "settings" in frame ? (frame.settings as EngineSettingsRevision | null) : null;
+			if (revision === undefined || revision === (current?.revision ?? 1)) return current?.value ?? initialEngineSettings().value;
+			if (revision === 1) return initialEngineSettings().value;
+			const cached = this.#settingsRevisions.get(revision);
+			if (cached) return cached;
+			const harness = this.#harness;
+			if (!harness) throw new Error("Engine settings are unavailable before Ledger binds.");
+			const ref = `engine-settings:${revision}`;
+			const found = yield* fromPromise(() =>
+				harness.commit(async (tx) => {
+					const conversationId = (await tx.doc(Meta)).ledgerConversation as ConversationId;
+					for (let cursor: Parameters<typeof tx.scanEntries>[2]; ; ) {
+						const page = await tx.scanEntries({ conversationId, order: "ascending" }, 200, cursor);
+						const entry = page.items.find((e) => e.kind === EngineSettingsEntry.kind && (e.data as { ref?: unknown }).ref === ref);
+						if (entry) return (JSON.parse((entry.data as { text: string }).text) as EngineSettingsRevision).value;
+						if (!page.next) return undefined;
+						cursor = page.next;
+					}
+				}, ctx),
+			);
+			if (!found) throw new Error(`Engine settings revision ${revision} is not retained.`);
+			this.#settingsRevisions.set(revision, found);
+			return found;
+		});
 	}
 	#assignments(): RoleAssignment[] {
 		const frame = this.#frame();
@@ -3047,7 +3091,7 @@ export class Engine {
 					: []),
 			];
 			for (const packet of packets) {
-				const family = this.#config.families?.find((f) => f.name === packet.family && f.provider === packet.provider);
+				const family = this.#settings().families.find((f) => f.name === packet.family && f.provider === packet.provider);
 				if (!family || packet.requiredFamily !== packet.family) return "required_model_family_unavailable";
 				if (!this.#models.getModel(packet.provider, packet.model)) return "required_model_unavailable";
 			}

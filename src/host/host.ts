@@ -7,12 +7,11 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import { fromPromise } from "../effect.ts";
-import { secretsFile } from "../engine/credentials.ts";
-import type { Family } from "../engine/providers.ts";
 import { Engine, type OwnedChecks } from "../engine/runtime.ts";
 import type { Persistence } from "../kernel/kernel.ts";
 import type { Ledger } from "../ledger/ledger.ts";
 import { openLedger } from "../ledger/startup.ts";
+import { secretsFile } from "./secrets.ts";
 import { adminServer, deviceServer } from "./transport.ts";
 
 export type Host = {
@@ -35,33 +34,28 @@ export type OpenHostOptions = {
 	readonly onFatal?: (error: unknown) => void;
 };
 
-/** Claude writers and ChatGPT reviewers through the operator's pi logins, until Engine settings own the table. */
-const FAMILIES: readonly Family[] = [
-	{ name: "claude", provider: "anthropic", auth: "pi-login" },
-	{ name: "chatgpt", provider: "openai", auth: "pi-login" },
-];
-
 export function openHost(options: OpenHostOptions): Effect.Effect<Host, unknown> {
 	return Effect.gen(function* () {
 		// Acquisition must not close this scope on success; Host.close owns its lifetime.
 		const scope = yield* Scope.make();
+		const secrets = secretsFile(join(options.data, "secrets.json"));
 		return yield* Effect.gen(function* () {
 			const opened = yield* openLedger({
 				data: options.data,
 				runtime: (report) =>
 					new Engine({
 						ownedChecks: options.ownedChecks,
-						families: FAMILIES,
 						piAuth: options.piAuth,
-						secrets: secretsFile(join(options.data, "secrets.json")),
+						secrets,
 					}).options(report),
 				onFatal: (error) => options.onFatal?.(error),
 			});
 			yield* Scope.addFinalizer(scope, opened.close().pipe(Effect.orDie));
 			const socketPath = join(options.data, "admin.sock");
-			const admin = yield* adminServer(opened, opened.principals, socketPath);
+			const api = { ledger: opened.ledger, secrets };
+			const admin = yield* adminServer(api, opened.principals, socketPath);
 			yield* Scope.addFinalizer(scope, closeServer(admin));
-			const listener = deviceServer(opened, opened.principals);
+			const listener = deviceServer(api, opened.principals);
 			yield* Scope.addFinalizer(scope, closeServer(listener));
 			yield* fromPromise(
 				() =>

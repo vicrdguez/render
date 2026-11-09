@@ -22,6 +22,7 @@ const KINDS = [
 	"policy",
 	"checkpoint_settings",
 	"project",
+	"engine_settings",
 	"runtime_transcript",
 	"runtime_task",
 ];

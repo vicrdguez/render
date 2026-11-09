@@ -1,13 +1,15 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Harness, Registry } from "@earendil-works/pi-durable";
 import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
+import type { EngineSettings, EngineSettingsRevision } from "../../src/kernel/engine-settings.ts";
 import type { PolicyState } from "../../src/kernel/policy.ts";
 import type { RolePacket } from "../../src/kernel/roles.ts";
 import type { VerificationSelection } from "../../src/kernel/verification.ts";
-import type { Ledger } from "../../src/ledger/ledger.ts";
+import type { Frame, Ledger } from "../../src/ledger/ledger.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
 
@@ -110,6 +112,23 @@ export async function allowSameFamily(ledger: Ledger) {
 	if (adopted.status !== "accepted") throw new Error(JSON.stringify(adopted));
 }
 
+/** Applies `edit` to the current Engine settings revision as the local admin. */
+export async function editEngineSettings(ledger: Ledger, edit: (settings: EngineSettings) => EngineSettings) {
+	const current = (ledger.snapshot(admin) as Frame).settings as EngineSettingsRevision;
+	const changed = await Effect.runPromise(
+		ledger.command(
+			{
+				version: 1,
+				authorityEpoch: ledger.status().authorityEpoch,
+				commandId: `fixture-engine-settings:${current.revision}`,
+				command: { type: "changeEngineSettings", expectedRevision: current.revision, settings: edit(current.value) },
+			},
+			admin,
+		),
+	);
+	if (changed.status !== "accepted") throw new Error(JSON.stringify(changed));
+}
+
 export async function roleFixture(engine = new Engine(), project: Parameters<typeof addProject>[0] = {}) {
 	const data = await mkdtemp(join(tmpdir(), "render-role-"));
 	let harness!: Harness;
@@ -196,8 +215,5 @@ export async function roleFixture(engine = new Engine(), project: Parameters<typ
 		},
 	};
 }
-/** A Claude family authenticated by a fixture API key, so role fixtures need no pi login file. */
-export const claudeFixture = {
-	families: [{ name: "claude", provider: "anthropic", auth: "api-key" }],
-	secrets: () => ({ apiKeys: { anthropic: "fixture" } }),
-} as const;
+/** The default Claude family authenticated by a fixture API key in a pi login file, never the operator's. */
+export const claudeFixture = { piAuth: fileURLToPath(new URL("fixture-auth.json", import.meta.url)) } as const;
