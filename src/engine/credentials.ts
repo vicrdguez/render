@@ -9,19 +9,8 @@ import type { Credential, CredentialStore } from "@earendil-works/pi-ai";
 import lockfile from "proper-lockfile";
 import type { Family, ProviderId } from "./providers.ts";
 
-/** The host-only secrets, read afresh on every call. */
-export type SecretsFile = () => { readonly apiKeys: Readonly<Partial<Record<ProviderId, string>>> };
-
-/** `<data>/secrets.json`: `{"api-key:<provider>": {"value", "updatedAt"}, ...}`, mode 0600, outside the store. */
-export function secretsFile(path: string): SecretsFile {
-	return () => {
-		const stored = readJson(path) as Record<string, { value?: unknown }>;
-		const apiKeys: Partial<Record<ProviderId, string>> = {};
-		for (const [name, secret] of Object.entries(stored))
-			if (name.startsWith("api-key:") && typeof secret?.value === "string") apiKeys[name.slice(8) as ProviderId] = secret.value;
-		return { apiKeys };
-	};
-}
+/** The host-only secrets file (`src/host/secrets.ts` owns its format), read afresh on every call. */
+export type SecretsFile = { apiKeys(): Readonly<Partial<Record<ProviderId, string>>> };
 
 const LOCK_WAIT_MS = 30_000;
 
@@ -34,7 +23,7 @@ export function credentialStore(options: {
 	const readers: Record<Family["auth"], (provider: ProviderId) => Credential | undefined> = {
 		"pi-login": (provider) => piLogins()[provider],
 		"api-key": (provider) => {
-			const key = options.secrets().apiKeys[provider];
+			const key = options.secrets.apiKeys()[provider];
 			return key ? { type: "api_key", key } : undefined;
 		},
 	};

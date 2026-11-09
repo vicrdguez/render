@@ -11,8 +11,9 @@ import { setTimeout } from "node:timers/promises";
 import type { OAuthCredential } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { credentialStore, secretsFile } from "../src/engine/credentials.ts";
+import { credentialStore } from "../src/engine/credentials.ts";
 import type { Family } from "../src/engine/providers.ts";
+import { secretsFile } from "../src/host/secrets.ts";
 
 const claude: Family = { name: "claude", provider: "anthropic", auth: "pi-login" };
 const expired = { type: "oauth", access: "expired-access", refresh: "expired-refresh", expires: Date.now() - 60_000 };
@@ -40,7 +41,7 @@ test("M3 Render waits for pi's lock and never writes while pi holds it", async (
 		const holder = pi(f.path, "pi-access", 1500, f.log);
 		await holder.locked;
 		const exited = once(holder.child, "exit");
-		const store = credentialStore({ piAuth: f.path, secrets: () => ({ apiKeys: {} }), families: () => [claude] });
+		const store = credentialStore({ piAuth: f.path, secrets: { apiKeys: () => ({}) }, families: () => [claude] });
 		let seen: unknown;
 		await store.modify("anthropic", async (current) => {
 			seen = current;
@@ -58,7 +59,7 @@ test("M3 Render waits for pi's lock and never writes while pi holds it", async (
 test("M2 Render and pi refreshing the same expired login at once refresh exactly once and agree", async () => {
 	const f = await authFile({ anthropic: expired, openai: { type: "oauth", access: "kept", refresh: "kept", expires: 1 } });
 	try {
-		const store = credentialStore({ piAuth: f.path, secrets: () => ({ apiKeys: {} }), families: () => [claude] });
+		const store = credentialStore({ piAuth: f.path, secrets: { apiKeys: () => ({}) }, families: () => [claude] });
 		const models = createModels({ credentials: store, authContext: { env: async () => undefined, fileExists: async () => false } });
 		const real = anthropicProvider();
 		const oauth = real.auth.oauth!;
@@ -92,7 +93,7 @@ test("a Render write leaves auth.json at mode 0600", async () => {
 	const f = await authFile({ anthropic: expired });
 	try {
 		await chmod(f.path, 0o644);
-		const store = credentialStore({ piAuth: f.path, secrets: () => ({ apiKeys: {} }), families: () => [claude] });
+		const store = credentialStore({ piAuth: f.path, secrets: { apiKeys: () => ({}) }, families: () => [claude] });
 		await store.modify("anthropic", async (current) => ({ ...(current as OAuthCredential), access: "next" }));
 		assert.equal((await stat(f.path)).mode & 0o777, 0o600);
 	} finally {
@@ -103,7 +104,7 @@ test("a Render write leaves auth.json at mode 0600", async () => {
 test("reads are fresh, list shows no values, and Render never logs the operator out", async () => {
 	const f = await authFile({ anthropic: expired });
 	try {
-		const store = credentialStore({ piAuth: f.path, secrets: () => ({ apiKeys: {} }), families: () => [claude] });
+		const store = credentialStore({ piAuth: f.path, secrets: { apiKeys: () => ({}) }, families: () => [claude] });
 		assert.equal(((await store.read("anthropic")) as OAuthCredential).access, "expired-access");
 		await writeFile(f.path, JSON.stringify({ anthropic: { ...expired, access: "pi-logged-in-again" } }));
 		assert.equal(((await store.read("anthropic")) as OAuthCredential).access, "pi-logged-in-again", "no cached read");

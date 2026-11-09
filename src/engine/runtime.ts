@@ -30,6 +30,7 @@ import * as Exit from "effect/Exit";
 import { fromPromise, runPromise } from "../effect.ts";
 import type { ForgeConfig, ForgeDispatch } from "../effects/forge.ts";
 import { Effects, type Source, type SourceReceipt, type TargetObservation, treeOid } from "../effects/source.ts";
+import { type EngineSettings, type EngineSettingsRevision, initialEngineSettings } from "../kernel/engine-settings.ts";
 import { experimentInputs } from "../kernel/experiments.ts";
 import {
 	auditReviewerPacket,
@@ -87,7 +88,8 @@ import {
 import { selectCatalog, VERIFICATION_AUTHORING } from "./catalog.ts";
 import { credentialStore, type SecretsFile } from "./credentials.ts";
 import { type ExperimentConfig, Experiments } from "./experiments.ts";
-import { type Family, PROVIDERS } from "./providers.ts";
+import { PROVIDERS, type ProviderId } from "./providers.ts";
+import { withSettingsModels } from "./settings.ts";
 import { previewWeb, research, type WebConfig } from "./web.ts";
 
 const ctx = BACKGROUND_CONTEXT;
@@ -135,8 +137,6 @@ type PreparationJob = {
 /** X's own verifier bytes cannot define its required checks; deterministic, so repair needs a new pass, not a retry. */
 class VerifierDefect extends Error {}
 type EngineConfig = {
-	/** The family table until settings own it. Engine registers one provider per configured family's provider. */
-	families?: readonly Family[];
 	/** pi's login file, named explicitly (`render serve --pi-auth`); without it every pi-login family is unconfigured. */
 	piAuth?: string;
 	secrets?: SecretsFile;
@@ -215,8 +215,8 @@ export class Engine {
 		}
 		this.#credentials = credentialStore({
 			piAuth: config.piAuth,
-			secrets: config.secrets ?? (() => ({ apiKeys: {} })),
-			families: () => config.families ?? [],
+			secrets: config.secrets ?? { apiKeys: () => ({}) },
+			families: () => this.#settings().families,
 		});
 		// Only the store supplies credentials: no environment variable or ambient file.
 		this.#models = createModels({
@@ -306,9 +306,11 @@ export class Engine {
 					),
 				),
 		});
-		for (const id of new Set((config.families ?? []).map((family) => family.provider))) {
+		// Every provider is registered, because a later settings revision may add its family; the family check gates use.
+		for (const id of Object.keys(PROVIDERS) as ProviderId[]) {
 			const native = PROVIDERS[id]();
-			this.#models.setProvider(admitted(config.provider?.id === id ? { ...config.provider, auth: native.auth } : native));
+			const provider = config.provider?.id === id ? { ...config.provider, auth: native.auth } : native;
+			this.#models.setProvider(admitted(withSettingsModels(provider, () => this.#settings().models)));
 		}
 		const schema = <T extends Record<string, ReturnType<typeof Type.String>>>(fields: T) =>
 			Type.Object(fields, { additionalProperties: false });
@@ -1572,6 +1574,13 @@ export class Engine {
 	/** A check's Linux profile on the project's check image, by tag; Sandboxes records the digest it resolves to (X10). */
 	#profile(check: OwnedChecks["checks"][string], workflow: string): LinuxProfile {
 		return { ...check.profile, image: this.#projectOf(workflow).checkImage };
+	}
+	/** The current Engine settings revision's value; the default before Ledger binds. */
+	#settings(): EngineSettings {
+		const frame = this.#frame();
+		return frame && "settings" in frame && frame.settings
+			? (frame.settings as EngineSettingsRevision).value
+			: initialEngineSettings().value;
 	}
 	#assignments(): RoleAssignment[] {
 		const frame = this.#frame();
@@ -3047,7 +3056,7 @@ export class Engine {
 					: []),
 			];
 			for (const packet of packets) {
-				const family = this.#config.families?.find((f) => f.name === packet.family && f.provider === packet.provider);
+				const family = this.#settings().families.find((f) => f.name === packet.family && f.provider === packet.provider);
 				if (!family || packet.requiredFamily !== packet.family) return "required_model_family_unavailable";
 				if (!this.#models.getModel(packet.provider, packet.model)) return "required_model_unavailable";
 			}

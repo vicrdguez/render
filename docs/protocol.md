@@ -188,6 +188,14 @@ after the client gave up. Retry the original ID and payload. Do not mint a new I
 `GET /v1/admin/status` (authority and executor epochs, sequence, persistence readback, startup fences) and
 `GET /v1/admin/devices` (devices with scope and revocation, never verifiers) are available only on the admin socket.
 
+## Secrets
+
+Only a project-wide human (an all-workflow device or the local admin) may use these routes; anyone else gets
+`403 forbidden_scope`. Names are `github-token`, `exa`, `tavily` and `api-key:<provider>`. No route returns a value.
+
+- `PUT /v1/secrets/<name>` with `{"value": string}`: `{ name, set: true, updatedAt }`. An unknown name answers `404 not_found`; a missing or empty value answers `400 invalid_content`.
+- `GET /v1/secrets`: `{ secrets: [{ name, set, updatedAt }] }`.
+
 ## Reads
 
 - `GET /v1/snapshot?version=1`: one snapshot frame (below).

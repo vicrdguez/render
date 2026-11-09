@@ -8,8 +8,10 @@ import { PROTOCOL_VERSION } from "../ledger/envelope.ts";
 import type { HistoryQuery } from "../ledger/history.ts";
 import type { Artifact, Frame, Ledger, LedgerRefusal } from "../ledger/ledger.ts";
 import type { AuthenticatedContext, Principals } from "../ledger/principals.ts";
+import { isSecretName, type Secrets } from "./secrets.ts";
 
-export type HostApi = { readonly ledger: Ledger };
+/** Without `secrets` the secrets routes answer `not_found`. */
+export type HostApi = { readonly ledger: Ledger; readonly secrets?: Secrets };
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 /** Frames queued behind a full socket before a slow observer is disconnected. */
@@ -133,11 +135,42 @@ function observe(ledger: Ledger, context: AuthenticatedContext, req: IncomingMes
 	write(observation.snapshot);
 }
 
-function route(ledger: Ledger, context: AuthenticatedContext, req: IncomingMessage, res: ServerResponse): Effect.Effect<void, unknown> {
+/** Only a project-wide human sets or lists secrets; no route returns a value. */
+function secrets(
+	file: Secrets,
+	principals: Principals,
+	context: AuthenticatedContext,
+	name: string | undefined,
+	req: IncomingMessage,
+	res: ServerResponse,
+): Effect.Effect<void, unknown> {
+	return Effect.gen(function* () {
+		if (!principals.projectWideHuman(context))
+			return send(res, { status: "refused", code: "forbidden_scope", reason: "Secrets need a project-wide human." });
+		if (req.method === "GET" && name === undefined) return send(res, { secrets: file.list() });
+		if (req.method !== "PUT" || name === undefined || !isSecretName(name))
+			return send(res, { status: "refused", code: "not_found", reason: "No such route." });
+		const body = yield* fromPromise(() => readJson(req)).pipe(Effect.catch(() => Effect.succeed(undefined)));
+		const value = (body as { value?: unknown } | undefined)?.value;
+		if (typeof value !== "string" || value.length === 0)
+			return send(res, { status: "refused", code: "invalid_content", reason: 'The body is {"value": nonempty string}.' });
+		send(res, yield* fromPromise(() => file.set(name, value)));
+	});
+}
+
+function route(
+	{ ledger, secrets: file }: HostApi,
+	principals: Principals,
+	context: AuthenticatedContext,
+	req: IncomingMessage,
+	res: ServerResponse,
+): Effect.Effect<void, unknown> {
 	return Effect.gen(function* () {
 		const url = new URL(req.url ?? "/", "http://render.invalid");
 		const path = url.pathname;
 		const version = url.searchParams.get("version");
+		const secret = /^\/v1\/secrets(?:\/([^/]+))?$/.exec(path);
+		if (secret && file) return yield* secrets(file, principals, context, secret[1] && decodeURIComponent(secret[1]), req, res);
 		if (req.method === "POST" && path === "/v1/commands") return yield* command(ledger, context, req, res);
 		if (req.method === "GET" && (path === "/v1/snapshot" || path === "/v1/observe")) {
 			if (version !== null && version !== String(PROTOCOL_VERSION)) return send(res, UNSUPPORTED_VERSION);
@@ -183,20 +216,21 @@ function failSafe(res: ServerResponse, error: unknown): void {
 }
 
 /** Device listener: bearer authentication precedes every route, so unauthenticated requests learn nothing. */
-export function deviceServer({ ledger }: HostApi, principals: Principals): Server {
+export function deviceServer(api: HostApi, principals: Principals): Server {
 	return createServer((req, res) => {
 		const context = principals.device(req.headers.authorization);
 		if (context === undefined) {
 			send(res, UNAUTHORIZED);
 			return;
 		}
-		runPromise(route(ledger, context, req, res)).catch((error: unknown) => failSafe(res, error));
+		runPromise(route(api, principals, context, req, res)).catch((error: unknown) => failSafe(res, error));
 	});
 }
 
 /** Local-admin route on a Unix socket inside the 0700 data directory; reaching it is the OS owner's authentication. */
 
-export function adminServer({ ledger }: HostApi, principals: Principals, socketPath: string): Effect.Effect<Server, unknown> {
+export function adminServer(api: HostApi, principals: Principals, socketPath: string): Effect.Effect<Server, unknown> {
+	const { ledger } = api;
 	return Effect.gen(function* () {
 		yield* fromPromise(() => rm(socketPath, { force: true }));
 		const server = createServer((req, res) => {
@@ -209,7 +243,7 @@ export function adminServer({ ledger }: HostApi, principals: Principals, socketP
 					const { devices: _devices, ...status } = ledger.status();
 					return send(res, status);
 				}
-				return yield* route(ledger, context, req, res);
+				return yield* route(api, principals, context, req, res);
 			});
 			runPromise(handle).catch((error: unknown) => failSafe(res, error));
 		});

@@ -9,7 +9,7 @@ import type { EngineSettings, EngineSettingsRevision } from "../../src/kernel/en
 import type { PolicyState } from "../../src/kernel/policy.ts";
 import type { RolePacket } from "../../src/kernel/roles.ts";
 import type { VerificationSelection } from "../../src/kernel/verification.ts";
-import type { Ledger } from "../../src/ledger/ledger.ts";
+import type { Frame, Ledger } from "../../src/ledger/ledger.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
 
@@ -114,7 +114,7 @@ export async function allowSameFamily(ledger: Ledger) {
 
 /** Applies `edit` to the current Engine settings revision as the local admin. */
 export async function editEngineSettings(ledger: Ledger, edit: (settings: EngineSettings) => EngineSettings) {
-	const current = (ledger.snapshot(admin) as { settings: EngineSettingsRevision }).settings;
+	const current = (ledger.snapshot(admin) as Frame).settings as EngineSettingsRevision;
 	const changed = await Effect.runPromise(
 		ledger.command(
 			{

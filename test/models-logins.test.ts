@@ -8,14 +8,11 @@ import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import * as Effect from "effect/Effect";
-import { secretsFile } from "../src/engine/credentials.ts";
-import type { Family } from "../src/engine/providers.ts";
 import { Engine } from "../src/engine/runtime.ts";
+import { secretsFile } from "../src/host/secrets.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
-import { admin, packet, roleFixture } from "./support/roles.ts";
+import { admin, editEngineSettings, packet, roleFixture } from "./support/roles.ts";
 
-const claude: Family = { name: "claude", provider: "anthropic", auth: "pi-login" };
-const chatgpt: Family = { name: "chatgpt", provider: "openai", auth: "pi-login" };
 const OPENAI_TOKEN = "openai-access-token-must-not-leak-7f3a";
 const DEEPSEEK_KEY = "sk-deepseek-key-must-not-leak-91c2";
 
@@ -61,7 +58,7 @@ test("M1 a role on openai/gpt-6.1-sol authenticates with the operator's openai p
 			return submit();
 		},
 	]);
-	const f = await roleFixture(new Engine({ provider: p.provider, families: [chatgpt], piAuth: join(dir, "auth.json") }));
+	const f = await roleFixture(new Engine({ provider: p.provider, piAuth: join(dir, "auth.json") }));
 	try {
 		const assigned = await f.command({
 			type: "assignTask",
@@ -84,7 +81,7 @@ test("M4 an absent login blocks with its provider and makes no request, even wit
 	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
 	p.setResponses([submit()]);
 	process.env.ANTHROPIC_API_KEY = "ambient-key";
-	const f = await roleFixture(new Engine({ provider: p.provider, families: [claude, chatgpt], piAuth: join(dir, "auth.json") }));
+	const f = await roleFixture(new Engine({ provider: p.provider, piAuth: join(dir, "auth.json") }));
 	try {
 		await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet() });
 		const a = await settled(f, "blocked");
@@ -110,11 +107,14 @@ test("M5 a deepseek api-key family carries the key from the secrets file and sto
 	const f = await roleFixture(
 		new Engine({
 			provider: p.provider,
-			families: [{ name: "deepseek", provider: "deepseek", auth: "api-key" }],
 			secrets: secretsFile(join(dir, "secrets.json")),
 		}),
 	);
 	try {
+		await editEngineSettings(f.ledger, (s) => ({
+			...s,
+			families: [...s.families, { name: "deepseek", provider: "deepseek", auth: "api-key" }],
+		}));
 		const assigned = await f.command({
 			type: "assignTask",
 			slice: "slice:1",
@@ -133,7 +133,7 @@ test("M5 a deepseek api-key family carries the key from the secrets file and sto
 
 test("M6 a model the pinned catalog lacks blocks with required_model_unavailable", async () => {
 	const dir = await scratch({ "auth.json": { openai: { type: "oauth", access: "a", refresh: "r", expires: Date.now() + 3_600_000 } } });
-	const f = await roleFixture(new Engine({ families: [chatgpt], piAuth: join(dir, "auth.json") }));
+	const f = await roleFixture(new Engine({ piAuth: join(dir, "auth.json") }));
 	try {
 		await f.command({
 			type: "assignTask",
@@ -160,7 +160,7 @@ test("a failed login refresh retains no credential bytes in history, snapshot or
 		String(input).includes("/oauth/token")
 			? new Response(`{"access_token":"${leaked}","refresh_token":"r2","expires_in":36`, { status: 200 })
 			: fetch(input, init);
-	const f = await roleFixture(new Engine({ provider: p.provider, families: [claude], piAuth: join(dir, "auth.json") }));
+	const f = await roleFixture(new Engine({ provider: p.provider, piAuth: join(dir, "auth.json") }));
 	try {
 		await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet() });
 		for (let n = 0; n < 500; n++) {

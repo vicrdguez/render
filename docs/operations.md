@@ -99,11 +99,13 @@ and report artifacts, atomic result notifications, and current-assignment tool e
 playbooks are not installed: there is no model-controlled scheduler, coding shell, source publication or live-provider
 authorization. Human/device routes cannot schedule assignments by impersonating the host.
 
-The trusted composition gives `Engine` a family table and registers the pinned Pi AI 1.4.0 provider of each family:
-`anthropic` (Claude) and `openai` (ChatGPT) authenticate with the operator's pi logins, and `deepseek` with an API key.
+`Engine` registers every pinned Pi AI 1.4.0 provider and reads its family table and added model entries from the current
+Engine settings revision (`changeEngineSettings`). Revision 1 has `claude` (`anthropic`) and `chatgpt` (`openai`), both
+authenticated with the operator's pi logins; a revision may add an `api-key` family such as `deepseek`.
 `render serve --pi-auth <auth.json>` names pi's login file explicitly. Render reads it afresh on every request and
 refreshes a login only under pi's own `proper-lockfile` lock, so pi and Render share one token. Render never logs the
-operator out. API keys come from the host-only `<data>/secrets.json`. Without `--pi-auth`, or with no login for the
+operator out. API keys come from the host-only `<data>/secrets.json` (mode `0600`), which a project-wide human sets
+through `PUT /v1/secrets/<name>`; `GET /v1/secrets` lists names and whether each is set, never a value. Without `--pi-auth`, or with no login for the
 packet's provider, role work blocks with `native_provider_configuration_missing: <provider>`; no environment variable or
 ambient home/config file supplies a credential. A scripted provider may stand in for a provider's network in owned
 fixtures; auth stays the real provider's. No credential is a packet input. Required models/families must match exactly;
