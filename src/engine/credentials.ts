@@ -44,36 +44,49 @@ export function credentialStore(options: {
 		return f ? readers[f.auth](f.provider) : undefined;
 	};
 	return {
-		read: async (provider) => read(provider),
+		read: async (provider) => credentialSafe(provider, async () => read(provider)),
 		list: async () =>
 			[...new Set(options.families().map((f) => f.provider))].flatMap((providerId) => {
 				const credential = read(providerId);
 				return credential ? [{ providerId, type: credential.type }] : [];
 			}),
-		modify: async (provider, fn) => {
-			const path = options.piAuth;
-			if (family(provider)?.auth !== "pi-login" || !path) throw new Error(`Render does not write the ${provider} credential.`);
-			let compromised: Error | undefined;
-			const release = await lock(path, (error) => {
-				compromised = error;
-			});
-			try {
-				const logins = piLogins();
-				const current = logins[provider];
-				const next = await fn(current);
-				if (compromised) throw compromised;
-				if (next === undefined || isDeepStrictEqual(next, current)) return current;
-				writeFileSync(path, JSON.stringify({ ...logins, [provider]: next }, null, 2), { encoding: "utf8", mode: 0o600 });
-				chmodSync(path, 0o600);
-				return next;
-			} finally {
-				await release().catch(() => {});
-			}
-		},
+		modify: (provider, fn) =>
+			credentialSafe(provider, async () => {
+				const path = options.piAuth;
+				if (family(provider)?.auth !== "pi-login" || !path) throw new Error(`Render does not write the ${provider} credential.`);
+				let compromised: Error | undefined;
+				const release = await lock(path, (error) => {
+					compromised = error;
+				});
+				try {
+					const logins = piLogins();
+					const current = logins[provider];
+					const next = await fn(current);
+					if (compromised) throw compromised;
+					if (next === undefined || isDeepStrictEqual(next, current)) return current;
+					writeFileSync(path, JSON.stringify({ ...logins, [provider]: next }, null, 2), { encoding: "utf8", mode: 0o600 });
+					chmodSync(path, 0o600);
+					return next;
+				} finally {
+					await release().catch(() => {});
+				}
+			}),
 		delete: async () => {
 			throw new Error("Render never removes a pi login.");
 		},
 	};
+}
+
+/**
+ * Pi AI keeps a failure's message and cause, and Render retains it in history, but a parse or refresh failure can
+ * quote login bytes. Only this fixed message leaves the store.
+ */
+async function credentialSafe<T>(provider: string, operation: () => Promise<T>): Promise<T> {
+	try {
+		return await operation();
+	} catch {
+		throw new Error(`native_provider_credential_failed: ${provider}`);
+	}
 }
 
 /** pi's acquisition: no library retries, a 30-second stale bound, and jittered backoff while another holder has it. */
