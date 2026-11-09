@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { CheckpointRequest } from "../src/kernel/checkpoints.ts";
 import { change, type KernelState, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
+import { decision } from "./support/kernel.ts";
 import { packet } from "./support/roles.ts";
 
 const accepted: CheckpointRequest = {
@@ -81,16 +82,18 @@ test("C13 revised Seams block an already executing dependent without erasing acc
 		},
 	};
 	const before = structuredClone(state);
-	const d = change(
-		state,
-		{
-			type: "requestCheckpoint",
-			workflow: "workflow:1",
-			stage: "seams",
-			scope: "ground:1",
-			required: { candidates: false, experiment: false },
-		},
-		facts,
+	const d = decision(
+		change(
+			state,
+			{
+				type: "requestCheckpoint",
+				workflow: "workflow:1",
+				stage: "seams",
+				scope: "ground:1",
+				required: { candidates: false, experiment: false },
+			},
+			facts,
+		),
 	);
 	assert.equal(d.outcome, "accepted");
 	if (d.outcome !== "accepted") return;
@@ -126,20 +129,22 @@ test("C13 resolving revised Seams does not revive execution bound to the old app
 		["emission:old", "seams_required"],
 		["emission:new", "accepted"],
 	]) {
-		const d = change(
-			state,
-			{
-				type: "assignTask",
-				workflow: "workflow:1",
-				slice: "delivery",
-				delivery: true,
-				packet: packet({ role: "implementer", inputs: [ref!] }),
-			},
-			{
-				...facts,
-				principal: { kind: "host", scope: "scheduling" },
-				ids: { fact: "fact:20", assignment: "assignment:20", attempt: "attempt:20" },
-			},
+		const d = decision(
+			change(
+				state,
+				{
+					type: "assignTask",
+					workflow: "workflow:1",
+					slice: "delivery",
+					delivery: true,
+					packet: packet({ role: "implementer", inputs: [ref!] }),
+				},
+				{
+					...facts,
+					principal: { kind: "host", scope: "scheduling" },
+					ids: { fact: "fact:20", assignment: "assignment:20", attempt: "attempt:20" },
+				},
+			),
 		);
 		assert.equal(d.outcome === "refused" ? d.code : d.outcome, expected);
 	}
@@ -147,25 +152,27 @@ test("C13 resolving revised Seams does not revive execution bound to the old app
 
 test("C13 read-only revised-Seams challenge may inspect historical approved evidence", () => {
 	const pending = { ...accepted, id: "checkpoint:pending", status: "pending" as const, approved: null };
-	const d = change(
-		{
-			workflow: { id: "workflow:1", messageCount: 0 },
-			document: null,
-			device: null,
-			checkpoints: { requests: [accepted, pending], concerns: [] },
-		},
-		{
-			type: "assignTask",
-			workflow: "workflow:1",
-			slice: "review",
-			delivery: false,
-			packet: packet({ role: "challenger", inputs: ["emission:old"] }),
-		},
-		{
-			...facts,
-			principal: { kind: "host", scope: "scheduling" },
-			ids: { fact: "fact:20", assignment: "reviewer", attempt: "attempt:reviewer" },
-		},
+	const d = decision(
+		change(
+			{
+				workflow: { id: "workflow:1", messageCount: 0 },
+				document: null,
+				device: null,
+				checkpoints: { requests: [accepted, pending], concerns: [] },
+			},
+			{
+				type: "assignTask",
+				workflow: "workflow:1",
+				slice: "review",
+				delivery: false,
+				packet: packet({ role: "challenger", inputs: ["emission:old"] }),
+			},
+			{
+				...facts,
+				principal: { kind: "host", scope: "scheduling" },
+				ids: { fact: "fact:20", assignment: "reviewer", attempt: "attempt:reviewer" },
+			},
+		),
 	);
 	assert.equal(d.outcome, "accepted", "historical evidence must remain readable by the revised-Seams reviewer");
 });
@@ -178,35 +185,39 @@ test("C05 replacement of a canceled exact challenge preserves its reviewed basis
 		executing: false,
 		checkpointReview: { request: "checkpoint:old", emission: "emission:old", manifest: "manifest:old", annotations: 0 },
 	};
-	const omitted = change(
-		{ workflow: { id: "workflow:1", messageCount: 0 }, document: null, device: null, roleWork: { assignments: [child] } },
-		{
-			type: "replaceTask",
-			workflow: "workflow:1",
-			assignment: child.id,
-			generation: 1,
-			attempt: child.attempt,
-			packet: { ...child.packet, inputs: ["emission:old", "manifest:old"] },
-		},
-		{
-			...facts,
-			principal: { kind: "host", scope: "scheduling" },
-			ids: { fact: "fact:20", assignment: "replacement", attempt: "attempt:replacement" },
-		},
+	const omitted = decision(
+		change(
+			{ workflow: { id: "workflow:1", messageCount: 0 }, document: null, device: null, roleWork: { assignments: [child] } },
+			{
+				type: "replaceTask",
+				workflow: "workflow:1",
+				assignment: child.id,
+				generation: 1,
+				attempt: child.attempt,
+				packet: { ...child.packet, inputs: ["emission:old", "manifest:old"] },
+			},
+			{
+				...facts,
+				principal: { kind: "host", scope: "scheduling" },
+				ids: { fact: "fact:20", assignment: "replacement", attempt: "attempt:replacement" },
+			},
+		),
 	);
 	assert.equal(
 		omitted.outcome === "refused" ? omitted.code : omitted.outcome,
 		"forbidden_scope",
 		"replacement must not drop exact saved concerns or Ground",
 	);
-	const d = change(
-		{ workflow: { id: "workflow:1", messageCount: 0 }, document: null, device: null, roleWork: { assignments: [child] } },
-		{ type: "replaceTask", workflow: "workflow:1", assignment: child.id, generation: 1, attempt: child.attempt, packet: child.packet },
-		{
-			...facts,
-			principal: { kind: "host", scope: "scheduling" },
-			ids: { fact: "fact:20", assignment: "replacement", attempt: "attempt:replacement" },
-		},
+	const d = decision(
+		change(
+			{ workflow: { id: "workflow:1", messageCount: 0 }, document: null, device: null, roleWork: { assignments: [child] } },
+			{ type: "replaceTask", workflow: "workflow:1", assignment: child.id, generation: 1, attempt: child.attempt, packet: child.packet },
+			{
+				...facts,
+				principal: { kind: "host", scope: "scheduling" },
+				ids: { fact: "fact:20", assignment: "replacement", attempt: "attempt:replacement" },
+			},
+		),
 	);
 	assert.equal(d.outcome, "accepted");
 	if (d.outcome !== "accepted") return;
@@ -273,12 +284,14 @@ test("V1 checkpoint save and approval preserve exact concerns in either order", 
 		let sequence = 30;
 		for (const command of saveFirst ? [save, approve] : [approve, save]) {
 			const before = structuredClone(state);
-			const d = change(state, command, {
-				...facts,
-				principal: { kind: "human", human: "human:owner", route: "local-admin" },
-				sequence: sequence++,
-				checkpointInputs: { "emission:old": { text: "original bytes", human: false, document: "emission" } },
-			});
+			const d = decision(
+				change(state, command, {
+					...facts,
+					principal: { kind: "human", human: "human:owner", route: "local-admin" },
+					sequence: sequence++,
+					checkpointInputs: { "emission:old": { text: "original bytes", human: false, document: "emission" } },
+				}),
+			);
 			assert.deepEqual(state, before, `${label}: pure transformation`);
 			assert.equal(
 				d.outcome === "accepted" ? d.outcome : d.code,
@@ -336,7 +349,7 @@ test("S11 V1 human and delegated routing captures survive defaults, replacement 
 			scope: "ground:1",
 			required: { candidates: false, experiment: false },
 		} as const;
-		const first = change(state, command, facts);
+		const first = decision(change(state, command, facts));
 		assert.equal(first.outcome, "accepted");
 		if (first.outcome !== "accepted") continue;
 		const captured = first.writes.find((w) => w.type === "checkpoints.replace");
@@ -355,7 +368,7 @@ test("S11 V1 human and delegated routing captures survive defaults, replacement 
 			{ kind: "human", human: "human:owner", route: "local-admin" },
 			{ kind: "host", scope: "scheduling" },
 		] as VerifiedFacts["principal"][]) {
-			const d = change(next, command, { ...facts, sequence: 21, principal });
+			const d = decision(change(next, command, { ...facts, sequence: 21, principal }));
 			assert.equal(
 				d.outcome === "refused" ? d.code : d.outcome,
 				principal.kind === "assignment-agent" ? "checkpoint_pending" : "forbidden_principal",
@@ -373,12 +386,52 @@ test("S06 Ground classifier shape confirmation remains authoritative at request 
 		["classifier", true, "accepted"],
 		["human", false, "accepted"],
 	] as const) {
-		const d = change(
+		const d = decision(
+			change(
+				{
+					workflow: { id: "workflow:1", messageCount: 0 },
+					document: null,
+					device: null,
+					roleWork: { assignments: [assignment("coordinator", "coordinator", ["ground:1"])] },
+				},
+				{
+					type: "requestCheckpoint",
+					workflow: "workflow:1",
+					stage: "seams",
+					scope: "ground:1",
+					required: { candidates: false, experiment: false },
+				},
+				{
+					...facts,
+					checkpointInputs: {
+						"ground:1": {
+							human: true,
+							document: "ground",
+							text: JSON.stringify({
+								schema: 1,
+								goal: "Understand service design",
+								constraints: [],
+								clarifications: [],
+								donePredicate: "Report boundaries",
+								shape: { value: "investigation", origin, confirmed },
+							}),
+						},
+					},
+				},
+			),
+		);
+		assert.equal(d.outcome === "refused" ? d.code : d.outcome, expected, "classifier suggestion cannot supply agreed task shape");
+	}
+});
+
+test("C16 coordinator cannot launder another Ground revision outside its assigned inputs", () => {
+	const d = decision(
+		change(
 			{
 				workflow: { id: "workflow:1", messageCount: 0 },
 				document: null,
 				device: null,
-				roleWork: { assignments: [assignment("coordinator", "coordinator", ["ground:1"])] },
+				roleWork: { assignments: [assignment("coordinator", "coordinator", [])] },
 			},
 			{
 				type: "requestCheckpoint",
@@ -387,44 +440,8 @@ test("S06 Ground classifier shape confirmation remains authoritative at request 
 				scope: "ground:1",
 				required: { candidates: false, experiment: false },
 			},
-			{
-				...facts,
-				checkpointInputs: {
-					"ground:1": {
-						human: true,
-						document: "ground",
-						text: JSON.stringify({
-							schema: 1,
-							goal: "Understand service design",
-							constraints: [],
-							clarifications: [],
-							donePredicate: "Report boundaries",
-							shape: { value: "investigation", origin, confirmed },
-						}),
-					},
-				},
-			},
-		);
-		assert.equal(d.outcome === "refused" ? d.code : d.outcome, expected, "classifier suggestion cannot supply agreed task shape");
-	}
-});
-
-test("C16 coordinator cannot launder another Ground revision outside its assigned inputs", () => {
-	const d = change(
-		{
-			workflow: { id: "workflow:1", messageCount: 0 },
-			document: null,
-			device: null,
-			roleWork: { assignments: [assignment("coordinator", "coordinator", [])] },
-		},
-		{
-			type: "requestCheckpoint",
-			workflow: "workflow:1",
-			stage: "seams",
-			scope: "ground:1",
-			required: { candidates: false, experiment: false },
-		},
-		facts,
+			facts,
+		),
 	);
 	assert.equal(d.outcome === "refused" ? d.code : d.outcome, "forbidden_scope");
 });

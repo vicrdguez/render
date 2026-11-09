@@ -8,6 +8,7 @@ import type { RoleAssignment, RolePacket } from "../src/kernel/roles.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { until } from "./support/investigation.ts";
+import { decision } from "./support/kernel.ts";
 import { admin, allowSameFamily, packet, roleFixture } from "./support/roles.ts";
 
 function accepted(reply: CommandReply) {
@@ -261,36 +262,38 @@ for (const mode of ["human", "delegated"] as const) {
 				for (const status of ["submitted", "blocked", "canceled"] as const) {
 					const assignments = structuredClone(x.assignments());
 					assignments.find((v) => v.id === a.id)!.status = status;
-					const decision = change(
-						{
-							workflow: { id: "workflow:2", messageCount: 0 },
-							document: null,
-							device: null,
-							checkpoints,
-							roleWork: { assignments },
-							policy: frame.policy as KernelState["policy"],
-						},
-						command,
-						{
-							principal: {
-								kind: "assignment-agent",
-								assignment: x.parent.id,
-								generation: 1,
-								attempt: x.parent.attempt,
-								role: "coordinator",
+					const d = decision(
+						change(
+							{
+								workflow: { id: "workflow:2", messageCount: 0 },
+								document: null,
+								device: null,
+								checkpoints,
+								roleWork: { assignments },
+								policy: frame.policy as KernelState["policy"],
 							},
-							executorEpoch: x.parent.executorEpoch!,
-							sequence: 1000,
-							ids: { fact: "fact:1000" },
-							checkpointInputs: {
-								[ar]: { text: answer("Compact interface"), human: false, document: "role-report/A" },
-								[br]: { text: answer("Independent boundaries"), human: false, document: "role-report/B" },
-								[review as string]: { text: reviewBytes.content.toString(), human: false, document: "role-report/review" },
+							command,
+							{
+								principal: {
+									kind: "assignment-agent",
+									assignment: x.parent.id,
+									generation: 1,
+									attempt: x.parent.attempt,
+									role: "coordinator",
+								},
+								executorEpoch: x.parent.executorEpoch!,
+								sequence: 1000,
+								ids: { fact: "fact:1000" },
+								checkpointInputs: {
+									[ar]: { text: answer("Compact interface"), human: false, document: "role-report/A" },
+									[br]: { text: answer("Independent boundaries"), human: false, document: "role-report/B" },
+									[review as string]: { text: reviewBytes.content.toString(), human: false, document: "role-report/review" },
+								},
 							},
-						},
+						),
 					);
 					assert.equal(
-						decision.outcome === "refused" ? decision.code : decision.outcome,
+						d.outcome === "refused" ? d.code : d.outcome,
 						status === "submitted" ? "accepted" : "missing_candidate_evidence",
 						"delegated advancement must retain required candidate completion checks",
 					);
@@ -426,39 +429,41 @@ test("D3 exhaustive candidate status and request matrix requires both submitted 
 						roleWork: { assignments },
 						checkpoints,
 					};
-					const decision = change(
-						state,
-						{
-							type: "stageCheckpoint",
-							workflow: "workflow:2",
-							request,
-							text: "Synthesis",
-							manifest: {
-								...manifest,
-								stage: "seams",
-								nodes: [{ ...manifest.nodes[0]!, classification: "judgment", evidence: ["answer:0", "answer:1"] }],
+					const d = decision(
+						change(
+							state,
+							{
+								type: "stageCheckpoint",
+								workflow: "workflow:2",
+								request,
+								text: "Synthesis",
+								manifest: {
+									...manifest,
+									stage: "seams",
+									nodes: [{ ...manifest.nodes[0]!, classification: "judgment", evidence: ["answer:0", "answer:1"] }],
+								},
 							},
-						},
-						{
-							principal: {
-								kind: "assignment-agent",
-								assignment: x.parent.id,
-								generation: 1,
-								attempt: x.parent.attempt,
-								role: "coordinator",
+							{
+								principal: {
+									kind: "assignment-agent",
+									assignment: x.parent.id,
+									generation: 1,
+									attempt: x.parent.attempt,
+									role: "coordinator",
+								},
+								executorEpoch: x.parent.executorEpoch!,
+								sequence: 1000,
+								ids: { fact: "fact:1000" },
+								checkpointInputs: {
+									[x.ground]: { text: "Ground", human: true, document: "ground" },
+									"answer:0": { text: answer("A"), human: false, document: "role-report/A" },
+									"answer:1": { text: answer("B"), human: false, document: "role-report/B" },
+								},
 							},
-							executorEpoch: x.parent.executorEpoch!,
-							sequence: 1000,
-							ids: { fact: "fact:1000" },
-							checkpointInputs: {
-								[x.ground]: { text: "Ground", human: true, document: "ground" },
-								"answer:0": { text: answer("A"), human: false, document: "role-report/A" },
-								"answer:1": { text: answer("B"), human: false, document: "role-report/B" },
-							},
-						},
+						),
 					);
 					assert.equal(
-						decision.outcome === "refused" ? decision.code : decision.outcome,
+						d.outcome === "refused" ? d.code : d.outcome,
 						!foreignRequest && firstStatus === "submitted" && secondStatus === "submitted" ? "accepted" : "missing_candidate_evidence",
 						`firstStatus=${firstStatus}, secondStatus=${secondStatus}, foreignRequest=${foreignRequest}`,
 					);
@@ -542,20 +547,22 @@ test("D1/D3 candidate assignment retains accepted Contract scope and permanent c
 		},
 	};
 	const assign = (inputs: string[]) =>
-		change(
-			state,
-			{
-				type: "assignTask",
-				workflow: "workflow:2",
-				slice: "comparison",
-				delivery: false,
-				packet: packet({ role: "candidate", inputs }),
-			},
-			{
-				principal: { kind: "host", scope: "scheduling" },
-				sequence: 10,
-				ids: { fact: "fact:10", assignment: "candidate:10", attempt: "attempt:10" },
-			},
+		decision(
+			change(
+				state,
+				{
+					type: "assignTask",
+					workflow: "workflow:2",
+					slice: "comparison",
+					delivery: false,
+					packet: packet({ role: "candidate", inputs }),
+				},
+				{
+					principal: { kind: "host", scope: "scheduling" },
+					sequence: 10,
+					ids: { fact: "fact:10", assignment: "candidate:10", attempt: "attempt:10" },
+				},
+			),
 		);
 	const missing = assign([]);
 	assert.equal(

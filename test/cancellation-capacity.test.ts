@@ -1,26 +1,29 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { change, type KernelState, type Principal, type VerifiedFacts } from "../src/kernel/kernel.ts";
+import { decision } from "./support/kernel.ts";
 import { packet } from "./support/roles.ts";
 
 const host: Principal = { kind: "host", scope: "scheduling" };
 const human: Principal = { kind: "human", human: "human:owner", route: "local-admin" };
 const state = () => ({ workflow: { id: "workflow:1", messageCount: 0 }, document: null, device: null, roleWork: { assignments: [] } });
 function decide(s: KernelState, c: Record<string, unknown>, principal = host, sequence = 1) {
-	return change(
-		s,
-		{ workflow: "workflow:1", ...c } as never,
-		{
-			principal,
-			sequence,
-			ids: {
-				fact: `fact:${sequence}`,
-				assignment: `assignment:${sequence}`,
-				attempt: `attempt:${sequence}`,
-				revision: `revision:${sequence}`,
-			},
-			executorEpoch: "executor:1",
-		} as VerifiedFacts,
+	return decision(
+		change(
+			s,
+			{ workflow: "workflow:1", ...c } as never,
+			{
+				principal,
+				sequence,
+				ids: {
+					fact: `fact:${sequence}`,
+					assignment: `assignment:${sequence}`,
+					attempt: `attempt:${sequence}`,
+					revision: `revision:${sequence}`,
+				},
+				executorEpoch: "executor:1",
+			} as VerifiedFacts,
+		),
 	);
 }
 function accept(s: KernelState, c: Record<string, unknown>, principal = host, sequence = 1) {

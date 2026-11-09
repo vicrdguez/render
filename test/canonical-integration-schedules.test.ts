@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { type Command, change, type KernelState, type Principal, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { CatalogEvidence } from "../src/kernel/verification.ts";
 import { assessment, capture, selection } from "./support/implementation.ts";
+import { decision } from "./support/kernel.ts";
 import { seeded } from "./support/random.ts";
 import { packet } from "./support/roles.ts";
 
@@ -159,24 +160,24 @@ function run(schedule: { slice: Slice; step: Step }[], coverage: Coverage): stri
 				},
 			};
 			// Deeply frozen inputs: any Kernel write to state, command or facts throws instead of passing silently.
-			let decision: ReturnType<typeof change>;
+			let d: ReturnType<typeof decision>;
 			try {
-				decision = change(freeze(state), freeze(input), freeze(facts) as unknown as VerifiedFacts);
+				d = decision(change(freeze(state), freeze(input), freeze(facts) as unknown as VerifiedFacts));
 			} catch (error) {
 				if (error instanceof TypeError && /read only|not extensible|frozen/.test(error.message))
 					assert.fail(`Kernel mutated input: ${error}`);
 				throw error;
 			}
-			if (expected) assert.equal(decision.outcome, expected, `${String(c.type)}: ${JSON.stringify(decision)}`);
-			if (decision.outcome === "refused") {
-				assert.ok(!("writes" in decision), "refusal cannot write");
-				return { refused: decision.code } as Record<string, unknown>;
+			if (expected) assert.equal(d.outcome, expected, `${String(c.type)}: ${JSON.stringify(d)}`);
+			if (d.outcome === "refused") {
+				assert.ok(!("writes" in d), "refusal cannot write");
+				return { refused: d.code } as Record<string, unknown>;
 			}
-			for (const write of decision.writes) {
+			for (const write of d.writes) {
 				if (write.type === "roles.replace") state = { ...state, roleWork: write.state };
 				if (write.type === "intakes.replace") state = { ...state, intakes: write.state };
 			}
-			return decision.result as Record<string, unknown>;
+			return d.result as Record<string, unknown>;
 		}
 		const own = (id: string) => state.roleWork!.assignments.find((a) => a.id === id)!;
 		const agent = (id: string): Principal => {

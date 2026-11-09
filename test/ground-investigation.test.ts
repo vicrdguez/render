@@ -9,6 +9,7 @@ import { change, type KernelState, type VerifiedFacts } from "../src/kernel/kern
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { assignments, finding, ground, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
+import { decision } from "./support/kernel.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
 
@@ -40,10 +41,12 @@ test("G01/G02 Kernel distinguishes human shape from unconfirmed classification",
 			investigationGround: { ...ground, shape: { ...ground.shape, origin, confirmed } },
 		} as VerifiedFacts;
 		const before = structuredClone([state, facts]);
-		const result = change(
-			state,
-			{ type: "assignTask", workflow: "workflow:2", slice: "workflow:2", delivery: false, packet: investigationPacket("revision:3") },
-			facts,
+		const result = decision(
+			change(
+				state,
+				{ type: "assignTask", workflow: "workflow:2", slice: "workflow:2", delivery: false, packet: investigationPacket("revision:3") },
+				facts,
+			),
 		);
 		assert.equal(
 			result.outcome === "accepted" ? "accepted" : result.code,
@@ -55,11 +58,13 @@ test("G01/G02 Kernel distinguishes human shape from unconfirmed classification",
 });
 
 test("G04 malformed delivery packet remains an ordinary Kernel refusal", () => {
-	const result = change(
-		{ workflow: { id: "workflow:2", messageCount: 0 }, document: null, device: null },
-		// @ts-expect-error intentionally bypass the closed command type to exercise runtime refusal
-		{ type: "assignTask", workflow: "workflow:2", slice: "workflow:2", delivery: true },
-		{ principal: { kind: "host", scope: "scheduling" }, sequence: 4, ids: { fact: "fact:4" } },
+	const result = decision(
+		change(
+			{ workflow: { id: "workflow:2", messageCount: 0 }, document: null, device: null },
+			// @ts-expect-error intentionally bypass the closed command type to exercise runtime refusal
+			{ type: "assignTask", workflow: "workflow:2", slice: "workflow:2", delivery: true },
+			{ principal: { kind: "host", scope: "scheduling" }, sequence: 4, ids: { fact: "fact:4" } },
+		),
 	);
 	assert.deepEqual(result, {
 		outcome: "refused",

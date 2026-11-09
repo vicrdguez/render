@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { type Command, change, type KernelState, type Principal, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { ImplementationPass } from "../src/kernel/roles.ts";
 import { assessment, capture, selection } from "./support/implementation.ts";
+import { decision } from "./support/kernel.ts";
 import { seeded } from "./support/random.ts";
 import { packet } from "./support/roles.ts";
 
@@ -79,18 +80,18 @@ function run(steps: Probe[], coverage?: Coverage): string | undefined {
 				},
 			};
 			const before = JSON.stringify([state, input, facts]);
-			const decision = change(state, input, facts as VerifiedFacts);
+			const d = decision(change(state, input, facts as VerifiedFacts));
 			assert.equal(JSON.stringify([state, input, facts]), before, "Kernel mutated input");
-			assert.equal(decision.outcome, expected, `${String(c.type)}: ${JSON.stringify(decision)}`);
-			if (decision.outcome === "refused") {
-				assert.ok(!("writes" in decision), "refusal cannot write");
+			assert.equal(d.outcome, expected, `${String(c.type)}: ${JSON.stringify(d)}`);
+			if (d.outcome === "refused") {
+				assert.ok(!("writes" in d), "refusal cannot write");
 				return {};
 			}
-			for (const write of decision.writes) {
+			for (const write of d.writes) {
 				if (write.type === "roles.replace") state = { ...state, roleWork: write.state };
 				if (write.type === "intakes.replace") state = { ...state, intakes: write.state };
 			}
-			return decision.result;
+			return d.result;
 		}
 		const first = command({ type: "assignTask", slice: "slice", delivery: true, packet: writer });
 		assert.equal(first.passRef, "pass:workflow:implementation:slice:1");

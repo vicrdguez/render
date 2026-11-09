@@ -6,6 +6,7 @@ import { Engine } from "../src/engine/runtime.ts";
 import { change, type KernelState, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
+import { decision } from "./support/kernel.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
 
 // These values are literal accepted-boundary oracles, not derived from report implementation.
@@ -51,7 +52,9 @@ test("B4 Kernel requires an explicit web reliance declaration and own promoted s
 		[{ supports: ["revision:4"] }, "retained"],
 	] as const) {
 		const before = structuredClone(state);
-		const d = change(state, { type: "submitRoleResult", workflow: "workflow:1", text: "Exact report.", ...declaration } as never, facts);
+		const d = decision(
+			change(state, { type: "submitRoleResult", workflow: "workflow:1", text: "Exact report.", ...declaration } as never, facts),
+		);
 		assert.equal(
 			d.outcome === "refused" ? d.code : d.result.webEvidence,
 			expected,

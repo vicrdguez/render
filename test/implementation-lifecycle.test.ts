@@ -20,6 +20,7 @@ import {
 	selection,
 } from "./support/implementation.ts";
 import { ground, saveGround } from "./support/investigation.ts";
+import { decision } from "./support/kernel.ts";
 import { admin, packet } from "./support/roles.ts";
 
 const scheduling: Principal = { kind: "host", scope: "scheduling" };
@@ -67,22 +68,24 @@ function pure(overrides: Partial<RolePacket> = {}) {
 	function command(c: Record<string, unknown>, principal: Principal = scheduling, extra: Record<string, unknown> = {}) {
 		sequence++;
 		const before = structuredClone(state);
-		const result = change(
-			state,
-			{ ...c, workflow: state.workflow!.id } as Command,
-			{
-				principal,
-				sequence,
-				executorEpoch: "executor:1",
-				implementationSource: retainedSource,
-				ids: {
-					fact: `fact:${sequence}`,
-					revision: `revision:${sequence}`,
-					assignment: `assignment:${sequence}`,
-					attempt: `attempt:${sequence}`,
-				},
-				...extra,
-			} as VerifiedFacts,
+		const result = decision(
+			change(
+				state,
+				{ ...c, workflow: state.workflow!.id } as Command,
+				{
+					principal,
+					sequence,
+					executorEpoch: "executor:1",
+					implementationSource: retainedSource,
+					ids: {
+						fact: `fact:${sequence}`,
+						revision: `revision:${sequence}`,
+						assignment: `assignment:${sequence}`,
+						attempt: `attempt:${sequence}`,
+					},
+					...extra,
+				} as VerifiedFacts,
+			),
 		);
 		assert.deepEqual(state, before, "Kernel cannot mutate its input");
 		if (result.outcome === "accepted")

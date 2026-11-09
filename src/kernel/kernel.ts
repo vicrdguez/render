@@ -2,7 +2,6 @@
 // and verified facts, and stages the returned writes atomically.
 
 import * as Effect from "effect/Effect";
-import * as Result from "effect/Result";
 import { type CheckpointSettings, changeCheckpointSettings, type SettingsCommand } from "./checkpoint-settings.ts";
 import {
 	CHECKPOINT_COMMANDS,
@@ -350,7 +349,7 @@ function fail(code: RefusalCode, reason: string, refs?: Record<string, string | 
 }
 
 /** Pure, synchronous-interpretable Kernel program. Refusals use the typed error channel; defects stay defects. */
-export const changeEffect = Effect.fnUntraced(function* (state: KernelState, command: Command, facts: VerifiedFacts) {
+export const change = Effect.fnUntraced(function* (state: KernelState, command: Command, facts: VerifiedFacts) {
 	const denied = commandPermission(command.type, facts.principal);
 	if (denied) return yield* Effect.fail(denied);
 
@@ -521,12 +520,6 @@ export const changeEffect = Effect.fnUntraced(function* (state: KernelState, com
 			return yield* fail("unknown_command", `Unknown command type "${command.type}".`);
 	}
 }) satisfies (state: KernelState, command: Command, facts: VerifiedFacts) => Effect.Effect<Accepted, Refusal>;
-
-/** Existing Ledger seam: interpret synchronously, preserving plain decisions and fail-stop defects. */
-export function change(state: KernelState, command: Command, facts: VerifiedFacts): Decision {
-	const result = Effect.runSync(Effect.result(changeEffect(state, command, facts)));
-	return Result.isFailure(result) ? result.failure : result.success;
-}
 
 function required(id: string | undefined): string {
 	if (id === undefined) throw new Error("Ledger did not supply the identity this command creates");

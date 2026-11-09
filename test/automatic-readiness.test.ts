@@ -24,6 +24,7 @@ import {
 	W,
 	X2,
 } from "./support/integration.ts";
+import { decision } from "./support/kernel.ts";
 import { admin, scheduler } from "./support/roles.ts";
 
 type Item = {
@@ -405,12 +406,14 @@ function kernelProposal() {
 	let sequence = 10;
 	const run = (command: Record<string, unknown>) => {
 		sequence++;
-		const d = change(state, { ...command, workflow: KW } as never, {
-			principal: host,
-			sequence,
-			executorEpoch: "epoch:1",
-			ids: { revision: `revision:${sequence}`, fact: `fact:${sequence}` },
-		});
+		const d = decision(
+			change(state, { ...command, workflow: KW } as never, {
+				principal: host,
+				sequence,
+				executorEpoch: "epoch:1",
+				ids: { revision: `revision:${sequence}`, fact: `fact:${sequence}` },
+			}),
+		);
 		if (d.outcome !== "accepted") return { code: d.code, result: {}, text: "" };
 		const write = d.writes.find((w) => w.type === "publication.replace") as { state: Publication; documents: { text: string }[] };
 		state = { ...state, publication: write.state };

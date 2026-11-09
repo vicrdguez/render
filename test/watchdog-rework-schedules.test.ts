@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { type Command, change, type KernelState, type Principal, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { CatalogEvidence } from "../src/kernel/verification.ts";
 import { assessment, capture, selection } from "./support/implementation.ts";
+import { decision } from "./support/kernel.ts";
 import { packet } from "./support/roles.ts";
 
 const host: Principal = { kind: "host", scope: "scheduling" };
@@ -95,19 +96,19 @@ function run(schedule: { limit: number; steps: Step[] }, coverage?: Coverage): s
 				},
 			};
 			const before = JSON.stringify([state, input, facts]);
-			const decision = change(state, input, facts as unknown as VerifiedFacts);
+			const d = decision(change(state, input, facts as unknown as VerifiedFacts));
 			assert.equal(JSON.stringify([state, input, facts]), before, "Kernel mutated input");
-			assert.equal(decision.outcome, expected, `${String(c.type)}: ${JSON.stringify(decision)}`);
-			if (decision.outcome === "refused") {
-				assert.ok(!("writes" in decision), "refusal cannot write");
-				return { code: decision.code } as Record<string, unknown>;
+			assert.equal(d.outcome, expected, `${String(c.type)}: ${JSON.stringify(d)}`);
+			if (d.outcome === "refused") {
+				assert.ok(!("writes" in d), "refusal cannot write");
+				return { code: d.code } as Record<string, unknown>;
 			}
-			for (const write of decision.writes) {
+			for (const write of d.writes) {
 				if (write.type === "roles.replace") state = { ...state, roleWork: write.state };
 				if (write.type === "intakes.replace") state = { ...state, intakes: write.state };
 				if (write.type === "policy.replace") state = { ...state, policy: write.state };
 			}
-			return decision.result as Record<string, unknown>;
+			return d.result as Record<string, unknown>;
 		}
 		const own = (id: string) => state.roleWork!.assignments.find((a) => a.id === id)!;
 		const agent = (id: string): Principal => {

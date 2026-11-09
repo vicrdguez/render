@@ -3,6 +3,8 @@
 import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId, EntryId, Harness, Tx } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import { type Source, treeOid, validateEntries } from "../effects/source.ts";
 import { type PromptInput, renderLocalVerification } from "../engine/local-verification.ts";
 import type { RoleTaskStaging } from "../engine/runtime.ts";
@@ -939,8 +941,9 @@ export class Ledger {
 			document,
 			device: target?.exists ? { id: target.device, revoked: target.revokedAtSequence !== null } : null,
 		};
-		const decision = change(state, command, facts);
-		if (decision.outcome === "refused") throw new Abort(fromKernel(decision));
+		const result = Effect.runSync(Effect.result(change(state, command, facts)));
+		if (Result.isFailure(result)) throw new Abort(fromKernel(result.failure));
+		const decision = result.success;
 
 		const by: AcceptedBy =
 			current.kind === "human"

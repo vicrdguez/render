@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { ExperimentProtocol } from "../src/kernel/experiments.ts";
 import { type Command, change, type KernelState, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
+import { decision } from "./support/kernel.ts";
 import { packet } from "./support/roles.ts";
 
 const protocol: ExperimentProtocol = {
@@ -84,7 +85,7 @@ function assignment(): RoleAssignment {
 }
 function decide(s: KernelState, command: Command) {
 	const before = structuredClone(s);
-	const result = change(s, command, facts);
+	const result = decision(change(s, command, facts));
 	assert.deepEqual(s, before, "legality must leave input state unchanged");
 	return result;
 }

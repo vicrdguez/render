@@ -10,7 +10,7 @@ const create = { type: "createWorkflow", title: "First" } as const;
 test("Kernel Effect yields the accepted writes without mutating its input", async () => {
 	const Effect = await import("effect/Effect");
 	const before = structuredClone(state);
-	const decision = Effect.runSync(kernel.changeEffect(state, create, facts));
+	const decision = Effect.runSync(kernel.change(state, create, facts));
 	assert.equal(decision.outcome, "accepted");
 	assert.deepEqual(decision.result, { workflow: "workflow:1" });
 	assert.deepEqual(decision.writes[0], { type: "workflow.create", workflow: "workflow:1", title: "First" });
@@ -21,13 +21,10 @@ test("Kernel Effect yields the accepted writes without mutating its input", asyn
 test("Kernel Effect exposes authorization refusal as its typed failure before asking for identities", async () => {
 	const Effect = await import("effect/Effect");
 	const outcome = Effect.runSync(
-		Effect.match(
-			kernel.changeEffect(state, create, { ...facts, principal: { kind: "host", scope: "scheduling" }, ids: { fact: "fact:1" } }),
-			{
-				onFailure: (refusal) => refusal,
-				onSuccess: () => assert.fail("an unauthorized host must not create a workflow"),
-			},
-		),
+		Effect.match(kernel.change(state, create, { ...facts, principal: { kind: "host", scope: "scheduling" }, ids: { fact: "fact:1" } }), {
+			onFailure: (refusal) => refusal,
+			onSuccess: () => assert.fail("an unauthorized host must not create a workflow"),
+		}),
 	);
 	assert.equal(outcome.outcome, "refused");
 	assert.equal(outcome.code, "forbidden_principal");
@@ -36,5 +33,5 @@ test("Kernel Effect exposes authorization refusal as its typed failure before as
 
 test("Kernel Effect does not disguise a missing Ledger identity as a domain refusal", async () => {
 	const Effect = await import("effect/Effect");
-	assert.throws(() => Effect.runSync(kernel.changeEffect(state, create, { ...facts, ids: { fact: "fact:1" } })));
+	assert.throws(() => Effect.runSync(kernel.change(state, create, { ...facts, ids: { fact: "fact:1" } })));
 });
