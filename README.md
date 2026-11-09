@@ -2,6 +2,7 @@
 A durable, event-backed orchestration kernel built around pure domain transitions, with agents and decision models acting as external workers.
 
 - Design authority: [docs/spec.md](docs/spec.md)
+- Effect programs and ownership: [docs/effect.md](docs/effect.md)
 - Host protocol: [docs/protocol.md](docs/protocol.md)
 - Operating the host: [docs/operations.md](docs/operations.md)
 - Verification: [.render/verify.md](.render/verify.md)

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
@@ -61,7 +62,7 @@ test("context-continuation-independence: replacement requires fencing and quiesc
 		assert.equal(assignments(f)[0]?.status, "canceled");
 		await f.reopen();
 		assert.equal(assignments(f)[1]?.predecessor, old.id);
-		const bundle = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in bundle && bundle.manifest.complete);
 		assert.ok(bundle.jsonl.includes(old.id));
 		assert.ok(bundle.jsonl.includes(fresh.id));
@@ -159,7 +160,7 @@ for (const source of [
 			assert.equal(prior.status, "submitted");
 			const ref = source.kind === "packet" ? prior.packetRef : prior.report;
 			assert.ok(ref);
-			const retained = await f.ledger.artifact(admin, { read: ref });
+			const retained = await Effect.runPromise(f.ledger.artifact(admin, { read: ref }));
 			assert.ok("content" in retained);
 			if (source.kind === "report") assert.equal(retained.content.toString(), canary);
 			const reply = await f.command({

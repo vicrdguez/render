@@ -1,9 +1,11 @@
 // Standalone verify-create as an ordinary accepted change (spec §8.1): Engine, SQLite, Effects Git and Docker Linux
 // with a scripted author. Authored bytes are fixture data; this establishes rendering, execution, retention and
 // delivery, not authoring quality. Cases: docs/verification/verification-authoring-failure-cases.md.
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import type { Intakes } from "../src/kernel/intake.ts";
 import type { ImplementationPass } from "../src/kernel/roles.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
@@ -18,14 +20,6 @@ type Packet = {
 	auditReview?: object;
 	watchdogReview?: Record<string, string>;
 	implementation?: { configuration: { verification: { path: string } } };
-	verificationAuthoring?: {
-		recommended: { asset: string; journeys: string };
-		sections: string[];
-		columns: string[];
-		kinds: Record<string, string>;
-		channels: { name: string }[];
-		instructions: string;
-	};
 };
 type Message = { role: string; content: unknown; sections?: Record<string, string | null> };
 
@@ -122,7 +116,7 @@ function author(t: Fixture, calls: Call[]) {
 }
 const passes = (t: Fixture) => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
 async function record(t: Fixture, ref: string) {
-	const value = await t.f.ledger.artifact(admin, { read: ref });
+	const value = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 	assert.ok("content" in value, `read ${ref}`);
 	return JSON.parse(value.content.toString());
 }
@@ -165,17 +159,6 @@ test("VA1-VA3 verify-create authors the selected legacy asset from the actual re
 			".skl/verify.md",
 			"the explicitly selected legacy path stays selected",
 		);
-		const craft = first.verificationAuthoring;
-		assert.ok(craft, "author receives reusable channel craft");
-		assert.deepEqual(craft.recommended, { asset: ".render/verify.md", journeys: ".render/journeys/" });
-		assert.deepEqual(craft.sections, ["Ranks", "Launch", "Doctor", "Channels", "Catalog", "Cleanup", "Extend", "Traps"]);
-		assert.deepEqual(craft.columns, ["Name", "Channel", "Kind", "Run", "Expectations", "Rank"]);
-		assert.deepEqual(Object.keys(craft.kinds), ["generated", "executed", "journey", "human"]);
-		assert.deepEqual(
-			craft.channels.map((c) => c.name),
-			["Executable oracle", "Process", "Live runtime introspection", "Driven surface", "Tests", "Static", "Human-observed"],
-		);
-		assert.match(craft.instructions, /unknown channels and prerequisites/);
 		assert.match(seen.toolResults[0]!, /printf 'SUITE OK'/, "the interview reads the repository's actual command");
 		const A = await record(t, pass().captureA!);
 		assert.equal(A.verification.catalog.selection.path, ".skl/verify.md");

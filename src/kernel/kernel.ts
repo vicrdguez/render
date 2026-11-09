@@ -340,10 +340,6 @@ export function commandPermission(type: string, principal: Principal): Refusal |
 
 type Accepted = Extract<Decision, { outcome: "accepted" }>;
 
-// Transitional bridge for command families not yet migrated to Effect. It never catches defects.
-function fromDecision(decision: Decision): Effect.Effect<Accepted, Refusal> {
-	return decision.outcome === "refused" ? Effect.fail(decision) : Effect.succeed(decision);
-}
 function fail(code: RefusalCode, reason: string, refs?: Record<string, string | null>, repair?: Repair[]): Effect.Effect<never, Refusal> {
 	return Effect.fail(refuse(code, reason, refs, repair));
 }
@@ -354,16 +350,15 @@ export const change = Effect.fnUntraced(function* (state: KernelState, command: 
 	if (denied) return yield* Effect.fail(denied);
 
 	if (command.type === "changeCheckpointSettings" || command.type === "importCheckpointSettings")
-		return yield* fromDecision(changeCheckpointSettings(state, command as SettingsCommand, facts));
-	if (command.type === "changePolicy" || command.type === "adoptPolicy")
-		return yield* fromDecision(changePolicy(state, command as PolicyCommand, facts));
-	if (INTAKE_COMMANDS.includes(command.type)) return yield* fromDecision(changeIntake(state, command as IntakeCommand, facts));
-	if (CHECKPOINT_COMMANDS.includes(command.type)) return yield* fromDecision(changeCheckpoint(state, command as CheckpointCommand, facts));
+		return yield* changeCheckpointSettings(state, command as SettingsCommand, facts);
+	if (command.type === "changePolicy" || command.type === "adoptPolicy") return yield* changePolicy(state, command as PolicyCommand, facts);
+	if (INTAKE_COMMANDS.includes(command.type)) return yield* changeIntake(state, command as IntakeCommand, facts);
+	if (CHECKPOINT_COMMANDS.includes(command.type)) return yield* changeCheckpoint(state, command as CheckpointCommand, facts);
 	if (ROLE_COMMANDS.includes(command.type)) return yield* changeRole(state, command as RoleCommand, facts);
 	if (PUBLICATION_COMMANDS.includes(command.type)) {
 		const c = command as PublicationCommand;
 		if (!inScope(facts.principal, c.workflow)) return yield* fail("forbidden_scope", `${c.workflow} is outside this device's scope.`);
-		return yield* fromDecision(changePublication(state, c, facts));
+		return yield* changePublication(state, c, facts);
 	}
 
 	const c = command as Extract<

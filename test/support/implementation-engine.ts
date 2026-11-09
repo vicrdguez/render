@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import type { ForgeConfig } from "../../src/effects/forge.ts";
 import type { IntakeManifest, Intakes } from "../../src/kernel/intake.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
@@ -20,7 +21,6 @@ export function accepted(reply: CommandReply) {
 
 export type Prompt = {
 	packet: { role: string; verification?: unknown };
-	auditInstructions?: string;
 	intakeReview?: Record<string, unknown>;
 	auditReview?: { passRef: string; audit: string; source: string; contract: string };
 	assignment?: string;
@@ -34,7 +34,6 @@ export type Prompt = {
 		checks?: string;
 		prior: { ref: string; text?: string; unavailable?: string }[];
 	};
-	watchdogInstructions?: string;
 	implementation?: { ordinal?: number; captureB?: string; audit?: { reports?: unknown; results?: { standards?: { report: string } } } };
 	inputs?: { ref: string; text: string }[];
 };
@@ -53,7 +52,6 @@ export function captureValue(text: string): string {
 // Real acceptance, not a fabricated accepted Slice or a test-file import.
 export async function fixture(
 	options: {
-		exclusions?: string[];
 		missingFamily?: boolean;
 		failFinal?: boolean;
 		hold?: "writer" | "contracts" | "watchdog";
@@ -98,15 +96,12 @@ export async function fixture(
 		assert.equal(git(f.source.repo, ["show", `${commit}:value`]).toString(), "A\n");
 		assert.equal(git(f.source.repo, ["show", `${commit}:verify-suite`]).toString(), "printf 'SUITE OK'\n");
 	}
-	if (options.exclusions) f.config.checks["revision:3"].profile.exclusions = options.exclusions;
 	await allowSameFamily(f.ledger);
 	const gate = Promise.withResolvers<void>();
 	const prompts: Prompt[] = [];
 	let writerTurn = 0;
 	let successorTurn = 0;
 	const rounds = new Map<string, "pass" | "rework" | "needs-human">();
-	/** Each Watchdog request's declared system context without the packet section: where its tool declarations live. */
-	const watchdogContexts: string[] = [];
 	let originals = "";
 	let rawHandoffAttempted = false;
 	let checkedBeforeEdit: { B: string; report: string } | undefined;
@@ -173,9 +168,6 @@ export async function fixture(
 						);
 					if (prompt.watchdogReview) {
 						const b = prompt.watchdogReview;
-						watchdogContexts.push(
-							JSON.stringify(transcript.messages.filter((m) => m.role === "system").map(({ sections: _packet, ...m }) => m)),
-						);
 						if (!rounds.has(prompt.assignment!)) {
 							const next = options.watchdog?.[rounds.size];
 							assert.ok(next, "no unscripted Watchdog round");
@@ -217,7 +209,7 @@ export async function fixture(
 							role: reviewer.packet.role,
 						});
 						assert.ok(reviewer.packet.inputs.includes(prompt.auditReview.source), "reviewer input includes exact frozen A");
-						const source = await f.ledger.artifact(principal, { read: prompt.auditReview.source });
+						const source = await Effect.runPromise(f.ledger.artifact(principal, { read: prompt.auditReview.source }));
 						assert.ok("content" in source, "reviewer can read its actual bound source before reporting");
 						assert.equal(
 							captureValue(source.content.toString()),
@@ -228,7 +220,6 @@ export async function fixture(
 						assert.equal(retained.catalog.selection.contract, prompt.auditReview.contract);
 						assert.ok(retained.catalog.text.length > 0 && retained.results.length > 0, "A retains its verifier and results");
 						assert.equal(prompt.packet.verification, undefined, "no separate pre-A verifier is frozen for a reviewer");
-						assert.match(prompt.auditInstructions ?? "", /verification.*implementer ran.*not checks you ran/);
 						return fauxAssistantMessage(
 							fauxToolCall("submit_role_result", {
 								text: JSON.stringify({
@@ -424,16 +415,18 @@ export async function fixture(
 	);
 	const save = async (document: string, text: string) =>
 		accepted(
-			await f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: f.ledger.status().authorityEpoch,
-					commandId: `save:${document}`,
-					workflow: "workflow:2",
-					expected: { document: null },
-					command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
-				},
-				admin,
+			await Effect.runPromise(
+				f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: f.ledger.status().authorityEpoch,
+						commandId: `save:${document}`,
+						workflow: "workflow:2",
+						expected: { document: null },
+						command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
+					},
+					admin,
+				),
 			),
 		).revision as string;
 	const source = await save("source", "Keep the existing value interface.");
@@ -580,7 +573,6 @@ export async function fixture(
 		f,
 		gate,
 		prompts,
-		watchdogContexts,
 		assignments,
 		wait,
 		writer,

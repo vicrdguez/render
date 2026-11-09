@@ -1,9 +1,11 @@
 // V9 host process: the real Ledger/Engine/Pi Durable composition with HTTP and admin listeners on an owned store, 100
 // active delivery-owned Slices and four executing role attempts whose scripted provider streams transcript text and
 // tool calls without end. Only the provider is scripted; its latency is excluded from what the parent measures.
+
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import { adminServer, deviceServer } from "../../src/ledger/http.ts";
@@ -46,23 +48,27 @@ const stream = (transcript: { messages: { role: string; sections?: Record<string
 };
 provider.setResponses(Array(1_000_000).fill(stream));
 const engine = new Engine({ provider: provider.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } });
-const opened = await openLedger({ data, runtime: (report) => engine.options(report), onFatal: (error) => console.error(error) });
+const opened = await Effect.runPromise(
+	openLedger({ data, runtime: (report) => engine.options(report), onFatal: (error) => console.error(error) }),
+);
 const device = deviceServer(opened.ledger);
 await new Promise<void>((resolve) => device.listen(0, "127.0.0.1", () => resolve()));
 const socket = join(data, "admin.sock");
-const adminListener = await adminServer(opened.ledger, socket);
+const adminListener = await Effect.runPromise(adminServer(opened.ledger, socket));
 let n = 0;
 const command = async (workflow: string | undefined, command: Record<string, unknown>, context = admin, extra = {}) => {
-	const reply = await opened.ledger.command(
-		{
-			version: 1,
-			authorityEpoch: opened.authorityEpoch,
-			commandId: `v9-setup:${++n}`,
-			...(workflow ? { workflow } : {}),
-			command,
-			...extra,
-		},
-		context,
+	const reply = await Effect.runPromise(
+		opened.ledger.command(
+			{
+				version: 1,
+				authorityEpoch: opened.authorityEpoch,
+				commandId: `v9-setup:${++n}`,
+				...(workflow ? { workflow } : {}),
+				command,
+				...extra,
+			},
+			context,
+		),
 	);
 	if (reply.status !== "accepted") throw new Error(`V9 setup refused: ${JSON.stringify(reply)}`);
 	return reply.result;
@@ -133,5 +139,5 @@ process.on("SIGTERM", () => {
 	device.closeAllConnections();
 	device.close();
 	adminListener.close();
-	void opened.close().then(() => process.exit(0));
+	void Effect.runPromise(opened.close()).then(() => process.exit(0));
 });

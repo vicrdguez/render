@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import type { ForgeConfig } from "../../src/effects/forge.ts";
 import { Engine } from "../../src/engine/runtime.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
@@ -141,7 +142,7 @@ export async function runCatalog(f: Awaited<ReturnType<typeof catalogFixture>>, 
 	assert.ok(reply.status === "accepted");
 	const a = await settled(f, String(reply.result.assignment));
 	assert.equal(a.status, "submitted", a.blocker ?? "catalog execution should retain a receipt");
-	const read = await f.ledger.artifact(admin, { read: a.report! });
+	const read = await Effect.runPromise(f.ledger.artifact(admin, { read: a.report! }));
 	assert.ok("content" in read);
 	return { a, read, receipt: JSON.parse(read.content.toString()) };
 }

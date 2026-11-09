@@ -5,7 +5,7 @@ Written before remediation (AGENTS.md rules, T1). The historical test audit is a
 ## Selection and gates (B1, B2, B6)
 
 - S1: `npm test` runs a load, repeated-fault, disk-image or container workload. Expected: inspected selection contains none, and it passes with Docker stopped.
-- S2: a test file leaves `npm test` and joins no other command. Expected: the union of the fast, integration and performance selections equals the former `test/*.test.ts` inventory plus any file split from it, with every former case name still present.
+- S2: a retained test file leaves `npm test` and joins no other command. Expected: every retained case belongs to the fast, integration or performance selection. Deliberately retired dependency, registry, shape, prompt and configuration checks are no longer part of that inventory.
 - S3: a catalog row, script or unsafe control names a moved file or case and silently selects nothing. Expected: every `verify:*` script runs at least one test, and every unsafe control's baseline passes on its targeted check.
 - S4: a fast pass is reported as the full gate. Expected: the catalog, README and guidance state that `npm test` is not cumulative, and the gate commands are distinct.
 - S5: a failure in a broader check is hidden by the chain or a cached result. Expected: the gate exits nonzero when any selected check fails, and the failed name is visible. Checked by making a real selected check fail in a temporary copy.

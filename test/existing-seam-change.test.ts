@@ -1,8 +1,10 @@
 // ES02, ES04 and ES05 at the Ledger interface over real SQLite/Durable staging. Coordinator, fidelity and Watchdog
 // reports and integration observations are scripted literals: they establish authority, blocking and retained
 // handover answers, not model judgment or that Git ran. See docs/verification/existing-seam-change-failure-cases.md.
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import type { AuthenticatedContext } from "../src/ledger/principals.ts";
@@ -31,14 +33,16 @@ const slices = (v: View) =>
 	v.intakes.slices.map(({ id, contract, status, everAssigned, record }) => ({ id, contract, status, everAssigned, record }));
 
 async function enroll(t: { f: Awaited<ReturnType<typeof acceptedImplementation>>["f"] }, label: string, workflows: string[]) {
-	const enrolled = await t.f.ledger.command(
-		{
-			version: 1,
-			authorityEpoch: t.f.ledger.status().authorityEpoch,
-			commandId: `device:${label}`,
-			command: { type: "enrollDevice", label, scope: { workflows } },
-		},
-		admin,
+	const enrolled = await Effect.runPromise(
+		t.f.ledger.command(
+			{
+				version: 1,
+				authorityEpoch: t.f.ledger.status().authorityEpoch,
+				commandId: `device:${label}`,
+				command: { type: "enrollDevice", label, scope: { workflows } },
+			},
+			admin,
+		),
 	);
 	assert.ok(enrolled.status === "accepted" && enrolled.credential, JSON.stringify(enrolled));
 	return `Bearer ${enrolled.credential.bearer}`;
@@ -75,21 +79,23 @@ test("ES04 a discovered seam change blocks change-shape work with visible facts 
 			approvedSources: [t.source],
 		};
 		const save = (context: AuthenticatedContext, commandId: string) =>
-			t.f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: t.f.ledger.status().authorityEpoch,
-					commandId,
-					workflow: W,
-					expected: { document: t.ground },
-					command: {
-						type: "saveDocument",
-						document: "ground",
-						mediaType: "text/plain",
-						content: Buffer.from(JSON.stringify(ground)).toString("base64"),
+			Effect.runPromise(
+				t.f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: t.f.ledger.status().authorityEpoch,
+						commandId,
+						workflow: W,
+						expected: { document: t.ground },
+						command: {
+							type: "saveDocument",
+							document: "ground",
+							mediaType: "text/plain",
+							content: Buffer.from(JSON.stringify(ground)).toString("base64"),
+						},
 					},
-				},
-				context,
+					context,
+				),
 			);
 		refused(await save(t.actor, "agent-ground"), "forbidden_principal", "implementer cannot save human Ground");
 		const revised = accepted(await save(admin, "revised-ground")).revision as string;
@@ -150,10 +156,10 @@ test("ES04 a discovered seam change blocks change-shape work with visible facts 
 		await t.f.reopen(new LedgerOnlyEngine());
 		check("after reopen");
 		refused(await next(), "seams_required", "after reopen");
-		const retained = await t.f.ledger.artifact(admin, { read: revised });
+		const retained = await Effect.runPromise(t.f.ledger.artifact(admin, { read: revised }));
 		assert.ok("content" in retained);
 		assert.deepEqual(JSON.parse(retained.content.toString()).facts, [facts], "discovered facts are retained human Ground");
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: W } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of [revised, t.contract, t.nextContract!]) assert.ok(exported.content[ref], `export retains ${ref}`);
 		accepted(await t.f.command({ type: "cancelCheckpoint", request, expectedEmission: null, reason: "Seam stays." }, admin));
@@ -199,15 +205,15 @@ test("ES05 a fresh device reconstructs the five handover answers with partial de
 		assert.ok(v.evidence.items.includes(round.report), "Watchdog report is evidence");
 		assert.equal(v.blocker, null, "no blocker exists once read-fix qualified");
 		assert.equal(v.nextHumanAction.type, "none", "next human action");
-		const contract = await t.f.ledger.artifact(fresh, { read: t.contract });
+		const contract = await Effect.runPromise(t.f.ledger.artifact(fresh, { read: t.contract }));
 		assert.ok("content" in contract && contract.content.toString().includes("Fix read"), "exact Contract bytes");
 		assert.deepEqual((t.f.ledger.snapshot(t.f.ledger.authenticate(elsewhere)!) as Frame).workflows, [], "scoped elsewhere");
 
 		damageImplementation(t.f.data, t.nextContract!, "content_corrupt");
 		await t.f.reopen(new LedgerOnlyEngine());
-		const read = await t.f.ledger.artifact(t.f.ledger.authenticate(bearer)!, { read: t.nextContract! });
+		const read = await Effect.runPromise(t.f.ledger.artifact(t.f.ledger.authenticate(bearer)!, { read: t.nextContract! }));
 		assert.ok("code" in read && read.code === "content_corrupt", "corrupt Contract refuses rather than substitutes");
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: W } }));
 		assert.ok("manifest" in exported && !exported.manifest.complete && !(t.nextContract! in exported.content));
 	} finally {
 		await t.close();
@@ -218,30 +224,32 @@ test("ES06 a pending Seams revision refuses new integration staging and admissio
 	const t = await handedOff();
 	try {
 		const ground = accepted(
-			await t.f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: t.f.ledger.status().authorityEpoch,
-					commandId: "revised-ground",
-					workflow: W,
-					expected: { document: t.ground },
-					command: {
-						type: "saveDocument",
-						document: "ground",
-						mediaType: "text/plain",
-						content: Buffer.from(
-							JSON.stringify({
-								schema: 1,
-								shape: { value: "design", origin: "human", confirmed: true },
-								goal: "Revise the read seam",
-								constraints: [],
-								facts: ["The accepted read seam must change."],
-								donePredicate: "An approved revised read seam",
-							}),
-						).toString("base64"),
+			await Effect.runPromise(
+				t.f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: t.f.ledger.status().authorityEpoch,
+						commandId: "revised-ground",
+						workflow: W,
+						expected: { document: t.ground },
+						command: {
+							type: "saveDocument",
+							document: "ground",
+							mediaType: "text/plain",
+							content: Buffer.from(
+								JSON.stringify({
+									schema: 1,
+									shape: { value: "design", origin: "human", confirmed: true },
+									goal: "Revise the read seam",
+									constraints: [],
+									facts: ["The accepted read seam must change."],
+									donePredicate: "An approved revised read seam",
+								}),
+							).toString("base64"),
+						},
 					},
-				},
-				admin,
+					admin,
+				),
 			),
 		).revision as string;
 		const coordinator = accepted(

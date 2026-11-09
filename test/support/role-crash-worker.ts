@@ -1,10 +1,12 @@
 // Owned-process driver for the prewritten R01/R02 crash oracle. Uses real Durable tools, Ledger and SQLite.
+
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { setTimeout } from "node:timers/promises";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { type ConversationId, type Harness, hook, type Registry, ToolTask } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import type { Frame } from "../../src/ledger/ledger.ts";
@@ -38,91 +40,99 @@ const scripted: import("@earendil-works/pi-ai/providers/faux").FauxResponseFacto
 p.setResponses(Array.from({ length: 12 }, () => scripted));
 const engine = new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } });
 let harness!: Harness;
-const opened = await openLedger({
-	data,
-	onFatal: (error) => {
-		console.error(error);
-	},
-	runtime: (report) => {
-		const options = engine.options(report);
-		if (mode === "crash") {
-			const registry = options.registry as Registry;
-			const roles = registry.snapshot().extension("render.roles")!;
-			registry.install({
-				...roles,
-				hooks: [
-					...(roles.hooks ?? []),
-					hook(ToolTask, {
-						beforeTool: async (call, api) => {
-							if (call.name !== "request_role") return;
-							const binding = await api.snapshot(RoleBinding, api.conversationId, ctx);
-							assert.ok(binding);
-							const commandId = `role:${createHash("sha256")
-								.update(
-									JSON.stringify([
-										"workflow:2",
-										api.conversationId,
-										binding.assignment,
-										binding.generation,
-										binding.attempt,
-										api.taskId,
-										call.id,
-									]),
-								)
-								.digest("hex")}`;
-							process.env.RENDER_FAULT_BARRIER = process.env.RENDER_ROLE_BARRIER;
-							process.env.RENDER_FAULT_COMMAND = commandId;
-						},
-					}),
-				],
-			});
-		}
-		return {
-			...options,
-			bindLedger: (ledger, h) => {
-				harness = h;
-				options.bindLedger?.(ledger, h);
-			},
-		};
-	},
-});
+const opened = await Effect.runPromise(
+	openLedger({
+		data,
+		onFatal: (error) => {
+			console.error(error);
+		},
+		runtime: (report) => {
+			const options = engine.options(report);
+			if (mode === "crash") {
+				const registry = options.registry as Registry;
+				const roles = registry.snapshot().extension("render.roles")!;
+				registry.install({
+					...roles,
+					hooks: [
+						...(roles.hooks ?? []),
+						hook(ToolTask, {
+							beforeTool: async (call, api) => {
+								if (call.name !== "request_role") return;
+								const binding = await api.snapshot(RoleBinding, api.conversationId, ctx);
+								assert.ok(binding);
+								const commandId = `role:${createHash("sha256")
+									.update(
+										JSON.stringify([
+											"workflow:2",
+											api.conversationId,
+											binding.assignment,
+											binding.generation,
+											binding.attempt,
+											api.taskId,
+											call.id,
+										]),
+									)
+									.digest("hex")}`;
+								process.env.RENDER_FAULT_BARRIER = process.env.RENDER_ROLE_BARRIER;
+								process.env.RENDER_FAULT_COMMAND = commandId;
+							},
+						}),
+					],
+				});
+			}
+			return {
+				...options,
+				bindLedger: (ledger, h) => {
+					harness = h;
+					options.bindLedger?.(ledger, h);
+				},
+			};
+		},
+	}),
+);
 try {
 	if (mode === "crash") {
-		await opened.ledger.command(
-			{ version: 1, authorityEpoch: opened.authorityEpoch, commandId: "create", command: { type: "createWorkflow", title: "crash" } },
-			admin,
+		await Effect.runPromise(
+			opened.ledger.command(
+				{ version: 1, authorityEpoch: opened.authorityEpoch, commandId: "create", command: { type: "createWorkflow", title: "crash" } },
+				admin,
+			),
 		);
-		await opened.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: opened.authorityEpoch,
-				commandId: "input",
-				workflow: "workflow:2",
-				expected: { document: null },
-				command: {
-					type: "saveDocument",
-					document: "principles",
-					mediaType: "text/plain",
-					content: Buffer.from("Keep constraints.\n").toString("base64"),
+		await Effect.runPromise(
+			opened.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: opened.authorityEpoch,
+					commandId: "input",
+					workflow: "workflow:2",
+					expected: { document: null },
+					command: {
+						type: "saveDocument",
+						document: "principles",
+						mediaType: "text/plain",
+						content: Buffer.from("Keep constraints.\n").toString("base64"),
+					},
 				},
-			},
-			admin,
+				admin,
+			),
 		);
 		await allowSameFamily(opened.ledger);
-		const accepted = await opened.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: opened.authorityEpoch,
-				commandId: "root",
-				workflow: "workflow:2",
-				command: {
-					type: "assignTask",
-					slice: "slice:1",
-					delivery: true,
-					packet: packet({ requests: [{ key: "challenge", packet: packet({ role: "challenger" }) }] }),
+		const accepted = await Effect.runPromise(
+			opened.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: opened.authorityEpoch,
+					commandId: "root",
+					workflow: "workflow:2",
+					command: {
+						type: "assignTask",
+						slice: "slice:1",
+						delivery: true,
+						packet: packet({ requests: [{ key: "challenge", packet: packet({ role: "challenger" }) }] }),
+					},
 				},
-			},
-			scheduler,
+				scheduler,
+			),
 		);
 		assert.equal(accepted.status, "accepted");
 		await setTimeout(15000);
@@ -155,7 +165,7 @@ try {
 	);
 	assert.equal(body.status, "accepted");
 	const child = assignments[1]!;
-	const artifact = await opened.ledger.artifact(admin, { read: child.report! });
+	const artifact = await Effect.runPromise(opened.ledger.artifact(admin, { read: child.report! }));
 	assert.ok("content" in artifact);
 	assert.equal(artifact.content.toString(), "Independent durable result.\n");
 	console.log(
@@ -166,5 +176,5 @@ try {
 		}),
 	);
 } finally {
-	await opened.close();
+	await Effect.runPromise(opened.close());
 }

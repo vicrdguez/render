@@ -1,5 +1,6 @@
 // Ordinary execution policy is separate from per-request checkpoint settings.
-import type { Decision, KernelState, VerifiedFacts } from "./kernel.ts";
+import * as Effect from "effect/Effect";
+import type { Decision, KernelState, Refusal, VerifiedFacts } from "./kernel.ts";
 
 export type ExecutionPolicy = {
 	completedReviewLimit: number;
@@ -37,15 +38,32 @@ export function policyBasis(state: PolicyState, workflow: string): PolicyBasis |
 	const revision = state.revisions[binding.policy];
 	return revision && { binding: binding.revision, revision: binding.policy, minimumEvidenceRank: revision.minimumEvidenceRank };
 }
-export function changePolicy(state: KernelState, c: PolicyCommand, facts: VerifiedFacts): Decision {
+export const changePolicy = Effect.fnUntraced(function* (
+	state: KernelState,
+	c: PolicyCommand,
+	facts: VerifiedFacts,
+): Effect.fn.Return<Extract<Decision, { outcome: "accepted" }>, Refusal> {
 	const policy = structuredClone(state.policy ?? initialPolicy());
 	const p = facts.principal;
-	if (p.kind !== "human") return { outcome: "refused", code: "forbidden_principal", reason: "Policy changes require human direction." };
+	if (p.kind !== "human")
+		return yield* Effect.fail<Refusal>({
+			outcome: "refused",
+			code: "forbidden_principal",
+			reason: "Policy changes require human direction.",
+		});
 	if (c.type === "changePolicy") {
 		if (p.route === "device" && p.workflows !== "all")
-			return { outcome: "refused", code: "forbidden_scope", reason: "Project defaults require project-wide scope." };
+			return yield* Effect.fail<Refusal>({
+				outcome: "refused",
+				code: "forbidden_scope",
+				reason: "Project defaults require project-wide scope.",
+			});
 		if (c.expectedRevision !== policy.defaultRevision)
-			return { outcome: "refused", code: "stale_basis", reason: "Policy defaults changed; read the current revision." };
+			return yield* Effect.fail<Refusal>({
+				outcome: "refused",
+				code: "stale_basis",
+				reason: "Policy defaults changed; read the current revision.",
+			});
 		policy.defaultRevision = `policy:${facts.sequence}`;
 		policy.revisions[policy.defaultRevision] = c.policy;
 		return {
@@ -59,13 +77,21 @@ export function changePolicy(state: KernelState, c: PolicyCommand, facts: Verifi
 		};
 	}
 	if (!state.workflow || state.workflow.id !== c.workflow)
-		return { outcome: "refused", code: "not_found", reason: "Policy adoption requires an existing workflow." };
+		return yield* Effect.fail<Refusal>({ outcome: "refused", code: "not_found", reason: "Policy adoption requires an existing workflow." });
 	if (p.route === "device" && p.workflows !== "all" && !p.workflows.includes(c.workflow))
-		return { outcome: "refused", code: "forbidden_scope", reason: "Workflow is outside this device scope." };
+		return yield* Effect.fail<Refusal>({ outcome: "refused", code: "forbidden_scope", reason: "Workflow is outside this device scope." });
 	if (bindingFor(policy, c.workflow).revision !== c.expectedBinding)
-		return { outcome: "refused", code: "stale_basis", reason: "Workflow policy binding changed; read the current binding." };
+		return yield* Effect.fail<Refusal>({
+			outcome: "refused",
+			code: "stale_basis",
+			reason: "Workflow policy binding changed; read the current binding.",
+		});
 	if (!Object.hasOwn(policy.revisions, c.revision))
-		return { outcome: "refused", code: "not_found", reason: "Selected immutable policy revision is unavailable." };
+		return yield* Effect.fail<Refusal>({
+			outcome: "refused",
+			code: "not_found",
+			reason: "Selected immutable policy revision is unavailable.",
+		});
 	const revision = `policy-binding:${facts.sequence}`;
 	policy.bindings[c.workflow] = { revision, policy: c.revision };
 	const work = structuredClone(state.roleWork ?? { assignments: [] });
@@ -89,4 +115,4 @@ export function changePolicy(state: KernelState, c: PolicyCommand, facts: Verifi
 		],
 		facts: [facts.ids.fact],
 	};
-}
+});

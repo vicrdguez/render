@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import { change, type KernelState, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
@@ -113,7 +114,7 @@ test("B4 registered report omission refuses; explicit no-web declaration survive
 		assert.ok(checked, "registered report must refuse omitted declaration before accepting correction");
 		assert.equal(a.status, "submitted");
 		await f.reopen();
-		const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("jsonl" in exported);
 		assert.match(exported.jsonl, /"webEvidence":"none"/, "retained result must distinguish explicit no-reliance from historical omission");
 		assert.equal(Buffer.from(exported.content[a.report!]!, "base64").toString(), "No web reliance.\r\n");

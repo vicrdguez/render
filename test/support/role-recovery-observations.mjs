@@ -1,4 +1,5 @@
 // Executable observations of preimplementation R02/R05/R06/R08 literal outcomes. Owned temp stores only.
+
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -6,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import * as Effect from "effect/Effect";
 
 const base = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
 const { Engine } = await import(base + "/src/engine/runtime.ts");
@@ -165,7 +167,7 @@ if (process.argv[2] === "fence-worker") {
 		const canceled = await f.command({ type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt }, admin);
 		assert.equal(canceled.status, "accepted");
 		assert.equal(canceled.result.generation, 2);
-		assert.equal((await f.ledger.receipt(own, "same-invocation")).code, "unauthorized");
+		assert.equal((await Effect.runPromise(f.ledger.receipt(own, "same-invocation"))).code, "unauthorized");
 		const late = await f.command({ type: "submitRoleResult", supports: [], text: "Late evidence, not accepted.\n" }, own, "late");
 		assert.equal(late.code, "unauthorized");
 		const quarantined = await f.command(
@@ -180,7 +182,7 @@ if (process.argv[2] === "fence-worker") {
 			"trusted-late",
 		);
 		assert.equal(quarantined.status, "accepted");
-		const artifact = await f.ledger.artifact(admin, { read: quarantined.result.quarantined });
+		const artifact = await Effect.runPromise(f.ledger.artifact(admin, { read: quarantined.result.quarantined }));
 		assert.ok("content" in artifact);
 		assert.equal(JSON.parse(artifact.content.toString()).text, "Late evidence, not accepted.\n");
 		await until(() => p.state.callCount === 5);
@@ -234,12 +236,14 @@ if (process.argv[2] === "fence-worker") {
 		const p = external();
 		await assert.rejects(
 			() =>
-				openLedger({
-					data,
-					runtime: (report) =>
-						new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }).options(report),
-					onFatal: () => {},
-				}),
+				Effect.runPromise(
+					openLedger({
+						data,
+						runtime: (report) =>
+							new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }).options(report),
+						onFatal: () => {},
+					}),
+				),
 			(e) => e.code === "uncertain_execution" && e.event === "startup_blocked",
 		);
 		assert.equal(p.state.callCount, 0);
@@ -284,36 +288,38 @@ if (process.argv[2] === "fence-worker") {
 		const p = external();
 		p.setResponses(Array.from({ length: 6 }, () => fauxAssistantMessage("stopped")));
 		const engine = new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } });
-		opened = await openLedger({
-			data,
-			onFatal: () => {},
-			runtime: (report) => {
-				const options = engine.options(report);
-				return {
-					...options,
-					bindLedger: (ledger, harness) => {
-						options.bindLedger(ledger, harness);
-						const resume = harness.resume.bind(harness);
-						harness.resume = () => {
-							trace.push("explicit-resume");
-							resume();
-						};
-						const conversation = harness.conversation.bind(harness);
-						harness.conversation = async (...args) => {
-							const c = await conversation(...args);
-							if (c) {
-								const abort = c.abort.bind(c);
-								c.abort = async (...values) => {
-									trace.push("conversation-abort");
-									return abort(...values);
-								};
-							}
-							return c;
-						};
-					},
-				};
-			},
-		});
+		opened = await Effect.runPromise(
+			openLedger({
+				data,
+				onFatal: () => {},
+				runtime: (report) => {
+					const options = engine.options(report);
+					return {
+						...options,
+						bindLedger: (ledger, harness) => {
+							options.bindLedger(ledger, harness);
+							const resume = harness.resume.bind(harness);
+							harness.resume = () => {
+								trace.push("explicit-resume");
+								resume();
+							};
+							const conversation = harness.conversation.bind(harness);
+							harness.conversation = async (...args) => {
+								const c = await conversation(...args);
+								if (c) {
+									const abort = c.abort.bind(c);
+									c.abort = async (...values) => {
+										trace.push("conversation-abort");
+										return abort(...values);
+									};
+								}
+								return c;
+							};
+						},
+					};
+				},
+			}),
+		);
 		await until(() => trace.includes("conversation-abort"));
 		console.log(JSON.stringify({ observation: "startup-resume-order", trace }));
 		assert.ok(
@@ -321,7 +327,7 @@ if (process.argv[2] === "fence-worker") {
 			"startup must explicitly resume before provider cancellation may enable scheduling",
 		);
 	} finally {
-		if (opened) await opened.close();
+		if (opened) await Effect.runPromise(opened.close());
 		if (child.exitCode === null && child.signalCode === null) {
 			child.kill("SIGKILL");
 			await new Promise((resolve) => child.once("exit", resolve));
@@ -358,19 +364,19 @@ if (process.argv[2] === "fence-worker") {
 	};
 	let opened;
 	try {
-		opened = await openLedger({ data, runtime, onFatal: () => {} });
+		opened = await Effect.runPromise(openLedger({ data, runtime, onFatal: () => {} }));
 		const conversation = await harness.createConversation({ ownership: { kind: "ownerless" } }, ctx);
 		const id = await conversation.commit((tx) => tx.createTask(orphan, {}, { ownership: { kind: "conversation" } }), ctx);
 		assert.equal((await harness.waitForTask(id, ctx)).state.outcome.status, "orphaned");
-		await opened.close();
+		await Effect.runPromise(opened.close());
 		opened = undefined;
 		await assert.rejects(
-			() => openLedger({ data, runtime, onFatal: () => {} }),
+			() => Effect.runPromise(openLedger({ data, runtime, onFatal: () => {} })),
 			(e) => e.code === "uncertain_execution" && e.event === "startup_blocked",
 		);
 		console.log(JSON.stringify({ observation: "orphan-startup", outcome: "startup_blocked", code: "uncertain_execution" }));
 	} finally {
-		if (opened) await opened.close();
+		if (opened) await Effect.runPromise(opened.close());
 		await rm(data, { recursive: true, force: true });
 	}
 }

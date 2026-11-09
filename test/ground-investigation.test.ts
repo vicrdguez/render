@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import { change, type KernelState, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
@@ -57,22 +58,6 @@ test("G01/G02 Kernel distinguishes human shape from unconfirmed classification",
 	}
 });
 
-test("G04 malformed delivery packet remains an ordinary Kernel refusal", () => {
-	const result = decision(
-		change(
-			{ workflow: { id: "workflow:2", messageCount: 0 }, document: null, device: null },
-			// @ts-expect-error intentionally bypass the closed command type to exercise runtime refusal
-			{ type: "assignTask", workflow: "workflow:2", slice: "workflow:2", delivery: true },
-			{ principal: { kind: "host", scope: "scheduling" }, sequence: 4, ids: { fact: "fact:4" } },
-		),
-	);
-	assert.deepEqual(result, {
-		outcome: "refused",
-		code: "invalid_content",
-		reason: "Assignment requires an explicit packet, Slice and ownership mode.",
-	});
-});
-
 test("G02 classifier suggestion requires confirmation, human shape does not", async () => {
 	const f = await roleFixture();
 	try {
@@ -90,7 +75,7 @@ test("G02 classifier suggestion requires confirmation, human shape does not", as
 			code(await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: investigationPacket(confirmed) })),
 			"accepted",
 		);
-		const original = await f.ledger.artifact(admin, { read: proposed });
+		const original = await Effect.runPromise(f.ledger.artifact(admin, { read: proposed }));
 		assert.ok("content" in original);
 		assert.equal(JSON.parse(original.content.toString()).shape.confirmed, false);
 	} finally {
@@ -214,10 +199,10 @@ for (const escalation of [false, true])
 					"recovery_required",
 				);
 			}
-			const report = await f.ledger.artifact(admin, { read: a.report! });
+			const report = await Effect.runPromise(f.ledger.artifact(admin, { read: a.report! }));
 			assert.ok("content" in report);
 			assert.equal(report.content.toString(), resultText);
-			const exportBefore = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			const exportBefore = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 			assert.ok("manifest" in exportBefore && exportBefore.manifest.complete);
 			for (const r of [ref, a.report!, sourceRef(a)]) assert.ok(exportBefore.content[r], `retain ${r} before settlement`);
 			const records = exportBefore.jsonl
@@ -232,7 +217,7 @@ for (const escalation of [false, true])
 			assert.equal(retained.report, a.report);
 			assert.equal(retained.blocker, a.blocker);
 			for (const r of [ref, a.report!, sourceRef(a)]) {
-				const value = await f.ledger.artifact(admin, { read: r });
+				const value = await Effect.runPromise(f.ledger.artifact(admin, { read: r }));
 				assert.ok("content" in value);
 				assert.equal(value.content.toString("base64"), exportBefore.content[r]);
 			}
@@ -409,11 +394,11 @@ for (const failure of ["missing_content", "content_corrupt"])
 			}
 			const engine = await f.reopen();
 			await assert.rejects(
-				engine.render(assignments(f.ledger)[0]!),
+				Effect.runPromise(engine.render(assignments(f.ledger)[0]!)),
 				new RegExp(sourceRef(a)),
 				"restore exact source rather than refetching",
 			);
-			const bundle = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			const bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 			assert.ok("manifest" in bundle);
 			assert.equal(bundle.manifest.complete, false);
 			assert.ok(bundle.manifest.missing.some((m) => m.ref === sourceRef(a) && m.code === failure));

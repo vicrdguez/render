@@ -2,19 +2,23 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import { sourceFixture } from "./support/source.ts";
 
 test("owned source unsafe control: worker ignore cannot hide an accepted base file", async () => {
 	const f = await sourceFixture();
 	try {
-		const base = await f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit });
-		const handle = await f.sandboxes.prepare(f.scope, f.profile, base);
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
 		assert.equal(
-			(await f.sandboxes.execute(handle, { scope: f.scope, argv: ["sh", "-c", "printf 'ignored\\n' > .gitignore"], timeoutMs: 10000 }))
-				.exitCode,
+			(
+				await Effect.runPromise(
+					f.sandboxes.execute(handle, { scope: f.scope, argv: ["sh", "-c", "printf 'ignored\\n' > .gitignore"], timeoutMs: 10000 }),
+				)
+			).exitCode,
 			0,
 		);
-		const capture = await f.sandboxes.seal(handle);
+		const capture = await Effect.runPromise(f.sandboxes.seal(handle));
 		assert.equal(
 			capture.entries.find((e) => e.path === "ignored")?.content,
 			Buffer.from("must not disappear\n").toString("base64"),
@@ -30,13 +34,14 @@ test("owned source unsafe control: symlink stays literal rather than reading a h
 	try {
 		const canary = join(f.root, "host-only");
 		await writeFile(canary, "OWNED HOST CANARY, not source");
-		const base = await f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit });
-		const handle = await f.sandboxes.prepare(f.scope, f.profile, base);
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
 		assert.equal(
-			(await f.sandboxes.execute(handle, { scope: f.scope, argv: ["ln", "-s", canary, "host-link"], timeoutMs: 10000 })).exitCode,
+			(await Effect.runPromise(f.sandboxes.execute(handle, { scope: f.scope, argv: ["ln", "-s", canary, "host-link"], timeoutMs: 10000 })))
+				.exitCode,
 			0,
 		);
-		const capture = await f.sandboxes.seal(handle);
+		const capture = await Effect.runPromise(f.sandboxes.seal(handle));
 		assert.equal(
 			capture.entries.find((e) => e.path === "host-link")?.content,
 			Buffer.from(canary).toString("base64"),
@@ -52,13 +57,15 @@ test("owned source unsafe control: commands never fall back to the host", async 
 	try {
 		const canary = join(f.root, "host-only");
 		await writeFile(canary, "owned canary");
-		const base = await f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit });
-		const handle = await f.sandboxes.prepare(f.scope, f.profile, base);
-		const result = await f.sandboxes.execute(handle, {
-			scope: f.scope,
-			argv: ["node", "-e", `console.log(require('fs').existsSync(${JSON.stringify(canary)}))`],
-			timeoutMs: 10000,
-		});
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
+		const result = await Effect.runPromise(
+			f.sandboxes.execute(handle, {
+				scope: f.scope,
+				argv: ["node", "-e", `console.log(require('fs').existsSync(${JSON.stringify(canary)}))`],
+				timeoutMs: 10000,
+			}),
+		);
 		assert.equal(result.exitCode, 0, result.stderr);
 		assert.equal(result.stdout.trim(), "false", "host-shell fallback exposes an owned host-only canary");
 	} finally {
@@ -69,10 +76,10 @@ test("owned source unsafe control: commands never fall back to the host", async 
 test("owned source unsafe control: live or quarantined workspace never reused", async () => {
 	const f = await sourceFixture();
 	try {
-		const base = await f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit });
-		await f.sandboxes.prepare(f.scope, f.profile, base);
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
 		await assert.rejects(
-			f.sandboxes.prepare(f.scope, f.profile, base),
+			Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base)),
 			/reuse|exist/i,
 			"live workspace must not be reused before confirmed quiescence",
 		);

@@ -1,5 +1,7 @@
 // Stateless protocol clients (docs/protocol.md). They hold no workflow state: every view comes from the host.
-import { request } from "node:http";
+import { type IncomingMessage, request } from "node:http";
+import * as Effect from "effect/Effect";
+import { fromPromise, runPromise } from "../effect.ts";
 
 export const SUPPORTED_VERSION = 1;
 
@@ -16,36 +18,45 @@ export class RenderClient {
 		this.#bearer = bearer;
 	}
 
-	async request(method: string, path: string, body?: unknown): Promise<Reply> {
-		const res = await fetch(new URL(path, this.#url), {
-			method,
-			headers: {
-				authorization: `Bearer ${this.#bearer}`,
-				...(body === undefined ? {} : { "content-type": "application/json" }),
-			},
-			body: body === undefined ? undefined : JSON.stringify(body),
-		});
-		const text = await res.text();
-		return { status: res.status, body: text === "" ? {} : (JSON.parse(text) as Record<string, unknown>) };
+	#fetch(method: string, path: string, body?: unknown): Effect.Effect<Response, unknown> {
+		return fromPromise(() =>
+			fetch(new URL(path, this.#url), {
+				method,
+				headers: {
+					authorization: `Bearer ${this.#bearer}`,
+					...(body === undefined ? {} : { "content-type": "application/json" }),
+				},
+				body: body === undefined ? undefined : JSON.stringify(body),
+			}),
+		);
 	}
 
-	snapshot(): Promise<Reply> {
+	request(method: string, path: string, body?: unknown): Effect.Effect<Reply, unknown> {
+		const response = this.#fetch(method, path, body);
+		return Effect.gen(function* () {
+			const res = yield* response;
+			const text = yield* fromPromise(() => res.text());
+			return { status: res.status, body: parseBody(text) };
+		});
+	}
+
+	snapshot(): Effect.Effect<Reply, unknown> {
 		return this.request("GET", `/v1/snapshot?version=${SUPPORTED_VERSION}`);
 	}
 
-	command(envelope: Record<string, unknown>): Promise<Reply> {
+	command(envelope: Record<string, unknown>): Effect.Effect<Reply, unknown> {
 		return this.request("POST", "/v1/commands", envelope);
 	}
 
-	receipt(commandId: string): Promise<Reply> {
+	receipt(commandId: string): Effect.Effect<Reply, unknown> {
 		return this.request("GET", `/v1/commands/${encodeURIComponent(commandId)}`);
 	}
 
-	artifact(revision: string): Promise<Reply> {
+	artifact(revision: string): Effect.Effect<Reply, unknown> {
 		return this.request("GET", `/v1/artifacts/${encodeURIComponent(revision)}`);
 	}
 
-	messages(workflow: string, cursor?: string): Promise<Reply> {
+	messages(workflow: string, cursor?: string): Effect.Effect<Reply, unknown> {
 		const query = cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`;
 		return this.request("GET", `/v1/workflows/${encodeURIComponent(workflow)}/messages${query}`);
 	}
@@ -57,19 +68,24 @@ export class RenderClient {
 	async *observe(): AsyncGenerator<Record<string, unknown>, void, void> {
 		let last: number | undefined;
 		for (;;) {
-			const res = await fetch(new URL(`/v1/observe?version=${SUPPORTED_VERSION}`, this.#url), {
-				headers: { authorization: `Bearer ${this.#bearer}` },
-			});
-			if (res.status !== 200 || res.body === null) {
-				const text = await res.text();
-				yield { kind: "refused", httpStatus: res.status, ...(text === "" ? {} : (JSON.parse(text) as Record<string, unknown>)) };
+			const response = this.#fetch("GET", `/v1/observe?version=${SUPPORTED_VERSION}`);
+			const observation = await runPromise(
+				Effect.gen(function* () {
+					const res = yield* response;
+					if (res.status === 200 && res.body !== null) return { kind: "stream" as const, body: res.body };
+					const text = yield* fromPromise(() => res.text());
+					return { kind: "refused" as const, frame: { kind: "refused", httpStatus: res.status, ...parseBody(text) } };
+				}),
+			);
+			if (observation.kind === "refused") {
+				yield observation.frame;
 				return;
 			}
 			let buffered = "";
 			let gap = false;
 			const decoder = new TextDecoder();
 			try {
-				for await (const chunk of res.body) {
+				for await (const chunk of observation.body) {
 					buffered += decoder.decode(chunk, { stream: true });
 					let newline = buffered.indexOf("\n");
 					while (newline >= 0 && !gap) {
@@ -101,6 +117,10 @@ export class RenderClient {
 	}
 }
 
+function parseBody(text: string): Record<string, unknown> {
+	return text === "" ? {} : (JSON.parse(text) as Record<string, unknown>);
+}
+
 /** The local-admin route: HTTP over the data directory's Unix socket. */
 export class AdminClient {
 	readonly #socket: string;
@@ -109,23 +129,28 @@ export class AdminClient {
 		this.#socket = socket;
 	}
 
-	request(method: string, path: string, body?: unknown): Promise<Reply> {
-		return new Promise((resolve, reject) => {
+	request(method: string, path: string, body?: unknown): Effect.Effect<Reply, unknown> {
+		const socketPath = this.#socket;
+		return Effect.gen(function* () {
 			const payload = body === undefined ? undefined : JSON.stringify(body);
-			const req = request(
-				{ socketPath: this.#socket, method, path, headers: payload === undefined ? {} : { "content-type": "application/json" } },
-				(res) => {
-					const chunks: Buffer[] = [];
-					res.on("data", (c: Buffer) => chunks.push(c));
-					res.on("end", () => {
-						const text = Buffer.concat(chunks).toString("utf8");
-						resolve({ status: res.statusCode ?? 0, body: text === "" ? {} : (JSON.parse(text) as Record<string, unknown>) });
-					});
-				},
+			const res = yield* fromPromise(
+				() =>
+					new Promise<IncomingMessage>((resolve, reject) => {
+						const req = request(
+							{ socketPath, method, path, headers: payload === undefined ? {} : { "content-type": "application/json" } },
+							resolve,
+						);
+						req.on("error", reject);
+						if (payload !== undefined) req.write(payload);
+						req.end();
+					}),
 			);
-			req.on("error", reject);
-			if (payload !== undefined) req.write(payload);
-			req.end();
+			const text = yield* fromPromise(async () => {
+				const chunks: Buffer[] = [];
+				for await (const chunk of res) chunks.push(chunk as Buffer);
+				return Buffer.concat(chunks).toString("utf8");
+			});
+			return { status: res.statusCode ?? 0, body: parseBody(text) };
 		});
 	}
 }

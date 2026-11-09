@@ -1,7 +1,9 @@
 // HM01–HM07 at the Ledger/Kernel interface over real SQLite. Forge observations are literal host results here; the
 // GitHub adapter producing them is human-merge-observation-forge.test.ts, the Engine journey GP-E1.
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { accepted, LedgerOnlyEngine, type SecondSlice } from "./support/implementation.ts";
@@ -81,20 +83,22 @@ const listing = (items: Record<string, unknown>[], complete = true) => ({ propos
 const mainEdge = (slice: string, requires: string, workflow = W) => ({ slice, requires, kind: "main", workflow });
 let amendments = 0;
 function amend(t: Lifecycle, dependencies: unknown[], context = admin, workflow = W) {
-	return t.f.ledger.command(
-		{
-			version: 1,
-			authorityEpoch: t.f.ledger.status().authorityEpoch,
-			commandId: `amend:${++amendments}`,
-			workflow,
-			command: {
-				type: "amendDependencies",
-				expected: viewOf(t, workflow).intakes.revision,
-				dependencies,
-				reason: "The consumer needs it on main",
+	return Effect.runPromise(
+		t.f.ledger.command(
+			{
+				version: 1,
+				authorityEpoch: t.f.ledger.status().authorityEpoch,
+				commandId: `amend:${++amendments}`,
+				workflow,
+				command: {
+					type: "amendDependencies",
+					expected: viewOf(t, workflow).intakes.revision,
+					dependencies,
+					reason: "The consumer needs it on main",
+				},
 			},
-		},
-		context,
+			context,
+		),
 	);
 }
 const assignNext = (t: Lifecycle) =>
@@ -136,16 +140,18 @@ async function consumer(t: Lifecycle) {
 	const ledger = t.f.ledger;
 	let n = 0;
 	const send = (command: Record<string, unknown>, context: Parameters<typeof ledger.command>[1], workflow?: string) =>
-		ledger.command(
-			{
-				version: 1,
-				authorityEpoch: ledger.status().authorityEpoch,
-				commandId: `consumer:${++n}`,
-				...(workflow ? { workflow } : {}),
-				...(command.type === "saveDocument" ? { expected: { document: null } } : {}),
-				command,
-			},
-			context,
+		Effect.runPromise(
+			ledger.command(
+				{
+					version: 1,
+					authorityEpoch: ledger.status().authorityEpoch,
+					commandId: `consumer:${++n}`,
+					...(workflow ? { workflow } : {}),
+					...(command.type === "saveDocument" ? { expected: { document: null } } : {}),
+					command,
+				},
+				context,
+			),
 		);
 	const C = accepted(await send({ type: "createWorkflow", title: "Consumer" }, admin)).workflow as string;
 	const save = async (document: string, text: string) =>
@@ -385,14 +391,16 @@ test("HM05 a cross-proposal edge clears only on the prerequisite's observed main
 			"capability_unavailable",
 			"separately reviewed inclusion",
 		);
-		const enrolled = await t.f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: t.f.ledger.status().authorityEpoch,
-				commandId: "enroll:consumer",
-				command: { type: "enrollDevice", label: "consumer", scope: { workflows: [C] } },
-			},
-			admin,
+		const enrolled = await Effect.runPromise(
+			t.f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: t.f.ledger.status().authorityEpoch,
+					commandId: "enroll:consumer",
+					command: { type: "enrollDevice", label: "consumer", scope: { workflows: [C] } },
+				},
+				admin,
+			),
 		);
 		assert.ok(enrolled.status === "accepted" && enrolled.credential);
 		const device = t.f.ledger.authenticate(`Bearer ${enrolled.credential.bearer}`)!;
@@ -442,7 +450,7 @@ test("HM07 the merge mapping survives reopen and export; a fresh client reads th
 		const before = pub(t).main;
 		await t.f.reopen(new LedgerOnlyEngine());
 		assert.deepEqual(pub(t).main, before);
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: W } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		assert.deepEqual(JSON.parse(Buffer.from(String(exported.content[seen]), "base64").toString()).proposals.items[0].merge, {
 			main: true,

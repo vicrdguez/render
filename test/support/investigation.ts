@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { setTimeout } from "node:timers/promises";
+import * as Effect from "effect/Effect";
 import type { RoleAssignment, RolePacket } from "../../src/kernel/roles.ts";
 import type { Ledger } from "../../src/ledger/ledger.ts";
 import { admin, packet } from "./roles.ts";
@@ -19,21 +20,23 @@ export function investigationPacket(groundRef: string, commit = "1".repeat(40), 
 	});
 }
 export async function saveGround(ledger: Ledger, value: unknown = ground, expected: string | null = null, id = "ground") {
-	const result = await ledger.command(
-		{
-			version: 1,
-			authorityEpoch: ledger.status().authorityEpoch,
-			commandId: id,
-			workflow: "workflow:2",
-			expected: { document: expected },
-			command: {
-				type: "saveDocument",
-				document: "ground",
-				mediaType: "text/plain",
-				content: Buffer.from(JSON.stringify(value)).toString("base64"),
+	const result = await Effect.runPromise(
+		ledger.command(
+			{
+				version: 1,
+				authorityEpoch: ledger.status().authorityEpoch,
+				commandId: id,
+				workflow: "workflow:2",
+				expected: { document: expected },
+				command: {
+					type: "saveDocument",
+					document: "ground",
+					mediaType: "text/plain",
+					content: Buffer.from(JSON.stringify(value)).toString("base64"),
+				},
 			},
-		},
-		admin,
+			admin,
+		),
 	);
 	assert.ok(result.status === "accepted", JSON.stringify(result));
 	return String(result.result.revision);

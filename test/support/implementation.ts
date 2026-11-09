@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
 import { type ConversationId, createRegistry, defineExtension, defineTask, type Harness } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
 import type { SourceReceipt } from "../../src/effects/source.ts";
 import { Engine } from "../../src/engine/runtime.ts";
 import type { IntakeManifest, Intakes } from "../../src/kernel/intake.ts";
@@ -292,16 +293,18 @@ export async function acceptedImplementation(engine?: Engine, variant?: Variant)
 	let n = 0;
 	const save = async (document: string, text: string) =>
 		accepted(
-			await f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: f.ledger.status().authorityEpoch,
-					commandId: `implementation-fixture:${++n}`,
-					workflow: "workflow:2",
-					expected: { document: null },
-					command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
-				},
-				admin,
+			await Effect.runPromise(
+				f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: f.ledger.status().authorityEpoch,
+						commandId: `implementation-fixture:${++n}`,
+						workflow: "workflow:2",
+						expected: { document: null },
+						command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
+					},
+					admin,
+				),
 			),
 		).revision as string;
 	const source = await save("existing-seam", "Approved existing seam: exact literal bytes.");

@@ -1,6 +1,7 @@
 // CI18/CI16 as a real journey: Engine, SQLite, Effects Git and Docker Linux checks with a scripted provider. Verdicts
 // are fixture data; this establishes autonomous admission, exact CAS/readback and dependency clearance, not review
 // quality. CI19 (target moving before the CAS) is the WR20/WR15/CI19 journey in watchdog-rework.integration.ts.
+
 import assert from "node:assert/strict";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -9,6 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { TaskId } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
 import type { ImplementationPass } from "../src/kernel/roles.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import {
@@ -77,7 +79,7 @@ type Fixture = Awaited<ReturnType<typeof fixture>>;
 const passes = (t: Fixture) => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
 const viewBlocker = (t: Fixture) => ((t.f.ledger.snapshot(admin) as Frame).workflows as { blocker: { code: string } | null }[])[0]!.blocker;
 async function read(t: Fixture, ref: string) {
-	const value = await t.f.ledger.artifact(admin, { read: ref });
+	const value = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 	assert.ok("content" in value, `read ${ref}`);
 	return value.content.toString();
 }
@@ -154,7 +156,6 @@ test("CI18/CI16 a passing current review integrates with no human step: exact R 
 
 test("CI24 two passing Slices of one proposal contend for integration: the second waits for the first and then integrates with no human step", async () => {
 	const t = await fixture({ dependent: true, watchdog: [] });
-	const command = t.f.ledger.command.bind(t.f.ledger);
 	const until = async (predicate: () => boolean, label: string) => {
 		const deadline = Date.now() + 180000;
 		while (!predicate()) {
@@ -179,12 +180,6 @@ test("CI24 two passing Slices of one proposal contend for integration: the secon
 		const checks = t.f.config.checks as Record<string, (typeof t.f.config.checks)["revision:3"]>;
 		checks[t.nextContract!] = checks[t.contract]!;
 		independentSlices(t);
-		let contended = false;
-		t.f.ledger.command = async (...args: Parameters<typeof command>) => {
-			const reply = await command(...args);
-			if (reply.status === "refused" && reply.code === "ownership_conflict") contended = true;
-			return reply;
-		};
 		const first = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer })).passRef as string;
 		holdAt("before-integration-cas", `integration:${first}`);
 		await parked("the first Slice admitted before its CAS");
@@ -198,7 +193,17 @@ test("CI24 two passing Slices of one proposal contend for integration: the secon
 		const pass = (passRef: string) => passes(t).find((p) => p.ref === passRef)!;
 		const status = (passRef: string) => pass(passRef).handoff?.integrations?.at(-1)?.status;
 		await until(() => status(first) === "divergent", "the first integration is divergent");
-		await until(() => contended, "the second Slice passes review and requests integration while the first is unresolved");
+		await until(
+			() => t.assignments().some((a) => a.watchdogReview?.passRef === second && a.status === "submitted"),
+			"the second Slice completes its independent review while the first integration is unresolved",
+		);
+		const review = t.assignments().find((a) => a.watchdogReview?.passRef === second && a.status === "submitted")!;
+		const report = await Effect.runPromise(t.f.ledger.artifact(admin, { read: review.report! }));
+		assert.ok("content" in report);
+		assert.equal(JSON.parse(report.content.toString()).verdict, "pass");
+		assert.equal(status(first), "divergent", "the first integration is still unresolved after both reviews");
+		assert.equal(status(second), undefined, "the second reviewed Slice has not acquired its own integration intent");
+		assert.equal(pass(second).handoff!.blocker, undefined, "waiting behind integration is not a human blocker");
 		await rm(join(store, `${ref}.lock`));
 		const owner = t.assignments().find((a) => a.id === pass(first).assignment)!;
 		accepted(
@@ -223,7 +228,6 @@ test("CI24 two passing Slices of one proposal contend for integration: the secon
 			"both Slices' changes are integrated",
 		);
 	} finally {
-		t.f.ledger.command = command;
 		clearBarrier();
 		await t.close();
 	}
