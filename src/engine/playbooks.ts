@@ -8,6 +8,7 @@ import type { WorkflowView } from "../kernel/kernel.ts";
 import type { Role, RoleAssignment, RolePacket } from "../kernel/roles.ts";
 import { validatePath } from "../kernel/source-path.ts";
 import type { VerificationSelection } from "../kernel/verification.ts";
+import { VERIFICATION_AUTHORING } from "./catalog.ts";
 import { packetSettings } from "./settings.ts";
 
 export type Shape = "investigation" | "bug" | "performance" | "change" | "design" | "experiment";
@@ -86,6 +87,13 @@ export function launchedCheck(text: string): PassCheck | undefined {
 	}
 }
 
+/** Why fetching the project failed, as a launch blocker: a default branch with no commit is an empty repository. */
+export function fetchFailure(error: unknown, branch: string): string {
+	const message = error instanceof Error ? error.message : String(error);
+	return /couldn't find remote ref/.test(message)
+		? `project_repository_empty: ${branch} has no commit; push a first commit to ${branch}, or edit the project's default branch to one that has a commit`
+		: `project_fetch_failed: ${message}`;
+}
 /** The workflow's launched coordinator: the one whose Slice is the workflow. */
 export function launchedCoordinator(assignments: readonly RoleAssignment[], workflow: string): RoleAssignment | undefined {
 	return assignments.find(
@@ -125,18 +133,20 @@ export function readySlices(
 }
 /**
  * The Contract's verification selection: the rows its checks map to for this Slice, the mandatory rows, and the cited
- * catalog's repository path and digest at the pinned commit. Undefined when the catalog is not a retained source read.
+ * catalog's repository path and digest at the pinned commit. With no catalog (`null`), the repository has no asset yet:
+ * the writer authors the recommended one, with these rows, through the bootstrap path. Undefined when the cited catalog
+ * is not a retained source read.
  */
 export function verificationSelection(
 	manifest: IntakeManifest,
 	slice: string,
 	contract: string,
-	catalog: { document: string; text: string } | undefined,
+	catalog: { document: string; text: string } | null | undefined,
 	repository: string,
 	commit: string,
 ): VerificationSelection | undefined {
-	if (!catalog?.document.startsWith("source/")) return undefined;
-	const path = catalog.document.slice("source/".length);
+	if (catalog !== null && !catalog?.document.startsWith("source/")) return undefined;
+	const path = catalog ? catalog.document.slice("source/".length) : VERIFICATION_AUTHORING.recommended.asset;
 	validatePath(path);
 	const obligations = manifest.slices.find((s) => s.id === slice)?.obligations ?? [];
 	const rowsOf = (kinds: readonly string[]) =>
@@ -150,7 +160,9 @@ export function verificationSelection(
 		repository,
 		commit,
 		path,
-		digest: createHash("sha256").update(catalog.text).digest("hex"),
+		digest: createHash("sha256")
+			.update(catalog?.text ?? "")
+			.digest("hex"),
 		contract,
 		rows: [...new Set([...rowsOf(["behavior", "architecture", "record", "manual"]), "full-suite", "typecheck", "lint"])],
 		behavioralRows,

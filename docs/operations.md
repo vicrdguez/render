@@ -105,7 +105,10 @@ Engine's reconcile is the only production issuer of `assignTask` (`src/engine/pl
 fetched commit, with one `fidelity` challenger request. The coordinator reads that commit with `list_source`,
 `read_source` and `grep_source`, and proposes Ground with `saveDraft`. After the human confirms Ground and accepts the
 intake, each accepted Slice whose dependencies have integrated gets one implementer with `standards`, `contracts` and
-`watchdog` requests. Models, thinking and budgets come from the current Engine settings revision. Role instructions,
+`watchdog` requests. An intake with no catalog selects `.render/verify.md`, which the implementer authors. A
+coordinator that ends its run waiting for Ground idles and resumes when the human confirms Ground. A launch that fails
+before assignment, such as `project_repository_empty: <branch>` for a default branch with no commit, shows as the
+workflow's blocker until a later launch succeeds. Models, thinking and budgets come from the current Engine settings revision. Role instructions,
 profiles, policy and the project's principles file are retained under `host/` and pinned in each packet. The
 launcher starts no experiment work.
 

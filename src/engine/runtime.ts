@@ -104,6 +104,7 @@ import {
 	COORDINATOR_ROLES,
 	coordinatorCommand,
 	coordinatorProfile,
+	fetchFailure,
 	grepSource,
 	hostDocumentTexts,
 	IMPLEMENTER_ROLES,
@@ -228,8 +229,8 @@ export class Engine {
 	readonly #settingsRevisions = new Map<number, EngineSettings>();
 	/** Launched Linux profile documents, by revision: immutable, so read once. */
 	readonly #launchedChecks = new Map<string, PassCheck>();
-	/** Launch attempts that failed, by key, with when; a failing remote is retried at most every 30 seconds. */
-	readonly #launchFailures = new Map<string, number>();
+	/** Failed launches, by workflow and launch: when, and on what basis (messages and project revision). */
+	readonly #launchFailures = new Map<string, { at: number; basis: string }>();
 	/** The literal tree of the commit coordinators read most recently. */
 	#pinned: Source | undefined;
 	readonly #credentials;
@@ -1982,30 +1983,92 @@ export class Engine {
 			if (!this.#effects) return;
 			const workflows = (this.#frame() as { workflows?: WorkflowView[] } | undefined)?.workflows ?? [];
 			const assignments = this.#assignments();
-			for (const workflow of awaitingCoordinator(workflows, assignments))
-				yield* this.#attempt(`coordinator:${workflow}`, this.#launchCoordinator(workflow));
-			for (const w of workflows)
+			const awaiting = awaitingCoordinator(workflows, assignments);
+			for (const w of workflows) {
+				if (awaiting.includes(w.workflow)) yield* this.#attempt(w, "coordinator", this.#launchCoordinator(w.workflow));
 				for (const ready of readySlices(w, assignments))
-					yield* this.#attempt(`implementer:${w.workflow}:${ready.slice}:${ready.contract}`, this.#launchImplementer(w.workflow, ready));
+					yield* this.#attempt(w, `implementer:${ready.slice}`, this.#launchImplementer(w.workflow, ready));
+				yield* this.#resumeOnGround(w.workflow).pipe(
+					Effect.catchCause((cause) => (Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.void)),
+				);
+			}
 		});
 	}
-	/** One launch; a failure (an unreachable remote, a refusal) waits 30 seconds before the next reconcile retries it. */
-	#attempt(key: string, launch: Effect.Effect<void, unknown>): Effect.Effect<void, unknown> {
-		if (Date.now() - (this.#launchFailures.get(key) ?? 0) < 30000) return Effect.void;
-		return launch.pipe(
-			Effect.catchCause((cause) =>
-				Cause.hasInterrupts(cause)
-					? Effect.failCause(cause)
-					: Effect.sync(() => {
-							this.#launchFailures.set(key, Date.now());
-						}),
-			),
+	/**
+	 * One launch. A failure becomes the workflow's visible launch blocker and is retried after 30 seconds, or at once when
+	 * the human posts again or edits the project; a later success clears it.
+	 */
+	#attempt(w: WorkflowView, key: string, launch: Effect.Effect<void, unknown>): Effect.Effect<void, unknown> {
+		const throttle = `${w.workflow} ${key}`;
+		const basis = `${w.messages.count}:${this.#projectOf(w.workflow).revision}`;
+		const failed = this.#launchFailures.get(throttle);
+		if (failed && failed.basis === basis && Date.now() - failed.at < 30000) return Effect.void;
+		return Effect.gen({ self: this }, function* () {
+			const exit = yield* Effect.exit(launch);
+			if (Exit.isSuccess(exit)) {
+				this.#launchFailures.delete(throttle);
+				return yield* this.#launchBlocker(w.workflow, key, null);
+			}
+			if (Cause.hasInterrupts(exit.cause)) return yield* Effect.failCause(exit.cause);
+			const error = Cause.squash(exit.cause);
+			this.#launchFailures.set(throttle, { at: Date.now(), basis });
+			yield* this.#launchBlocker(w.workflow, key, (error instanceof Error ? error.message : String(error)).slice(0, 2000));
+		});
+	}
+	#launchBlocker(workflow: string, key: string, reason: string | null): Effect.Effect<void, unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const record = yield* fromPromise(() => this.#harness!.snapshot(Workflow, workflow, ctx));
+			if (!record?.exists || (record.launchBlockers?.[key] ?? null) === reason) return;
+			yield* this.#ledger!.command(
+				{
+					version: 1,
+					authorityEpoch: this.#ledger!.status().authorityEpoch,
+					commandId: `launch-blocker:${workflow}:${createHash("sha256").update(key).digest("hex").slice(0, 16)}:${this.#ledger!.status().sequence}`,
+					workflow,
+					command: { type: "recordLaunchBlocker", key, reason },
+				},
+				scheduling,
+			);
+		});
+	}
+	/**
+	 * A launched coordinator that went idle after proposing Ground resumes when the human confirms it: one host input per
+	 * confirmed Ground revision, deduplicated by its request ID.
+	 */
+	#resumeOnGround(workflow: string): Effect.Effect<void, unknown> {
+		if (launchedCoordinator(this.#assignments(), workflow)?.status !== "idle") return Effect.void;
+		return this.#serialized(`chat:${workflow}`, () =>
+			Effect.gen({ self: this }, function* () {
+				const harness = this.#harness!;
+				const a = launchedCoordinator(this.#assignments(), workflow);
+				const record = yield* fromPromise(() => harness.snapshot(Workflow, workflow, ctx));
+				if (a?.status !== "idle" || !record?.exists) return;
+				const ground = record.documents.ground;
+				const draft = record.groundDraft;
+				if (!ground || !draft || !record.groundConfirmed || ground.recordedAtSequence < draft.recordedAtSequence) return;
+				const requestId = `ground-confirmed:${ground.revision}`;
+				const resumed = yield* fromPromise(() =>
+					harness.commit((tx) => tx.submissionByRequest(a.conversation as ConversationId, requestId), ctx),
+				);
+				if (resumed) return;
+				const conversation = yield* fromPromise(() => harness.conversation(a.conversation as ConversationId, ctx));
+				if (!conversation) return;
+				const started = yield* this.#command(a, { type: "stageTask", executorEpoch: this.#ledger!.status().executorEpoch });
+				if (started.status !== "accepted") return;
+				const content = `The human confirmed Ground ${ground.revision}. Continue from it.`;
+				yield* fromPromise(() => conversation.submit({ type: "input", requestId, content }, ctx));
+			}),
 		);
 	}
 	#launchCoordinator(workflow: string): Effect.Effect<void, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			const project = this.#project(workflow);
-			const { commit } = yield* this.#effects!.perform({ type: "fetch", project });
+			const fetched = yield* Effect.exit(this.#effects!.perform({ type: "fetch", project }));
+			if (Exit.isFailure(fetched))
+				return yield* Cause.hasInterrupts(fetched.cause)
+					? Effect.failCause(fetched.cause)
+					: Effect.fail(new Error(fetchFailure(Cause.squash(fetched.cause), project.defaultBranch)));
+			const { commit } = fetched.value;
 			const source = yield* this.#pinnedTree(project, commit);
 			const profiles = { coordinator: coordinatorProfile(project.id, commit), "read-only": READ_ONLY_PROFILE };
 			const settings = this.#settingsRevision();
@@ -2023,12 +2086,16 @@ export class Engine {
 			const profile = yield* this.#ledger!.artifact(scheduling, { read: coordinator.packet.profile });
 			const pinned = "content" in profile ? pinnedSource(profile.content.toString("utf8")) : undefined;
 			if (!pinned) throw new Error(`${coordinator.id} pins no source commit`);
-			const catalog = ready.manifest.catalog ? yield* this.#ledger!.artifact(scheduling, { read: ready.manifest.catalog }) : undefined;
+			const catalog = ready.manifest.catalog ? yield* this.#ledger!.artifact(scheduling, { read: ready.manifest.catalog }) : null;
 			const selection = verificationSelection(
 				ready.manifest,
 				ready.slice,
 				ready.contract,
-				catalog && "content" in catalog ? { document: catalog.document ?? "", text: catalog.content.toString("utf8") } : undefined,
+				catalog === null
+					? null
+					: "content" in catalog
+						? { document: catalog.document ?? "", text: catalog.content.toString("utf8") }
+						: undefined,
 				pinned.project,
 				pinned.commit,
 			);
@@ -2084,7 +2151,7 @@ export class Engine {
 				{ version: 1, authorityEpoch: this.#ledger!.status().authorityEpoch, commandId, workflow, command },
 				scheduling,
 			);
-			if (reply.status !== "accepted") throw new Error(`launch refused: ${reply.code}: ${reply.reason}`);
+			if (reply.status !== "accepted") throw new Error(`launch_refused: ${reply.code}: ${reply.reason}`);
 		});
 	}
 	/** The literal tree of a pinned commit, from the project's mirror. */

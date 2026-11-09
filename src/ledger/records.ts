@@ -87,6 +87,8 @@ export type WorkflowRecord =
 			groundDraft?: { draft: string; text: string; recordedAtSequence: number };
 			/** Whether the current Ground's task shape is human-supplied or confirmed. */
 			groundConfirmed?: boolean;
+			/** Launches that failed before assignment, by launch, with their reasons. */
+			launchBlockers?: Record<string, string>;
 	  };
 
 export const Workflow = defineDocFamily<WorkflowRecord, null>({

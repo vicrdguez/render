@@ -1663,6 +1663,15 @@ export class Ledger {
 						if (write.shapeConfirmed !== undefined) w.groundConfirmed = write.shapeConfirmed;
 						break;
 					}
+					case "launch-blocker.put": {
+						const w = yield* fromPromise(() => tx.doc(Workflow, write.workflow, null));
+						if (!w.exists) throw new Error("launch blocker without workflow");
+						const blockers = { ...(w.launchBlockers ?? {}) };
+						if (write.reason === null) delete blockers[write.key];
+						else blockers[write.key] = write.reason;
+						w.launchBlockers = blockers;
+						break;
+					}
 					case "ground-draft.put": {
 						const w = yield* fromPromise(() => tx.doc(Workflow, write.workflow, null));
 						if (!w.exists || text === undefined) throw new Error("ground draft without workflow or text");
@@ -2889,6 +2898,7 @@ function workflowState(
 		...(w.chat ? { chat: plain(w.chat) } : {}),
 		...(w.groundDraft ? { groundDraft: plain(w.groundDraft) } : {}),
 		...(w.groundConfirmed === undefined ? {} : { groundConfirmed: w.groundConfirmed }),
+		...(w.launchBlockers ? { launchBlockers: plain(w.launchBlockers) } : {}),
 		assignments: plain(roles.assignments.filter((a) => a.workflow === w.id)),
 		integrated: qualifiedSlices(roles.passes ?? [], w.id, w.intakes?.slices ?? []),
 		delivered: delivered(w.intakes, roles, workflows),

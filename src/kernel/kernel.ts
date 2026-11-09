@@ -103,6 +103,8 @@ export type KnownCommand =
 	| { readonly type: "saveDraft"; readonly workflow: string; readonly document: "ground"; readonly mediaType: "text/plain" }
 	/** A host-authored packet document under `host/`: role instructions, a profile, principles or policy. */
 	| { readonly type: "retainHostDocument"; readonly workflow: string; readonly document: string; readonly mediaType: "text/plain" }
+	/** Why one launch (`coordinator` or `implementer:<slice>`) failed before assignment; `null` clears it. */
+	| { readonly type: "recordLaunchBlocker"; readonly workflow: string; readonly key: string; readonly reason: string | null }
 	| { readonly type: "enrollDevice"; readonly label: string; readonly scope: DeviceScope }
 	| { readonly type: "revokeDevice"; readonly device: string }
 	| { readonly type: "recordStartup"; readonly executorEpoch: string; readonly persistence: Persistence };
@@ -197,6 +199,7 @@ export type DomainWrite =
 			readonly shapeConfirmed?: boolean;
 	  }
 	| { readonly type: "ground-draft.put"; readonly workflow: string; readonly draft: string }
+	| { readonly type: "launch-blocker.put"; readonly workflow: string; readonly key: string; readonly reason: string | null }
 	| { readonly type: "message.append"; readonly message: string; readonly workflow: string }
 	| { readonly type: "device.enroll"; readonly device: string; readonly label: string; readonly scope: DeviceScope }
 	| { readonly type: "device.revoke"; readonly device: string }
@@ -331,6 +334,7 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	rebindAttempt: { family: "scheduling", available: true },
 	recordBlocker: { family: "scheduling", available: true },
 	retainHostDocument: { family: "scheduling", available: true },
+	recordLaunchBlocker: { family: "scheduling", available: true },
 	recordQuiescence: { family: "scheduling", available: true },
 	quarantineWorkspace: { family: "scheduling", available: false },
 	cleanupWorkspace: { family: "scheduling", available: false },
@@ -428,6 +432,7 @@ export const change = Effect.fnUntraced(function* (state: KernelState, command: 
 				| "saveDocument"
 				| "saveDraft"
 				| "retainHostDocument"
+				| "recordLaunchBlocker"
 				| "enrollDevice"
 				| "revokeDevice"
 				| "recordStartup";
@@ -588,6 +593,20 @@ export const change = Effect.fnUntraced(function* (state: KernelState, command: 
 				facts: [facts.ids.fact],
 			};
 		}
+		case "recordLaunchBlocker": {
+			if (state.workflow === null) return yield* fail("not_found", `${c.workflow} does not exist.`, { workflow: c.workflow });
+			if (typeof c.key !== "string" || !c.key || (c.reason !== null && (typeof c.reason !== "string" || !c.reason.trim())))
+				return yield* fail("invalid_content", "A launch blocker names its launch and a reason, or null to clear it.");
+			return {
+				outcome: "accepted",
+				result: { workflow: c.workflow, key: c.key },
+				writes: [
+					{ type: "launch-blocker.put", workflow: c.workflow, key: c.key, reason: c.reason },
+					fact(facts, c.type, { workflow: c.workflow }),
+				],
+				facts: [facts.ids.fact],
+			};
+		}
 		case "enrollDevice": {
 			const device = required(facts.ids.device);
 			return {
@@ -658,6 +677,8 @@ export type WorkflowState = {
 	readonly groundDraft?: { readonly draft: string; readonly text: string; readonly recordedAtSequence: number };
 	/** Whether the current Ground's task shape is human-supplied or confirmed. */
 	readonly groundConfirmed?: boolean;
+	/** Launches that failed before assignment, by launch, with their reasons. */
+	readonly launchBlockers?: Readonly<Record<string, string>>;
 };
 
 /** Capabilities a client may expect from later Render versions; reported as absent, never as empty successes. */
@@ -727,6 +748,7 @@ function workflowView(w: WorkflowState): WorkflowView {
 	);
 	const checkpoints = w.checkpoints ?? emptyCheckpoints();
 	const pending = checkpoints.requests.find((r) => r.status === "pending");
+	const launch = Object.values(w.launchBlockers ?? {})[0];
 	const draft = w.groundDraft;
 	const confirm =
 		draft && (ground === null || !w.groundConfirmed || ground.recordedAtSequence < draft.recordedAtSequence) ? draft : undefined;
@@ -755,19 +777,21 @@ function workflowView(w: WorkflowState): WorkflowView {
 		evidence: { status: evidence.length ? "available" : "none", items: evidence },
 		blocker: blocked.length
 			? { code: blocked[0]?.blocker ?? "role_blocked", reason: blocked.map((a) => `${a.id}: ${a.blocker}`).join("; "), capabilities: [] }
-			: requiredIntegration
-				? requiredIntegration.kind === "main"
-					? {
-							code: "dependency_blocked",
-							reason: `Required main delivery of ${requiredIntegration.workflow}/${requiredIntegration.requires} blocks ${requiredIntegration.slice} until an observed human main merge contains it.`,
-							capabilities: ["human-main-merge-observation"],
-						}
-					: {
-							code: "dependency_blocked",
-							reason: `Required ${requiredIntegration.kind} of ${requiredIntegration.requires} blocks ${requiredIntegration.slice} until recorded qualifying integration.`,
-							capabilities: ["qualifying-integration"],
-						}
-				: null,
+			: launch
+				? { code: /^([a-z_]+):/.exec(launch)?.[1] ?? "launch_failed", reason: launch, capabilities: [] }
+				: requiredIntegration
+					? requiredIntegration.kind === "main"
+						? {
+								code: "dependency_blocked",
+								reason: `Required main delivery of ${requiredIntegration.workflow}/${requiredIntegration.requires} blocks ${requiredIntegration.slice} until an observed human main merge contains it.`,
+								capabilities: ["human-main-merge-observation"],
+							}
+						: {
+								code: "dependency_blocked",
+								reason: `Required ${requiredIntegration.kind} of ${requiredIntegration.requires} blocks ${requiredIntegration.slice} until recorded qualifying integration.`,
+								capabilities: ["qualifying-integration"],
+							}
+					: null,
 		nextHumanAction:
 			latestIntake && !latestIntake.acceptance
 				? { type: "reviewIntake", intake: latestIntake.id, annotations: latestIntake.annotations }

@@ -99,6 +99,7 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 		CHAT_COMMANDS.includes(type) ||
 		type === "saveDraft" ||
 		type === "retainHostDocument" ||
+		type === "recordLaunchBlocker" ||
 		ROLE_COMMANDS.includes(type) ||
 		PUBLICATION_COMMANDS.includes(type) ||
 		CHECKPOINT_COMMANDS.includes(type) ||
@@ -254,6 +255,16 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 			if (content.length > MAX_CONTENT_BYTES) malformed(`text exceeds ${MAX_CONTENT_BYTES} bytes`);
 			return { command: { type, workflow: workflow as string, document, mediaType: "text/plain" }, content };
 		}
+		case "recordLaunchBlocker":
+			only(c, ["type", "key", "reason"], "command");
+			return {
+				command: {
+					type,
+					workflow: workflow as string,
+					key: text(c.key, "key", 128),
+					reason: c.reason === null ? null : text(c.reason, "reason", 2048),
+				},
+			};
 		case "postCoordinatorMessage":
 			only(c, ["type", "text", "whenBusy"], "command");
 			if (c.whenBusy !== "steer" && c.whenBusy !== "followUp") malformed("whenBusy must be steer or followUp");
