@@ -90,7 +90,7 @@ This document makes the following calls that the operator did not decide. Each o
 | Effects | Project mirror and `fetch`, `ProjectFacts` in operations, forge target from the remote | `repositories` maps in its constructor and in `ForgeConfig` |
 | Sandboxes | Image from the project's `checkImage` | |
 
-A lint rule enforces the boundary. Biome `noRestrictedImports` fails when a file under `src/ledger`, `src/kernel`, `src/engine`, `src/effects` or `src/sandboxes` imports `node:http`, `node:net` or anything under `src/host`. It also fails when a file outside `src/ledger` imports `mintContext`.
+A lint rule enforces the boundary. Biome `noRestrictedImports` fails when a file under `src/ledger`, `src/kernel`, `src/engine`, `src/effects` or `src/sandboxes` imports `node:http`, `node:net` or anything under `src/host`. The transport itself never imports `mintContext`; it obtains every human context through `Principals`. Engine keeps minting its host and assignment-agent contexts as it does today. Narrowing that machine-principal minting is separate work and out of scope here.
 
 ### Piece 1. Transport extraction (Wave 1)
 
