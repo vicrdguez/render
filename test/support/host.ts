@@ -79,6 +79,7 @@ export function cli(args: string[], options: { env?: Record<string, string>; inp
 export function spawnHost(
 	data: string,
 	env: Record<string, string> = {},
+	args: string[] = [],
 ): {
 	proc: ChildProcess;
 	events: HostEvent[];
@@ -87,7 +88,7 @@ export function spawnHost(
 	exited: Promise<number | null>;
 	next(name: string, timeoutMs?: number): Promise<HostEvent>;
 } {
-	const proc = spawn(process.execPath, [HOST_MAIN, "serve", "--data", data, "--port", "0"], {
+	const proc = spawn(process.execPath, [HOST_MAIN, "serve", "--data", data, "--port", "0", ...args], {
 		env: { ...process.env, ...env },
 		stdio: ["ignore", "pipe", "pipe"],
 	});
@@ -134,8 +135,8 @@ export function spawnHost(
 	return { proc, events, stdout, stderr, exited, next };
 }
 
-export async function startHost(data: string, env: Record<string, string> = {}): Promise<HostProcess> {
-	const s = spawnHost(data, env);
+export async function startHost(data: string, env: Record<string, string> = {}, args: string[] = []): Promise<HostProcess> {
+	const s = spawnHost(data, env, args);
 	const ready = await s.next("ready");
 	const kill = async () => {
 		if (s.proc.exitCode === null && s.proc.signalCode === null) s.proc.kill("SIGKILL");

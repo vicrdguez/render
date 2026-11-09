@@ -7,10 +7,11 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import { fromPromise } from "../effect.ts";
-import { Engine, type OwnedChecks } from "../engine/runtime.ts";
+import { Engine } from "../engine/runtime.ts";
 import type { Persistence } from "../kernel/kernel.ts";
 import type { Ledger } from "../ledger/ledger.ts";
 import { openLedger } from "../ledger/startup.ts";
+import { GITHUB, type GitHubEndpoints, production, type Readiness } from "./production.ts";
 import { secretsFile } from "./secrets.ts";
 import { adminServer, deviceServer } from "./transport.ts";
 
@@ -21,6 +22,8 @@ export type Host = {
 	readonly authorityEpoch: string;
 	readonly executorEpoch: string;
 	readonly persistence: Persistence;
+	/** Whether the runtime's external prerequisites are usable now; each probe runs afresh. */
+	readiness(): Promise<Readiness>;
 	close(): Effect.Effect<void, unknown>;
 };
 
@@ -28,9 +31,10 @@ export type OpenHostOptions = {
 	readonly data: string;
 	readonly port?: number;
 	readonly hostname?: string;
-	readonly ownedChecks?: OwnedChecks;
 	/** pi's login file (`--pi-auth`). Without it every pi-login family reports `native_provider_configuration_missing`. */
 	readonly piAuth?: string;
+	/** GitHub's REST and Git endpoints; the defaults are github.com's. */
+	readonly github?: GitHubEndpoints;
 	readonly onFatal?: (error: unknown) => void;
 };
 
@@ -39,8 +43,9 @@ export function openHost(options: OpenHostOptions): Effect.Effect<Host, unknown>
 		// Acquisition must not close this scope on success; Host.close owns its lifetime.
 		const scope = yield* Scope.make();
 		const secrets = secretsFile(join(options.data, "secrets.json"));
+		const runtime = production({ data: options.data, secrets, piAuth: options.piAuth, github: options.github ?? GITHUB });
 		return yield* Effect.gen(function* () {
-			const engine = new Engine({ ownedChecks: options.ownedChecks, piAuth: options.piAuth, secrets });
+			const engine = new Engine(runtime.engine);
 			const opened = yield* openLedger({
 				data: options.data,
 				runtime: (report) => engine.options(report),
@@ -48,7 +53,7 @@ export function openHost(options: OpenHostOptions): Effect.Effect<Host, unknown>
 			});
 			yield* Scope.addFinalizer(scope, opened.close().pipe(Effect.orDie));
 			const socketPath = join(options.data, "admin.sock");
-			const api = { ledger: opened.ledger, engine, secrets };
+			const api = { ledger: opened.ledger, engine, secrets, readiness: runtime.readiness };
 			const admin = yield* adminServer(api, opened.principals, socketPath);
 			yield* Scope.addFinalizer(scope, closeServer(admin));
 			const listener = deviceServer(api, opened.principals);
@@ -68,6 +73,7 @@ export function openHost(options: OpenHostOptions): Effect.Effect<Host, unknown>
 				authorityEpoch: opened.authorityEpoch,
 				executorEpoch: opened.executorEpoch,
 				persistence: opened.persistence,
+				readiness: runtime.readiness,
 				close: () => Scope.close(scope, Exit.void),
 			};
 		}).pipe(Effect.catchCause((cause) => Scope.close(scope, Exit.failCause(cause)).pipe(Effect.flatMap(() => Effect.failCause(cause)))));
