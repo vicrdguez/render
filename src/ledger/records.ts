@@ -83,6 +83,12 @@ export type WorkflowRecord =
 			checkpoints?: Checkpoints;
 			intakes?: Intakes;
 			publication?: Publication;
+			/** The coordinator's latest Ground proposal (X6). */
+			groundDraft?: { draft: string; text: string; recordedAtSequence: number };
+			/** Whether the current Ground's task shape is human-supplied or confirmed. */
+			groundConfirmed?: boolean;
+			/** Launches that failed before assignment, by launch, with their reasons. */
+			launchBlockers?: Record<string, string>;
 	  };
 
 export const Workflow = defineDocFamily<WorkflowRecord, null>({

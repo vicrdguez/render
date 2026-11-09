@@ -50,7 +50,15 @@ import {
 import { bindingFor, initialPolicy, type PolicyState } from "../kernel/policy.ts";
 import type { Project } from "../kernel/projects.ts";
 import { mainCoverage, publicationView } from "../kernel/publication.ts";
-import { isChatCoordinator, packetRefs, type RoleAssignment, type RolePacket, type RoleWorkState, sameAgent } from "../kernel/roles.ts";
+import {
+	groundInScope,
+	isChatCoordinator,
+	packetRefs,
+	type RoleAssignment,
+	type RolePacket,
+	type RoleWorkState,
+	sameAgent,
+} from "../kernel/roles.ts";
 import type { CatalogEvidence } from "../kernel/verification.ts";
 import { faultBarrier } from "./barrier.ts";
 import { decodeUtf8, type Envelope, PROTOCOL_VERSION, parseEnvelope } from "./envelope.ts";
@@ -489,7 +497,7 @@ export class Ledger {
 					const own = roles.assignments.find((a) => sameAgent(a as RoleAssignment, current));
 					if (!own || own.packet.role !== "coordinator" || own.packet.investigation)
 						return yield* Effect.fail(new Abort(refusal("forbidden_scope", "Only scoped coordinators operate intake.")));
-					if (intakes.concerns.some((n) => !intakes.drafts.some((d) => d.id === n.intake && own.packet.inputs.includes(d.manifest.ground))))
+					if (intakes.concerns.some((n) => !intakes.drafts.some((d) => d.id === n.intake && groundInScope(own, d.manifest.ground))))
 						return yield* Effect.fail(
 							new Abort(
 								refusal("forbidden_scope", "Retained concerns require explicit originating Ground scope before intake continuation."),
@@ -503,10 +511,11 @@ export class Ledger {
 							: "intake" in intake
 								? intakes.drafts.find((d) => d.id === intake.intake)?.manifest
 								: undefined;
-					if (m && !own.packet.inputs.includes(m.ground))
+					if (m && !groundInScope(own, m.ground))
 						return yield* Effect.fail(new Abort(refusal("forbidden_scope", "Intake Ground is outside coordinator inputs.")));
 					if (intake.type === "stageIntake" && m) {
 						const allowed = new Set([
+							m.ground,
 							...packetRefs(plain(own.packet)),
 							...(own.evidence ?? []),
 							...roles.assignments.filter((a) => a.parent === own.id).flatMap((a) => (a.report ? [a.report] : [])),
@@ -531,7 +540,7 @@ export class Ledger {
 						checkpoint.type === "requestCheckpoint"
 							? checkpoint.scope
 							: checkpoints.requests.find((r) => r.id === checkpoint.request)?.scope;
-					if (scope && !own.packet.inputs.includes(scope))
+					if (scope && !groundInScope(own, scope))
 						return yield* Effect.fail(new Abort(refusal("forbidden_scope", "Checkpoint Ground is outside coordinator inputs.")));
 					if (checkpoint.type === "stageCheckpoint" && Array.isArray(checkpoint.manifest.nodes)) {
 						const allowed = new Set([
@@ -1048,7 +1057,14 @@ export class Ledger {
 				},
 				...(env.content === undefined
 					? {}
-					: { content: { digest: sha256(env.content), byteLength: env.content.length, validUtf8: text !== undefined } }),
+					: {
+							content: {
+								digest: sha256(env.content),
+								byteLength: env.content.length,
+								validUtf8: text !== undefined,
+								...(text === undefined ? {} : { text }),
+							},
+						}),
 			};
 			const state: KernelState = {
 				intakes,
@@ -1372,14 +1388,16 @@ export class Ledger {
 							);
 						}
 						if (command.type === "recordSourceObservation" && typeof decision.result.source === "string") {
-							const c = command as { assignment: string; generation: number; attempt: string; text: string };
+							const c = command as { assignment: string; generation: number; attempt: string; text: string; path?: string };
 							yield* this.#retainRoleText(
 								tx,
 								env,
 								by,
 								sequence,
 								decision.result.source,
-								`${roles.assignments.find((a) => a.id === c.assignment)?.packet.experiment ? "experiment-source" : "investigation-source"}/${c.assignment}`,
+								c.path !== undefined
+									? `source/${c.path}`
+									: `${roles.assignments.find((a) => a.id === c.assignment)?.packet.experiment ? "experiment-source" : "investigation-source"}/${c.assignment}`,
 								c.text,
 								c,
 							);
@@ -1642,6 +1660,22 @@ export class Ledger {
 							revisionCount: (previous?.revisionCount ?? 0) + 1,
 							savedBy: by.device ?? by.route,
 						};
+						if (write.shapeConfirmed !== undefined) w.groundConfirmed = write.shapeConfirmed;
+						break;
+					}
+					case "launch-blocker.put": {
+						const w = yield* fromPromise(() => tx.doc(Workflow, write.workflow, null));
+						if (!w.exists) throw new Error("launch blocker without workflow");
+						const blockers = { ...(w.launchBlockers ?? {}) };
+						if (write.reason === null) delete blockers[write.key];
+						else blockers[write.key] = write.reason;
+						w.launchBlockers = blockers;
+						break;
+					}
+					case "ground-draft.put": {
+						const w = yield* fromPromise(() => tx.doc(Workflow, write.workflow, null));
+						if (!w.exists || text === undefined) throw new Error("ground draft without workflow or text");
+						w.groundDraft = { draft: write.draft, text, recordedAtSequence: sequence };
 						break;
 					}
 					case "message.append": {
@@ -2112,7 +2146,7 @@ export class Ledger {
 					const checkpointReads =
 						own?.packet.role === "coordinator" && !own.packet.investigation
 							? (this.#workflows.get(own.workflow)?.checkpoints?.requests ?? [])
-									.filter((r) => own.packet.inputs.includes(r.scope))
+									.filter((r) => groundInScope(own, r.scope))
 									.flatMap((r) =>
 										checkpointRefs(this.#workflows.get(own.workflow)!.checkpoints!, {
 											type: "reworkCheckpoint",
@@ -2127,7 +2161,7 @@ export class Ledger {
 					const intakeReads =
 						own?.packet.role === "coordinator" && !own.packet.investigation && intakeWork
 							? intakeWork.drafts
-									.filter((d) => own.packet.inputs.includes(d.manifest.ground))
+									.filter((d) => groundInScope(own, d.manifest.ground))
 									.flatMap((d) =>
 										intakeRefs(
 											intakeWork,
@@ -2137,9 +2171,7 @@ export class Ledger {
 									)
 									.filter((ref) => {
 										const concern = intakeWork.concerns.find((n) => n.revision === ref);
-										return (
-											!concern || intakeWork.drafts.some((d) => d.id === concern.intake && own.packet.inputs.includes(d.manifest.ground))
-										);
+										return !concern || intakeWork.drafts.some((d) => d.id === concern.intake && groundInScope(own, d.manifest.ground));
 									})
 							: [];
 					const results = this.#roleWork.assignments
@@ -2864,6 +2896,9 @@ function workflowState(
 		documents,
 		messageCount: w.messageCount,
 		...(w.chat ? { chat: plain(w.chat) } : {}),
+		...(w.groundDraft ? { groundDraft: plain(w.groundDraft) } : {}),
+		...(w.groundConfirmed === undefined ? {} : { groundConfirmed: w.groundConfirmed }),
+		...(w.launchBlockers ? { launchBlockers: plain(w.launchBlockers) } : {}),
 		assignments: plain(roles.assignments.filter((a) => a.workflow === w.id)),
 		integrated: qualifiedSlices(roles.passes ?? [], w.id, w.intakes?.slices ?? []),
 		delivered: delivered(w.intakes, roles, workflows),

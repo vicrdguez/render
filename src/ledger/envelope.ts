@@ -97,6 +97,9 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 		type === "adoptPolicy" ||
 		type === "saveDocument" ||
 		CHAT_COMMANDS.includes(type) ||
+		type === "saveDraft" ||
+		type === "retainHostDocument" ||
+		type === "recordLaunchBlocker" ||
 		ROLE_COMMANDS.includes(type) ||
 		PUBLICATION_COMMANDS.includes(type) ||
 		CHECKPOINT_COMMANDS.includes(type) ||
@@ -238,6 +241,30 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 				content,
 			};
 		}
+		case "saveDraft": {
+			only(c, ["type", "document", "content"], "command");
+			if (c.document !== "ground") malformed("A coordinator drafts only the ground document");
+			const content = Buffer.from(text(c.content, "content", 1024 * 1024), "utf8");
+			return { command: { type, workflow: workflow as string, document: "ground", mediaType: "text/plain" }, content };
+		}
+		case "retainHostDocument": {
+			only(c, ["type", "document", "text"], "command");
+			const document = text(c.document, "document", 128);
+			if (!DOCUMENT.test(document) || !document.startsWith("host/")) malformed("document must be a host/ document name");
+			const content = Buffer.from(text(c.text, "text", MAX_CONTENT_BYTES), "utf8");
+			if (content.length > MAX_CONTENT_BYTES) malformed(`text exceeds ${MAX_CONTENT_BYTES} bytes`);
+			return { command: { type, workflow: workflow as string, document, mediaType: "text/plain" }, content };
+		}
+		case "recordLaunchBlocker":
+			only(c, ["type", "key", "reason"], "command");
+			return {
+				command: {
+					type,
+					workflow: workflow as string,
+					key: text(c.key, "key", 128),
+					reason: c.reason === null ? null : text(c.reason, "reason", 2048),
+				},
+			};
 		case "postCoordinatorMessage":
 			only(c, ["type", "text", "whenBusy"], "command");
 			if (c.whenBusy !== "steer" && c.whenBusy !== "followUp") malformed("whenBusy must be steer or followUp");
@@ -492,6 +519,7 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 		type === "recordSourceObservation"
 	)
 		allowed.push("text");
+	if (type === "recordSourceObservation") allowed.push("path");
 	if (type === "stageTask" || type === "rebindAttempt") allowed.push("executorEpoch");
 	if (type === "recordQuiescence" || type === "rebindAttempt") allowed.push("providerIdle", "environment", "effects");
 	only(c, allowed, "command");
@@ -530,7 +558,12 @@ function roleCommand(type: string, c: Fields, workflow: string): RoleCommand {
 		type === "recordRunnerDiagnostic" ||
 		type === "recordSourceObservation"
 	)
-		return { ...common, type, text: text(c.text, "text", type === "recordRecoveryState" ? 1024 * 1024 : 16 * 1024 * 1024) };
+		return {
+			...common,
+			type,
+			text: text(c.text, "text", type === "recordRecoveryState" ? 1024 * 1024 : 16 * 1024 * 1024),
+			...(type === "recordSourceObservation" && c.path !== undefined ? { path: text(c.path, "path", 4096) } : {}),
+		};
 	if (type === "recordQuiescence" || type === "rebindAttempt") {
 		if (
 			typeof c.providerIdle !== "boolean" ||

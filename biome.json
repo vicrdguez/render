@@ -9,6 +9,7 @@
 		"ignoreUnknown": false,
 		"includes": ["src/**", "test/**", "*.json"]
 	},
+	"plugins": ["./lint/assign-task.grit"],
 	"formatter": {
 		"enabled": true,
 		"indentStyle": "tab",

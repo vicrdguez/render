@@ -46,6 +46,7 @@ import { type Investigation, readInvestigationOutcome, shapeConfirmed } from "./
 import type { Decision, DomainWrite, KernelState, Principal, Refusal, RefusalCode, VerifiedFacts } from "./kernel.ts";
 import { type Comparison, comparePerformance, readCommitment } from "./performance.ts";
 import { bindingFor, initialPolicy, policyBasis } from "./policy.ts";
+import { validatePath } from "./source-path.ts";
 import {
 	completionGap,
 	type Maintenance,
@@ -238,6 +239,8 @@ export type RoleCommand =
 			generation: number;
 			attempt: string;
 			text: string;
+			/** recordSourceObservation only: a launched coordinator's read of this path at its pinned commit (X5). */
+			path?: string;
 	  }
 	| {
 			type: "cancelWork" | "fenceAttempt" | "stageTask";
@@ -298,6 +301,13 @@ function refusal(code: RefusalCode, reason: string): Refusal {
 /** A top-level coordinator: humans chat with it, and it idles between runs instead of blocking. */
 export function isChatCoordinator(a: Pick<RoleAssignment, "packet" | "parent">): boolean {
 	return a.packet.role === "coordinator" && a.parent === null;
+}
+/**
+ * Whether a coordinator may cite this Ground: a packet input, or for the workflow's launched coordinator (its Slice is
+ * the workflow), any Ground of its workflow, because the human confirms Ground after that coordinator starts.
+ */
+export function groundInScope(a: Pick<RoleAssignment, "slice" | "workflow" | "packet">, ground: string): boolean {
+	return a.packet.inputs.includes(ground) || a.slice === a.workflow;
 }
 export function sameAgent(a: RoleAssignment, p: Principal): boolean {
 	return (
@@ -1419,6 +1429,22 @@ export const changeRole = Effect.fnUntraced(function* (state: KernelState, comma
 				result.document0 = pass.handoff.preparationResult;
 				break;
 			case "recordSourceObservation":
+				if (c.path !== undefined) {
+					// A source read the coordinator may cite: its exact bytes become its own retained evidence.
+					if (a.packet.role !== "coordinator" || a.packet.investigation || a.status !== "running" || !a.executing)
+						return yield* Effect.fail(refusal("stale_assignment", "Only a current executing coordinator retains its source reads."));
+					try {
+						validatePath(c.path);
+					} catch {
+						return yield* Effect.fail(refusal("invalid_content", "A source read names one repository path."));
+					}
+					if (Buffer.byteLength(c.text) > 1024 * 1024)
+						return yield* Effect.fail(refusal("invalid_content", "A source read exceeds retained evidence bounds."));
+					a.evidence ??= [];
+					a.evidence.push(facts.ids.revision!);
+					result.source = facts.ids.revision!;
+					break;
+				}
 				if (a.packet.experiment) {
 					if (a.experimentSource || a.status !== "running" || !a.executing || a.executorEpoch !== facts.executorEpoch)
 						return yield* Effect.fail(refusal("stale_assignment", "Only a current open experiment can retain its sealed source."));

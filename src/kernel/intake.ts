@@ -4,10 +4,11 @@ import * as Effect from "effect/Effect";
 import { catalogDefinition } from "./catalog.ts";
 import type { CheckpointInput, Checkpoints } from "./checkpoints.ts";
 import { qualifiedSlices } from "./integration.ts";
+import { unconfirmedShape } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, Refusal, RefusalCode, VerifiedFacts } from "./kernel.ts";
 import { performanceCommitment } from "./performance.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
-import { type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
+import { groundInScope, type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
 
 export const INTAKE_COMMANDS = [
 	"stageIntake",
@@ -533,7 +534,7 @@ export const changeIntake = Effect.fnUntraced(function* (
 	const work = structuredClone(state.intakes ?? emptyIntakes());
 	if (
 		p.kind === "assignment-agent" &&
-		work.concerns.some((n) => !work.drafts.some((d) => d.id === n.intake && a!.packet.inputs.includes(d.manifest.ground)))
+		work.concerns.some((n) => !work.drafts.some((d) => d.id === n.intake && groundInScope(a!, d.manifest.ground)))
 	)
 		return yield* Effect.fail(
 			refused(
@@ -549,15 +550,18 @@ export const changeIntake = Effect.fnUntraced(function* (
 	const result: Record<string, string | number | null> = {};
 	const record = `intake-record:${facts.sequence}`;
 	const d = "intake" in c ? work.drafts.find((d) => d.id === c.intake) : undefined;
-	if (p.kind === "assignment-agent" && d && !a!.packet.inputs.includes(d.manifest.ground))
+	if (p.kind === "assignment-agent" && d && !groundInScope(a!, d.manifest.ground))
 		return yield* Effect.fail(refused("forbidden_scope", "Ground outside coordinator inputs."));
 	if (c.type === "stageIntake") {
 		if (c.expected !== (work.drafts.at(-1)?.id ?? null))
 			return yield* Effect.fail(refused("stale_basis", "Read the latest draft before staging its successor."));
 		if (!validIntakeShape(c.manifest) || !text(c.text))
 			return yield* Effect.fail(refused("invalid_content", "Intake needs bounded Slices, obligations, choices, coverage and provenance."));
-		if (!a!.packet.inputs.includes(c.manifest.ground))
-			return yield* Effect.fail(refused("forbidden_scope", "Ground outside coordinator inputs."));
+		if (!groundInScope(a!, c.manifest.ground)) return yield* Effect.fail(refused("forbidden_scope", "Ground outside coordinator inputs."));
+		if (unconfirmedShape(inputs[c.manifest.ground]?.text ?? ""))
+			return yield* Effect.fail(
+				refused("shape_confirmation_required", "Confirm the classifier-proposed task shape in human Ground before staging an intake."),
+			);
 		const gap = lint(state, c.manifest, inputs);
 		if (gap) return yield* Effect.fail(refused("invalid_content", gap));
 		if (!mappedConcerns(work, c.manifest))

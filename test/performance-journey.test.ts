@@ -63,7 +63,7 @@ test("PJ02 a classifier-proposed performance shape needs human confirmation; the
 	const f = await performanceFixture();
 	try {
 		const proposed = await f.ground({}, { origin: "classifier", confirmed: false });
-		refused((await stageFrom(f, proposed)).reply, "invalid_content", "unconfirmed classifier shape");
+		refused((await stageFrom(f, proposed)).reply, "shape_confirmation_required", "unconfirmed classifier shape");
 		const confirmed = await f.ground({}, { origin: "classifier", confirmed: true });
 		accepted((await stageFrom(f, confirmed)).reply);
 	} finally {
