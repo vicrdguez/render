@@ -130,7 +130,10 @@ test("S3 an added model entry with a catalog base is accepted; invalid reference
 				"role model with no entry and no catalog model",
 				{ ...base, roles: { ...base.roles, watchdog: { ...base.roles.watchdog, model: { provider: "openai", id: "gpt-6.1-terra" } } } },
 			],
-			["family provider outside PROVIDERS", { ...base, families: [...base.families, { name: "x", provider: "mistral" as never, auth: "api-key" }] }],
+			[
+				"family provider outside PROVIDERS",
+				{ ...base, families: [...base.families, { name: "x", provider: "mistral" as never, auth: "api-key" }] },
+			],
 			[
 				"base absent from the catalog",
 				{ ...terra, models: [...base.models, { provider: "openai", id: "gpt-6.1-terra", family: "chatgpt", base: "gpt-9" }] },
@@ -170,7 +173,13 @@ test("S4 only a project-wide human changes or reads Engine settings", async () =
 		const base = current(f.ledger)!.value;
 		assert.equal((await f.command({ type: "assignTask", slice: "slice:1", delivery: false, packet: packet() })).status, "accepted");
 		const a = ((f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[])[0]!;
-		const agent = mintContext({ kind: "assignment-agent", assignment: a.id, generation: a.generation, attempt: a.attempt, role: a.packet.role });
+		const agent = mintContext({
+			kind: "assignment-agent",
+			assignment: a.id,
+			generation: a.generation,
+			attempt: a.attempt,
+			role: a.packet.role,
+		});
 		for (const context of [scheduler, agent]) {
 			const r = await change(f.ledger, base, 1, context);
 			assert.equal(r.status === "refused" && r.code, "forbidden_principal");

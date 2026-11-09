@@ -3,6 +3,7 @@
 import { defineDoc, defineDocFamily, defineEntry } from "@earendil-works/pi-durable";
 import { initialCheckpointSettings, type CheckpointSettings as SettingsState } from "../kernel/checkpoint-settings.ts";
 import type { Checkpoints } from "../kernel/checkpoints.ts";
+import { type EngineSettingsRevision, initialEngineSettings } from "../kernel/engine-settings.ts";
 import type { Intakes } from "../kernel/intake.ts";
 import type { MediaType, Persistence } from "../kernel/kernel.ts";
 import { initialPolicy, type PolicyState } from "../kernel/policy.ts";
@@ -134,6 +135,24 @@ export const CheckpointSettingsEntry = defineEntry<{
 	byteLength: number;
 	by: AcceptedBy;
 }>("render.checkpoint-settings");
+
+export const EngineSettings = defineDoc<EngineSettingsRevision>({
+	kind: "render.engine-settings",
+	version: 1,
+	scope: "session",
+	initial: initialEngineSettings,
+	checkpointWhen,
+});
+export const EngineSettingsEntry = defineEntry<{
+	schema: number;
+	sequence: number;
+	commandId: string;
+	ref: string;
+	text: string;
+	digest: string;
+	byteLength: number;
+	by: AcceptedBy;
+}>("render.engine-settings");
 
 export const Policy = defineDoc<PolicyState>({
 	kind: "render.policy",

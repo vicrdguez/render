@@ -31,7 +31,10 @@ test("a set secret is listed as set without its value and the file is 0600", asy
 		assert.equal(reply.set, true);
 		assert.ok(!Number.isNaN(Date.parse(reply.updatedAt)));
 		const listed = await secrets.list();
-		assert.deepEqual(listed.find((s) => s.name === "github-token"), reply);
+		assert.deepEqual(
+			listed.find((s) => s.name === "github-token"),
+			reply,
+		);
 		assert.ok(!JSON.stringify(listed).includes(VALUE), "list never returns a value");
 		assert.equal((await stat(d.file)).mode & 0o777, 0o600);
 		assert.equal(await secretsFile(d.file).read("github-token"), VALUE, "a fresh reader sees the new value");

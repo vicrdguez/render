@@ -73,6 +73,8 @@ export type RolePacket = {
 	verification?: VerificationSelection;
 	/** Ledger-generated binding; callers cannot submit or inherit it. */
 	policyBinding?: string;
+	/** The Engine settings revision the packet's model, family, thinking and budgets were copied from. */
+	settingsRevision?: number;
 	role: Role;
 	inputs: string[];
 	principles: string;

@@ -20,6 +20,7 @@ import {
 	checkpointRefs,
 	emptyCheckpoints,
 } from "../kernel/checkpoints.ts";
+import { type EngineSettingsRevision, initialEngineSettings } from "../kernel/engine-settings.ts";
 import { type ExperimentProtocol, experimentInputs, readExperimentProtocol } from "../kernel/experiments.ts";
 import { type ImplementationSource, implementationSource as parseImplementationSource } from "../kernel/implementation.ts";
 import {
@@ -80,6 +81,8 @@ import {
 	Device,
 	type DeviceRecord,
 	type DocumentPointer,
+	EngineSettings,
+	EngineSettingsEntry,
 	FactEntry,
 	MessageEntry,
 	Meta,
@@ -218,6 +221,7 @@ export class Ledger {
 	#policy: PolicyState = initialPolicy();
 	#checkpointSettings: SettingsState = initialCheckpointSettings();
 	#projects: Record<string, Project> = {};
+	#engineSettings: EngineSettingsRevision = initialEngineSettings();
 	#roleTasks: RoleTaskStaging | undefined;
 	readonly #webWorking = new Map<string, WebWorking>();
 
@@ -243,6 +247,7 @@ export class Ledger {
 			ledger.#checkpointSettings = plain(
 				(yield* fromPromise(() => harness.snapshot(CheckpointSettings, ctx))) ?? initialCheckpointSettings(),
 			);
+			ledger.#engineSettings = plain((yield* fromPromise(() => harness.snapshot(EngineSettings, ctx))) ?? initialEngineSettings());
 			ledger.#roleWork = plain((yield* fromPromise(() => harness.snapshot(RoleWork, ctx))) ?? { assignments: [] });
 			ledger.#projects = plain((yield* fromPromise(() => harness.snapshot(Projects, ctx)))?.projects ?? {});
 			for (const id of meta.workflows) {
@@ -366,10 +371,13 @@ export class Ledger {
 			const policy = yield* fromPromise(() => tx.doc(Policy));
 			const checkpointSettings = yield* fromPromise(() => tx.doc(CheckpointSettings));
 			const projects = yield* fromPromise(() => tx.doc(Projects));
+			const engineSettings = yield* fromPromise(() => tx.doc(EngineSettings));
 			if (current.kind === "assignment-agent") {
 				const own = roles.assignments.find((a) => sameAgent(a as RoleAssignment, current));
 				if (!own) return yield* Effect.fail(new Abort(UNAUTHORIZED));
-				if (env.workflow !== own.workflow) return yield* Effect.fail(new Abort(refusal("forbidden_scope", "Assignment workflow differs.")));
+				// A workflow-less command is never role work; the family check below refuses it as forbidden_principal.
+				if (env.workflow !== null && env.workflow !== own.workflow)
+					return yield* Effect.fail(new Abort(refusal("forbidden_scope", "Assignment workflow differs.")));
 			}
 			const namespace = namespaceOf(current);
 			const receipt = yield* fromPromise(() => tx.doc(Receipt, `${namespace} ${env.commandId}`, null));
@@ -1033,6 +1041,7 @@ export class Ledger {
 				intakes,
 				checkpoints,
 				checkpointSettings: plain(checkpointSettings),
+				engineSettings: plain(engineSettings),
 				roleWork: plain(roles),
 				policy: plain(policy),
 				projects: plain(projects.projects),
@@ -1113,6 +1122,25 @@ export class Ledger {
 									sequence,
 									commandId: env.commandId,
 									ref: write.state.currentRevision,
+									text,
+									digest: sha256(Buffer.from(text)),
+									byteLength: Buffer.byteLength(text),
+									by,
+								},
+							}),
+						);
+						break;
+					}
+					case "engine-settings.replace": {
+						Object.assign(engineSettings, plain(write.state));
+						const text = JSON.stringify(write.state);
+						yield* fromPromise(() =>
+							tx.appendEntry(EngineSettingsEntry, meta.ledgerConversation as ConversationId, {
+								data: {
+									schema: 1,
+									sequence,
+									commandId: env.commandId,
+									ref: `engine-settings:${write.state.revision}`,
 									text,
 									digest: sha256(Buffer.from(text)),
 									byteLength: Buffer.byteLength(text),
@@ -1691,6 +1719,7 @@ export class Ledger {
 				body,
 				roles: plain(roles),
 				checkpointSettings: plain(checkpointSettings),
+				engineSettings: plain(engineSettings),
 				policy: plain(policy),
 				projects: plain(projects.projects),
 				meta: plain(meta) as MetaState,
@@ -1773,6 +1802,7 @@ export class Ledger {
 		policy?: PolicyState;
 		checkpointSettings?: SettingsState;
 		projects?: Record<string, Project>;
+		engineSettings?: EngineSettingsRevision;
 		workflow?: Present<WorkflowRecord> | undefined;
 		device?: DeviceRecord | undefined;
 	}): void {
@@ -1781,6 +1811,7 @@ export class Ledger {
 		if (outcome.policy) this.#policy = outcome.policy;
 		if (outcome.checkpointSettings) this.#checkpointSettings = outcome.checkpointSettings;
 		if (outcome.projects) this.#projects = outcome.projects;
+		if (outcome.engineSettings) this.#engineSettings = outcome.engineSettings;
 		this.#roleTasks?.committed();
 		if (outcome.workflow !== undefined) this.#workflows.set(outcome.workflow.id, outcome.workflow);
 		if (outcome.device?.exists) {
@@ -2270,7 +2301,10 @@ export class Ledger {
 							if (sequence > state.cutoff) continue;
 							if (owner.projects && (entry.kind !== ProjectEntry.kind || !owner.projects.has(String(d.project)))) continue;
 							const ref = String(
-								entry.kind === PolicyEntry.kind || entry.kind === CheckpointSettingsEntry.kind || entry.kind === ProjectEntry.kind
+								entry.kind === PolicyEntry.kind ||
+									entry.kind === CheckpointSettingsEntry.kind ||
+									entry.kind === ProjectEntry.kind ||
+									entry.kind === EngineSettingsEntry.kind
 									? d.ref
 									: (d.revision ?? d.message ?? d.fact ?? `entry:${entry.id}`),
 							);
@@ -2307,6 +2341,24 @@ export class Ledger {
 										receipt: task,
 										parents: [ref],
 									});
+								continue;
+							}
+							if (entry.kind === EngineSettingsEntry.kind) {
+								seenRetained.add(ref);
+								if (d.schema !== 1 || typeof d.text !== "string" || !intact(d.text, String(d.digest), Number(d.byteLength))) {
+									missing.push({ ref, code: d.schema !== 1 ? "unsupported_schema" : "content_corrupt" });
+									continue;
+								}
+								add({
+									...base(ref, "engine_settings", null, sequence, String(d.commandId)),
+									settings: JSON.parse(d.text),
+									createdBy: d.by,
+									content: true,
+									mediaType: "text/plain",
+									digest: d.digest,
+									byteLength: d.byteLength,
+								});
+								content[ref] = Buffer.from(d.text).toString("base64");
 								continue;
 							}
 							if (entry.kind === CheckpointSettingsEntry.kind) {
@@ -2383,6 +2435,7 @@ export class Ledger {
 								if ((wanted("runtime_transcript") || wanted("runtime_task")) && refs.runtimeHistory)
 									expectedRetained.add(refs.runtimeHistory);
 								if (wanted("checkpoint_settings") && refs.settings) expectedRetained.add(refs.settings);
+								if (wanted("engine_settings") && refs.engineSettings) expectedRetained.add(refs.engineSettings);
 								if (wanted("policy")) {
 									if (refs.binding) expectedRetained.add(refs.binding);
 									else if (d.command === "changePolicy" && refs.policy) expectedRetained.add(refs.policy);
@@ -2521,6 +2574,10 @@ export class Ledger {
 			checkpointSettings:
 				principal.kind === "host" || (principal.kind === "human" && (principal.route === "local-admin" || principal.workflows === "all"))
 					? plain(this.#checkpointSettings)
+					: null,
+			settings:
+				principal.kind === "host" || (principal.kind === "human" && (principal.route === "local-admin" || principal.workflows === "all"))
+					? plain(this.#engineSettings)
 					: null,
 			policy:
 				principal.kind === "assignment-agent"
