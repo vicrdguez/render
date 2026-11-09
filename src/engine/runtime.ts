@@ -184,7 +184,8 @@ export class Engine {
 				() => this.#assignments(),
 				(workflow) => this.#project(workflow),
 			);
-		if (config.investigations) this.#investigationEffects = new Effects(config.investigations);
+		if (config.investigations)
+			this.#investigationEffects = new Effects({ root: config.investigations.root, ...(config.forge ? { forge: config.forge } : {}) });
 		if (config.ownedChecks) {
 			this.#effects = new Effects({
 				root: `${config.ownedChecks.root}/effects`,
