@@ -166,7 +166,7 @@ try {
 				assert.equal((await f.command({ type: "requestRole", key: `child:${i}` }, own)).status, "accepted");
 			releaseParent();
 		}
-		await until(() => assignments()[0]?.blocker === "awaiting_role_results" && !assignments()[0]?.executing);
+		await until(() => assignments()[0]?.status === "idle" && !assignments()[0]?.executing);
 		if (mode === "parent") {
 			// Isolate the parent waiting path with three additional executing roles.
 			for (let i = 0; i < 3; i++)

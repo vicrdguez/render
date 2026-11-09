@@ -148,8 +148,11 @@ reconcile delivers accepted human messages to it: at once while it runs, after `
 slot is free, otherwise later. The release check and each delivery run under one per-workflow lock, so no message lands
 between them. Its `maxTurns` counts the provider requests of one run, and its tool rounds take no runtime-history
 snapshots; history and export read the committed coordinator transcript instead. An interrupt is `conversation.abort`
-on the coordinator's own conversation, which also withdraws its queued messages; role tasks keep running. A
-coordinator still waiting for requested role results stays `blocked: awaiting_role_results` as before.
+on the coordinator's own conversation, which also withdraws its queued messages; role tasks keep running. A role or
+review request ends the coordinator's run without a context reset, so its next run still sees the whole conversation.
+While requested roles work, the coordinator stays `idle` and takes human messages. When every current child has
+reported, its role task starts a results round: it takes a slot and submits the refreshed packet, whose `results` name
+the reports.
 
 `cancelWork` must name the current assignment, generation and Attempt. Ledger commits the new generation before Engine
 cancels/joins the role conversation. An unavailable whole-environment stop stays visible as a blocker and cannot release

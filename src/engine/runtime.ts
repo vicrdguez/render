@@ -361,16 +361,16 @@ export class Engine {
 						Effect.gen({ self: this }, function* () {
 							const command = make(args as Record<string, string>);
 							const reply = yield* this.#toolCommand(api, name, command);
+							const request =
+								name === "request_role" || command.type === "requestCheckpointReview" || command.type === "requestIntakeReview";
+							const binding = request ? yield* fromPromise(() => api.snapshot(RoleBinding, api.conversationId, ctx)) : undefined;
+							const owner = binding ? this.#assignment(binding.assignment) : undefined;
 							return {
 								output: [{ type: "text" as const, text: JSON.stringify(reply) }],
 								isError: reply.status !== "accepted",
-								...(reply.status === "accepted" &&
-								(name === "request_role" ||
-									name === "submit_role_result" ||
-									name === "request_own_stop" ||
-									command.type === "requestCheckpointReview" ||
-									command.type === "requestIntakeReview")
-									? { control: { handoff: `${name} durably accepted.` } }
+								...(reply.status === "accepted" && (request || name === "submit_role_result" || name === "request_own_stop")
+									? // A handoff resets the model context; a chat coordinator's run ends and keeps its conversation.
+										{ control: owner && isChatCoordinator(owner) ? { terminate: true } : { handoff: `${name} durably accepted.` } }
 									: {}),
 							};
 						}),
@@ -834,7 +834,7 @@ export class Engine {
 										a.status === "submitted" ||
 										a.status === "canceled" ||
 										a.status === "running" ||
-										(a.status === "queued" && this.#assignments().filter((a) => a.executing).length < 4)
+										((a.status === "queued" || a.status === "idle") && this.#assignments().filter((a) => a.executing).length < 4)
 									);
 								});
 								const a = this.#assignment(task.input.assignment);
@@ -871,7 +871,8 @@ export class Engine {
 								if (a.status !== "running") {
 									const started = yield* this.#command(a, { type: "stageTask", executorEpoch: this.#ledger!.status().executorEpoch });
 									if (started.status !== "accepted") {
-										if (started.code !== "capacity_exhausted" && this.#assignment(a.id)?.status === "queued")
+										const status = this.#assignment(a.id)?.status;
+										if (started.code !== "capacity_exhausted" && (status === "queued" || status === "idle"))
 											yield* this.#command(a, { type: "recordBlocker", reason: started.code });
 										continue;
 									}
@@ -947,11 +948,11 @@ export class Engine {
 							if (task.state.checkpoint.phase !== "wait") throw new Error("wrong phase");
 							const chat = this.#assignment(task.input.assignment);
 							if (chat && isChatCoordinator(chat)) {
-								const settled = yield* this.#chatSettled(chat.id, task.state.checkpoint.consumed ?? []);
+								const settled = yield* this.#chatSettled(chat.id);
 								const { round, consumed } = task.state.checkpoint;
-								if (settled !== "terminal")
+								if (settled === "idle")
 									return yield* fromPromise(() =>
-										runtime.commit(() => ({ status: "running", checkpoint: { phase: settled, round, consumed } }), context),
+										runtime.commit(() => ({ status: "running", checkpoint: { phase: "idle", round, consumed } }), context),
 									);
 								yield* fromPromise(() =>
 									runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context),
@@ -1002,11 +1003,30 @@ export class Engine {
 										return { status: "running", checkpoint: { ...current.state.checkpoint, observingExecutorEpoch: executorEpoch } };
 								}, context),
 							);
-							yield* this.#waitUntil(runtime.signal, () => this.#assignment(task.input.assignment)?.status !== "idle");
-							const { round, consumed } = task.state.checkpoint;
-							if (this.#assignment(task.input.assignment)?.status === "running")
+							const { round, consumed = [] } = task.state.checkpoint;
+							// Requested roles report while the coordinator chats; once all have, their results are its next input.
+							const results = () => {
+								const children = currentChildren(this.#assignments(), task.input.assignment);
+								return children.some((child) => !consumed.includes(child.id)) && children.every((child) => child.status === "submitted")
+									? children.map((child) => child.id)
+									: undefined;
+							};
+							yield* this.#waitUntil(
+								runtime.signal,
+								() => this.#assignment(task.input.assignment)?.status !== "idle" || results() !== undefined,
+							);
+							const status = this.#assignment(task.input.assignment)?.status;
+							if (status === "running")
 								return yield* fromPromise(() =>
 									runtime.commit(() => ({ status: "running", checkpoint: { phase: "wait", submission: 0, round, consumed } }), context),
+								);
+							const delivered = results();
+							if (status === "idle" && delivered)
+								return yield* fromPromise(() =>
+									runtime.commit(
+										() => ({ status: "running", checkpoint: { phase: "run", round: round + 1, consumed: delivered } }),
+										context,
+									),
 								);
 							yield* fromPromise(() =>
 								runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context),
@@ -1611,7 +1631,7 @@ export class Engine {
 	 * inputs queued on an idle conversation (pi-durable's `afterFailedRun: keep`); they do not hold the slot and join the
 	 * next delivered message.
 	 */
-	#chatSettled(assignment: string, consumed: readonly string[]): Effect.Effect<"idle" | "resume" | "terminal", unknown> {
+	#chatSettled(assignment: string): Effect.Effect<"idle" | "terminal", unknown> {
 		return Effect.gen({ self: this }, function* () {
 			const harness = this.#harness!;
 			for (;;) {
@@ -1625,22 +1645,10 @@ export class Engine {
 						if ((yield* fromPromise(() => harness.snapshot(LiveDoc, conversation.id, ctx)))?.run) return undefined;
 						const a = this.#assignment(assignment);
 						if (!a) return "terminal" as const;
-						const children = currentChildren(this.#assignments(), a.id).filter((child) => !consumed.includes(child.id));
-						if (a.status === "running" && children.length)
-							yield* this.#command(a, { type: "recordBlocker", reason: "awaiting_role_results" });
+						// Pending requested roles do not keep the coordinator from chatting (C7, C11).
 						if (a.executing)
-							yield* this.#command(this.#assignment(a.id)!, {
-								type: "recordQuiescence",
-								providerIdle: true,
-								environment: "absent",
-								effects: "reconciled",
-							});
-						const now = this.#assignment(a.id);
-						return now?.status === "idle"
-							? ("idle" as const)
-							: now?.blocker === "awaiting_role_results" && children.length
-								? ("resume" as const)
-								: ("terminal" as const);
+							yield* this.#command(a, { type: "recordQuiescence", providerIdle: true, environment: "absent", effects: "reconciled" });
+						return this.#assignment(a.id)?.status === "idle" ? ("idle" as const) : ("terminal" as const);
 					}),
 				);
 				if (settled) return settled;

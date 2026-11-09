@@ -125,7 +125,7 @@ if (action === "seed" && mode === "parent") {
 	});
 }
 if (mode === "parent") {
-	await until(() => assignments()[0]?.blocker === "awaiting_role_results" && !assignments()[0]?.executing);
+	await until(() => assignments()[0]?.status === "idle" && !assignments()[0]?.executing);
 	assert.equal(assignments()[1]?.blocker, "sandbox_capability_unavailable");
 } else {
 	await until(() => assignments().length === 5 && assignments().filter((a) => a.executing).length === 4);
