@@ -185,3 +185,26 @@ test("a private remote authenticates with the forge token, which never lands in 
 		await r.close();
 	}
 });
+
+test("an unbound proposal binds T to the fetched default branch; a bound one needs no remote", async () => {
+	const r = await remotes("alpha");
+	try {
+		const repo = r.repos[0]!;
+		const project: ProjectFacts = { id: "project:2", remote: `file://${repo}`, defaultBranch: "main" };
+		const effects = new Effects({ root: join(r.root, "effects") });
+		advance(repo, "one\n");
+		const moved = advance(repo, "two\n");
+		const first = await run(effects.perform({ type: "observe", project, proposal: "workflow:3", initial: null }));
+		assert.equal(first.target.commit, moved, "T is the remote's head when the proposal binds");
+		advance(repo, "three\n");
+		await rename(repo, `${repo}.gone`);
+		const again = await run(effects.perform({ type: "observe", project, proposal: "workflow:3", initial: null }));
+		assert.equal(again.target.commit, moved, "a bound proposal keeps its canonical T, with no fetch");
+		await assert.rejects(
+			run(effects.perform({ type: "observe", project, proposal: "workflow:4", initial: null })),
+			/^Error: project_fetch_failed: /,
+		);
+	} finally {
+		await r.close();
+	}
+});

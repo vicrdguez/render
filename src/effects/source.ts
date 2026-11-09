@@ -5,6 +5,7 @@ import { mkdir, open, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import { fromPromise, runPromise } from "../effect.ts";
 import type { LiteralEntry, Source, SourceReceipt } from "../kernel/evidence-schema.ts";
 import type { ProjectFacts } from "../kernel/projects.ts";
@@ -25,8 +26,11 @@ export type Retain = { type: "retain"; base: Source; capture: Capture };
 export type Diff = { type: "diff"; project: ProjectFacts; base: string; result: string };
 /** Inputs are host-retained sources, never worker-selected Git metadata. */
 export type Prepare = { type: "prepare"; base: Source; source: Source; target: Source };
-/** The host-private canonical proposal ref; `initial` binds it only while absent. */
-export type Observe = { type: "observe"; project: ProjectFacts; proposal: string; initial: string };
+/**
+ * The host-private canonical proposal ref. While it is absent it binds to `initial`, or with `initial: null` to the
+ * project's default branch fetched now, so a first T is never a stale mirror ref. A bound ref is T without any fetch.
+ */
+export type Observe = { type: "observe"; project: ProjectFacts; proposal: string; initial: string | null };
 export type TargetObservation = { proposal: string; ref: string; target: Source };
 /** Squash R: exactly prepared X's tree on parent T with fixed metadata, rooted before any canonical-ref change. */
 export type Squash = { type: "squash"; prepared: Source; target: Source; message: string };
@@ -505,7 +509,17 @@ export class Effects {
 			if (current.exitCode === 1) {
 				// First use binds the proposal to the host-configured base, expected-absent. A failed create means another
 				// binding won: the readback below decides, and nothing ever rebinds an existing ref.
-				const base = yield* this.perform({ type: "resolve", project, commit: initial });
+				let commit = initial;
+				if (commit === null) {
+					const fetched = yield* Effect.exit(this.#fetch(project));
+					if (Exit.isFailure(fetched)) {
+						if (Cause.hasInterrupts(fetched.cause)) return yield* Effect.failCause(fetched.cause);
+						const error = Cause.squash(fetched.cause);
+						return yield* Effect.fail(new Error(`project_fetch_failed: ${error instanceof Error ? error.message : String(error)}`));
+					}
+					commit = fetched.value.commit;
+				}
+				const base = yield* this.perform({ type: "resolve", project, commit });
 				const created = yield* fromPromise(() =>
 					this.#gitResult(store.path, store.cwd, ["update-ref", ref, base.commit, "0".repeat(base.commit.length)]),
 				);

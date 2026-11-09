@@ -22,7 +22,11 @@ test("owned check exact command/source/platform receipt survives history, export
 			},
 		},
 	};
-	const f = await roleFixture(new Engine({ ownedChecks: config }), { remote: source.repo, defaultBranch: "fixture", checkImage: source.profile.image });
+	const f = await roleFixture(new Engine({ ownedChecks: config }), {
+		remote: source.repo,
+		defaultBranch: "fixture",
+		checkImage: source.profile.image,
+	});
 	try {
 		const assigned = await f.command({
 			type: "assignTask",
@@ -94,7 +98,11 @@ for (const [exitCode, status] of [
 				},
 			},
 		};
-		const f = await roleFixture(new Engine({ ownedChecks: config }), { remote: source.repo, defaultBranch: "fixture", checkImage: source.profile.image });
+		const f = await roleFixture(new Engine({ ownedChecks: config }), {
+			remote: source.repo,
+			defaultBranch: "fixture",
+			checkImage: source.profile.image,
+		});
 		try {
 			assert.equal(
 				(

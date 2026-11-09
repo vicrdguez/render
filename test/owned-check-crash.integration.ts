@@ -28,18 +28,22 @@ for (const barrier of ["after-sandbox-stop", "before-source-root", "after-source
 				},
 			},
 		};
-		const child = spawn(process.execPath, [
-			new URL("./support/owned-check-worker.ts", import.meta.url).pathname,
-			JSON.stringify(config),
-			JSON.stringify({ remote: source.repo, defaultBranch: "fixture", checkImage: source.profile.image }),
-		], {
-			env: {
-				...process.env,
-				RENDER_FAULT_BARRIER: barrier,
-				RENDER_FAULT_COMMAND: barrier.endsWith("commit") ? "owned-check:assignment:5:1" : "owned-source",
+		const child = spawn(
+			process.execPath,
+			[
+				new URL("./support/owned-check-worker.ts", import.meta.url).pathname,
+				JSON.stringify(config),
+				JSON.stringify({ remote: source.repo, defaultBranch: "fixture", checkImage: source.profile.image }),
+			],
+			{
+				env: {
+					...process.env,
+					RENDER_FAULT_BARRIER: barrier,
+					RENDER_FAULT_COMMAND: barrier.endsWith("commit") ? "owned-check:assignment:5:1" : "owned-source",
+				},
+				stdio: ["ignore", "pipe", "pipe", "ipc"],
 			},
-			stdio: ["ignore", "pipe", "pipe", "ipc"],
-		});
+		);
 		let data: string | undefined;
 		let output = "";
 		let stderr = "";

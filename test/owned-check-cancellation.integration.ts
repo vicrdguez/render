@@ -20,14 +20,18 @@ test("cancellation fences authority but retains the already admitted source effe
 			},
 		},
 	};
-	const child = spawn(process.execPath, [
+	const child = spawn(
+		process.execPath,
+		[
 			new URL("./support/owned-check-worker.ts", import.meta.url).pathname,
 			JSON.stringify(config),
 			JSON.stringify({ remote: f.repo, defaultBranch: "fixture", checkImage: f.profile.image }),
-		], {
-		env: { ...process.env, RENDER_FAULT_BARRIER: "after-source-root", RENDER_FAULT_COMMAND: "owned-source" },
-		stdio: ["ignore", "pipe", "pipe", "ipc"],
-	});
+		],
+		{
+			env: { ...process.env, RENDER_FAULT_BARRIER: "after-source-root", RENDER_FAULT_COMMAND: "owned-source" },
+			stdio: ["ignore", "pipe", "pipe", "ipc"],
+		},
+	);
 	let output = "";
 	let stderr = "";
 	child.stdout!.on("data", (b) => {

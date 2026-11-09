@@ -2132,15 +2132,17 @@ export class Engine {
 					}
 					let observed = reviewed;
 					if (!observed) {
-						// T is the fetched default branch while the proposal ref is unbound, never a stale mirror ref.
-						const project = this.#project(owner.workflow);
-						const fetched = yield* Effect.exit(this.#effects!.perform({ type: "fetch", project }));
-						if (Exit.isFailure(fetched)) {
-							if (Cause.hasInterrupts(fetched.cause)) return yield* Effect.failCause(fetched.cause);
-							const error = Cause.squash(fetched.cause);
-							return yield* block(`project_fetch_failed: ${error instanceof Error ? error.message : String(error)}`);
+						// An unbound proposal ref binds to the default branch Effects fetches now; a failed fetch blocks, never a stale T.
+						const seen = yield* Effect.exit(
+							this.#effects!.perform({ type: "observe", project: this.#project(owner.workflow), proposal: owner.workflow, initial: null }),
+						);
+						if (Exit.isFailure(seen)) {
+							const error = Cause.squash(seen.cause);
+							if (Cause.hasInterrupts(seen.cause) || !(error instanceof Error) || !error.message.startsWith("project_fetch_failed: "))
+								return yield* Effect.failCause(seen.cause);
+							return yield* block(error.message);
 						}
-						observed = yield* this.#effects!.perform({ type: "observe", project, proposal: owner.workflow, initial: fetched.value.commit });
+						observed = seen.value;
 					}
 					const basis = this.#policyBasis(owner.workflow);
 					if (!done && latest && latest.target.commit === observed.target.commit && latest.policy.binding === basis.binding) {

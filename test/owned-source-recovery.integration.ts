@@ -58,7 +58,11 @@ test("failed collection retains actual command diagnostics in history without a 
 			},
 		},
 	};
-	const f = await roleFixture(new Engine({ ownedChecks: config }), { remote: source.repo, defaultBranch: "fixture", checkImage: source.profile.image });
+	const f = await roleFixture(new Engine({ ownedChecks: config }), {
+		remote: source.repo,
+		defaultBranch: "fixture",
+		checkImage: source.profile.image,
+	});
 	try {
 		assert.equal(
 			(await f.command({ type: "assignTask", slice: "failed:check", delivery: true, packet: packet({ execution: "linux-writer" }) }))
@@ -136,7 +140,11 @@ for (const trigger of ["absent image", "absent commit", "gitlink", "base exclusi
 				},
 			},
 		};
-		const f = await roleFixture(new Engine({ ownedChecks: config }), { remote: source.repo, defaultBranch: "fixture", checkImage: source.profile.image });
+		const f = await roleFixture(new Engine({ ownedChecks: config }), {
+			remote: source.repo,
+			defaultBranch: "fixture",
+			checkImage: profile.image,
+		});
 		const snapshot = () => {
 			const value = f.ledger.snapshot(admin);
 			assert.ok("assignments" in value);
@@ -228,7 +236,11 @@ test("possibly created runtime is never recorded absent: capacity and writer own
 			},
 		},
 	};
-	const f = await roleFixture(new Engine({ ownedChecks: config }), { remote: source.repo, defaultBranch: "fixture", checkImage: source.profile.image });
+	const f = await roleFixture(new Engine({ ownedChecks: config }), {
+		remote: source.repo,
+		defaultBranch: "fixture",
+		checkImage: source.profile.image,
+	});
 	const snapshot = () => {
 		const value = f.ledger.snapshot(admin);
 		assert.ok("assignments" in value);
@@ -300,7 +312,11 @@ async function slowCheck(after = "") {
 			},
 		},
 	};
-	const f = await roleFixture(new Engine({ ownedChecks: config }), { remote: source.repo, defaultBranch: "fixture", checkImage: source.profile.image });
+	const f = await roleFixture(new Engine({ ownedChecks: config }), {
+		remote: source.repo,
+		defaultBranch: "fixture",
+		checkImage: source.profile.image,
+	});
 	const assignments = () => {
 		const value = f.ledger.snapshot(admin);
 		assert.ok("assignments" in value);
