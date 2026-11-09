@@ -217,6 +217,52 @@ test("S3 a role runs on a settings-added model through its registered provider",
 	}
 });
 
+test("S2 a running assignment's requests keep its pinned model entry; a new assignment uses the new one", async () => {
+	const login = await openaiLogin();
+	const p = fauxProvider({ provider: "openai", api: "openai-responses", models: [{ id: "gpt-6.1-sol" }] });
+	const terra =
+		(contextWindow: number) =>
+		(s: EngineSettings): EngineSettings => ({
+			...withCoordinator(s, { model: { provider: "openai", id: "gpt-6.1-terra" } }),
+			models: [{ provider: "openai", id: "gpt-6.1-terra", family: "chatgpt", base: "gpt-6.1-sol", contextWindow }],
+		});
+	const seen: number[] = [];
+	const submit = () =>
+		fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "Own bounded report." }), { stopReason: "toolUse" });
+	const f = await roleFixture(new Engine({ provider: p.provider, piAuth: login.path }));
+	p.setResponses([
+		async (_context, _options, _state, model) => {
+			seen.push(model.contextWindow);
+			await editEngineSettings(f.ledger, terra(200000));
+			return fauxAssistantMessage(fauxToolCall("no_such_tool", {}), { stopReason: "toolUse" });
+		},
+		(_context, _options, _state, model) => {
+			seen.push(model.contextWindow);
+			return submit();
+		},
+		(_context, _options, _state, model) => {
+			seen.push(model.contextWindow);
+			return submit();
+		},
+	]);
+	try {
+		await editEngineSettings(f.ledger, terra(100000));
+		const pinned = packetSettings(current(f.ledger)!, "coordinator");
+		assert.equal(pinned.settingsRevision, 2);
+		await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet(pinned) });
+		await settled(f, "submitted");
+		assert.equal(current(f.ledger)!.revision, 3);
+		assert.deepEqual(seen, [100000, 100000], "the running assignment keeps revision 2's entry");
+		const next = packetSettings(current(f.ledger)!, "coordinator");
+		await f.command({ type: "assignTask", slice: "slice:2", delivery: true, packet: packet(next) });
+		for (let n = 0; n < 500 && seen.length < 3; n++) await setTimeout(10);
+		assert.deepEqual(seen, [100000, 100000, 200000], "a new assignment uses revision 3's entry");
+	} finally {
+		await f.close();
+		await login.remove();
+	}
+});
+
 test("Engine checks a packet's family against the current settings revision", async () => {
 	const login = await openaiLogin();
 	const f = await roleFixture(new Engine({ piAuth: login.path }));
