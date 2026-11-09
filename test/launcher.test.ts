@@ -1,6 +1,9 @@
 // Piece 5 launcher: Engine's reconcile assigns the coordinator on a prompt and implementers on acceptance, with no
 // human or fixture `assignTask`. The scripted provider drives the coordinator; implementers park at the provider.
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import * as Effect from "effect/Effect";
@@ -130,6 +133,8 @@ test("L2: an unconfirmed classifier shape refuses checkpoint and intake work and
 			),
 		);
 		assert.equal(saved.status, "accepted");
+		await t.until(() => t.coordinators()[0]?.status === "idle", "coordinator idle after its proposal");
+		await t.prompt("Please stage the intake now");
 		await t.until(() => code(t.toolResults, "shape_confirmation_required"), "stageIntake refused");
 		assert.equal((checkpoint as { code?: string }).code, "shape_confirmation_required");
 		assert.equal(t.intakes().drafts.length, 0);
@@ -236,5 +241,45 @@ test("X5: source tools read the pinned commit, never a later one, and refuse sym
 		assert.equal(value!.commit, t.pinned);
 	} finally {
 		await t.close();
+	}
+});
+
+test("D: the typed prompt opens the coordinator's first request; it idles awaiting Ground and resumes on confirmation", async () => {
+	const t = await launcher();
+	try {
+		const prompt = "Make the value file read B";
+		await t.prompt(prompt);
+		await t.until(() => t.view().nextHumanAction.type === "confirmGround", "Ground proposed");
+		assert.ok(
+			t.firstCoordinatorRequest()?.some((text) => text.includes(prompt)),
+			`the first request carries the prompt: ${JSON.stringify(t.firstCoordinatorRequest())}`,
+		);
+		await t.until(() => t.coordinators()[0]?.status === "idle", "coordinator idle while Ground waits");
+		assert.equal(t.coordinators()[0]!.blocker, null, "waiting for the human is not role_did_not_submit");
+		await t.confirmGround();
+		await t.until(() => t.intakes().drafts.length === 1, "the coordinator resumed on confirmation and staged the intake");
+	} finally {
+		await t.close();
+	}
+});
+
+test("B/C: an empty repository is a visible launch blocker that clears once the launch succeeds", async () => {
+	const remote = await mkdtemp(join(tmpdir(), "render-empty-"));
+	git(remote, ["init", "-q", "--bare"]);
+	const t = await launcher({ scripted: false, project: { remote, defaultBranch: "main" } });
+	try {
+		await t.prompt();
+		await t.until(() => t.view().blocker?.code === "project_repository_empty", "empty repository blocker");
+		assert.match(t.view().blocker!.reason, /main/);
+		assert.equal(t.coordinators().length, 0);
+		const blob = git(remote, ["hash-object", "-w", "--stdin"], "# Now populated\n").toString().trim();
+		const tree = git(remote, ["mktree"], `100644 blob ${blob}\tREADME.md\n`).toString().trim();
+		git(remote, ["update-ref", "refs/heads/main", git(remote, ["commit-tree", tree], "Initial\n").toString().trim()]);
+		await t.prompt("The repository has a commit now");
+		await t.until(() => t.coordinators().length === 1, "coordinator launched after the push");
+		await t.until(() => t.view().blocker?.code !== "project_repository_empty", "launch blocker cleared");
+	} finally {
+		await t.close();
+		await rm(remote, { recursive: true, force: true });
 	}
 });

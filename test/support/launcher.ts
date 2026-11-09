@@ -36,9 +36,38 @@ function accepted(reply: CommandReply) {
 	return reply.result;
 }
 
+/** The asset a writer authors for a repository that has none: the selected rows plus mandatory full-suite, typecheck and lint. */
+export const AUTHORED = `# Verification
+## Ranks
+1. \`tests\`: executed project checks
+2. \`static\`: static compatibility
+## Launch
+Run from the repository root.
+## Doctor
+Linux with sh.
+## Channels
+Process and Static are channels, not ranks.
+## Catalog
+| Name | Channel | Kind | Run | Expectations | Rank |
+|---|---|---|---|---|---|
+| value | Process | executed | \`sh check.sh\` | CHECK OK | tests |
+| full-suite | Process | executed | \`sh check.sh\` | CHECK OK | tests |
+| typecheck | Static | executed | \`true\` | Types compatible | static |
+| lint | Static | executed | \`true\` | Lint clean | static |
+## Cleanup
+\`\`\`sh
+true
+\`\`\`
+## Extend
+Keep literal expected outcomes.
+## Traps
+None known.
+`;
+
 /**
- * A project whose default branch holds a catalog, `value` = A and a suite script; nothing assigns work by hand. The
- * scripted coordinator reads sources, drafts Ground, waits for the human to confirm it, stages the intake for `slices`
+ * A project whose default branch holds a catalog, `value` = A and a suite script; nothing assigns work by hand. With
+ * `bare`, the branch holds only a README, `value` and a runnable `check.sh`, and no verification asset. The scripted
+ * coordinator reads sources, proposes Ground and ends its run; once Ground is saved it stages the intake for `slices`
  * and requests its fidelity review. Implementers either run the scripted delivery (`deliver`) or park until close.
  */
 export async function launcher(
@@ -54,19 +83,26 @@ export async function launcher(
 		firstTurn?: () => Promise<void>;
 		/** Runs while the coordinator is still in its turn, after the human saved Ground and before it stages the intake. */
 		beforeStage?: (coordinator: RoleAssignment) => Promise<void>;
+		/** A repository with no verification asset: the intake cites no catalog and the writer authors one. */
+		bare?: boolean;
+		/** The project's remote and default branch, instead of the fixture repository. */
+		project?: { remote: string; defaultBranch: string };
 	} = {},
 ) {
 	const scripted = options.scripted ?? true;
 	const slices = options.slices ?? [{ id: "value" }];
 	const text = catalog().replaceAll("endpoint", "tests").replace("printf 'SUITE OK'", "sh verify-suite");
-	const f = await catalogFixture(options.linux ?? false, { text });
+	const f = await catalogFixture(options.linux ?? false, { text, ...(options.project ? { project: options.project } : {}) });
 	const repo = f.source.repo;
 	const base = git(repo, ["rev-parse", "refs/heads/fixture"]).toString().trim();
-	let entries = git(repo, ["ls-tree", base]).toString();
 	const blob = (content: string) => git(repo, ["hash-object", "-w", "--stdin"], content).toString().trim();
-	entries += `100644 blob ${blob("A\n")}\tvalue\n100644 blob ${blob("printf 'SUITE OK'\n")}\tverify-suite\n120000 blob ${blob("value")}\tlink\n`;
+	const entries = options.bare
+		? `100644 blob ${blob("# Fixture\nA value file and its check.\n")}\tREADME.md\n100644 blob ${blob("A\n")}\tvalue\n100644 blob ${blob("printf 'CHECK OK'\n")}\tcheck.sh\n`
+		: `${git(repo, ["ls-tree", base]).toString()}100644 blob ${blob("A\n")}\tvalue\n100644 blob ${blob("printf 'SUITE OK'\n")}\tverify-suite\n120000 blob ${blob("value")}\tlink\n`;
 	const tree = git(repo, ["mktree"], entries).toString().trim();
-	const pinned = git(repo, ["commit-tree", tree, "-p", base], "Implementation base\n").toString().trim();
+	const pinned = git(repo, ["commit-tree", tree, ...(options.bare ? [] : ["-p", base])], "Implementation base\n")
+		.toString()
+		.trim();
 	git(repo, ["update-ref", "refs/heads/fixture", pinned]);
 	if (scripted) {
 		await editEngineSettings(f.ledger, (s) => ({ ...s, roles: Object.fromEntries(ROLES.map((r) => [r, SCRIPTED])) as typeof s.roles }));
@@ -99,7 +135,18 @@ export async function launcher(
 		fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" });
 	const command = (body: object) => call("checkpoint", { command: JSON.stringify(body) });
 	const groundRef = () => view().ground?.revision;
-	const manifest = (ground: string, value: string, catalogRef: string): IntakeManifest => ({
+	const check = options.bare
+		? { id: "value", row: "value", kind: "executed" as const, rank: "tests", new: true, run: "sh check.sh", expectations: "CHECK OK" }
+		: {
+				id: "suite",
+				row: "full-suite",
+				kind: "executed" as const,
+				rank: "tests",
+				new: false,
+				run: "sh verify-suite",
+				expectations: "SUITE OK",
+			};
+	const manifest = (ground: string, value: string, catalogRef: string | null): IntakeManifest => ({
 		schema: 1,
 		shape: "change",
 		ground,
@@ -115,16 +162,14 @@ export async function launcher(
 			forbidden: [],
 			obligations: [{ id: "B1", kind: "behavior" as const, text: `Change ${s.id}`, sources: [] }],
 		})),
-		checks: [
-			{ id: "suite", row: "full-suite", kind: "executed", rank: "tests", new: false, run: "sh verify-suite", expectations: "SUITE OK" },
-		],
-		mapping: slices.map((s) => ({ slice: s.id, obligation: "B1", checks: ["suite"] })),
+		checks: [check],
+		mapping: slices.map((s) => ({ slice: s.id, obligation: "B1", checks: [check.id] })),
 		dependencies: slices.flatMap((s) => (s.requires ? [{ slice: s.id, requires: s.requires, kind: "integration" as const }] : [])),
 		responses: [],
 		unresolved: [],
 	});
 	const sources = new Map<string, string>();
-	const reads = [...(options.reads ?? []), ".skl/verify.md", "value"];
+	const reads = [...(options.reads ?? []), ...(options.bare ? [] : [".skl/verify.md"]), "value"];
 	const coordinatorTurn = async (p: Packet, transcript: { messages: Message[] }) => {
 		const last = transcript.messages.findLast((m) => m.role === "toolResult");
 		const n = next(p.assignment);
@@ -151,13 +196,14 @@ export async function launcher(
 						approvedSources: [sources.get("value")],
 					}),
 				});
-			case 1: {
-				await until(() => view().ground !== null, "human saves Ground", 120000);
+			case 1:
+				return fauxAssistantMessage("I proposed Ground. Confirm it and I will stage the intake.");
+			case 2: {
 				await options.beforeStage?.(assignments().find((a) => a.id === p.assignment)!);
-				const stage = manifest(groundRef()!, sources.get("value")!, sources.get(".skl/verify.md")!);
+				const stage = manifest(groundRef()!, sources.get("value")!, options.bare ? null : sources.get(".skl/verify.md")!);
 				return command({ type: "stageIntake", expected: null, text: "# Contract\nChange A to B.\n", manifest: stage });
 			}
-			case 2: {
+			case 3: {
 				const draft = intakes().drafts.at(-1);
 				return draft
 					? command({ type: "requestIntakeReview", intake: draft.id, key: "fidelity" })
@@ -175,6 +221,20 @@ export async function launcher(
 			return fauxAssistantMessage("Parked.");
 		}
 		const calls = [
+			...(options.bare
+				? ([
+						[
+							"implementation_execute",
+							{
+								argv: [
+									"sh",
+									"-c",
+									`test ! -e .render/verify.md && mkdir -p .render && printf '%s' '${Buffer.from(AUTHORED).toString("base64")}' | base64 -d > .render/verify.md`,
+								],
+							},
+						],
+					] as const)
+				: []),
 			["implementation_execute", { argv: ["sh", "-c", 'test "$(cat value)" = A'] }],
 			["implementation_audit", {}],
 			["implementation_execute", { argv: ["sh", "-c", "printf 'B\\n' > value"] }],

@@ -18,6 +18,8 @@ test("a prompt reaches an integrated proposal through the launcher alone", { tim
 			t.firstCoordinatorRequest()!.some((text) => text.includes(prompt)),
 			`the first request carries the typed prompt: ${JSON.stringify(t.firstCoordinatorRequest())}`,
 		);
+		await t.until(() => t.coordinators()[0]?.status === "idle", "the coordinator idles while Ground waits");
+		assert.equal(t.coordinators()[0]!.blocker, null);
 		await t.confirmGround();
 		await t.acceptIntake();
 		await t.until(() => t.view().integrated.includes("value"), "qualifying integration recorded", 480000);
