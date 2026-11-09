@@ -1,4 +1,4 @@
-// `render serve --data <dir> [--port <n>] [--host <addr>]`. Events are one JSON object per line: `ready` on stdout,
+// `render serve --data <dir> [--port <n>] [--host <addr>] [--pi-auth <auth.json>]`. Events are one JSON object per line: `ready` on stdout,
 // startup refusals and failures on stderr. Exit codes: 0 stopped, 1 host failure, 2 startup blocked, 3 store owned.
 import { parseArgs } from "node:util";
 import * as Cause from "effect/Cause";
@@ -15,10 +15,10 @@ function main(): Effect.Effect<void, unknown> {
 	return Effect.gen(function* () {
 		const { positionals, values } = parseArgs({
 			allowPositionals: true,
-			options: { data: { type: "string" }, port: { type: "string" }, host: { type: "string" } },
+			options: { data: { type: "string" }, port: { type: "string" }, host: { type: "string" }, "pi-auth": { type: "string" } },
 		});
 		if (positionals[0] !== "serve" || values.data === undefined) {
-			process.stderr.write("usage: render serve --data <dir> [--port <n>] [--host <addr>]\n");
+			process.stderr.write("usage: render serve --data <dir> [--port <n>] [--host <addr>] [--pi-auth <auth.json>]\n");
 			process.exit(64);
 		}
 		const data = values.data;
@@ -38,6 +38,7 @@ function main(): Effect.Effect<void, unknown> {
 			data,
 			port: values.port === undefined ? 0 : Number(values.port),
 			hostname: values.host ?? "127.0.0.1",
+			piAuth: values["pi-auth"],
 			onFatal,
 		}).pipe(
 			Effect.catchCause((cause) =>

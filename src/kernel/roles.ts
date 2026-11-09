@@ -2,6 +2,7 @@
 
 import { isDeepStrictEqual } from "node:util";
 import * as Effect from "effect/Effect";
+import type { ProviderId } from "../engine/providers.ts";
 import { validCandidateAnswer } from "./candidates.ts";
 import { blockedBySeams } from "./checkpoints.ts";
 import { type Experiment, experimentCandidates, experimentOutcome } from "./experiments.ts";
@@ -79,7 +80,7 @@ export type RolePacket = {
 	policy: string;
 	profile: string;
 	execution: "read-only" | "linux-writer";
-	provider: "anthropic";
+	provider: ProviderId;
 	model: string;
 	family: string;
 	requiredFamily: string;

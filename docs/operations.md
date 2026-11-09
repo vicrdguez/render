@@ -16,7 +16,7 @@ saves, immutable SQLite history, enrollment and revocation, and safe startup. Th
 ## Start and stop
 
 ```sh
-node src/host/main.ts serve --data ~/.render/data --port 7420
+node src/host/main.ts serve --data ~/.render/data --port 7420 --pi-auth ~/.pi/agent/auth.json
 ```
 
 The host prints one `ready` line on stdout with the URL, admin socket path, `authorityEpoch`, the new `executorEpoch` and
@@ -99,11 +99,15 @@ and report artifacts, atomic result notifications, and current-assignment tool e
 playbooks are not installed: there is no model-controlled scheduler, coding shell, source publication or live-provider
 authorization. Human/device routes cannot schedule assignments by impersonating the host.
 
-The trusted composition uses `Engine.options` with explicit `apiKey` and a model-ID-to-family map; production uses the
-pinned native `anthropicProvider` from Pi AI 1.4.0. A scripted provider may be supplied at that external seam for owned
-fixtures. The ordinary CLI intentionally supplies no provider credentials: role work reports
-`native_provider_configuration_missing`, not ambient home/config discovery. No credential is a packet input. Required
-models/families must match exactly; an unavailable family blocks. Packets pin exact immutable input, full principles,
+The trusted composition gives `Engine` a family table and registers the pinned Pi AI 1.4.0 provider of each family:
+`anthropic` (Claude) and `openai` (ChatGPT) authenticate with the operator's pi logins, and `deepseek` with an API key.
+`render serve --pi-auth <auth.json>` names pi's login file explicitly. Render reads it afresh on every request and
+refreshes a login only under pi's own `proper-lockfile` lock, so pi and Render share one token. Render never logs the
+operator out. API keys come from the host-only `<data>/secrets.json`. Without `--pi-auth`, or with no login for the
+packet's provider, role work blocks with `native_provider_configuration_missing: <provider>`; no environment variable or
+ambient home/config file supplies a credential. A scripted provider may stand in for a provider's network in owned
+fixtures; auth stays the real provider's. No credential is a packet input. Required models/families must match exactly;
+an unavailable family blocks. Packets pin exact immutable input, full principles,
 instructions, policy and profile refs, model/family/thinking, input-byte/output-token/turn budgets, expected output and
 submission method. Only host-authored predefined request keys can create child role work. Packet request trees are
 bounded to four levels, 32 children per packet and 256 additional input refs per packet; reports are at most 1 MiB.

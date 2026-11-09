@@ -11,7 +11,7 @@ import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { assignments, finding, ground, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
 import { decision } from "./support/kernel.ts";
-import { admin, packet, roleFixture } from "./support/roles.ts";
+import { admin, claudeFixture, packet, roleFixture } from "./support/roles.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
 
 function provider() {
@@ -161,8 +161,7 @@ for (const escalation of [false, true])
 		]);
 		const engine = new Engine({
 			provider: p.provider,
-			apiKey: "owned-fixture",
-			families: { "claude-sonnet-4-6": "claude" },
+			...claudeFixture,
 			investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
 		});
 		const f = await roleFixture(engine);
@@ -251,8 +250,7 @@ test("G08 uncited, foreign and out-of-scope results cannot settle investigation"
 	const f = await roleFixture(
 		new Engine({
 			provider: p.provider,
-			apiKey: "fixture",
-			families: { "claude-sonnet-4-6": "claude" },
+			...claudeFixture,
 			investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
 		}),
 	);
@@ -328,8 +326,7 @@ test("G09 missing selected source blocks with exact path and retains ownership",
 	const f = await roleFixture(
 		new Engine({
 			provider: p.provider,
-			apiKey: "fixture",
-			families: { "claude-sonnet-4-6": "claude" },
+			...claudeFixture,
 			investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
 		}),
 	);
@@ -359,8 +356,7 @@ for (const failure of ["missing_content", "content_corrupt"])
 		const f = await roleFixture(
 			new Engine({
 				provider: p.provider,
-				apiKey: "fixture",
-				families: { "claude-sonnet-4-6": "claude" },
+				...claudeFixture,
 				investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
 			}),
 		);

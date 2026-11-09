@@ -9,7 +9,7 @@ import type { JsonObject } from "@earendil-works/pi-durable";
 import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
 import { research } from "../../src/engine/web.ts";
-import { admin, packet, roleFixture } from "./roles.ts";
+import { admin, claudeFixture, packet, roleFixture } from "./roles.ts";
 
 export async function webHttpFixture(
 	handler: (
@@ -130,7 +130,7 @@ export async function roleWebJourney(
 				: fauxAssistantMessage("done");
 		},
 	]);
-	const f = await roleFixture(new Engine({ apiKey: "fixture", families: { "claude-sonnet-4-6": "claude" }, provider: p.provider, web }));
+	const f = await roleFixture(new Engine({ ...claudeFixture, provider: p.provider, web }));
 	await f.command({ type: "assignTask", slice: "slice:web", delivery: true, packet: packet({ maxInputBytes: 262144, maxTurns: 4 }) });
 	for (let n = 0; n < 500 && !output; n++) await setTimeout(10);
 	assert.ok(output, "registered web tool must commit substantive output");

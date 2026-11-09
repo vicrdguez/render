@@ -8,7 +8,7 @@ import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
-import { admin, allowSameFamily, packet, roleFixture } from "./support/roles.ts";
+import { admin, allowSameFamily, claudeFixture, packet, roleFixture } from "./support/roles.ts";
 
 export async function until(check: () => boolean | Promise<boolean>) {
 	const end = Date.now() + 5000;
@@ -41,7 +41,7 @@ test("R01/R07 accepted child survives submitting turn abort; own report and fixe
 		},
 		fauxAssistantMessage("Done"),
 	]);
-	const engine = new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } });
+	const engine = new Engine({ provider: p.provider, ...claudeFixture });
 	const f = await roleFixture(engine);
 	await allowSameFamily(f.ledger);
 	try {
@@ -83,7 +83,7 @@ test("R02 same scoped role submission returns one receipt; new call rechecks eli
 			return fauxAssistantMessage("Done");
 		},
 	]);
-	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }));
+	const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 	try {
 		const accepted = await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet() }, undefined, "root");
 		assert.equal(accepted.status, "accepted");

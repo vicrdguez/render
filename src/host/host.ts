@@ -7,7 +7,9 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import { fromPromise } from "../effect.ts";
-import { Engine, type OwnedChecks, runtimeOptions } from "../engine/runtime.ts";
+import { secretsFile } from "../engine/credentials.ts";
+import type { Family } from "../engine/providers.ts";
+import { Engine, type OwnedChecks } from "../engine/runtime.ts";
 import type { Persistence } from "../kernel/kernel.ts";
 import type { Ledger } from "../ledger/ledger.ts";
 import { openLedger } from "../ledger/startup.ts";
@@ -28,8 +30,16 @@ export type OpenHostOptions = {
 	readonly port?: number;
 	readonly hostname?: string;
 	readonly ownedChecks?: OwnedChecks;
+	/** pi's login file (`--pi-auth`). Without it every pi-login family reports `native_provider_configuration_missing`. */
+	readonly piAuth?: string;
 	readonly onFatal?: (error: unknown) => void;
 };
+
+/** Claude writers and ChatGPT reviewers through the operator's pi logins, until Engine settings own the table. */
+const FAMILIES: readonly Family[] = [
+	{ name: "claude", provider: "anthropic", auth: "pi-login" },
+	{ name: "chatgpt", provider: "openai", auth: "pi-login" },
+];
 
 export function openHost(options: OpenHostOptions): Effect.Effect<Host, unknown> {
 	return Effect.gen(function* () {
@@ -38,7 +48,13 @@ export function openHost(options: OpenHostOptions): Effect.Effect<Host, unknown>
 		return yield* Effect.gen(function* () {
 			const opened = yield* openLedger({
 				data: options.data,
-				runtime: options.ownedChecks ? (report) => new Engine({ ownedChecks: options.ownedChecks }).options(report) : runtimeOptions,
+				runtime: (report) =>
+					new Engine({
+						ownedChecks: options.ownedChecks,
+						families: FAMILIES,
+						piAuth: options.piAuth,
+						secrets: secretsFile(join(options.data, "secrets.json")),
+					}).options(report),
 				onFatal: (error) => options.onFatal?.(error),
 			});
 			yield* Scope.addFinalizer(scope, opened.close().pipe(Effect.orDie));

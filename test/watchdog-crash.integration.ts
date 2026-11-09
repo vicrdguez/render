@@ -14,7 +14,7 @@ import { Engine, type OwnedChecks } from "../src/engine/runtime.ts";
 import type { ImplementationPass, RoleAssignment } from "../src/kernel/roles.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import { openLedger } from "../src/ledger/startup.ts";
-import { admin } from "./support/roles.ts";
+import { admin, claudeFixture } from "./support/roles.ts";
 
 const running = (id: string) => {
 	try {
@@ -94,8 +94,7 @@ test("WR17 SIGKILL while a Watchdog's own checks run: recovery stops the runtime
 					new Engine({
 						ownedChecks: setup!.config,
 						provider: provider.provider,
-						apiKey: "fixture",
-						families: { "claude-sonnet-4-6": "claude" },
+						...claudeFixture,
 					}).options(report),
 				onFatal: () => {},
 			}),

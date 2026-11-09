@@ -9,7 +9,7 @@ import type { RoleAssignment } from "../src/kernel/roles.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { until } from "./support/investigation.ts";
-import { admin, allowSameFamily, packet, roleFixture, scheduler } from "./support/roles.ts";
+import { admin, allowSameFamily, claudeFixture, packet, roleFixture, scheduler } from "./support/roles.ts";
 
 const markdown = "# Seams\n\nBoundary A owns authority; Boundary B owns execution.\n";
 function manifest(stage = "seams", responses: unknown[] = []) {
@@ -158,7 +158,7 @@ async function fixture(sameFamily = true, reviewOverrides: Record<string, unknow
 			);
 		}),
 	);
-	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }));
+	const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 	if (sameFamily) await allowSameFamily(f.ledger);
 	const ground = await Effect.runPromise(
 		f.ledger.command(
@@ -485,7 +485,7 @@ test("C17 Engine tools complete a fresh challenge and resume the workflow-owned 
 			);
 		}),
 	);
-	const f = await roleFixture(new Engine({ provider: provider.provider, apiKey: "fixture", families: { "claude-sonnet-4-6": "claude" } }));
+	const f = await roleFixture(new Engine({ provider: provider.provider, ...claudeFixture }));
 	try {
 		await allowSameFamily(f.ledger);
 		const ground = result(

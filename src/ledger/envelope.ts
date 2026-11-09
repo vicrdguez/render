@@ -1,6 +1,7 @@
 // Strict parsing of the version-1 command envelope (docs/protocol.md). Unknown fields are refused so that no
 // body field can pose as a principal, route or capability.
 import { createHash } from "node:crypto";
+import { PROVIDERS } from "../engine/providers.ts";
 import { validCheckpointModes } from "../kernel/checkpoint-settings.ts";
 import { CHECKPOINT_COMMANDS, type CheckpointCommand } from "../kernel/checkpoints.ts";
 import { validAssessment, validDispositions } from "../kernel/implementation.ts";
@@ -537,7 +538,8 @@ function parsePacket(raw: unknown, depth = 0): RolePacket {
 	if (!Array.isArray(p.inputs) || p.inputs.length > 256 || !p.inputs.every((ref) => typeof ref === "string" && ref.length > 0))
 		malformed("inputs must be exact artifact refs");
 	if (
-		p.provider !== "anthropic" ||
+		typeof p.provider !== "string" ||
+		!Object.hasOwn(PROVIDERS, p.provider) ||
 		!["read-only", "linux-writer"].includes(String(p.execution)) ||
 		!["off", "minimal", "low", "medium", "high", "xhigh"].includes(String(p.thinking)) ||
 		p.submission !== "submit_role_result"

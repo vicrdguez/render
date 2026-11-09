@@ -6,7 +6,7 @@ import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
-import { admin, packet, roleFixture } from "./support/roles.ts";
+import { admin, claudeFixture, packet, roleFixture } from "./support/roles.ts";
 
 async function blocked(f: Awaited<ReturnType<typeof roleFixture>>) {
 	for (let n = 0; n < 500; n++) {
@@ -19,16 +19,14 @@ async function blocked(f: Awaited<ReturnType<typeof roleFixture>>) {
 
 test("R04 missing provider, family, sandbox and overflowing constraints block without provider calls", async () => {
 	for (const [overrides, expected] of [
-		[{}, "native_provider_configuration_missing"],
+		[{}, "native_provider_configuration_missing: anthropic"],
 		[{ requiredFamily: "other" }, "required_model_family_unavailable"],
 		[{ execution: "linux-writer" as const }, "sandbox_capability_unavailable"],
 		[{ maxInputBytes: 1 }, "required_inputs_do_not_fit"],
 	] as const) {
 		const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
 		const providerInstalled = Object.keys(overrides).length > 0;
-		const engine = providerInstalled
-			? new Engine({ provider: p.provider, apiKey: "fixture", families: { "claude-sonnet-4-6": "claude" } })
-			: new Engine();
+		const engine = providerInstalled ? new Engine({ provider: p.provider, ...claudeFixture }) : new Engine();
 		const f = await roleFixture(engine);
 		try {
 			assert.equal(
@@ -57,7 +55,7 @@ test("R03 forged model command IDs produce no report; missing retained inputs re
 			}),
 		fauxAssistantMessage("No submission"),
 	]);
-	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "fixture", families: { "claude-sonnet-4-6": "claude" } }));
+	const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 	try {
 		await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet() });
 		const a = await blocked(f);

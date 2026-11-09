@@ -4,7 +4,6 @@ import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { lazyStream, type Provider, Type } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import {
 	type ConversationId,
 	configure,
@@ -84,7 +83,9 @@ import {
 	SandboxInputRefusal,
 } from "../sandboxes/sandboxes.ts";
 import { selectCatalog, VERIFICATION_AUTHORING } from "./catalog.ts";
+import { credentialStore, type SecretsFile } from "./credentials.ts";
 import { type ExperimentConfig, Experiments } from "./experiments.ts";
+import { type Family, PROVIDERS } from "./providers.ts";
 import { previewWeb, research, type WebConfig } from "./web.ts";
 
 const ctx = BACKGROUND_CONTEXT;
@@ -132,8 +133,12 @@ type PreparationJob = {
 /** X's own verifier bytes cannot define its required checks; deterministic, so repair needs a new pass, not a retry. */
 class VerifierDefect extends Error {}
 type EngineConfig = {
-	apiKey?: string;
-	families?: Readonly<Record<string, string>>;
+	/** The family table until settings own it. Engine registers one provider per configured family's provider. */
+	families?: readonly Family[];
+	/** pi's login file, named explicitly (`render serve --pi-auth`); without it every pi-login family is unconfigured. */
+	piAuth?: string;
+	secrets?: SecretsFile;
+	/** Test seam: stands in for the network of the registered provider with the same id; auth stays that provider's. */
 	provider?: Provider;
 	ownedChecks?: OwnedChecks;
 	experiments?: ExperimentConfig;
@@ -172,6 +177,7 @@ export class Engine {
 	readonly #run;
 	readonly #notify;
 	readonly #models;
+	readonly #credentials;
 
 	constructor(config: EngineConfig = {}) {
 		this.#config = config;
@@ -204,12 +210,18 @@ export class Engine {
 				},
 			});
 		}
-		this.#models = createModels({
-			authContext: { env: async (name) => (name === "ANTHROPIC_API_KEY" ? config.apiKey : undefined), fileExists: async () => false },
+		this.#credentials = credentialStore({
+			piAuth: config.piAuth,
+			secrets: config.secrets ?? (() => ({ apiKeys: {} })),
+			families: () => config.families ?? [],
 		});
-		const provider = config.provider ?? anthropicProvider();
-		// The only provider implementation seam: fixtures substitute provider variability, never Ledger or storage.
-		this.#models.setProvider({
+		// Only the store supplies credentials: no environment variable or ambient file.
+		this.#models = createModels({
+			credentials: this.#credentials,
+			authContext: { env: async () => undefined, fileExists: async () => false },
+		});
+		// The only provider implementation seam: fixtures substitute provider variability, never Ledger, storage or auth.
+		const admitted = (provider: Provider): Provider => ({
 			...provider,
 			streamSimple: (model, transcript, options) =>
 				lazyStream(model, () =>
@@ -228,7 +240,7 @@ export class Engine {
 							}
 							if (!scope || !harness) throw new Error("Role provider request has no trusted scope.");
 							const a = this.#assignment(scope.assignment);
-							if (!a || this.#configurationBlocker(a)) throw new Error("Role provider configuration is unavailable.");
+							if (!a || (yield* this.#configurationBlocker(a))) throw new Error("Role provider configuration is unavailable.");
 							yield* this.render(a);
 							let activePacket: string | null | undefined;
 							for (const message of transcript.messages)
@@ -291,6 +303,10 @@ export class Engine {
 					),
 				),
 		});
+		for (const id of new Set((config.families ?? []).map((family) => family.provider))) {
+			const native = PROVIDERS[id]();
+			this.#models.setProvider(admitted(config.provider?.id === id ? { ...config.provider, auth: native.auth } : native));
+		}
 		const schema = <T extends Record<string, ReturnType<typeof Type.String>>>(fields: T) =>
 			Type.Object(fields, { additionalProperties: false });
 		const tool = (name: string, parameters: ReturnType<typeof Type.Object>, make: (args: Record<string, string>) => JsonObject) =>
@@ -780,7 +796,7 @@ export class Engine {
 									);
 									return yield* this.reconcile();
 								}
-								const blocker = this.#configurationBlocker(a) ?? (yield* this.#openingBlocker(a));
+								const blocker = (yield* this.#configurationBlocker(a)) ?? (yield* this.#openingBlocker(a));
 								let prompt!: string;
 								let inputBlocker: string | undefined;
 								yield* Effect.gen({ self: this }, function* () {
@@ -2973,41 +2989,44 @@ export class Engine {
 			};
 		});
 	}
-	#configurationBlocker(a: RoleAssignment): string | undefined {
-		if (a.packet.experiment && !this.#experiments) return "experiment_capability_unavailable";
-		if (a.passRef) {
-			const check = this.#config.ownedChecks?.checks[a.packet.profile];
-			if (!check || !this.#sandboxes || !this.#effects) return "implementation_source_or_verifier_capability_unavailable";
-			const selected = this.#implementationPass(a).configuration.verification;
-			if (check.repository !== selected.repository || check.commit !== selected.commit)
-				return "implementation_source_configuration_differs";
-			// Until intended-output exclusions are explicit, capture every non-Git file. Caches may exceed bounds; never silently drop deliverables.
-			if (JSON.stringify(check.profile.exclusions) !== '[".git"]') return "implementation_exclusion_profile_conflict";
-		}
-		if (a.packet.investigation && !this.#investigationEffects && !a.investigationSource)
-			return "investigation_source_capability_unavailable";
-		if (a.watchdogReview && !a.watchdogReview.checks && (!this.#sandboxes || !this.#effects))
-			return "watchdog_check_capability_unavailable";
-		if (a.packet.execution === "linux-writer" && !a.passRef && !a.packet.experiment && this.#config.ownedChecks)
-			return Object.hasOwn(this.#config.ownedChecks.checks, a.packet.profile) ? undefined : "owned_check_profile_unavailable";
-		if (!this.#config.apiKey) return "native_provider_configuration_missing";
-		if (a.packet.execution !== "read-only" && !a.passRef && !a.packet.experiment) return "sandbox_capability_unavailable";
-		if (this.#config.provider && this.#config.provider.id !== "anthropic") return "native_provider_required";
-		const packets = [
-			a.packet,
-			...(a.passRef
-				? [
-						...Object.values(this.#implementationPass(a).configuration.reviewers),
-						...(this.#implementationPass(a).configuration.watchdog ? [this.#implementationPass(a).configuration.watchdog!] : []),
-					].map(auditReviewerPacket)
-				: []),
-		];
-		for (const packet of packets) {
-			if (this.#config.families?.[packet.model] !== packet.family || packet.requiredFamily !== packet.family)
-				return "required_model_family_unavailable";
-			if (!this.#models.getModel(packet.provider, packet.model)) return "required_model_unavailable";
-		}
-		return undefined;
+	#configurationBlocker(a: RoleAssignment): Effect.Effect<string | undefined> {
+		return Effect.gen({ self: this }, function* () {
+			if (a.packet.experiment && !this.#experiments) return "experiment_capability_unavailable";
+			if (a.passRef) {
+				const check = this.#config.ownedChecks?.checks[a.packet.profile];
+				if (!check || !this.#sandboxes || !this.#effects) return "implementation_source_or_verifier_capability_unavailable";
+				const selected = this.#implementationPass(a).configuration.verification;
+				if (check.repository !== selected.repository || check.commit !== selected.commit)
+					return "implementation_source_configuration_differs";
+				// Until intended-output exclusions are explicit, capture every non-Git file. Caches may exceed bounds; never silently drop deliverables.
+				if (JSON.stringify(check.profile.exclusions) !== '[".git"]') return "implementation_exclusion_profile_conflict";
+			}
+			if (a.packet.investigation && !this.#investigationEffects && !a.investigationSource)
+				return "investigation_source_capability_unavailable";
+			if (a.watchdogReview && !a.watchdogReview.checks && (!this.#sandboxes || !this.#effects))
+				return "watchdog_check_capability_unavailable";
+			if (a.packet.execution === "linux-writer" && !a.passRef && !a.packet.experiment && this.#config.ownedChecks)
+				return Object.hasOwn(this.#config.ownedChecks.checks, a.packet.profile) ? undefined : "owned_check_profile_unavailable";
+			// An unreadable login file counts as an absent login; the operator repairs it with pi.
+			const credential = yield* Effect.promise(() => this.#credentials.read(a.packet.provider).catch(() => undefined));
+			if (!credential) return `native_provider_configuration_missing: ${a.packet.provider}`;
+			if (a.packet.execution !== "read-only" && !a.passRef && !a.packet.experiment) return "sandbox_capability_unavailable";
+			const packets = [
+				a.packet,
+				...(a.passRef
+					? [
+							...Object.values(this.#implementationPass(a).configuration.reviewers),
+							...(this.#implementationPass(a).configuration.watchdog ? [this.#implementationPass(a).configuration.watchdog!] : []),
+						].map(auditReviewerPacket)
+					: []),
+			];
+			for (const packet of packets) {
+				const family = this.#config.families?.find((f) => f.name === packet.family && f.provider === packet.provider);
+				if (!family || packet.requiredFamily !== packet.family) return "required_model_family_unavailable";
+				if (!this.#models.getModel(packet.provider, packet.model)) return "required_model_unavailable";
+			}
+			return undefined;
+		});
 	}
 	/** `occurrence` distinguishes a command that may legitimately repeat with identical text in a later settlement. */
 	#command(a: RoleAssignment, command: Record<string, unknown>, occurrence?: string) {
@@ -3131,8 +3150,4 @@ function deepFreeze<T>(value: T): T {
 		for (const child of Object.values(value)) deepFreeze(child);
 	}
 	return value;
-}
-
-export function runtimeOptions(onReport: (error: unknown, info: ReportInfo) => void): RenderRuntimeOptions {
-	return new Engine().options(onReport);
 }

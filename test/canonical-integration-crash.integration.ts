@@ -18,7 +18,7 @@ import type { faultBarrier } from "../src/ledger/barrier.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import { openLedger } from "../src/ledger/startup.ts";
 import { proposalRef, sha } from "./support/implementation-engine.ts";
-import { admin } from "./support/roles.ts";
+import { admin, claudeFixture } from "./support/roles.ts";
 import { git } from "./support/source.ts";
 
 type Cut = {
@@ -93,8 +93,7 @@ async function cut({ barrier, key, moved, recovery, staleLock }: Cut) {
 					new Engine({
 						ownedChecks: setup!.config,
 						provider: provider.provider,
-						apiKey: "fixture",
-						families: { "claude-sonnet-4-6": "claude" },
+						...claudeFixture,
 					}).options(report),
 				onFatal: () => {},
 			}),

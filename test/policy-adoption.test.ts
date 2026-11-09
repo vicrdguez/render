@@ -12,7 +12,7 @@ import { Engine } from "../src/engine/runtime.ts";
 import type { WorkflowView } from "../src/kernel/kernel.ts";
 import type { PolicyState } from "../src/kernel/policy.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
-import { admin, packet, roleFixture, scheduler } from "./support/roles.ts";
+import { admin, claudeFixture, packet, roleFixture, scheduler } from "./support/roles.ts";
 
 for (const scenario of ["without Ground", "with Ground", "already blocked"] as const) {
 	test(`policy-adoption: in-flight handover ${scenario} retains ownership until checked cancellation and replacement`, async () => {
@@ -32,7 +32,7 @@ for (const scenario of ["without Ground", "with Ground", "already blocked"] as c
 				});
 			},
 		]);
-		const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
+		const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 		const snapshot = () => {
 			const frame = f.ledger.snapshot(admin);
 			assert.ok("assignments" in frame);
@@ -195,7 +195,7 @@ test("policy-adoption: completed Watchdog reports and counts survive adopt-away/
 	p.setResponses([
 		fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "COMPLETED-REVIEW-6" }), { stopReason: "toolUse" }),
 	]);
-	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
+	const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 	const frame = () => f.ledger.snapshot(admin) as Record<string, any>;
 	try {
 		await f.command({ type: "assignTask", slice: "watchdog", delivery: false, packet: packet({ role: "watchdog" }) });

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import * as Effect from "effect/Effect";
+import { claudeFixture } from "./roles.ts";
 
 const base = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
 const { Engine } = await import(base + "/src/engine/runtime.ts");
@@ -43,7 +44,7 @@ if (process.argv[2] === "unsafe-worker") {
 			return fauxAssistantMessage(fauxToolCall("uncertain", {}), { stopReason: "toolUse" });
 		},
 	]);
-	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }));
+	const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 	console.log(JSON.stringify({ event: "owned-data", data: f.data }));
 	const uncertain = defineTool({
 		name: "uncertain",
@@ -83,7 +84,7 @@ if (process.argv[2] === "fence-worker") {
 			return fauxAssistantMessage("late");
 		}),
 	);
-	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }));
+	const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 	console.log(JSON.stringify({ event: "owned-data", data: f.data }));
 	for (let i = 1; i <= 3; i++) await f.command({ type: "assignTask", slice: `fence:${i}`, delivery: true, packet: packet() });
 	await until(() => p.state.callCount === 3);
@@ -116,7 +117,7 @@ if (process.argv[2] === "fence-worker") {
 			}
 		}),
 	);
-	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }));
+	const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 	try {
 		await allowSameFamily(f.ledger);
 		for (let i = 1; i <= 5; i++)
@@ -239,8 +240,7 @@ if (process.argv[2] === "fence-worker") {
 				Effect.runPromise(
 					openLedger({
 						data,
-						runtime: (report) =>
-							new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }).options(report),
+						runtime: (report) => new Engine({ provider: p.provider, ...claudeFixture }).options(report),
 						onFatal: () => {},
 					}),
 				),
@@ -287,7 +287,7 @@ if (process.argv[2] === "fence-worker") {
 		const trace = [];
 		const p = external();
 		p.setResponses(Array.from({ length: 6 }, () => fauxAssistantMessage("stopped")));
-		const engine = new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } });
+		const engine = new Engine({ provider: p.provider, ...claudeFixture });
 		opened = await Effect.runPromise(
 			openLedger({
 				data,

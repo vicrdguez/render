@@ -9,7 +9,7 @@ import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
-import { admin, allowSameFamily, packet, roleFixture, scheduler } from "./roles.ts";
+import { admin, allowSameFamily, claudeFixture, packet, roleFixture, scheduler } from "./roles.ts";
 
 const mode = process.argv[2];
 let release!: () => void;
@@ -57,7 +57,7 @@ function provider(parentAlreadyRan = false) {
 	return p;
 }
 function engine(p: ReturnType<typeof provider>) {
-	return new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } });
+	return new Engine({ provider: p.provider, ...claudeFixture });
 }
 let p = provider();
 const f = await roleFixture(engine(p));

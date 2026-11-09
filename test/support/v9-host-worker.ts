@@ -11,7 +11,7 @@ import { adminServer, deviceServer } from "../../src/host/transport.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
-import { packet } from "./roles.ts";
+import { claudeFixture, packet } from "./roles.ts";
 
 const data = process.argv[2]!;
 const WORKFLOWS = Number(process.env.RENDER_V9_WORKFLOWS ?? 20);
@@ -47,7 +47,7 @@ const stream = (transcript: { messages: { role: string; sections?: Record<string
 	);
 };
 provider.setResponses(Array(1_000_000).fill(stream));
-const engine = new Engine({ provider: provider.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } });
+const engine = new Engine({ provider: provider.provider, ...claudeFixture });
 const opened = await Effect.runPromise(
 	openLedger({ data, runtime: (report) => engine.options(report), onFatal: (error) => console.error(error) }),
 );

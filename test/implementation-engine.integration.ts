@@ -30,7 +30,7 @@ import {
 	releaseBarrier,
 	sha,
 } from "./support/implementation-engine.ts";
-import { admin } from "./support/roles.ts";
+import { admin, claudeFixture } from "./support/roles.ts";
 import { git } from "./support/source.ts";
 
 // Written independently of the product's record type: these are the fields the Contract requires a reader to find.
@@ -659,8 +659,7 @@ test("TP08/TP12/TP14: an aborted merge stays operational across restart until an
 			new Engine({
 				ownedChecks: t.f.config,
 				provider: t.f.provider.provider,
-				apiKey: "fixture",
-				families: { "claude-sonnet-4-6": "claude" },
+				...claudeFixture,
 			}),
 		);
 		await setTimeout(500);
@@ -923,8 +922,7 @@ test("reopen after one Audit report continues same pass and incomplete original 
 			new Engine({
 				ownedChecks: t.f.config,
 				provider: t.f.provider.provider,
-				apiKey: "fixture",
-				families: { "claude-sonnet-4-6": "claude" },
+				...claudeFixture,
 			}),
 		);
 		t.release();

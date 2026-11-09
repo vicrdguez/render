@@ -23,7 +23,7 @@ import {
 	proposalRef,
 	releaseBarrier,
 } from "./support/implementation-engine.ts";
-import { admin } from "./support/roles.ts";
+import { admin, claudeFixture } from "./support/roles.ts";
 import { git } from "./support/source.ts";
 
 type Checks = {
@@ -207,8 +207,7 @@ test("WR17: an interrupted Watchdog round resumes its own Assignment and retaine
 			new Engine({
 				ownedChecks: t.f.config,
 				provider: t.f.provider.provider,
-				apiKey: "fixture",
-				families: { "claude-sonnet-4-6": "claude" },
+				...claudeFixture,
 			}),
 		);
 		assert.equal(watchdogs(t).filter((a) => a.status === "submitted").length, 0, "interruption is not a completed review");
