@@ -1,5 +1,7 @@
 # Review dispositions
 
+These dispositions concern revision 1. They do not validate revision 2. Use the [current revision record](../revision-2.md) for the new instruction and host-storage design.
+
 The goal is a reviewable design for kernels selected only when a new Render project is created. These reviews challenged the saved proposal before its protocol corrections. They do not establish runtime correctness.
 
 The [ledger review](ledger.md) and [runtime review](runtime.md) used fresh agents. The [comment review](comments.md) found no comments inside the documentation sketches. The parent reran the source and structural probes before accepting the findings.

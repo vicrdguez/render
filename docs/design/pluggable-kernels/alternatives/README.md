@@ -1,5 +1,7 @@
 # Independent design drafts
 
+These drafts informed revision 1. They predate the first-class execution-skill and host-wide project redesign. Their assumptions are historical, not current requirements.
+
 These are independent proposals for selecting a workflow kernel when a new Render project is created. They are inputs to the [main recommendation](../README.md), not accepted interfaces.
 
 Each author received the same [brief](brief.md). The source register is [sources.md](../sources.md). The [research record](../research.md) explains the comparison and which ideas the final proposal retained.

@@ -1,5 +1,7 @@
 # Comparison of the independent designs
 
+This is the historical revision 1 comparison. The current [proposal](README.md) and [revision record](revision-2.md) supersede its storage and instruction-ownership conclusions.
+
 The goal is a kernel extension interface and ledger design that let each new Render project choose a workflow. Existing-project switching remains out of scope.
 
 These are design judgments, not measured product results. The three drafts received the same [brief](alternatives/brief.md). The parent read every draft in full. A fresh `claude-opus-5-5` cross-judge read the same drafts and spot-checked source independently.

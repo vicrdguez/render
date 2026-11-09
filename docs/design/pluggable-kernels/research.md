@@ -1,5 +1,7 @@
 # Pluggable kernel design research
 
+This records revision 1. Its final artifact hash and validation counts apply to that handoff, not the revised proposal. The current record is [revision-2.md](revision-2.md).
+
 Status is proposed design, with source review, design comparison, and adversarial corrections complete. Final document checks are recorded below. This is not an accepted implementation contract.
 
 ## Goal and scope

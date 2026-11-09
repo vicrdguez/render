@@ -1,5 +1,7 @@
 # Source register for pluggable kernels
 
+This is the historical revision 1 register. Use the [revision 2 register](sources/revision-2.md) for the current proposal, issue #59, rendering, and host-wide project model.
+
 This register describes the inspected source. It does not describe an implemented extension interface.
 
 ## Fixed snapshots
