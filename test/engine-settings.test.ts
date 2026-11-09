@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import { setTimeout } from "node:timers/promises";
 import { createModels } from "@earendil-works/pi-ai/models";
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import * as Effect from "effect/Effect";
+import { Engine } from "../src/engine/runtime.ts";
 import { packetSettings, withSettingsModels } from "../src/engine/settings.ts";
 import type { EngineSettings, ModelEntry } from "../src/kernel/engine-settings.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import type { Frame, Ledger } from "../src/ledger/ledger.ts";
 import { type AuthenticatedContext, mintContext } from "../src/ledger/principals.ts";
-import { admin, packet, roleFixture, scheduler } from "./support/roles.ts";
+import { admin, editEngineSettings, packet, roleFixture, scheduler } from "./support/roles.ts";
 
 type Revision = { revision: number; value: EngineSettings };
 const current = (ledger: Ledger, context: AuthenticatedContext = admin) => (ledger.snapshot(context) as Frame).settings as Revision | null;
@@ -165,6 +171,66 @@ test("S3 Engine resolves an added entry from its catalog base and the current en
 	assert.equal(terra.maxTokens, 64000);
 	entries = [];
 	assert.equal(models.getModel("openai", "gpt-6.1-terra"), undefined, "a later revision without the entry no longer resolves it");
+});
+
+/** A temporary pi login file with an openai login, never the operator's. */
+async function openaiLogin() {
+	const dir = await mkdtemp(join(tmpdir(), "render-engine-settings-"));
+	const path = join(dir, "auth.json");
+	await writeFile(path, JSON.stringify({ openai: { type: "oauth", access: "a", refresh: "r", expires: Date.now() + 3_600_000 } }));
+	return { path, remove: () => rm(dir, { recursive: true, force: true }) };
+}
+async function settled(f: Awaited<ReturnType<typeof roleFixture>>, status: RoleAssignment["status"]) {
+	for (let n = 0; n < 500; n++) {
+		const a = ((f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[])[0];
+		if (a?.status === status && !a.executing) return a;
+		await setTimeout(10);
+	}
+	throw new Error(`role did not reach ${status}`);
+}
+const chatgptPacket = (model: string) => packet({ provider: "openai", model, family: "chatgpt", requiredFamily: "chatgpt" });
+
+test("S3 a role runs on a settings-added model through its registered provider", async () => {
+	const login = await openaiLogin();
+	const p = fauxProvider({ provider: "openai", api: "openai-responses", models: [{ id: "gpt-6.1-sol" }] });
+	let requested: string | undefined;
+	p.setResponses([
+		(_context, _options, _state, model) => {
+			requested = model.id;
+			return fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "Own bounded report." }), {
+				stopReason: "toolUse",
+			});
+		},
+	]);
+	const f = await roleFixture(new Engine({ provider: p.provider, piAuth: login.path }));
+	try {
+		await editEngineSettings(f.ledger, (s) => ({
+			...s,
+			models: [{ provider: "openai", id: "gpt-6.1-terra", family: "chatgpt", base: "gpt-6.1-sol" }],
+		}));
+		await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: chatgptPacket("gpt-6.1-terra") });
+		await settled(f, "submitted");
+		assert.equal(requested, "gpt-6.1-terra");
+	} finally {
+		await f.close();
+		await login.remove();
+	}
+});
+
+test("Engine checks a packet's family against the current settings revision", async () => {
+	const login = await openaiLogin();
+	const f = await roleFixture(new Engine({ piAuth: login.path }));
+	try {
+		await editEngineSettings(f.ledger, (s) => ({
+			...s,
+			families: s.families.map((family) => (family.name === "chatgpt" ? { ...family, name: "gpt" } : family)),
+		}));
+		await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: chatgptPacket("gpt-6.1-sol") });
+		assert.equal((await settled(f, "blocked")).blocker, "required_model_family_unavailable");
+	} finally {
+		await f.close();
+		await login.remove();
+	}
 });
 
 test("S4 only a project-wide human changes or reads Engine settings", async () => {
