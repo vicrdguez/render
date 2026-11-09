@@ -95,9 +95,19 @@ The host never substitutes other bytes. Preserve corrupt content for diagnosis; 
 ## Durable role work
 
 The `durable-role-work` slice adds workflow-owned role requests, independent non-fork conversations, immutable packet
-and report artifacts, atomic result notifications, and current-assignment tool enforcement. Full design/delivery
-playbooks are not installed: there is no model-controlled scheduler, coding shell, source publication or live-provider
-authorization. Human/device routes cannot schedule assignments by impersonating the host.
+and report artifacts, atomic result notifications, and current-assignment tool enforcement. Human/device routes cannot
+schedule assignments by impersonating the host.
+
+### Launcher
+
+Engine's reconcile is the only production issuer of `assignTask` (`src/engine/playbooks.ts`). It needs owned Effects
+(`ownedChecks`) to fetch the project. A workflow's first accepted coordinator message starts its coordinator on a freshly
+fetched commit, with one `fidelity` challenger request. The coordinator reads that commit with `list_source`,
+`read_source` and `grep_source`, and proposes Ground with `saveDraft`. After the human confirms Ground and accepts the
+intake, each accepted Slice whose dependencies have integrated gets one implementer with `standards`, `contracts` and
+`watchdog` requests. Models, thinking and budgets come from the current Engine settings revision. Role instructions,
+profiles, policy and the project's principles file are retained under `host/` and pinned in each packet. The
+launcher starts no experiment work.
 
 `Engine` registers every pinned Pi AI 1.4.0 provider and reads its family table and added model entries from the current
 Engine settings revision (`changeEngineSettings`). Revision 1 has `claude` (`anthropic`) and `chatgpt` (`openai`), both
