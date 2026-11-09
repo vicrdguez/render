@@ -142,8 +142,9 @@ test("E14 exact source refusal before allocation does not consume executing capa
 			provider: provider.provider,
 			apiKey: "fixture",
 			families: { "claude-sonnet-4-6": "claude" },
-			experiments: { root: `${source.root}/experiments`, repositories: { owned: source.repo } },
+			experiments: { root: `${source.root}/experiments` },
 		}),
+		{ remote: source.repo, defaultBranch: "fixture" },
 	);
 	try {
 		const ground = await saveGround(f.ledger);

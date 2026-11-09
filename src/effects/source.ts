@@ -7,33 +7,59 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import { fromPromise, runPromise } from "../effect.ts";
 import type { LiteralEntry, Source, SourceReceipt } from "../kernel/evidence-schema.ts";
+import type { ProjectFacts } from "../kernel/projects.ts";
 import { validatePath } from "../kernel/source-path.ts";
 import { faultBarrier } from "../ledger/barrier.ts";
 import type { Capture } from "../sandboxes/sandboxes.ts";
-import { type ForgeConfig, type ForgeDispatch, type ForgeSnapshot, GitHubForge } from "./forge.ts";
+import { type ForgeConfig, type ForgeDispatch, type ForgeSnapshot, forgeAuth, forgeTarget, GitHubForge } from "./forge.ts";
 
 export type { LiteralEntry, Source, SourceReceipt } from "../kernel/evidence-schema.ts";
-export type Resolve = { type: "resolve"; repository: string; commit: string };
+/** Fetches the project's default branch into its mirror; the result is the remote's head at that moment. */
+export type Fetch = { type: "fetch"; project: ProjectFacts };
+export type Fetched = { project: string; branch: string; commit: string };
+/** An exact commit from the project's mirror, fetched from its remote only when the mirror lacks it. */
+export type Resolve = { type: "resolve"; project: ProjectFacts; commit: string };
 /** An already rooted host source (such as prepared X) read back exactly, with no fetch. */
-export type Read = { type: "read"; repository: string; commit: string };
+export type Read = { type: "read"; project: ProjectFacts; commit: string };
 export type Retain = { type: "retain"; base: Source; capture: Capture };
-export type Diff = { type: "diff"; repository: string; base: string; result: string };
+export type Diff = { type: "diff"; project: ProjectFacts; base: string; result: string };
 /** Inputs are host-retained sources, never worker-selected Git metadata. */
 export type Prepare = { type: "prepare"; base: Source; source: Source; target: Source };
 /** The host-private canonical proposal ref; `initial` binds it only while absent. */
-export type Observe = { type: "observe"; repository: string; proposal: string; initial: string };
+export type Observe = { type: "observe"; project: ProjectFacts; proposal: string; initial: string };
 export type TargetObservation = { proposal: string; ref: string; target: Source };
 /** Squash R: exactly prepared X's tree on parent T with fixed metadata, rooted before any canonical-ref change. */
 export type Squash = { type: "squash"; prepared: Source; target: Source; message: string };
 /** One admitted attempt's expected-old CAS of the canonical proposal ref from `expected` (T) to `result` (R). */
-export type Integrate = { type: "integrate"; repository: string; proposal: string; expected: string; result: Source; attempt: string };
-export type ReconcileIntegration = { type: "integration"; repository: string; proposal: string };
+export type Integrate = { type: "integrate"; project: ProjectFacts; proposal: string; expected: string; result: Source; attempt: string };
+export type ReconcileIntegration = { type: "integration"; project: ProjectFacts; proposal: string };
 /** One admitted forge attempt: Effects consumes its permit once and sends the request through the internal Forge. */
-export type Publish = { type: "publish"; repository: string; proposal: string; commit: string; expected: string | null; attempt: string };
-export type CreateProposal = { type: "createProposal"; repository: string; proposal: string; title: string; body: string; attempt: string };
-export type UpdateSummary = { type: "updateSummary"; repository: string; proposal: string; pr: string; summary: string; attempt: string };
-export type MarkReady = { type: "markReady"; repository: string; proposal: string; pr: string; attempt: string };
-export type ReconcilePublication = { type: "publication"; repository: string; proposal: string };
+export type Publish = {
+	type: "publish";
+	project: ProjectFacts;
+	proposal: string;
+	commit: string;
+	expected: string | null;
+	attempt: string;
+};
+export type CreateProposal = {
+	type: "createProposal";
+	project: ProjectFacts;
+	proposal: string;
+	title: string;
+	body: string;
+	attempt: string;
+};
+export type UpdateSummary = {
+	type: "updateSummary";
+	project: ProjectFacts;
+	proposal: string;
+	pr: string;
+	summary: string;
+	attempt: string;
+};
+export type MarkReady = { type: "markReady"; project: ProjectFacts; proposal: string; pr: string; attempt: string };
+export type ReconcilePublication = { type: "publication"; project: ProjectFacts; proposal: string };
 export type CanonicalObservation = {
 	ref: string;
 	observed: { commit: string; tree: string; parents: string[] } | null;
@@ -58,6 +84,7 @@ export type PreparationReceipt = {
 	exitCode: 0 | 1;
 };
 type SourceOperation =
+	| Fetch
 	| Resolve
 	| Read
 	| Retain
@@ -70,7 +97,15 @@ type SourceOperation =
 	| CreateProposal
 	| UpdateSummary
 	| MarkReady;
-type SourceResult = Source | SourceReceipt | string | PreparationReceipt | TargetObservation | IntegrationDispatch | ForgeDispatch;
+type SourceResult =
+	| Fetched
+	| Source
+	| SourceReceipt
+	| string
+	| PreparationReceipt
+	| TargetObservation
+	| IntegrationDispatch
+	| ForgeDispatch;
 type Reconciliation = SourceReceipt | PreparationReceipt | ReconcileIntegration | ReconcilePublication;
 type Reconciled = SourceReceipt | PreparationReceipt | CanonicalObservation | ForgeSnapshot;
 type GitResult = { stdout: Buffer; stderr: Buffer; exitCode: number | null; signal: string | null };
@@ -140,20 +175,30 @@ export function validateEntries(
 	}
 }
 
+/** A forge whose remote this host cannot publish to: every capability absent, so publication reports it unsupported. */
+const UNSUPPORTED_FORGE: ForgeSnapshot["capabilities"] = {
+	draftProposalPR: false,
+	markProposalReady: false,
+	guardedSourceUpdate: false,
+	createIdempotency: false,
+	stableObjectIdentity: false,
+	mergeObservation: false,
+	observationCompleteness: false,
+};
+
 export class Effects {
 	readonly #root: string;
-	readonly #repositories: Readonly<Record<string, string>>;
 	readonly #stores = new Map<string, Promise<{ path: string; cwd: string; format: Source["objectFormat"] }>>();
 	/** Integration permits this executor already dispatched: each admitted attempt is consumed at most once. */
 	readonly #consumed = new Set<string>();
 	readonly #started = Date.now();
 	readonly #forge: ForgeConfig | undefined;
-	constructor(options: { root: string; repositories: Readonly<Record<string, string>>; forge?: ForgeConfig }) {
+	constructor(options: { root: string; forge?: ForgeConfig }) {
 		this.#root = options.root;
-		this.#repositories = options.repositories;
 		this.#forge = options.forge;
 	}
 
+	perform(operation: Fetch): Effect.Effect<Fetched, unknown>;
 	perform(operation: Resolve | Read): Effect.Effect<Source, unknown>;
 	perform(operation: Retain): Effect.Effect<SourceReceipt, unknown>;
 	perform(operation: Diff): Effect.Effect<string, unknown>;
@@ -176,14 +221,15 @@ export class Effects {
 			if (operation.type === "squash") return yield* this.#squash(operation);
 			if (operation.type === "integrate") return yield* this.#integrate(operation);
 			if (operation.type === "read") {
-				this.#checkOid(operation.commit, (yield* fromPromise(() => this.#store(operation.repository))).format);
-				const source = yield* this.#read(operation.repository, operation.commit);
+				this.#checkOid(operation.commit, (yield* fromPromise(() => this.#store(operation.project.id))).format);
+				const source = yield* this.#read(operation.project.id, operation.commit);
 				yield* this.#verifySource(source);
 				return source;
 			}
 			if (operation.type === "observe") return yield* this.#observe(operation);
-			const repository = operation.type === "retain" ? operation.base.repository : operation.repository;
-			const store = yield* fromPromise(() => this.#store(repository));
+			if (operation.type === "fetch") return yield* this.#fetch(operation.project);
+			const repository = operation.type === "retain" ? operation.base.repository : operation.project.id;
+			const store = yield* fromPromise(() => this.#store(repository, operation.type === "retain" ? undefined : operation.project));
 			if (operation.type === "diff") {
 				this.#checkOid(operation.base, store.format);
 				this.#checkOid(operation.result, store.format);
@@ -198,15 +244,19 @@ export class Effects {
 			}
 			if (operation.type === "resolve") {
 				this.#checkOid(operation.commit, store.format);
-				yield* this.#git(store.path, store.cwd, [
-					"fetch",
-					"--no-tags",
-					"--no-write-fetch-head",
-					"--no-recurse-submodules",
-					"--",
-					this.#repositories[repository]!,
-					operation.commit,
-				]);
+				const present = yield* fromPromise(() =>
+					this.#gitResult(store.path, store.cwd, ["cat-file", "-e", `${operation.commit}^{commit}`]),
+				);
+				if (present.exitCode !== 0) {
+					const remote = this.#remote(operation.project);
+					yield* this.#git(
+						store.path,
+						store.cwd,
+						["fetch", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", "--", remote.url, operation.commit],
+						undefined,
+						remote.env,
+					);
+				}
 				const source = yield* this.#read(repository, operation.commit);
 				yield* this.#rootSource(source);
 				return source;
@@ -273,9 +323,17 @@ export class Effects {
 		receipt: SourceReceipt | PreparationReceipt | ReconcileIntegration | ReconcilePublication,
 	): Effect.Effect<SourceReceipt | PreparationReceipt | CanonicalObservation | ForgeSnapshot, unknown> {
 		return Effect.gen({ self: this }, function* () {
-			if ("type" in receipt && receipt.type === "publication")
-				return yield* (yield* this.#forgeFor(receipt.repository)).observe(receipt.proposal);
-			if ("type" in receipt) return yield* this.#canonical(receipt.repository, receipt.proposal);
+			if ("type" in receipt && receipt.type === "publication") {
+				const forge = yield* this.#forgeFor(receipt.project);
+				if (forge) return yield* forge.observe(receipt.proposal);
+				return {
+					capabilities: UNSUPPORTED_FORGE,
+					head: { commit: null },
+					proposals: { complete: true, items: [] },
+					observedAt: new Date().toISOString(),
+				};
+			}
+			if ("type" in receipt) return yield* this.#canonical(receipt.project.id, receipt.proposal);
 			yield* this.#verifySource(receipt.base);
 			yield* this.#verifySource(receipt.source);
 			if ("algorithm" in receipt) {
@@ -287,11 +345,14 @@ export class Effects {
 			return receipt;
 		}).pipe(Effect.uninterruptible);
 	}
-	#forgeFor(repository: string): Effect.Effect<GitHubForge, unknown> {
+	/** The project's forge, or undefined when its remote is not a GitHub repository this host publishes to. */
+	#forgeFor(project: ProjectFacts): Effect.Effect<GitHubForge | undefined, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			if (!this.#forge) throw new Error("forge_capability_unavailable: no trusted forge configuration");
-			const store = yield* fromPromise(() => this.#store(repository));
-			return new GitHubForge(this.#forge, repository, async (args, env) => {
+			const target = forgeTarget(this.#forge, project);
+			if (!target) return undefined;
+			const store = yield* fromPromise(() => this.#store(project.id, project));
+			return new GitHubForge(this.#forge, target, async (args, env) => {
 				const result = await this.#gitResult(store.path, store.cwd, args, undefined, env);
 				return { stdout: result.stdout.toString("utf8"), exitCode: result.signal ? null : result.exitCode };
 			});
@@ -299,9 +360,10 @@ export class Effects {
 	}
 	#dispatchForge(operation: Publish | CreateProposal | UpdateSummary | MarkReady): Effect.Effect<ForgeDispatch, unknown> {
 		return Effect.gen({ self: this }, function* () {
-			const forge = yield* this.#forgeFor(operation.repository);
+			const forge = yield* this.#forgeFor(operation.project);
+			if (!forge) throw new Error("forge_unsupported_remote: the project's remote is not a GitHub repository");
 			if (operation.type === "publish") {
-				const store = yield* fromPromise(() => this.#store(operation.repository));
+				const store = yield* fromPromise(() => this.#store(operation.project.id));
 				this.#checkOid(operation.commit, store.format);
 				// Only host-sealed source is published: the commit must already be rooted in the private store.
 				const root = yield* fromPromise(() =>
@@ -356,8 +418,9 @@ export class Effects {
 	 * dies before that, Git aborts the transaction at end of input. A prepare failure is a definite refusal; any failure
 	 * after commit is sent is uncertain and thrown, for the caller to reconcile.
 	 */
-	#integrate({ repository, proposal, expected, result, attempt }: Integrate): Effect.Effect<IntegrationDispatch, unknown> {
+	#integrate({ project, proposal, expected, result, attempt }: Integrate): Effect.Effect<IntegrationDispatch, unknown> {
 		return Effect.gen({ self: this }, function* () {
+			const repository = project.id;
 			const store = yield* fromPromise(() => this.#store(repository));
 			this.#checkOid(expected, store.format);
 			yield* this.#verifySource(result);
@@ -432,16 +495,17 @@ export class Effects {
 			child.stdin.write(prepare);
 		});
 	}
-	#observe({ repository, proposal, initial }: Observe): Effect.Effect<TargetObservation, unknown> {
+	#observe({ project, proposal, initial }: Observe): Effect.Effect<TargetObservation, unknown> {
 		return Effect.gen({ self: this }, function* () {
-			const store = yield* fromPromise(() => this.#store(repository));
+			const repository = project.id;
+			const store = yield* fromPromise(() => this.#store(repository, project));
 			const ref = canonicalRef(proposal);
 			const current = yield* fromPromise(() => this.#gitResult(store.path, store.cwd, ["rev-parse", "--verify", "--quiet", ref]));
 			if (current.signal || (current.exitCode !== 0 && current.exitCode !== 1)) throw gitFailure("rev-parse", current);
 			if (current.exitCode === 1) {
 				// First use binds the proposal to the host-configured base, expected-absent. A failed create means another
 				// binding won: the readback below decides, and nothing ever rebinds an existing ref.
-				const base = yield* this.perform({ type: "resolve", repository, commit: initial });
+				const base = yield* this.perform({ type: "resolve", project, commit: initial });
 				const created = yield* fromPromise(() =>
 					this.#gitResult(store.path, store.cwd, ["update-ref", ref, base.commit, "0".repeat(base.commit.length)]),
 				);
@@ -600,30 +664,53 @@ export class Effects {
 			yield* syncTree(store.path);
 		});
 	}
-	#store(repository: string): Promise<{ path: string; cwd: string; format: Source["objectFormat"] }> {
-		if (!Object.hasOwn(this.#repositories, repository)) throw new Error("Repository is not trusted/registered.");
-		let pending = this.#stores.get(repository);
+	/**
+	 * The project's private bare mirror at `<root>/projects/<id>.git`, which also holds its private proposal refs. Only an
+	 * operation that names the project's facts may create it; a retained source names only its project id.
+	 */
+	#store(project: string, facts?: ProjectFacts): Promise<{ path: string; cwd: string; format: Source["objectFormat"] }> {
+		if (!/^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/.test(project)) throw new Error("Invalid project identity.");
+		if (facts && facts.id !== project) throw new Error("Project facts name another project.");
+		let pending = this.#stores.get(project);
 		if (!pending) {
-			pending = runPromise(this.#initializeStore(repository));
-			this.#stores.set(repository, pending);
+			pending = runPromise(this.#initializeStore(project, facts));
+			this.#stores.set(project, pending);
+			// A refused initialization (an absent mirror, an unreachable remote) may succeed on a later call.
+			pending.catch(() => this.#stores.delete(project));
 		}
 		return pending;
 	}
-	#initializeStore(repository: string): Effect.Effect<{ path: string; cwd: string; format: Source["objectFormat"] }, unknown> {
+	#initializeStore(
+		project: string,
+		facts?: ProjectFacts,
+	): Effect.Effect<{ path: string; cwd: string; format: Source["objectFormat"] }, unknown> {
 		return Effect.gen({ self: this }, function* () {
-			const dir = join(this.#root, createHash("sha256").update(repository).digest("hex"));
-			const cwd = join(dir, "empty");
-			const path = join(dir, "source.git");
+			const dir = join(this.#root, "projects");
+			const cwd = join(this.#root, "empty");
+			const path = join(dir, `${project}.git`);
 			const created = yield* fromPromise(() => mkdir(cwd, { recursive: true, mode: 0o700 }));
+			yield* fromPromise(() => mkdir(dir, { recursive: true, mode: 0o700 }));
 			const version = (yield* this.#git(path, cwd, ["--version"])).toString();
 			const parsed = /git version (\d+)\.(\d+)/.exec(version);
 			if (!parsed || Number(parsed[1]) < 2 || (Number(parsed[1]) === 2 && Number(parsed[2]) < 43))
 				throw new Error("Source durability requires Git 2.43+ with fsync=all/fsyncMethod=fsync.");
-			const upstream = this.#repositories[repository]!;
-			if ((yield* this.#git(upstream, cwd, ["rev-parse", "--is-bare-repository"])).toString().trim() !== "true")
-				throw new Error("Trusted source must be a private bare repository, not a linked worktree.");
-			const format = (yield* this.#git(upstream, cwd, ["rev-parse", "--show-object-format"])).toString().trim();
-			if (format !== "sha1" && format !== "sha256") throw new Error("Unsupported source object format.");
+			if (
+				yield* fromPromise(() =>
+					stat(path).then(
+						() => true,
+						() => false,
+					),
+				)
+			) {
+				const format = (yield* this.#git(path, cwd, ["rev-parse", "--show-object-format"])).toString().trim();
+				if (format !== "sha1" && format !== "sha256") throw new Error("Unsupported source object format.");
+				return { path, cwd, format };
+			}
+			if (!facts) throw new Error(`Project mirror ${project} is absent; fetch the project first.`);
+			const remote = this.#remote(facts);
+			// The remote's advertised object IDs name its format; an empty remote has none and starts as SHA-1.
+			const listed = (yield* this.#git(path, cwd, ["ls-remote", "--", remote.url], undefined, remote.env)).toString();
+			const format = /^[0-9a-f]{64}\t/.test(listed) ? "sha256" : "sha1";
 			yield* this.#git(path, cwd, ["init", "--bare", `--object-format=${format}`, path]);
 			const until = dirname(created ?? dir);
 			for (let current = dir; ; current = dirname(current)) {
@@ -636,12 +723,40 @@ export class Effects {
 			return { path, cwd, format };
 		});
 	}
+	/**
+	 * Where Git fetches the project from. A GitHub remote goes through the trusted forge's Git endpoint with the token in
+	 * an environment-only header, never in a URL, argument, configuration file or log.
+	 */
+	#remote(project: ProjectFacts): { url: string; env: Record<string, string> } {
+		const target = this.#forge && forgeTarget(this.#forge, project);
+		if (!this.#forge || !target) return { url: project.remote, env: {} };
+		return { url: `${this.#forge.git}/${target.owner}/${target.name}.git`, env: forgeAuth(this.#forge) };
+	}
+	#fetch(project: ProjectFacts): Effect.Effect<Fetched, unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const store = yield* fromPromise(() => this.#store(project.id, project));
+			const branch = project.defaultBranch;
+			const ref = `refs/render/upstream/${branch}`;
+			const remote = this.#remote(project);
+			yield* this.#git(
+				store.path,
+				store.cwd,
+				["fetch", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", "--", remote.url, `+refs/heads/${branch}:${ref}`],
+				undefined,
+				remote.env,
+			);
+			const commit = (yield* this.#git(store.path, store.cwd, ["rev-parse", "--verify", `${ref}^{commit}`])).toString().trim();
+			this.#checkOid(commit, store.format);
+			yield* syncTree(store.path);
+			return { project: project.id, branch, commit };
+		});
+	}
 	#checkOid(value: string, format: Source["objectFormat"]): void {
 		if (!(format === "sha1" ? /^[0-9a-f]{40}$/ : /^[0-9a-f]{64}$/).test(value)) throw new Error("Exact source commit/object ID required.");
 	}
-	#git(path: string, cwd: string, args: string[], input?: Buffer): Effect.Effect<Buffer, unknown> {
+	#git(path: string, cwd: string, args: string[], input?: Buffer, env?: Record<string, string>): Effect.Effect<Buffer, unknown> {
 		return Effect.gen({ self: this }, function* () {
-			const result = yield* fromPromise(() => this.#gitResult(path, cwd, args, input));
+			const result = yield* fromPromise(() => this.#gitResult(path, cwd, args, input, env));
 			if (result.exitCode !== 0 || result.signal) return yield* Effect.fail(gitFailure(args[0]!, result));
 			return result.stdout;
 		});

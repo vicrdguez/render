@@ -596,7 +596,7 @@ export const sha = (text: string) => createHash("sha256").update(text).digest("h
 export const proposalRef = (workflow: string) => `refs/render/proposals/${sha(workflow)}`;
 /** Host-private Effects Git: the canonical proposal ref lives here, never in upstream or a forge. */
 export function effectsStore(t: { f: { source: { root: string } } }) {
-	return join(t.f.source.root, "catalog-owned", "effects", sha("owned"), "source.git");
+	return join(t.f.source.root, "catalog-owned", "effects", "projects", "project:2.git");
 }
 /** Simulates the later canonical-integration producer: a host commit on the canonical ref with replaced root files. */
 export function advanceTarget(store: string, parent: string, files: Record<string, string>, expected: string | null): string {

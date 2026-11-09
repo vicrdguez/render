@@ -22,7 +22,7 @@ function accepted(reply: CommandReply) {
 function code(reply: CommandReply) {
 	return reply.status === "refused" ? reply.code : reply.status;
 }
-async function fixture(shape: "bug" | "design" = "bug", investigations?: { root: string; repositories: Record<string, string> }) {
+async function fixture(shape: "bug" | "design" = "bug", investigations?: { root: string; remote: string }) {
 	const gate = Promise.withResolvers<void>();
 	const provider = fauxProvider({
 		provider: "anthropic",
@@ -95,8 +95,9 @@ async function fixture(shape: "bug" | "design" = "bug", investigations?: { root:
 			provider: provider.provider,
 			apiKey: "owned-fixture",
 			families: { "claude-sonnet-4-6": "claude" },
-			...(investigations ? { investigations } : {}),
+			...(investigations ? { investigations: { root: investigations.root } } : {}),
 		}),
+		investigations ? { remote: investigations.remote, defaultBranch: "fixture" } : {},
 	);
 	await allowSameFamily(f.ledger);
 	let n = 0;
@@ -338,7 +339,7 @@ test("implementation pass opening is atomic with ownership, scoped, exported and
 
 test("F4 one coordinator continues approved Seams and Modules into exact fresh intake fidelity and advisory history", async () => {
 	const source = await gitSourceFixture(sourceFiles);
-	const t = await fixture("design", { root: join(source.root, "investigation"), repositories: { owned: source.repo } });
+	const t = await fixture("design", { root: join(source.root, "investigation"), remote: source.repo });
 	try {
 		const decisions: string[] = [],
 			manifests: string[] = [];

@@ -16,10 +16,10 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 		provider: p.provider,
 		apiKey: "owned-fixture",
 		families: { "claude-sonnet-4-6": "claude" },
-		experiments: { root: join(source.root, "experiments"), repositories: { owned: source.repo } },
-		investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
+		experiments: { root: join(source.root, "experiments") },
+		investigations: { root: join(source.root, "investigation") },
 	});
-	const f = await roleFixture(engine);
+	const f = await roleFixture(engine, { remote: source.repo, defaultBranch: "fixture" });
 	let sourceClosed = false;
 	try {
 		const ground = await saveGround(f.ledger);

@@ -10,7 +10,7 @@ import { deviceServer } from "../src/ledger/http.ts";
 import type { CommandReply } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { assignments, finding, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
-import { admin, roleFixture, scheduler } from "./support/roles.ts";
+import { admin, PROJECT, roleFixture, scheduler } from "./support/roles.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
 
 async function fixture() {
@@ -38,8 +38,9 @@ async function fixture() {
 			provider: provider.provider,
 			apiKey: "owned-fixture",
 			families: { "claude-sonnet-4-6": "claude" },
-			investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
+			investigations: { root: join(source.root, "investigation") },
 		}),
+		{ remote: source.repo, defaultBranch: "fixture" },
 	);
 	const ground = await saveGround(f.ledger);
 	assert.equal(
@@ -165,7 +166,7 @@ test("LP1/LP5 two clients retain one exact advisory receipt; stale requests do n
 		const prompt = text.content.toString();
 		for (const expected of [
 			f.source.commit,
-			"owned",
+			PROJECT,
 			"npm ci --ignore-scripts",
 			"npm test",
 			"verify.md",

@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as Effect from "effect/Effect";
 import * as kernel from "../src/kernel/kernel.ts";
-import { adminRequest, enroll, envelope, http, type Reply, snapshot, startHost, tempDir } from "./support/host.ts";
+import { adminRequest, enroll, envelope, type HostProcess, http, type Reply, snapshot, startHost, tempDir } from "./support/host.ts";
 
 const PROJECT = { name: "Render", remote: "https://github.com/octo/render.git", defaultBranch: "main", checkImage: "render-check:node24" };
 
-async function command(host: { url: string; ready: { authorityEpoch?: unknown } }, bearer: string, c: Record<string, unknown>) {
+async function command(host: HostProcess, bearer: string, c: Record<string, unknown>) {
 	return http(host.url, "POST", "/v1/commands", { bearer, body: envelope(String(host.ready.authorityEpoch), c) });
 }
 const result = (r: Reply) => r.body.result as Record<string, unknown>;

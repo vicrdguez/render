@@ -90,6 +90,12 @@ export class Sandboxes {
 		return Effect.gen({ self: this }, function* () {
 			yield* Effect.gen({ self: this }, function* () {
 				if (!this.#authorize(scope) || this.#stoppedScopes.has(identity(scope))) throw new Error("Sandbox scope is fenced/unauthorized.");
+				// A project names its check image by tag (X10): this preparation pins the local image it resolves to now, and
+				// that digest is the image every execution records.
+				if (!DIGEST.test(profile.image)) {
+					if (!/^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,511}$/.test(profile.image)) throw new Error("Invalid check image reference.");
+					profile.image = (yield* fromPromise(() => docker(["image", "inspect", "--format", "{{.Id}}", "--", profile.image]))).trim();
+				}
 				if (after) {
 					if (JSON.stringify(scope) !== JSON.stringify(after.scope)) throw new Error("Predecessor authority scope differs.");
 					const previous = yield* this.#load(after);
@@ -109,7 +115,7 @@ export class Sandboxes {
 					Object.keys(profile).some((key) => !["image", "exclusions", "maxBytes", "maxEntries", "maxCommands"].includes(key)) ||
 					(profile.maxCommands !== undefined &&
 						(!Number.isSafeInteger(profile.maxCommands) || profile.maxCommands < 1 || profile.maxCommands > 32)) ||
-					!/^sha256:[0-9a-f]{64}$/.test(profile.image) ||
+					!DIGEST.test(profile.image) ||
 					!Number.isSafeInteger(profile.maxBytes) ||
 					profile.maxBytes < 1 ||
 					profile.maxBytes > 64 * 1024 * 1024 ||
@@ -543,6 +549,7 @@ export class Sandboxes {
 		});
 	}
 }
+const DIGEST = /^sha256:[0-9a-f]{64}$/;
 function identity(scope: ExecutionScope, predecessor?: string): string {
 	return createHash("sha256")
 		.update(predecessor ? JSON.stringify([scope, predecessor]) : JSON.stringify(scope))

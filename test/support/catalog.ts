@@ -10,7 +10,7 @@ import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import type { CommandReply } from "../../src/ledger/ledger.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
 import type { LinuxProfile } from "../../src/sandboxes/sandboxes.ts";
-import { admin, packet, roleFixture } from "./roles.ts";
+import { admin, PROJECT, packet, roleFixture } from "./roles.ts";
 import { git, gitSourceFixture, sourceFixture } from "./source.ts";
 
 export const catalog = (_sanity = "exit 0", cleanup = "true") => `# Owned catalog
@@ -66,7 +66,7 @@ export async function catalogFixture(
 	const commit = git(source.repo, ["commit-tree", tree], "Selected legacy asset\n").toString().trim();
 	git(source.repo, ["update-ref", "refs/heads/fixture", commit]);
 	const selection = {
-		repository: "owned",
+		repository: PROJECT,
 		commit,
 		path: ".skl/verify.md",
 		digest: createHash("sha256").update(text).digest("hex"),
@@ -75,17 +75,16 @@ export async function catalogFixture(
 		behavioralRows: ["behavior"],
 		receipts: [] as string[],
 	};
+	const profile: LinuxProfile =
+		"profile" in source
+			? (source.profile as LinuxProfile)
+			: { image: `sha256:${"a".repeat(64)}`, exclusions: [".git"], maxBytes: 1048576, maxEntries: 100 };
 	const config = {
 		root: join(source.root, "catalog-owned"),
-		repositories: { owned: source.repo },
 		checks: {
 			"revision:4": {
-				repository: "owned",
 				commit,
-				profile:
-					"profile" in source
-						? (source.profile as LinuxProfile)
-						: { image: `sha256:${"a".repeat(64)}`, exclusions: [".git"], maxBytes: 1048576, maxEntries: 100 },
+				profile,
 				timeoutMs: 10000,
 				catalog: true as const,
 			},
@@ -99,7 +98,7 @@ export async function catalogFixture(
 		families: { "claude-sonnet-4-6": "claude" },
 		...(options.forge ? { forge: options.forge } : {}),
 	});
-	const f = await roleFixture(engine);
+	const f = await roleFixture(engine, { remote: source.repo, defaultBranch: "fixture", checkImage: profile.image });
 	return {
 		...f,
 		get ledger() {

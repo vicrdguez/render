@@ -163,9 +163,9 @@ for (const escalation of [false, true])
 			provider: p.provider,
 			apiKey: "owned-fixture",
 			families: { "claude-sonnet-4-6": "claude" },
-			investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
+			investigations: { root: join(source.root, "investigation") },
 		});
-		const f = await roleFixture(engine);
+		const f = await roleFixture(engine, { remote: source.repo, defaultBranch: "fixture" });
 		try {
 			const ref = await saveGround(f.ledger);
 			const accepted = await f.command({
@@ -253,8 +253,9 @@ test("G08 uncited, foreign and out-of-scope results cannot settle investigation"
 			provider: p.provider,
 			apiKey: "fixture",
 			families: { "claude-sonnet-4-6": "claude" },
-			investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
+			investigations: { root: join(source.root, "investigation") },
 		}),
+		{ remote: source.repo, defaultBranch: "fixture" },
 	);
 	try {
 		const ref = await saveGround(f.ledger);
@@ -330,8 +331,9 @@ test("G09 missing selected source blocks with exact path and retains ownership",
 			provider: p.provider,
 			apiKey: "fixture",
 			families: { "claude-sonnet-4-6": "claude" },
-			investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
+			investigations: { root: join(source.root, "investigation") },
 		}),
+		{ remote: source.repo, defaultBranch: "fixture" },
 	);
 	try {
 		const ref = await saveGround(f.ledger);
@@ -361,8 +363,9 @@ for (const failure of ["missing_content", "content_corrupt"])
 				provider: p.provider,
 				apiKey: "fixture",
 				families: { "claude-sonnet-4-6": "claude" },
-				investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
+				investigations: { root: join(source.root, "investigation") },
 			}),
+			{ remote: source.repo, defaultBranch: "fixture" },
 		);
 		try {
 			const ref = await saveGround(f.ledger);

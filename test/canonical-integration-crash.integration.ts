@@ -17,7 +17,7 @@ import type { ImplementationPass } from "../src/kernel/roles.ts";
 import type { faultBarrier } from "../src/ledger/barrier.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import { openLedger } from "../src/ledger/startup.ts";
-import { proposalRef, sha } from "./support/implementation-engine.ts";
+import { proposalRef } from "./support/implementation-engine.ts";
 import { admin } from "./support/roles.ts";
 import { git } from "./support/source.ts";
 
@@ -65,7 +65,7 @@ async function cut({ barrier, key, moved, recovery, staleLock }: Cut) {
 			await delay(20);
 		}
 		setup = JSON.parse(output.split("\n").find((line) => line.includes('"event":"data"'))!);
-		const store = join(setup!.config.root, "effects", sha("owned"), "source.git");
+		const store = join(setup!.config.root, "effects", "projects", "project:2.git");
 		const ref = () =>
 			git(store, ["rev-parse", proposalRef("workflow:2")])
 				.toString()

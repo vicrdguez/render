@@ -3,6 +3,7 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effects } from "../../src/effects/source.ts";
+import type { ProjectFacts } from "../../src/kernel/projects.ts";
 import { Sandboxes } from "../../src/sandboxes/sandboxes.ts";
 
 async function cleanup(path: string): Promise<void> {
@@ -64,8 +65,9 @@ export async function gitSourceFixture(
 		.trim();
 	const commit = git(repo, ["commit-tree", tree], "Owned literal fixture\n").toString().trim();
 	git(repo, ["update-ref", "refs/heads/fixture", commit]);
-	const effects = new Effects({ root: join(root, "effects"), repositories: { owned: repo } });
-	return { root, repo, commit, effects, close: () => rm(root, { recursive: true, force: true }) };
+	const project: ProjectFacts = { id: "owned", remote: repo, defaultBranch: "fixture" };
+	const effects = new Effects({ root: join(root, "effects") });
+	return { root, repo, commit, project, effects, close: () => rm(root, { recursive: true, force: true }) };
 }
 
 export async function sourceFixture(files?: Record<string, { mode?: string; text: string }>) {

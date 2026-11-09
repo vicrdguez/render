@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
@@ -28,7 +27,6 @@ import {
 	parked,
 	proposalRef,
 	releaseBarrier,
-	sha,
 } from "./support/implementation-engine.ts";
 import { admin } from "./support/roles.ts";
 import { git } from "./support/source.ts";
@@ -206,13 +204,7 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 			["A\n", "B\n", "T\n", "C\n"],
 		);
 		const a2Commit = (JSON.parse(await read(p2.captureA!)) as ImplementationSource).source.source.commit;
-		const retained = join(
-			t.f.source.root,
-			"catalog-owned",
-			"effects",
-			createHash("sha256").update(receipt.source.repository).digest("hex"),
-			"source.git",
-		);
+		const retained = join(t.f.source.root, "catalog-owned", "effects", "projects", `${receipt.source.repository}.git`);
 		assert.doesNotThrow(() => git(retained, ["merge-base", "--is-ancestor", T1, a2Commit]), "host-sealed A2 descends from T1");
 		const audits = t.prompts.filter((p) => p.auditReview);
 		assert.equal(audits.length, 4, "each pass has exactly its own two reviewers");
