@@ -2,7 +2,7 @@
 
 Render should let each new project select how its agents work. The selected workflow owns its roles, procedures, reusable craft, deterministic task selection, and the tailored execution skills its agents receive. Project knowledge is a separate input that can be reused through explicit sharing.
 
-**Revision 2 is a proposed design for review. Nothing here is implemented or an accepted amendment to v1.** It responds to [issue #59](https://github.com/vicrdguez/render/issues/59) and the user's clarification. It supersedes the first draft's one-project-per-database mapping and permanent project-level artifact-digest gate.
+**This is a proposed design for review, with revision 2's domain and the runtime-tool amendment. Nothing here is implemented or an accepted amendment to v1.** It responds to [issue #59](https://github.com/vicrdguez/render/issues/59) and the user's clarifications. It supersedes the first draft's one-project-per-database mapping and permanent project-level artifact-digest gate.
 
 The target is **one authoritative SQLite database per Render host, with logically isolated projects**. Each project selects a workflow definition. It does not select a separate database or an Engine containing another set of hardcoded prompts.
 
@@ -60,9 +60,9 @@ The initial specification does capture parts of the intended behavior, including
 
 ## Current source, not assumed delivery
 
-The source baseline is now `proposal/render-v1` at `eea2a7cb047f55683c4bf83658315b41129be62a`. PR #79 is merged. The earlier pilot snapshots remain historical in the [original source register](sources.md). The [revision 2 register](sources/revision-2.md) gives current citations and the captured issue requirements.
+Revision 2 inspected `proposal/render-v1` at `eea2a7cb047f55683c4bf83658315b41129be62a`, after PR #79 merged. The narrow runtime-tool amendment inspected `b31af81e69561e4a126e1ac7e87ecbe3c643ea2e` and the pinned Durable 1.4.0 APIs. The earlier pilot snapshots remain historical in the [original source register](sources.md). The [revision 2 register](sources/revision-2.md) and [runtime-tool findings](runtime-instruction-tools.md#pi-integration-evidence-and-limits) identify the separate source scopes.
 
-Current `Engine.render` resolves exact retained inputs and conditionally assembles substantial procedure and role prose. Provider admission uses additional runtime context beyond that rendered packet. Current storage shares one Durable session across workflows but has no project field on the workflow record. Separate project work exists as unmerged WIP and is not treated as delivered functionality.
+In the revision 2 snapshot, `Engine.render` resolves exact retained inputs and conditionally assembles substantial procedure and role prose. Provider admission uses additional runtime context beyond that rendered packet. Storage there shares one Durable session across workflows but has no project field on the workflow record. The separate project work sampled by that investigation was unmerged WIP, not delivered functionality.
 
 These facts rule out a selector around `change`, moving strings without an ownership model, or calling a standalone render preview the model's effective context.
 
@@ -70,7 +70,7 @@ These facts rule out a selector around `change`, moving strings without an owner
 
 | Module | Responsibility |
 | --- | --- |
-| Workflow definition | Legal transitions, role meanings, task and procedure-case selection, workflow-owned content catalogue, composition declarations, result contracts, and workflow views. |
+| Workflow definition | Legal transitions, role meanings, task and procedure-case selection, workflow-owned content and tool catalogues, composition declarations, result contracts, and workflow views. |
 | Ledger | Principal establishment, host and project scope, exact reference resolution, current authority, IDs, basis checks, receipts, knowledge grants, atomic records, and retained skill provenance. |
 | Execution-skill composition | Pure assembly of the selected content and verified bindings, required-material checks, declared serialization, manifests, and inspectable output. It contains no workflow selectors. |
 | Engine | Durable lifecycle, scheduling, continuity, context assembly, model and tool configuration, provider admission, capacity, cancellation, and quiescence. |
@@ -115,6 +115,7 @@ type ExecutionSkill = Readonly<{
 interface WorkflowDefinition<State, Command> {
 	readonly identity: WorkflowChoice;
 	readonly roles: RoleCatalogue;
+	readonly tools: WorkflowToolCatalogue;
 	readonly contentContract: InstructionContentContract;
 	readonly commands: CommandCatalogue<Command>;
 
@@ -140,7 +141,9 @@ Only the host supplies admitted capabilities. Preparation cannot change the supp
 
 The composer receives the selected asset closure and bindings. It does not inspect live workflow state, perform I/O, or decide permissions. The detailed contracts, alternatives, examples, and format comparison are in [execution-skills.md](execution-skills.md).
 
-Roles are namespaced by the selected definition. A shared string such as `candidate` does not imply common procedure, tools, or result semantics. First release uses trusted registered definitions and existing host facilities. It adds no package loader, arbitrary tool registration, or untrusted-code sandbox.
+Roles and tools are namespaced by the selected definition. A shared string such as `candidate` does not imply common procedure, tools, or result semantics. The workflow owns tool definitions, descriptions, schemas, and handlers. The host binds them to actual identity and admitted facilities through the Pi adapter.
+
+First release uses trusted registered definitions and existing host facilities. It permits declared workflow tools, not unchecked tool registration, raw transaction access, or invented effect capabilities. It adds no package loader or untrusted-code sandbox.
 
 ### Host inputs remain explicit
 
@@ -178,6 +181,16 @@ Instruction assets are authored separately from Engine implementation. The recom
 Every packet retains the required project principle statements and relevant full principles, including Forbidden-decision citations. Required material is not silently omitted or summarized for budget. Where accepted policy permits staged reading, the skill binds exact captured resources and required read steps. Otherwise inability to fit is a blocker. Metadata can resolve named citations; it cannot prove semantic relevance. Missing, stale, conflicting, oversized, or unresolved material gets explicit handling under accepted policy.
 
 Rendered text grants nothing. Its tool descriptions and result contract must agree with actual host admission. A project principle, shared knowledge item, or procedure body cannot approve a Contract, change scope, or expand capabilities.
+
+## Runtime instructions can be tools
+
+Use a hybrid delivery model. The core task and required immediate constraints belong in the appropriate trusted instruction context. Optional guidance and permitted staged material can be requested through workflow-owned tools during execution. The core skill is not necessarily the entire system prompt.
+
+Instruction resources, tool descriptions, and returned outcome guidance use the workflow's authored content and pinned versions. A read tool returns a retained, task-specific rendering. An action tool requests a checked transition and can return next-step guidance when its context continues. A native handoff resets context, so the host stages the required guidance for the next legal turn rather than rely on the old tool result. The adapter owns native control payloads and validates tool enablement and offering against actual grants. Returned prose grants no authority.
+
+Mandatory reads remain workflow-declared input prerequisites enforced by the host. A past retrieval receipt does not prove that exact text survived compaction or is still in the active context. Tool result, trusted section, and actual provider context are distinct.
+
+The [runtime instruction and tool design](runtime-instruction-tools.md) specifies ownership, scoped resource keys, core versus optional delivery, replay, context refresh, and the direct Pi integration seams. It adds no second instruction store or general tool framework.
 
 ## One host database, explicit project and knowledge scope
 
@@ -253,6 +266,7 @@ Issue #59 explicitly distinguishes its design request from durable scoped work i
 ## Evidence, alternatives, and open decisions
 
 - [Execution-skill design](execution-skills.md) contains ownership alternatives, format tradeoffs, procedure, craft and principle examples, lifecycle, and the unrun evaluation plan.
+- [Runtime instruction tools](runtime-instruction-tools.md) adds the core-plus-tools delivery contract and workflow tool catalogue.
 - [Storage and shared knowledge](storage-and-knowledge.md) explains the host-wide database recommendation and its limits.
 - [Current source register](sources/revision-2.md) records issue #59, the latest inspected proposal, prior art, and unmerged WIP limits.
 - [Revision record](revision-2.md) tracks coverage, reviews, and verification. The [decision trail](decisions.tsv) preserves superseded choices rather than erase them.

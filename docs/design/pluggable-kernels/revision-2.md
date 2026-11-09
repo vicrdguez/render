@@ -1,5 +1,7 @@
 # Workflow-owned execution skills and host-wide project storage
 
+This records revision 2 at commit `9a7d8b50af061ae6c0746dac5c52d21e9b7fc81a`. Its artifact hash and counts do not validate the later [runtime-tool amendment](runtime-instruction-tools.md).
+
 Status is a completed proposed revision for review. This revision responds to the user's instruction-rendering clarification and [issue #59](https://github.com/vicrdguez/render/issues/59). It changes the proposed design only. It does not change implementation, accepted specifications, Contracts, or live data.
 
 ## Goal

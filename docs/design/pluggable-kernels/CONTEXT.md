@@ -32,7 +32,7 @@ The ordered work and completion conditions for a particular operation. A procedu
 Reusable judgment guidance applied to the work, such as Testing or design vocabulary. Craft is distinct from a repository's check catalogue and from the executable policy that decides legal transitions.
 
 **Instruction asset**:
-An independently authored, versioned piece of procedure, craft, role guidance, or outcome guidance owned by a workflow or its declared content library.
+An independently authored, versioned piece of procedure, craft, role guidance, tool description, or outcome guidance owned by a workflow or its declared content library.
 
 **Resolved task**:
 The concrete role, procedure case, evidence basis, and available execution facilities selected for an assignment. It records the choices already determined by the workflow and the host.
@@ -46,6 +46,15 @@ _Avoid_: role prompt when it obscures procedure and craft composition.
 
 **Rendering manifest**:
 The attributable record of the exact content, facts, versions, and knowledge uses that produced an execution skill.
+
+**Instruction resource**:
+A named, versioned instruction available under a particular execution skill, with declared applicability and delivery requirements.
+
+**Workflow tool**:
+A workflow-owned interaction exposed to an agent under its assignment's checked authority. Its description and returned guidance are distinct from its permission to perform an action.
+
+**Instruction delivery**:
+The retained rendering of an instruction resource for one skill revision, assignment basis, and tool call. It is not a role change or an authority grant.
 
 **Effective provider context**:
 The instructions, conversation material, tools, and other declared context actually supplied for a provider call. An execution skill is part of this context, not the whole conversation.

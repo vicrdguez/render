@@ -1,5 +1,7 @@
 # Review dispositions
 
+The later [runtime-tool review](runtime-instruction-tools.md) covers the pre-correction instruction-tool amendment. Its three findings were checked against the pinned library and addressed in the [current proposal](../runtime-instruction-tools.md). It is not a runtime test or a re-review of the whole dossier.
+
 These dispositions concern revision 1. They do not validate revision 2. Use the [current revision record](../revision-2.md) for the new instruction and host-storage design.
 
 The goal is a reviewable design for kernels selected only when a new Render project is created. These reviews challenged the saved proposal before its protocol corrections. They do not establish runtime correctness.

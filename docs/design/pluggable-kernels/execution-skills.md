@@ -27,6 +27,8 @@ flowchart TB
 
 The workflow owns the content and its selection. The host supplies facts, resolves access, enforces authority, and executes work. Authored prose is never a second transition or permission engine.
 
+The [runtime-tool amendment](runtime-instruction-tools.md) makes instruction resources and workflow-owned tools explicit. Core instructions use the trusted context; optional guidance and permitted staged reads can use tools. Tool descriptions and returned outcome instructions are authored content too. A tool response does not itself replace a system section or grant capabilities.
+
 ## One prepared assignment, several useful views
 
 The organizing data shape is a prepared assignment with these fields.
