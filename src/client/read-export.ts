@@ -60,7 +60,9 @@ async function main(): Promise<void> {
 		);
 		last = Number(r.sequence);
 		requireExport(
-			r.workflow === null ? scope.global === true : typeof r.workflow === "string" && workflows.includes(r.workflow),
+			r.workflow === null
+				? scope.global === true || r.kind === "project"
+				: typeof r.workflow === "string" && workflows.includes(r.workflow),
 			"Record outside scope.",
 		);
 		strings(r.parents);

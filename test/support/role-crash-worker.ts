@@ -12,7 +12,7 @@ import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import type { Frame } from "../../src/ledger/ledger.ts";
 import { RoleBinding } from "../../src/ledger/records.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
-import { admin, allowSameFamily, claudeFixture, packet, scheduler } from "./roles.ts";
+import { addProject, admin, allowSameFamily, claudeFixture, PROJECT, packet, scheduler } from "./roles.ts";
 
 const data = process.argv[2]!;
 const mode = process.argv[3]!;
@@ -63,7 +63,7 @@ const opened = await Effect.runPromise(
 								const commandId = `role:${createHash("sha256")
 									.update(
 										JSON.stringify([
-											"workflow:2",
+											"workflow:3",
 											api.conversationId,
 											binding.assignment,
 											binding.generation,
@@ -93,8 +93,16 @@ const opened = await Effect.runPromise(
 try {
 	if (mode === "crash") {
 		await Effect.runPromise(
+			opened.ledger.command({ version: 1, authorityEpoch: opened.authorityEpoch, commandId: "project", command: addProject() }, admin),
+		);
+		await Effect.runPromise(
 			opened.ledger.command(
-				{ version: 1, authorityEpoch: opened.authorityEpoch, commandId: "create", command: { type: "createWorkflow", title: "crash" } },
+				{
+					version: 1,
+					authorityEpoch: opened.authorityEpoch,
+					commandId: "create",
+					command: { type: "createWorkflow", title: "crash", project: PROJECT },
+				},
 				admin,
 			),
 		);
@@ -104,7 +112,7 @@ try {
 					version: 1,
 					authorityEpoch: opened.authorityEpoch,
 					commandId: "input",
-					workflow: "workflow:2",
+					workflow: "workflow:3",
 					expected: { document: null },
 					command: {
 						type: "saveDocument",
@@ -123,7 +131,7 @@ try {
 					version: 1,
 					authorityEpoch: opened.authorityEpoch,
 					commandId: "root",
-					workflow: "workflow:2",
+					workflow: "workflow:3",
 					command: {
 						type: "assignTask",
 						slice: "slice:1",

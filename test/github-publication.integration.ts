@@ -88,19 +88,20 @@ function scripted(t: Fixture) {
 
 test("GP-E1/AR-E1 one draft PR across a lost create reply; a forge outage blocks neither integration nor the dependent; recovery updates the same PR and promotes it ready; HM-E1 the human merge is observed", async () => {
 	const gh = await fakeGitHub();
-	const forge = { ...gh.config, retryMs: 200, repositories: { owned: { owner: gh.owner, name: gh.name, base: "main" } } };
-	const t = await fixture({ watchdog: ["pass", "pass"], dependent: true, forge });
+	const forge = { ...gh.config, retryMs: 200 };
+	const upstream = { repo: gh.repo, remote: `${gh.config.git}/${gh.owner}/${gh.name}.git` };
+	const t = await fixture({ watchdog: ["pass", "pass"], dependent: true, forge, upstream });
 	try {
-		const checks = t.f.config.checks as Record<string, (typeof t.f.config.checks)["revision:3"]>;
+		const checks = t.f.config.checks as Record<string, (typeof t.f.config.checks)["revision:4"]>;
 		checks[t.nextContract!] = checks[t.contract]!;
 		scripted(t);
 		const store = effectsStore(t);
-		const branch = "render/workflow-2";
+		const branch = "render/workflow-3";
 		gh.faults.dropCreateReply = true;
 		gh.faults.lagListing = true;
 		accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
 		await until(() => qualified(t, "value"), "the first Slice integrates");
-		const R1 = git(store, ["rev-parse", proposalRef("workflow:2")])
+		const R1 = git(store, ["rev-parse", proposalRef("workflow:3")])
 			.toString()
 			.trim();
 		await until(
@@ -127,7 +128,7 @@ test("GP-E1/AR-E1 one draft PR across a lost create reply; a forge outage blocks
 		const next = { ...t.writer, inputs: [t.nextContract!], verification: { ...t.writer.verification!, contract: t.nextContract! } };
 		accepted(await t.f.command({ type: "assignTask", slice: "next", delivery: true, packet: next }));
 		await until(() => qualified(t, "next"), "the dependent integrates during the outage");
-		const R2 = git(store, ["rev-parse", proposalRef("workflow:2")])
+		const R2 = git(store, ["rev-parse", proposalRef("workflow:3")])
 			.toString()
 			.trim();
 		assert.deepEqual([publication(t).status, publication(t).canonical, publication(t).published], ["lagging", R2, R1]);
@@ -178,7 +179,7 @@ test("GP-E1/AR-E1 one draft PR across a lost create reply; a forge outage blocks
 		assert.equal(t.f.ledger.status().sequence, sequence, "HM09 and record no further forge observation");
 		assert.deepEqual([publication(t).main!.source, publication(t).main!.commit], [R2, main]);
 		assert.ok(!gh.requests.some((r) => r.path.endsWith("/merge")), "Render never sends a merge");
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported);
 		assert.ok(!JSON.stringify(exported).includes(TOKEN), "the forge token never reaches Render records");
 	} finally {
@@ -189,8 +190,9 @@ test("GP-E1/AR-E1 one draft PR across a lost create reply; a forge outage blocks
 
 test("GP-E2 after a human reissue the host keeps listing candidates under sticky risk; only the human's resolution clears it", async () => {
 	const gh = await fakeGitHub();
-	const forge = { ...gh.config, retryMs: 200, repositories: { owned: { owner: gh.owner, name: gh.name, base: "main" } } };
-	const t = await fixture({ watchdog: ["pass"], forge });
+	const forge = { ...gh.config, retryMs: 200 };
+	const upstream = { repo: gh.repo, remote: `${gh.config.git}/${gh.owner}/${gh.name}.git` };
+	const t = await fixture({ watchdog: ["pass"], forge, upstream });
 	try {
 		scripted(t);
 		gh.faults.dropCreateReply = true;

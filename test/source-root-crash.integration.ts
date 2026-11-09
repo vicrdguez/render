@@ -12,7 +12,7 @@ for (const barrier of ["before-source-root", "after-source-root"] as const)
 		const f = await sourceFixture();
 		let handle: Effect.Success<ReturnType<typeof f.sandboxes.prepare>> | undefined;
 		try {
-			const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+			const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 			handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
 			await Effect.runPromise(
 				f.sandboxes.execute(handle, {
@@ -54,7 +54,7 @@ for (const barrier of ["before-source-root", "after-source-root"] as const)
 			child.kill("SIGKILL");
 			await died;
 			await assert.rejects(access(output));
-			const recovered = new Effects({ root: join(f.root, "effects"), repositories: { owned: f.repo } });
+			const recovered = new Effects({ root: join(f.root, "effects") });
 			const receipt = await Effect.runPromise(recovered.perform({ type: "retain", base, capture }));
 			assert.equal(
 				receipt.source.entries.find((e) => e.path === "result.txt")?.content,

@@ -2,18 +2,28 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as kernel from "../src/kernel/kernel.ts";
 
-const state: kernel.KernelState = { workflow: null, document: null, device: null };
+const project = {
+	id: "project:1",
+	revision: 1,
+	name: "P",
+	remote: "file:///p.git",
+	defaultBranch: "main",
+	checkImage: "render-check:p",
+	principles: "AGENTS.md",
+	createdAtSequence: 0,
+};
+const state: kernel.KernelState = { workflow: null, document: null, device: null, projects: { [project.id]: project } };
 const human: kernel.Principal = { kind: "human", route: "local-admin", human: "owner" };
 const facts = { principal: human, sequence: 1, ids: { workflow: "workflow:1", fact: "fact:1" } };
-const create = { type: "createWorkflow", title: "First" } as const;
+const create = { type: "createWorkflow", title: "First", project: project.id } as const;
 
 test("Kernel Effect yields the accepted writes without mutating its input", async () => {
 	const Effect = await import("effect/Effect");
 	const before = structuredClone(state);
 	const decision = Effect.runSync(kernel.change(state, create, facts));
 	assert.equal(decision.outcome, "accepted");
-	assert.deepEqual(decision.result, { workflow: "workflow:1" });
-	assert.deepEqual(decision.writes[0], { type: "workflow.create", workflow: "workflow:1", title: "First" });
+	assert.deepEqual(decision.result, { workflow: "workflow:1", project: project.id });
+	assert.deepEqual(decision.writes[0], { type: "workflow.create", workflow: "workflow:1", title: "First", project: project.id });
 	assert.deepEqual(decision.facts, ["fact:1"]);
 	assert.deepEqual(state, before);
 });
@@ -55,7 +65,7 @@ test("Ledger finishes an admitted SQLite command when its Effect caller is inter
 			version: 1,
 			authorityEpoch: f.ledger.status().authorityEpoch,
 			commandId: "interrupt-admitted-save",
-			workflow: "workflow:2",
+			workflow: "workflow:3",
 			expected: { document: null },
 			command: {
 				type: "saveDocument",

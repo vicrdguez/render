@@ -6,6 +6,7 @@ import type { Checkpoints } from "../kernel/checkpoints.ts";
 import type { Intakes } from "../kernel/intake.ts";
 import type { MediaType, Persistence } from "../kernel/kernel.ts";
 import { initialPolicy, type PolicyState } from "../kernel/policy.ts";
+import type { Project } from "../kernel/projects.ts";
 import type { Publication } from "../kernel/publication.ts";
 import type { RoleWorkState } from "../kernel/roles.ts";
 
@@ -70,6 +71,7 @@ export type WorkflowRecord =
 			exists: true;
 			id: string;
 			title: string;
+			project: string;
 			/** Conversation holding this workflow's immutable revision, message and fact entries. */
 			conversation: number;
 			createdAtSequence: number;
@@ -150,6 +152,27 @@ export const PolicyEntry = defineEntry<{
 	digest: string;
 	byteLength: number;
 }>("render.policy");
+
+/** Every project's current revision; each revision's exact bytes are a ProjectEntry. */
+export const Projects = defineDoc<{ projects: Record<string, Project> }>({
+	kind: "render.projects",
+	version: 1,
+	scope: "session",
+	initial: () => ({ projects: {} }),
+	checkpointWhen,
+});
+export const ProjectEntry = defineEntry<{
+	schema: number;
+	sequence: number;
+	commandId: string;
+	/** `<project>:revision:<n>` */
+	ref: string;
+	project: string;
+	text: string;
+	digest: string;
+	byteLength: number;
+	by: AcceptedBy;
+}>("render.project");
 
 export const RoleWork = defineDoc<RoleWorkState>({
 	kind: "render.role-work",

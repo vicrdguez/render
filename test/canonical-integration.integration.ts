@@ -93,7 +93,7 @@ test("CI18/CI16 a passing current review integrates with no human step: exact R 
 		// From here on the test issues no human command: preparation, review, admission and CAS are automatic.
 		holdAt("before-integration-cas", `integration:${P1}`);
 		await parked("admitted integration before its CAS");
-		const T = git(store, ["rev-parse", proposalRef("workflow:2")])
+		const T = git(store, ["rev-parse", proposalRef("workflow:3")])
 			.toString()
 			.trim();
 		assert.equal(T, t.writer.verification!.commit, "the canonical ref is still the bound base T");
@@ -117,7 +117,7 @@ test("CI18/CI16 a passing current review integrates with no human step: exact R 
 		assert.equal(operation!.attempts[0]!.executorEpoch, t.f.ledger.status().executorEpoch);
 		assert.equal(operation!.qualification, operation!.attempts[0]!.observations.at(-1));
 		const review = t.assignments().find((a) => a.packet.role === "watchdog")!.watchdogReview!;
-		const R = git(store, ["rev-parse", proposalRef("workflow:2")])
+		const R = git(store, ["rev-parse", proposalRef("workflow:3")])
 			.toString()
 			.trim();
 		assert.equal(R, operation!.result, "the canonical ref reads back exactly R");
@@ -177,7 +177,7 @@ test("CI24 two passing Slices of one proposal contend for integration: the secon
 				admin,
 			),
 		);
-		const checks = t.f.config.checks as Record<string, (typeof t.f.config.checks)["revision:3"]>;
+		const checks = t.f.config.checks as Record<string, (typeof t.f.config.checks)["revision:4"]>;
 		checks[t.nextContract!] = checks[t.contract]!;
 		independentSlices(t);
 		const first = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer })).passRef as string;
@@ -185,7 +185,7 @@ test("CI24 two passing Slices of one proposal contend for integration: the secon
 		await parked("the first Slice admitted before its CAS");
 		const next = { ...t.writer, inputs: [t.nextContract!], verification: { ...t.writer.verification!, contract: t.nextContract! } };
 		const second = accepted(await t.f.command({ type: "assignTask", slice: "next", delivery: true, packet: next })).passRef as string;
-		const ref = proposalRef("workflow:2");
+		const ref = proposalRef("workflow:3");
 		const T = git(store, ["rev-parse", ref]).toString().trim();
 		// A live writer's ref lock makes the first CAS divergent, so its integration stays unresolved until a human acts.
 		await writeFile(join(store, `${ref}.lock`), `${T}\n`);

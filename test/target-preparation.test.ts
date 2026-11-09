@@ -20,7 +20,7 @@ function commit(repo: string, files: Record<string, string>, parents: string[] =
 }
 async function fixture() {
 	const f = await gitSourceFixture({ common: { text: "base\n" } });
-	const resolve = (oid: string) => Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: oid }));
+	const resolve = (oid: string) => Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: oid }));
 	const base = await resolve(f.commit);
 	const source = await resolve(commit(f.repo, { common: "base\n", implementation: "B\n" }, [f.commit]));
 	const target = await resolve(commit(f.repo, { common: "base\n", target: "T1\n" }, [f.commit]));
@@ -47,7 +47,7 @@ test("preparation roots deterministic combined source and preserves exact B/T0/T
 		assert.equal(result.algorithm, "git-merge-tree-write-tree-z/v1");
 		assert.match(result.git, /^git version /);
 		assert.equal(result.exitCode, 0);
-		const reopened = new Effects({ root: join(f.root, "effects"), repositories: { owned: f.repo } });
+		const reopened = new Effects({ root: join(f.root, "effects") });
 		assert.deepEqual(await Effect.runPromise(reopened.perform(operation)), result);
 		assert.deepEqual(await Effect.runPromise(reopened.reconcile(result)), result, "reconcile verifies rooted output, not only input refs");
 	} finally {
@@ -150,13 +150,13 @@ test("empty exit 1, truncated output, false-clean output and SIGABRT remain diag
 	}
 });
 
-const storeOf = (root: string) => join(root, "effects", createHash("sha256").update("owned").digest("hex"), "source.git");
+const storeOf = (root: string) => join(root, "effects", "projects", "owned.git");
 const proposalRef = (proposal: string) => `refs/render/proposals/${createHash("sha256").update(proposal).digest("hex")}`;
 
 test("canonical observation binds the host-private proposal ref once and follows only host ref updates", async () => {
 	const f = await fixture();
 	try {
-		const observe = { type: "observe" as const, repository: "owned", proposal: "workflow:2", initial: f.commit };
+		const observe = { type: "observe" as const, project: f.project, proposal: "workflow:2", initial: f.commit };
 		const first = await Effect.runPromise(f.effects.perform(observe));
 		assert.equal(first.proposal, "workflow:2");
 		assert.equal(first.ref, proposalRef("workflow:2"));

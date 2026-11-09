@@ -31,7 +31,7 @@ for (const [label, names] of [
 			.trim();
 		const commit = git(f.repo, ["commit-tree", tree], "invalid names\n").toString().trim();
 		await assert.rejects(
-			Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit })),
+			Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit })),
 			/name|collision|UTF8|representation/i,
 		);
 	});
@@ -39,5 +39,5 @@ for (const [label, names] of [
 test("literal-source-roundtrip: gitlinks refuse rather than fetch modules", async () => {
 	const tree = git(f.repo, ["mktree"], `160000 commit ${f.commit}\tmodule\n`).toString().trim();
 	const commit = git(f.repo, ["commit-tree", tree], "Gitlink fixture\n").toString().trim();
-	await assert.rejects(Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit })), /gitlink|submodule/i);
+	await assert.rejects(Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit })), /gitlink|submodule/i);
 });

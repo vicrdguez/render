@@ -117,7 +117,7 @@ test("WR19: checked X is reviewed by a fresh Watchdog that runs its own Linux ch
 		assert.equal(integration.target, w2.watchdogReview!.target);
 		assert.equal(passes(t).length, 2, "a pass verdict opens no successor");
 		// History: both rounds, their checks and verdicts survive export.
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const w of [w1, w2]) for (const ref of [w.report!, w.watchdogReview!.checks!, w.packetRef]) assert.ok(exported.content[ref], ref);
 		assert.equal(captureValue(await read(t, p2.handoff.source)), "C\n");
@@ -172,7 +172,7 @@ test("WR20/WR15/CI19: no stale review launches after drift; a target moving befo
 			],
 			"the refused CAS stays in history; no old verdict authorizes new bytes",
 		);
-		const R = git(store, ["rev-parse", proposalRef("workflow:2")])
+		const R = git(store, ["rev-parse", proposalRef("workflow:3")])
 			.toString()
 			.trim();
 		assert.equal(R, operations[1]!.result);

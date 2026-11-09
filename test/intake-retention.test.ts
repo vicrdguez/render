@@ -22,7 +22,7 @@ function accepted(reply: CommandReply) {
 function code(reply: CommandReply) {
 	return reply.status === "refused" ? reply.code : reply.status;
 }
-async function fixture(shape: "bug" | "design" = "bug", investigations?: { root: string; repositories: Record<string, string> }) {
+async function fixture(shape: "bug" | "design" = "bug", investigations?: { root: string; remote: string }) {
 	const gate = Promise.withResolvers<void>();
 	const provider = fauxProvider({
 		provider: "anthropic",
@@ -94,8 +94,9 @@ async function fixture(shape: "bug" | "design" = "bug", investigations?: { root:
 		new Engine({
 			provider: provider.provider,
 			...claudeFixture,
-			...(investigations ? { investigations } : {}),
+			...(investigations ? { investigations: { root: investigations.root } } : {}),
 		}),
+		investigations ? { remote: investigations.remote, defaultBranch: "fixture" } : {},
 	);
 	await allowSameFamily(f.ledger);
 	let n = 0;
@@ -107,7 +108,7 @@ async function fixture(shape: "bug" | "design" = "bug", investigations?: { root:
 						version: 1,
 						authorityEpoch: f.ledger.status().authorityEpoch,
 						commandId: `save:${++n}`,
-						workflow: "workflow:2",
+						workflow: "workflow:3",
 						expected: { document: null },
 						command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
 					},
@@ -252,7 +253,7 @@ test("I07/I14 V8 real Engine fidelity and exact human intake survive ordinary re
 		const original = await Effect.runPromise(t.f.ledger.artifact(admin, { read: draft }));
 		assert.ok("content" in original);
 		assert.equal(original.content.toString(), "# Contract\r\nReturn exact saved bytes.\n");
-		const exportBefore = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exportBefore = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exportBefore && exportBefore.manifest.complete);
 		for (const ref of [draft, t.state().drafts[0]!.manifestRef, review, contract, result.acceptance])
 			assert.ok(exportBefore.content[ref as string], `export retains ${ref}`);
@@ -286,7 +287,7 @@ test("implementation pass opening is atomic with ownership, scoped, exported and
 		const first = await t.f.command(command, undefined, "initial-implementation");
 		const opening = accepted(first);
 		assert.equal(opening.passOrdinal, 1);
-		assert.equal(opening.passRef, "pass:workflow:2:read-fix:1");
+		assert.equal(opening.passRef, "pass:workflow:3:read-fix:1");
 		const record = await Effect.runPromise(t.f.ledger.artifact(admin, { read: opening.passRecord as string }));
 		assert.ok("content" in record, "opening record must commit alongside its assignment");
 		const body = JSON.parse(record.content.toString());
@@ -315,7 +316,7 @@ test("implementation pass opening is atomic with ownership, scoped, exported and
 			assignments().find((a) => a.id === opening.assignment)?.blocker,
 			"implementation_source_or_verifier_capability_unavailable",
 		);
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		assert.equal(Buffer.from(exported.content[opening.passRecord as string]!, "base64").toString(), record.content.toString());
 		await t.reopen();
@@ -337,7 +338,7 @@ test("implementation pass opening is atomic with ownership, scoped, exported and
 
 test("F4 one coordinator continues approved Seams and Modules into exact fresh intake fidelity and advisory history", async () => {
 	const source = await gitSourceFixture(sourceFiles);
-	const t = await fixture("design", { root: join(source.root, "investigation"), repositories: { owned: source.repo } });
+	const t = await fixture("design", { root: join(source.root, "investigation"), remote: source.repo });
 	try {
 		const decisions: string[] = [],
 			manifests: string[] = [];
@@ -472,7 +473,7 @@ test("F4 one coordinator continues approved Seams and Modules into exact fresh i
 			),
 		);
 		assert.notEqual(older.textArtifact, prompts[0]!.artifact, "fresh request may explicitly select older retained source");
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const p of prompts) assert.equal(Buffer.from(exported.content[p.artifact]!, "base64").toString(), p.text);
 	} finally {
@@ -492,7 +493,7 @@ test("F5 a coordinator cannot read or propagate a concern outside its Ground inp
 						version: 1,
 						authorityEpoch: t.f.ledger.status().authorityEpoch,
 						commandId: "other-ground",
-						workflow: "workflow:2",
+						workflow: "workflow:3",
 						expected: { document: t.ground },
 						command: {
 							type: "saveDocument",
@@ -572,7 +573,7 @@ test("I05 V4 two authenticated clients race intake acceptance and complete saved
 							version: 1,
 							authorityEpoch: t.f.ledger.status().authorityEpoch,
 							commandId: `enroll:${label}`,
-							command: { type: "enrollDevice", label, scope: { workflows: ["workflow:2"] } },
+							command: { type: "enrollDevice", label, scope: { workflows: ["workflow:3"] } },
 						},
 						admin,
 					),
@@ -588,7 +589,7 @@ test("I05 V4 two authenticated clients race intake acceptance and complete saved
 								version: 1,
 								authorityEpoch: t.f.ledger.status().authorityEpoch,
 								commandId: `client:${label}`,
-								workflow: "workflow:2",
+								workflow: "workflow:3",
 								command,
 							}),
 						})
@@ -637,7 +638,7 @@ for (const failure of ["missing_content", "content_corrupt", "unsupported_schema
 			const read = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 			assert.ok("code" in read);
 			assert.equal(read.code, failure);
-			const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+			const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 			assert.ok("manifest" in exported);
 			assert.equal(exported.manifest.complete, false);
 			assert.equal(ref in exported.content, false);
@@ -671,7 +672,7 @@ for (const failure of ["missing_content", "content_corrupt", "unsupported_schema
 				packet: writer,
 			});
 			assert.equal(code(reply), failure, "replacement must not reconstruct missing or corrupt opening evidence from current state");
-			const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+			const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 			assert.ok("manifest" in exported);
 			assert.equal(exported.manifest.complete, false);
 			assert.equal((first.passRecord as string) in exported.content, false);

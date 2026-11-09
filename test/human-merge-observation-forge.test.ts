@@ -12,21 +12,23 @@ import { git, gitSourceFixture } from "./support/source.ts";
 test("HF01 a human merge into main reports the merged head and the main commit; other closures and prose do not", async () => {
 	const source = await gitSourceFixture({ value: { text: "A\n" } });
 	const gh = await fakeGitHub();
-	const forge = { ...gh.config, repositories: { owned: { owner: gh.owner, name: gh.name, base: "main" } } };
-	const effects = new Effects({ root: join(source.root, "effects"), repositories: { owned: source.repo }, forge });
-	const reconcile = (proposal: string) => Effect.runPromise(effects.reconcile({ type: "publication", repository: "owned", proposal }));
+	const project = { id: "owned", remote: `${gh.config.git}/${gh.owner}/${gh.name}.git`, defaultBranch: "main" };
+	const effects = new Effects({ root: join(source.root, "effects"), forge: gh.config });
+	const reconcile = (proposal: string) => Effect.runPromise(effects.reconcile({ type: "publication", project, proposal }));
 	const commit = (text: string) => {
 		const blob = git(source.repo, ["hash-object", "-w", "--stdin"], text).toString().trim();
 		const tree = git(source.repo, ["mktree"], `100644 blob ${blob}\tvalue\n`).toString().trim();
-		return git(source.repo, ["commit-tree", tree, "-p", source.commit], "Fixture R\n").toString().trim();
+		const R = git(source.repo, ["commit-tree", tree, "-p", source.commit], "Fixture R\n").toString().trim();
+		git(gh.repo, ["fetch", "-q", source.repo, R]);
+		return R;
 	};
 	const open = async (proposal: string, text: string, n: number, body = "Render proposal") => {
-		const R = (await Effect.runPromise(effects.perform({ type: "resolve", repository: "owned", commit: commit(text) }))).commit;
+		const R = (await Effect.runPromise(effects.perform({ type: "resolve", project, commit: commit(text) }))).commit;
 		await Effect.runPromise(
-			effects.perform({ type: "publish", repository: "owned", proposal, commit: R, expected: null, attempt: `forge-attempt:p${n}` }),
+			effects.perform({ type: "publish", project, proposal, commit: R, expected: null, attempt: `forge-attempt:p${n}` }),
 		);
 		await Effect.runPromise(
-			effects.perform({ type: "createProposal", repository: "owned", proposal, title: "Render", body, attempt: `forge-attempt:c${n}` }),
+			effects.perform({ type: "createProposal", project, proposal, title: "Render", body, attempt: `forge-attempt:c${n}` }),
 		);
 		return R;
 	};

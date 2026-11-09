@@ -27,13 +27,13 @@ function commit(repo: string, files: Record<string, string>, parents: string[] =
 /** Canonical T (another Slice's integration on the bound base T0), B on T0, and prepared X merging B with T. */
 async function fixture() {
 	const f = await gitSourceFixture({ common: { text: "base\n" } });
-	const resolve = (oid: string) => Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: oid }));
-	const T0 = (await Effect.runPromise(f.effects.perform({ type: "observe", repository: "owned", proposal: PROPOSAL, initial: f.commit })))
+	const resolve = (oid: string) => Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: oid }));
+	const T0 = (await Effect.runPromise(f.effects.perform({ type: "observe", project: f.project, proposal: PROPOSAL, initial: f.commit })))
 		.target;
-	const store = join(f.root, "effects", createHash("sha256").update("owned").digest("hex"), "source.git");
+	const store = join(f.root, "effects", "projects", "owned.git");
 	const T1 = await resolve(commit(f.repo, { common: "base\n", target: "T1\n" }, [f.commit]));
 	git(store, ["update-ref", REF, T1.commit, T0.commit]);
-	const T = (await Effect.runPromise(f.effects.perform({ type: "observe", repository: "owned", proposal: PROPOSAL, initial: f.commit })))
+	const T = (await Effect.runPromise(f.effects.perform({ type: "observe", project: f.project, proposal: PROPOSAL, initial: f.commit })))
 		.target;
 	assert.equal(T.commit, T1.commit);
 	const B = await resolve(commit(f.repo, { common: "base\n", implementation: "B\n" }, [f.commit]));
@@ -63,7 +63,7 @@ test("CI08 squash R is exactly X's tree on parent T with fixed metadata; CAS mov
 		const result = await Effect.runPromise(
 			f.effects.perform({
 				type: "integrate",
-				repository: "owned",
+				project: f.project,
 				proposal: PROPOSAL,
 				expected: f.T.commit,
 				result: R,
@@ -78,7 +78,7 @@ test("CI08 squash R is exactly X's tree on parent T with fixed metadata; CAS mov
 		});
 		assert.equal(git(f.store, ["rev-parse", REF]).toString().trim(), R.commit);
 		git(f.store, ["fsck", "--strict", "--no-reflogs", R.commit]);
-		assert.deepEqual(await Effect.runPromise(f.effects.reconcile({ type: "integration", repository: "owned", proposal: PROPOSAL })), {
+		assert.deepEqual(await Effect.runPromise(f.effects.reconcile({ type: "integration", project: f.project, proposal: PROPOSAL })), {
 			ref: REF,
 			observed: { commit: R.commit, tree: f.X.tree, parents: [f.T.commit] },
 			lock: false,
@@ -97,7 +97,7 @@ test("CI09 a moved target refuses the stale CAS and keeps the moved ref", async 
 		const result = await Effect.runPromise(
 			f.effects.perform({
 				type: "integrate",
-				repository: "owned",
+				project: f.project,
 				proposal: PROPOSAL,
 				expected: f.T.commit,
 				result: R,
@@ -120,7 +120,7 @@ test("CI10 Effects refuses a result that is not exactly a single-parent commit o
 			Effect.runPromise(
 				f.effects.perform({
 					type: "integrate",
-					repository: "owned",
+					project: f.project,
 					proposal: PROPOSAL,
 					expected: f.T.commit,
 					result: R,
@@ -135,11 +135,11 @@ test("CI10 Effects refuses a result that is not exactly a single-parent commit o
 		assert.equal(git(f.store, ["rev-parse", REF]).toString().trim(), f.T.commit, "refusals change nothing");
 		assert.equal((await integrate({ attempt: "integration-attempt:2" })).dispatch, "applied");
 		await assert.rejects(integrate({ attempt: "integration-attempt:2" }), /consumed/i, "one permit, one dispatch");
-		const reopened = new Effects({ root: join(f.root, "effects"), repositories: { owned: f.repo } });
+		const reopened = new Effects({ root: join(f.root, "effects") });
 		const replay = await Effect.runPromise(
 			reopened.perform({
 				type: "integrate",
-				repository: "owned",
+				project: f.project,
 				proposal: PROPOSAL,
 				expected: f.T.commit,
 				result: R,
@@ -169,12 +169,12 @@ test("CI23 no canonical observation without a durability barrier: while fsync fa
 			return handle;
 		}) as typeof open;
 		syncBuiltinESMExports();
-		const reconcile = () => Effect.runPromise(f.effects.reconcile({ type: "integration", repository: "owned", proposal: PROPOSAL }));
+		const reconcile = () => Effect.runPromise(f.effects.reconcile({ type: "integration", project: f.project, proposal: PROPOSAL }));
 		await assert.rejects(
 			Effect.runPromise(
 				f.effects.perform({
 					type: "integrate",
-					repository: "owned",
+					project: f.project,
 					proposal: PROPOSAL,
 					expected: f.T.commit,
 					result: R,
@@ -204,8 +204,8 @@ test("CI25 after a restart, the previous executor's stale ref lock is removed an
 		const lock = join(f.store, `${REF}.lock`);
 		await writeFile(lock, `${f.T.commit}\n`);
 		await delay(5);
-		const restarted = new Effects({ root: join(f.root, "effects"), repositories: { owned: f.repo } });
-		const reconcile = () => Effect.runPromise(restarted.reconcile({ type: "integration", repository: "owned", proposal: PROPOSAL }));
+		const restarted = new Effects({ root: join(f.root, "effects") });
+		const reconcile = () => Effect.runPromise(restarted.reconcile({ type: "integration", project: f.project, proposal: PROPOSAL }));
 		const T = { commit: f.T.commit, tree: f.T.tree, parents: [f.commit] };
 		assert.deepEqual(await reconcile(), { ref: REF, observed: T, lock: false }, "no writer of this executor can hold an older lock");
 		await assert.rejects(access(lock), "the stale lock is removed");
@@ -220,7 +220,7 @@ test("CI25 after a restart, the previous executor's stale ref lock is removed an
 test("CI13/CI14 reconciliation only reads: T, another commit and a held ref lock are reported exactly", async () => {
 	const f = await fixture();
 	try {
-		const reconcile = () => Effect.runPromise(f.effects.reconcile({ type: "integration", repository: "owned", proposal: PROPOSAL }));
+		const reconcile = () => Effect.runPromise(f.effects.reconcile({ type: "integration", project: f.project, proposal: PROPOSAL }));
 		const parents = (oid: string) => git(f.store, ["rev-list", "--parents", "-n", "1", oid]).toString().trim().split(" ").slice(1);
 		assert.deepEqual(await reconcile(), {
 			ref: REF,

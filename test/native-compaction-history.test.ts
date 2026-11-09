@@ -19,9 +19,9 @@ test("native-compaction-history: Engine exports scoped committed transcript and 
 	const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 	try {
 		await f.command({ type: "assignTask", slice: "runtime-history", delivery: true, packet: packet() });
-		let bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		let bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		for (let n = 0; n < 300; n++) {
-			bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+			bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 			if ("jsonl" in bundle && bundle.jsonl.includes("runtime_task")) break;
 			await setTimeout(10);
 		}
@@ -32,7 +32,7 @@ test("native-compaction-history: Engine exports scoped committed transcript and 
 		assert.ok(bundle.manifest.exclusions.includes("latest_only_live_partials"));
 		const before = bundle.jsonl;
 		await f.reopen();
-		const after = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const after = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("jsonl" in after);
 		assert.equal(after.jsonl, before, "reopen must not reinterpret retained runtime history");
 	} finally {
@@ -68,7 +68,7 @@ test("native-compaction-history: Engine compacts twice, refreshes exact constrai
 					refreshed = text.includes("Keep exact constraints.");
 					return fauxAssistantMessage(fauxToolCall("request_own_stop", {}), { stopReason: "toolUse" });
 				}
-				return fauxAssistantMessage(fauxToolCall("read_artifact", { ref: "revision:4" }), { stopReason: "toolUse" });
+				return fauxAssistantMessage(fauxToolCall("read_artifact", { ref: "revision:5" }), { stopReason: "toolUse" });
 			} finally {
 				active--;
 			}
@@ -94,7 +94,7 @@ test("native-compaction-history: Engine compacts twice, refreshes exact constrai
 					version: 1,
 					authorityEpoch: f.ledger.status().authorityEpoch,
 					commandId: "long-evidence",
-					workflow: "workflow:2",
+					workflow: "workflow:3",
 					expected: { document: null },
 					command: {
 						type: "saveDocument",
@@ -106,12 +106,12 @@ test("native-compaction-history: Engine compacts twice, refreshes exact constrai
 				admin,
 			),
 		);
-		assert.ok(saved.status === "accepted" && saved.result.revision === "revision:4");
+		assert.ok(saved.status === "accepted" && saved.result.revision === "revision:5");
 		await f.command({
 			type: "assignTask",
 			slice: "engine-compact",
 			delivery: true,
-			packet: packet({ maxTurns: 12, inputs: ["revision:4"] }),
+			packet: packet({ maxTurns: 12, inputs: ["revision:5"] }),
 		});
 		for (let n = 0; n < 500 && !roles()[0]?.runtimeTaskCaptured; n++) await setTimeout(10);
 		assert.ok(summary >= 2, "two native Engine compactions must reach the configured provider");
@@ -143,7 +143,7 @@ test("native-compaction-history: Engine compacts twice, refreshes exact constrai
 		for (let n = 0; n < 500 && !roles()[1]?.runtimeTaskCaptured; n++) await setTimeout(10);
 		assert.equal(replacementClean, true, "replacement provider must never inherit private predecessor context");
 		assert.equal(maxActive, 1, "compaction must share the assignment execution slot without parallel provider work");
-		const bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in bundle && bundle.manifest.complete);
 		const records = bundle.jsonl
 			.trim()
@@ -198,7 +198,7 @@ for (const damage of ["missing", "corrupt", "schema"] as const) {
 				db.close();
 			}
 			await f.reopen();
-			const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+			const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 			assert.ok("manifest" in exported);
 			assert.equal(exported.manifest.complete, false, "missing/corrupt archived bytes must be declared");
 			assert.ok(

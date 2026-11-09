@@ -13,7 +13,7 @@ test("catalog Linux results require assessment, retain independent evidence and 
 		assert.equal(receipt.kind, "catalog-check");
 		assert.equal(receipt.verification.status, "needs_assessment", "exit zero must not decide adequacy");
 		assert.equal(receipt.catalog.selection.commit, f.selection.commit);
-		assert.equal(receipt.catalog.selection.contract, "revision:3");
+		assert.equal(receipt.catalog.selection.contract, "revision:4");
 		assert.equal(receipt.catalog.selection.digest, f.selection.digest);
 		assert.equal(receipt.results[0].steps[0].stdout, "STEP OK");
 		assert.equal(receipt.results[0].sanity.exitCode, 0);
@@ -70,8 +70,8 @@ test("catalog Linux results require assessment, retain independent evidence and 
 					version: 1,
 					authorityEpoch: f.ledger.status().authorityEpoch,
 					commandId: "adopt-minimum",
-					workflow: "workflow:2",
-					command: { type: "adoptPolicy", revision: policy.result.policy, expectedBinding: "policy-binding:2" },
+					workflow: "workflow:3",
+					command: { type: "adoptPolicy", revision: policy.result.policy, expectedBinding: "policy-binding:3" },
 				},
 				admin,
 			),
@@ -102,7 +102,7 @@ test("catalog Linux results require assessment, retain independent evidence and 
 		const afterPrompt = f.ledger.snapshot(admin);
 		assert.ok("assignments" in beforePrompt && "assignments" in afterPrompt);
 		assert.deepEqual(afterPrompt.assignments, beforePrompt.assignments, "advisory absence must not gate or complete work");
-		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported);
 		assert.equal(Buffer.from(exported.content[a.report!]!, "base64").toString(), read.content.toString());
 		await f.reopen(new Engine({ ownedChecks: f.config }));

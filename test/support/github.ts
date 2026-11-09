@@ -50,9 +50,11 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 	const requests: { method: string; path: string; body: string; authorization: string | undefined }[] = [];
 	const faults: Faults = {};
 	const full = `${owner}/${name}`;
-	const branchHead = (ref: string) => {
+	/** Every repository this fake serves, by `owner/name`; publication targets are chosen by URL, as on GitHub. */
+	const repos = new Map([[full, repo]]);
+	const branchHead = (ref: string, of = full) => {
 		try {
-			return git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${ref}`])
+			return git(repos.get(of)!, ["rev-parse", "--verify", "--quiet", `refs/heads/${ref}`])
 				.toString()
 				.trim();
 		} catch {
@@ -80,31 +82,35 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 			return backend(req, res, url, body);
 		}
 		if (req.headers.authorization !== `Bearer ${TOKEN}`) return json(res, 401, { message: "Bad credentials" });
-		if (url.pathname === pullsPath && req.method === "GET") {
+		const target = /^\/repos\/([^/]+\/[^/]+)\/pulls(?:\/(\d+))?$/.exec(url.pathname);
+		const of = target && repos.has(target[1]!) ? target[1]! : undefined;
+		if (of && !target![2] && req.method === "GET") {
 			const head = url.searchParams.get("head");
 			const page = Number(url.searchParams.get("page") ?? "1");
 			const per = Number(url.searchParams.get("per_page") ?? "30");
 			if (faults.failPage === page) return json(res, 500, { message: "Server Error" });
-			const all = pulls.filter((p) => !hidden.has(p.number) && (!head || `${owner}:${p.head.ref}` === head));
+			const all = pulls.filter(
+				(p) => p.head.repo.full_name === of && !hidden.has(p.number) && (!head || `${owner}:${p.head.ref}` === head),
+			);
 			const items = all
 				.slice((page - 1) * per, page * per)
-				.map((p) => ({ ...p, head: { ...p.head, sha: branchHead(p.head.ref) ?? p.head.sha } }));
+				.map((p) => ({ ...p, head: { ...p.head, sha: branchHead(p.head.ref, of) ?? p.head.sha } }));
 			const next: Record<string, string> =
 				page * per < all.length
 					? {
-							link: `<http://${req.headers.host}${pullsPath}?${new URLSearchParams({ ...Object.fromEntries(url.searchParams), page: String(page + 1) })}>; rel="next"`,
+							link: `<http://${req.headers.host}${url.pathname}?${new URLSearchParams({ ...Object.fromEntries(url.searchParams), page: String(page + 1) })}>; rel="next"`,
 						}
 					: {};
 			return json(res, 200, items, next);
 		}
-		if (url.pathname === pullsPath && req.method === "POST") {
+		if (of && !target![2] && req.method === "POST") {
 			const input = JSON.parse(body.toString()) as { title: string; head: string; base: string; body: string; draft?: boolean };
 			if (faults.draftUnsupported && input.draft)
 				return json(res, 422, {
 					message: "Validation Failed",
 					errors: [{ message: "Draft pull requests are not supported in this repository." }],
 				});
-			const sha = branchHead(input.head);
+			const sha = branchHead(input.head, of);
 			if (!sha) return json(res, 422, { message: "Validation Failed", errors: [{ field: "head", code: "invalid" }] });
 			const number = pulls.length + 1;
 			const pull: Pull = {
@@ -116,7 +122,7 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 				state: "open",
 				merged_at: null,
 				merge_commit_sha: null,
-				head: { ref: input.head, sha, repo: { full_name: full } },
+				head: { ref: input.head, sha, repo: { full_name: of } },
 				base: { ref: input.base },
 				user: { login: actor },
 			};
@@ -138,10 +144,9 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 			if (faults.dropReadyReply) return req.socket.destroy();
 			return json(res, 200, { data: { markPullRequestReadyForReview: { pullRequest: { isDraft: false } } } });
 		}
-		const one = new RegExp(`^${pullsPath}/(\\d+)$`).exec(url.pathname);
-		const pull = one ? pulls.find((p) => p.number === Number(one[1])) : undefined;
+		const pull = of && target![2] ? pulls.find((p) => p.number === Number(target![2]) && p.head.repo.full_name === of) : undefined;
 		if (pull && req.method === "GET")
-			return json(res, 200, { ...pull, head: { ...pull.head, sha: branchHead(pull.head.ref) ?? pull.head.sha } });
+			return json(res, 200, { ...pull, head: { ...pull.head, sha: branchHead(pull.head.ref, of) ?? pull.head.sha } });
 		if (pull && req.method === "PATCH") {
 			const input = JSON.parse(body.toString()) as { body?: string };
 			if (typeof input.body === "string") pull.body = input.body;
@@ -212,11 +217,20 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 			git: `${base}/git`,
 			token: TOKEN,
 			actor,
-			repositories: {} as Record<string, { owner: string; name: string; base: string }>,
 		},
 		posts: () => requests.filter((r) => r.method === "POST" && r.path === pullsPath).length,
 		readyRequests: () => requests.filter((r) => r.method === "POST" && r.path === "/graphql"),
-		branch: branchHead,
+		/** The branch head in this fake's repository `name` (default: the first one). */
+		branch: (ref: string, other?: string) => branchHead(ref, other ? `${owner}/${other}` : full),
+		/** Serves another repository of the same owner, as GitHub serves any repository the token reaches. */
+		add(other: string) {
+			const path = join(root, owner, `${other}.git`);
+			execFileSync("git", ["init", "--bare", "-q", path], {
+				env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
+			});
+			repos.set(`${owner}/${other}`, path);
+			return path;
+		},
 		reveal() {
 			hidden.clear();
 		},

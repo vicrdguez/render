@@ -10,7 +10,7 @@ import { basis, EMPTY, type Lineage, watchdogRound, watched } from "./watchdog.t
 
 export type Lifecycle = Awaited<ReturnType<typeof implementationLifecycle>>;
 export const effects = mintContext({ kind: "host", scope: "effects" });
-export const W = "workflow:2";
+export const W = "workflow:3";
 export const REF = `refs/render/proposals/${"0".repeat(64)}`;
 export const S = "a".repeat(40);
 export const [T0, T1] = ["c", "2"].map((c) => c.repeat(40)) as [string, string];

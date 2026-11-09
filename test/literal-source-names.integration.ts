@@ -9,7 +9,7 @@ test("literal-source-roundtrip keeps newline, tab, leading dash and Unicode lite
 	const names = ["line\nbreak", "tab\tname", "-option", "café"];
 	const f = await sourceFixture(Object.fromEntries(names.map((name) => [name, { text: "exact\r\n" }])));
 	try {
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		const handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
 		const capture = await Effect.runPromise(f.sandboxes.seal(handle));
 		assert.deepEqual(capture.entries.map((e) => e.path).sort(), [...names].sort());
@@ -29,7 +29,7 @@ for (const [label, script, expected] of [
 	test(`literal-source-roundtrip egress refuses ${label}`, async () => {
 		const f = await sourceFixture();
 		try {
-			const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+			const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 			const handle = await Effect.runPromise(
 				f.sandboxes.prepare(f.scope, { ...f.profile, maxEntries: label === "entry quota" ? 6 : 10000 }, base),
 			);
@@ -44,7 +44,7 @@ for (const [label, script, expected] of [
 test("literal-source-roundtrip ingress bounds reject instead of reducing source", async () => {
 	const f = await sourceFixture();
 	try {
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		await assert.rejects(Effect.runPromise(f.sandboxes.prepare(f.scope, { ...f.profile, maxEntries: 5 }, base)), /entry bound/i);
 		await assert.rejects(Effect.runPromise(f.sandboxes.prepare(f.scope, { ...f.profile, maxBytes: 1 }, base)), /bytes bound/i);
 	} finally {

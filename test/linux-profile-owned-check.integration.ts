@@ -14,7 +14,7 @@ test("linux-profile-owned-check: nonroot, absent secrets/socket, authenticated R
 	await new Promise<void>((resolve) => server.listen(0, "0.0.0.0", resolve));
 	let handle: Effect.Success<ReturnType<typeof f.sandboxes.prepare>> | undefined;
 	try {
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		for (const override of [{ privileged: true }, { mounts: [f.root] }, { network: "host" }, { env: { SECRET: "leak" } }])
 			await assert.rejects(Effect.runPromise(f.sandboxes.prepare(f.scope, { ...f.profile, ...override }, base)), /profile|forbidden/i);
 		handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));

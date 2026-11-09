@@ -186,7 +186,7 @@ for (const scenario of ["policy adoption", "policy adoption across restart", "re
 			assert.equal(fresh.requestKey, "review");
 			assert.equal(fresh.predecessor, predecessor.id);
 			assert.notEqual(fresh.conversation, original.conversation);
-			assert.equal(fresh.policyBinding, snapshot().policy.bindings["workflow:2"]!.revision);
+			assert.equal(fresh.policyBinding, snapshot().policy.bindings["workflow:3"]!.revision);
 			assert.equal((await rebind()).status, "refused", "an executing replacement is not yet a result");
 			assertWaiting();
 			// Observe the committed report before the next provider request reads it.

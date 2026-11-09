@@ -5,12 +5,13 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import { Effects, type Source, type SourceReceipt } from "../effects/source.ts";
 import { type ExperimentProtocol, experimentCandidates, readExperimentProtocol } from "../kernel/experiments.ts";
+import type { ProjectFacts } from "../kernel/projects.ts";
 import type { RoleAssignment } from "../kernel/roles.ts";
 import type { Ledger } from "../ledger/ledger.ts";
 import { mintContext } from "../ledger/principals.ts";
 import { type ExecutionScope, Sandboxes, type SandboxHandle, SandboxInputRefusal } from "../sandboxes/sandboxes.ts";
 
-export type ExperimentConfig = { root: string; repositories: Readonly<Record<string, string>> };
+export type ExperimentConfig = { root: string };
 const effectsContext = mintContext({ kind: "host", scope: "effects" });
 export function experimentScope(a: RoleAssignment, fenced = false): ExecutionScope {
 	return { assignment: a.id, generation: a.generation - (fenced ? 1 : 0), attempt: a.attempt, executorEpoch: a.executorEpoch ?? "unbound" };
@@ -20,12 +21,19 @@ export class Experiments {
 	readonly #sandboxes: Sandboxes;
 	readonly #ledger: () => Ledger;
 	readonly #assignments: () => RoleAssignment[];
+	readonly #project: (workflow: string) => ProjectFacts;
 	readonly #prepared = new Map<string, { handle: SandboxHandle; base: Source; protocol: ExperimentProtocol; digest: string }>();
 	readonly #active = new Set<string>();
-	constructor(config: ExperimentConfig, ledger: () => Ledger, assignments: () => RoleAssignment[]) {
+	constructor(
+		config: ExperimentConfig,
+		ledger: () => Ledger,
+		assignments: () => RoleAssignment[],
+		project: (workflow: string) => ProjectFacts,
+	) {
 		this.#ledger = ledger;
 		this.#assignments = assignments;
-		this.#effects = new Effects({ root: `${config.root}/effects`, repositories: config.repositories });
+		this.#project = project;
+		this.#effects = new Effects({ root: `${config.root}/effects` });
 		this.#sandboxes = new Sandboxes({
 			root: `${config.root}/sandboxes`,
 			authorize: (scope) => {
@@ -56,7 +64,10 @@ export class Experiments {
 				const bytes = yield* this.#read(e.protocol);
 				const protocol = readExperimentProtocol(bytes);
 				if (!protocol) throw new Error(`Restore exact compatible protocol ${e.protocol}`);
-				const base = yield* this.#effects.perform({ type: "resolve", ...protocol.source });
+				const project = this.#project(a.workflow);
+				if (protocol.source.repository !== project.id)
+					throw new Error(`Experiment protocol names ${protocol.source.repository}, not its project ${project.id}.`);
+				const base = yield* this.#effects.perform({ type: "resolve", project, commit: protocol.source.commit });
 				const readOnly: Record<string, Source> = {};
 				if (e.candidate === null) {
 					for (const candidate of experimentCandidates(this.#assignments(), e.protocol)) {

@@ -323,7 +323,7 @@ test("AR07 an unknown promotion is never redispatched on a partial draft observa
 	}
 });
 
-const KW = "workflow:9";
+const KW = "workflow:10";
 const KPR = "github:pr:3:k";
 const host: Principal = { kind: "host", scope: "effects" };
 const slice = (id: string) => ({

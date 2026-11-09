@@ -65,6 +65,10 @@ export async function fixture(
 		dependent?: boolean;
 		/** Trusted Forge configuration for the Engine's Effects (an owned fake GitHub in tests). */
 		forge?: ForgeConfig;
+		/** The project's remote, when not the fixture's own upstream: its `main` starts at the implementation base. */
+		upstream?: { repo: string; remote: string };
+		/** The project's check image reference; the default is the fixture image's digest. */
+		checkImage?: string;
 		/** A compact bug Contract: the writer reproduces before product code (a missing tool first, then the real failure). */
 		bug?: boolean;
 	} = {},
@@ -72,6 +76,10 @@ export async function fixture(
 	const f = await catalogFixture(true, {
 		text: catalog().replaceAll("endpoint", "tests").replace("printf 'SUITE OK'", "sh verify-suite"),
 		...(options.forge ? { forge: options.forge } : {}),
+		project: {
+			...(options.upstream ? { remote: options.upstream.remote, defaultBranch: "main" } : {}),
+			...(options.checkImage ? { checkImage: options.checkImage } : {}),
+		},
 	});
 	const originalTree = git(f.source.repo, ["rev-parse", `${f.selection.commit}^{tree}`])
 		.toString()
@@ -89,7 +97,10 @@ export async function fixture(
 		.trim();
 	const commit = git(f.source.repo, ["commit-tree", tree], "Initial implementation source\n").toString().trim();
 	f.selection.commit = commit;
-	f.config.checks["revision:3"].commit = commit;
+	f.config.checks["revision:4"].commit = commit;
+	// The project's default branch is the implementation base, so a fetched T0 equals it.
+	if (options.upstream) git(f.source.repo, ["push", "-q", options.upstream.repo, `${commit}:refs/heads/main`]);
+	else git(f.source.repo, ["update-ref", "refs/heads/fixture", commit]);
 	if (options.bootstrap) {
 		assert.equal(git(f.source.repo, ["ls-tree", commit, ".skl/verify.md"]).toString(), "");
 		assert.notEqual(git(f.source.repo, ["ls-tree", commit, ".skl/journey.md"]).toString(), "");
@@ -421,7 +432,7 @@ export async function fixture(
 						version: 1,
 						authorityEpoch: f.ledger.status().authorityEpoch,
 						commandId: `save:${document}`,
-						workflow: "workflow:2",
+						workflow: "workflow:3",
 						expected: { document: null },
 						command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
 					},
@@ -548,7 +559,7 @@ export async function fixture(
 	const nextContract = state().slices[1]?.contract;
 	const selection = { ...f.selection, contract, rows, behavioralRows: ["behavior"] };
 	// Engine's owned-check configuration is keyed by the accepted exact contract.
-	(f.config.checks as Record<string, (typeof f.config.checks)["revision:3"]>)[contract] = f.config.checks["revision:3"];
+	(f.config.checks as Record<string, (typeof f.config.checks)["revision:4"]>)[contract] = f.config.checks["revision:4"];
 	const reviewer = (role: "audit-standards" | "audit-contracts") =>
 		packet({
 			role,
@@ -596,7 +607,7 @@ export const sha = (text: string) => createHash("sha256").update(text).digest("h
 export const proposalRef = (workflow: string) => `refs/render/proposals/${sha(workflow)}`;
 /** Host-private Effects Git: the canonical proposal ref lives here, never in upstream or a forge. */
 export function effectsStore(t: { f: { source: { root: string } } }) {
-	return join(t.f.source.root, "catalog-owned", "effects", sha("owned"), "source.git");
+	return join(t.f.source.root, "catalog-owned", "effects", "projects", "project:2.git");
 }
 /** Simulates the later canonical-integration producer: a host commit on the canonical ref with replaced root files. */
 export function advanceTarget(store: string, parent: string, files: Record<string, string>, expected: string | null): string {
@@ -609,7 +620,7 @@ export function advanceTarget(store: string, parent: string, files: Record<strin
 	}
 	const tree = git(store, ["mktree"], entries).toString().trim();
 	const commit = git(store, ["commit-tree", tree, "-p", parent], "Canonical integration of another Slice\n").toString().trim();
-	git(store, ["update-ref", proposalRef("workflow:2"), commit, ...(expected ? [expected] : ["0".repeat(40)])]);
+	git(store, ["update-ref", proposalRef("workflow:3"), commit, ...(expected ? [expected] : ["0".repeat(40)])]);
 	return commit;
 }
 /** Another Slice's integration that changes the selected verifier `.skl/verify.md` and the root suite script. */
@@ -624,7 +635,7 @@ export function advanceVerifier(store: string, parent: string, verifier: string,
 		.replace(/^040000 tree [0-9a-f]+\t\.skl$/m, `040000 tree ${tree}\t.skl`);
 	const root = git(store, ["mktree"], withVerifier).toString().trim();
 	const staged = git(store, ["commit-tree", root, "-p", parent], "Integrate verifier change\n").toString().trim();
-	git(store, ["update-ref", proposalRef("workflow:2"), staged, "0".repeat(40)]);
+	git(store, ["update-ref", proposalRef("workflow:3"), staged, "0".repeat(40)]);
 	return advanceTarget(store, staged, { "verify-suite": suite }, staged);
 }
 /** In-process use of the host fault barrier: wait until the host is parked there, change the world, then release it. */

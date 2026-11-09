@@ -10,7 +10,7 @@ test("literal-source-roundtrip: literal bytes, symlinks and actual deletions ign
 	const f = await sourceFixture();
 	let handle: Effect.Success<ReturnType<typeof f.sandboxes.prepare>> | undefined;
 	try {
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		assert.equal(base.commit, f.commit);
 		assert.equal(base.entries.find((e) => e.path === "subst")?.content, Buffer.from("$Format:%H$\n").toString("base64"));
 		handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
@@ -39,7 +39,7 @@ test("literal-source-roundtrip: literal bytes, symlinks and actual deletions ign
 		assert.equal(retained.source.entries.find((e) => e.path === "hard.txt")?.content, Buffer.from("new\r\n").toString("base64"));
 		assert.deepEqual(await Effect.runPromise(f.effects.reconcile(retained)), retained);
 		const diff = await Effect.runPromise(
-			f.effects.perform({ type: "diff", base: base.commit, result: retained.source.commit, repository: "owned" }),
+			f.effects.perform({ type: "diff", base: base.commit, result: retained.source.commit, project: f.project }),
 		);
 		assert.match(diff, /new.txt/);
 		assert.match(diff, /ignored/);
@@ -59,7 +59,7 @@ for (const [name, command, expected] of [
 		const f = await sourceFixture();
 		let handle: Effect.Success<ReturnType<typeof f.sandboxes.prepare>> | undefined;
 		try {
-			const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+			const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 			handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
 			assert.equal(
 				(await Effect.runPromise(f.sandboxes.execute(handle, { scope: f.scope, argv: ["sh", "-c", command], timeoutMs: 10000 }))).exitCode,
@@ -76,7 +76,7 @@ test("literal-source-roundtrip: declared caches are excluded, base conflicts ref
 	const f = await sourceFixture();
 	let handle: Effect.Success<ReturnType<typeof f.sandboxes.prepare>> | undefined;
 	try {
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		await assert.rejects(
 			Effect.runPromise(f.sandboxes.prepare(f.scope, { ...f.profile, exclusions: [".git", "ignored"] }, base)),
 			/exclu|profile/i,
@@ -112,7 +112,7 @@ test("literal-source-roundtrip unsafe archive control loses an accepted literal 
 		const listing = execFileSync("git", ["--git-dir", f.repo, "archive", f.commit]);
 		// This is the unsafe operation itself, not a product mock or a setup error.
 		assert.equal(listing.includes(Buffer.from("must not disappear\n")), false);
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		assert.equal(base.entries.find((e) => e.path === "ignored")?.content, Buffer.from("must not disappear\n").toString("base64"));
 	} finally {
 		await f.close();

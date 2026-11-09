@@ -14,16 +14,17 @@ const PROPOSAL = "workflow:2";
 async function fixture() {
 	const source = await gitSourceFixture({ value: { text: "A\n" } });
 	const gh = await fakeGitHub();
-	const forge = { ...gh.config, repositories: { owned: { owner: gh.owner, name: gh.name, base: "main" } } };
-	const effects = new Effects({ root: join(source.root, "effects"), repositories: { owned: source.repo }, forge });
+	const project = { id: "owned", remote: `${gh.config.git}/${gh.owner}/${gh.name}.git`, defaultBranch: "main" };
+	const effects = new Effects({ root: join(source.root, "effects"), forge: gh.config });
 	const blob = git(source.repo, ["hash-object", "-w", "--stdin"], "R1\n").toString().trim();
 	const tree = git(source.repo, ["mktree"], `100644 blob ${blob}\tvalue\n`).toString().trim();
 	const R1 = git(source.repo, ["commit-tree", tree, "-p", source.commit], "Fixture R\n").toString().trim();
-	await Effect.runPromise(effects.perform({ type: "resolve", repository: "owned", commit: R1 }));
+	git(gh.repo, ["fetch", "-q", source.repo, R1]);
+	await Effect.runPromise(effects.perform({ type: "resolve", project, commit: R1 }));
 	await Effect.runPromise(
 		effects.perform({
 			type: "publish",
-			repository: "owned",
+			project,
 			proposal: PROPOSAL,
 			commit: R1,
 			expected: null,
@@ -33,7 +34,7 @@ async function fixture() {
 	const created = await Effect.runPromise(
 		effects.perform({
 			type: "createProposal",
-			repository: "owned",
+			project,
 			proposal: PROPOSAL,
 			title: "Render: fixture",
 			body: "<!-- render:proposal-pr render-proposal:workflow:2:revision:9 -->",
@@ -45,10 +46,8 @@ async function fixture() {
 		gh,
 		pr,
 		effects,
-		markReady: (attempt: string) =>
-			Effect.runPromise(effects.perform({ type: "markReady", repository: "owned", proposal: PROPOSAL, pr, attempt })),
-		listed: async () =>
-			(await Effect.runPromise(effects.reconcile({ type: "publication", repository: "owned", proposal: PROPOSAL }))).proposals.items,
+		markReady: (attempt: string) => Effect.runPromise(effects.perform({ type: "markReady", project, proposal: PROPOSAL, pr, attempt })),
+		listed: async () => (await Effect.runPromise(effects.reconcile({ type: "publication", project, proposal: PROPOSAL }))).proposals.items,
 		async close() {
 			await gh.close();
 			await source.close();

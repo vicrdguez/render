@@ -11,7 +11,7 @@ test("whole-container-quiescence: seal stops background writers and fences new e
 	const f = await sourceFixture();
 	let handle: Effect.Success<ReturnType<typeof f.sandboxes.prepare>> | undefined;
 	try {
-		const source = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const source = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, source));
 		const run = await Effect.runPromise(
 			f.sandboxes.execute(handle, {
@@ -46,7 +46,7 @@ test("whole-container-quiescence: missing runtime quarantines durably and cannot
 	const f = await sourceFixture();
 	let handle: Effect.Success<ReturnType<typeof f.sandboxes.prepare>> | undefined;
 	try {
-		const source = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const source = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, source));
 		execFileSync("docker", ["rm", "-f", handle.runtime]);
 		await assert.rejects(Effect.runPromise(f.sandboxes.seal(handle)), /quarant|inspect/i);
@@ -64,7 +64,7 @@ for (const journal of ["missing", "legacy"] as const)
 	test(`whole-container-quiescence: ${journal} journal never proves runtime absence`, async () => {
 		const f = await sourceFixture();
 		try {
-			const source = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+			const source = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 			const handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, source));
 			execFileSync("docker", ["rm", "-f", handle.runtime]);
 			const path = join(f.root, "sandboxes", handle.id, "state.json");
@@ -86,7 +86,7 @@ for (const trigger of ["absent image", "canceled preparation"] as const)
 	test(`whole-container-quiescence: ${trigger} confirms no runtime without allowing workspace reuse`, async () => {
 		const f = await sourceFixture();
 		try {
-			const source = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+			const source = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 			const profile = trigger === "absent image" ? { ...f.profile, image: `sha256:${"0".repeat(64)}` } : f.profile;
 			const preparing = Effect.runPromise(f.sandboxes.prepare(f.scope, profile, source));
 			const rejected = assert.rejects(preparing, trigger === "absent image" ? /image.*failed/i : /fenced before create/i);
