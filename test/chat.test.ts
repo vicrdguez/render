@@ -330,6 +330,89 @@ test("C7 a non-background abort in pinned pi-durable 1.4.0 withdraws queued inpu
 	}
 });
 
+const fidelity = { packet: { requests: [{ key: "fidelity", packet: coordinatorPacket({ role: "challenger" }) }] } };
+const requestFidelity = () => fauxAssistantMessage(fauxToolCall("request_role", { key: "fidelity" }), { stopReason: "toolUse" });
+const fidelityHolds = () =>
+	fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "Fidelity holds.\n" }), { stopReason: "toolUse" });
+
+test("a role request ends the coordinator's run without erasing the conversation", async () => {
+	const f = await chatFixture(fidelity);
+	try {
+		await idle(f);
+		f.chat.reply("challenger", fidelityHolds);
+		f.chat.reply(
+			f.coordinator,
+			() => fauxAssistantMessage("Reply to A."),
+			requestFidelity,
+			() => fauxAssistantMessage("Noted the fidelity result."),
+			() => fauxAssistantMessage("Reply to B."),
+		);
+		await f.post("Message A.", "followUp", "ctx-a");
+		await until(async () => JSON.stringify(await f.transcript()).includes("Reply to A."), "the reply to A");
+		await idle(f);
+		await f.post("Request fidelity now.", "followUp", "ctx-request");
+		await until(
+			() => f.assignments().find((a) => a.packet.role === "challenger")?.status === "submitted" || undefined,
+			"the challenger's report",
+		);
+		await until(async () => JSON.stringify(await f.transcript()).includes("Noted the fidelity result."), "the results round");
+		await idle(f);
+		await f.post("Message B.", "followUp", "ctx-b");
+		const b = await until(
+			() => f.chat.requests.find((r) => r.assignment === f.coordinator && r.users.at(-1) === "Message B."),
+			"the provider request for B",
+		);
+		assert.ok(b.users.includes("Message A."), "B's context keeps the earlier human message");
+		assert.ok(b.assistants.includes("Reply to A."), "and the coordinator's earlier reply");
+	} finally {
+		await f.close();
+	}
+});
+
+test("C7 with its requested challenger running, an interrupted coordinator is idle, runs a new prompt at once and still gets the result", async () => {
+	const f = await chatFixture(fidelity);
+	try {
+		await idle(f);
+		const review = held(fidelityHolds);
+		f.chat.reply("challenger", review);
+		const working = held(() => fauxAssistantMessage("never"));
+		f.chat.reply(
+			f.coordinator,
+			requestFidelity,
+			working,
+			() => fauxAssistantMessage("Answer to C."),
+			() => fauxAssistantMessage("Noted the fidelity result."),
+		);
+		await f.post("Request fidelity.", "followUp", "int-request");
+		await review.reached;
+		await f.post("Keep going meanwhile.", "followUp", "int-b");
+		await working.reached;
+		const challenger = f.assignments().find((a) => a.packet.role === "challenger")!;
+		assert.equal(challenger.status, "running");
+		assert.equal((await f.interrupt("int-interrupt")).status, "accepted");
+		const a = await idle(f);
+		assert.equal(a.blocker, null);
+		assert.equal(f.assignments().find((x) => x.id === challenger.id)?.status, "running", "the challenger keeps running");
+		await f.post("Question C.", "followUp", "int-c");
+		await until(
+			() => f.chat.requests.some((r) => r.assignment === f.coordinator && r.users.at(-1) === "Question C.") || undefined,
+			"a run for C while the challenger still works",
+		);
+		assert.equal(f.assignments().find((x) => x.id === challenger.id)?.status, "running");
+		await until(async () => JSON.stringify(await f.transcript()).includes("Answer to C."), "the answer to C");
+		review.release();
+		const report = await until(() => f.assignments().find((x) => x.id === challenger.id)?.report ?? undefined, "the challenger's report");
+		await until(
+			() => f.chat.requests.some((r) => r.assignment === f.coordinator && r.users.at(-1)?.includes(report)) || undefined,
+			"the challenger's result delivered to the coordinator as input",
+		);
+		await until(async () => JSON.stringify(await f.transcript()).includes("Noted the fidelity result."), "the results round's reply");
+		await idle(f);
+	} finally {
+		await f.close();
+	}
+});
+
 test("C8 with four executing attempts a message waits for capacity and is delivered when a slot frees", async () => {
 	const f = await chatFixture();
 	try {

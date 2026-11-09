@@ -8,7 +8,7 @@ import { Engine } from "../../src/engine/runtime.ts";
 import type { RoleAssignment, RolePacket } from "../../src/kernel/roles.ts";
 import type { Ledger } from "../../src/ledger/ledger.ts";
 import type { AuthenticatedContext, Principals } from "../../src/ledger/principals.ts";
-import { admin, claudeFixture, packet, roleFixture } from "./roles.ts";
+import { admin, allowSameFamily, claudeFixture, packet, roleFixture } from "./roles.ts";
 
 export const WORKFLOW = "workflow:3";
 
@@ -17,6 +17,8 @@ export type ChatRequest = {
 	readonly role: string;
 	/** Every user message the model sees, oldest first. */
 	readonly users: readonly string[];
+	/** The text of every assistant message the model sees, oldest first. */
+	readonly assistants: readonly string[];
 	readonly signal: AbortSignal | undefined;
 };
 export type Reply = (request: ChatRequest) => AssistantMessage | Promise<AssistantMessage>;
@@ -58,6 +60,7 @@ export function chatProvider() {
 				assignment: String(rendered.assignment),
 				role: String(rendered.packet?.role),
 				users: context.messages.filter((m) => m.role === "user").map((m) => text(m.content)),
+				assistants: context.messages.filter((m) => m.role === "assistant").map((m) => text(m.content)),
 				signal: options?.signal,
 			};
 			requests.push(request);
@@ -122,6 +125,8 @@ export async function chatFixture(options: { packet?: Partial<RolePacket> } = {}
 			),
 		);
 	const assignments = () => (f.ledger.snapshot(admin) as unknown as { assignments: RoleAssignment[] }).assignments;
+	// A same-family child needs the human's policy direction before the coordinator binds its policy.
+	if (options.packet?.requests?.length) await allowSameFamily(f.ledger);
 	const assigned = await f.command({ type: "assignTask", slice: WORKFLOW, delivery: false, packet: coordinatorPacket(options.packet) });
 	if (assigned.status !== "accepted") throw new Error(JSON.stringify(assigned));
 	const coordinator = String(assigned.result.assignment);
