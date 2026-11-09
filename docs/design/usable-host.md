@@ -67,13 +67,13 @@ This document makes the following calls that the operator did not decide. Each o
 
 **X6. The coordinator proposes Ground as a draft.** The catalogued but unavailable `saveDraft` command becomes available for one document, the coordinator's Ground proposal. The human confirms it by saving `ground` with the proposed bytes and `shape.confirmed: true`, which keeps Ground human-authored. The operator could instead have the human write Ground from scratch.
 
-**X7. Live chat frames carry pi-durable 1.4.0 `AgentEvent` batches.** The host transport removes the same two fields that export already redacts, `hidden_reasoning` and `opaque_provider_fields`, and frame `version: 1` pins the event schema to pi-durable 1.4.0. A runtime upgrade that changes `AgentEvent` bumps the chat frame version. The alternative is a Render-owned event vocabulary that the transport maps to, which costs a translation layer and its tests.
+**X7. Live chat frames use a Render-owned event vocabulary.** The host transport maps pi-durable events into the chat events listed in Piece 6 and drops `hidden_reasoning` and `opaque_provider_fields`, the two fields export already redacts. A pi-durable upgrade changes only that mapping in `src/host`, so the client protocol and the desktop stay unchanged, which is the reason the operator extracted the transport (D1). Engine's `watch` still returns pi-durable types inside the host process. The rejected alternative passes `AgentEvent` batches through, which would tie the wire format to the runtime version.
 
 **X8. Secrets stay out of Ledger entirely.** No command, receipt or record names a secret's value or digest. `GET /v1/secrets` lists names and whether each is set. The alternative is a Ledger receipt for each replacement, which gives attribution at the cost of an ordering problem between the file write and the commit.
 
 **X9. Instruction prose stays in Engine, and principles come from the project.** Settings choose the model, thinking level and budgets per role template. The instruction text stays the Engine's built-in text until #59 designs agent prose. A packet's principles are the literal bytes of the project's principles file (default `AGENTS.md`) at the pinned commit. A missing file is retained as an explicit "no principle statements at `<path>`" document, not a blocker. The operator could instead put instruction text into settings now, ahead of #59.
 
-**X10. Check images are pinned by digest.** `checkImage` must have the form `<name>@sha256:<64 hex>`. Sandboxes records the image as part of source and verifier identity, and a tag can move. The operator could instead accept tags and have the host resolve and record the digest at use.
+**X10. A project names its check image by tag, and each preparation records the digest.** `checkImage` is an ordinary image reference such as `render-check:node24`. Sandboxes resolves it to the local image's digest when it prepares work and records that digest as part of source and verifier identity, as it records other verifier inputs today. If the tag later points at a different image, the next preparation records a different verifier identity and the existing fresh-basis rules apply. The alternative is to require `<name>@sha256:<digest>` when the project is added, which is exact but makes adding a project awkward.
 
 **X11. The launcher does not start experiments.** An `experiment` shape blocks with `playbook_unavailable: experiment`. An experiment needs a prewritten protocol and per-candidate packets (§8.1) that one delivery does not need. The operator could instead ask for an experiment playbook as a separate piece.
 
@@ -205,7 +205,7 @@ export type Project = {
 	readonly name: string; // 1 to 100 characters
 	readonly remote: string; // immutable (X1)
 	readonly defaultBranch: string;
-	readonly checkImage: string; // "<name>@sha256:<64 hex>" (X10)
+	readonly checkImage: string; // image reference by tag; each preparation records the resolved digest (X10)
 	readonly principles: string; // repository path, default "AGENTS.md" (X9)
 	readonly createdAtSequence: number;
 };
@@ -223,7 +223,7 @@ export type ProjectFacts = { readonly id: string; readonly remote: string; reado
 - Every Effects operation that named `repository: string` names `project: ProjectFacts` instead. The `Effects` constructor and `ForgeConfig` lose `repositories`. `OwnedChecks.repositories` and `investigations.repositories` are deleted.
 - Engine fetches before the coordinator's first run, to pin its source commit, and before each target preparation, to observe T.
 - The forge target is `{owner, name, base: defaultBranch}`, parsed from `https://github.com/<owner>/<name>(.git)` or `git@github.com:<owner>/<name>(.git)`. Another remote works for local work, and its publication reports `unsupported`.
-- Sandboxes takes `LinuxProfile.image` from `checkImage`.
+- Sandboxes takes `LinuxProfile.image` from `checkImage`, resolves the tag to the local image digest at preparation and records the digest in the verifier identity.
 
 #### Rules
 
@@ -416,11 +416,30 @@ Wire additions in the host transport:
 
 ```text
 GET /v1/workflows/<workflow>/chat?version=1    NDJSON
-{"version":1,"kind":"chat-snapshot","workflow","coordinator":{"assignment","generation"},"snapshot","inbox"}
-{"version":1,"kind":"chat-events","workflow","events":[AgentEvent, ...]}
-{"version":1,"kind":"chat-inbox","workflow","items":[...]}
+{"version":1,"kind":"chat-snapshot","workflow","coordinator":{"assignment","generation","state"},"run":RunState|null,"inbox":[InboxItem]}
+{"version":1,"kind":"chat-events","workflow","events":[ChatEvent, ...]}
+{"version":1,"kind":"chat-inbox","workflow","items":[InboxItem]}
 {"version":1,"kind":"end","reason":"credential_revoked"|"host_closing"|"coordinator_replaced"|"backlog"}
 ```
+
+The transport maps pi-durable events to this vocabulary (X7). Committed history is read through `messages`; the stream carries only what is live.
+
+```ts
+type InboxItem = { commandId: string; whenBusy: "steer" | "followUp"; status: "accepted" | "queued" | "pending" | "placed" | "withdrawn" };
+type RunState = { run: string; inputs: string[] /* commandIds that started or entered this run */; turn: number };
+type ChatEvent =
+	| { type: "run_start"; run: string; inputs: string[] }
+	| { type: "run_end"; run: string; outcome: "completed" | "interrupted" | "failed"; reason?: string }
+	| { type: "turn_start"; run: string; turn: number }
+	| { type: "turn_end"; run: string; turn: number }
+	| { type: "input_placed"; run: string; commandId: string; whenBusy: "prompt" | "steer" | "followUp" }
+	| { type: "text_delta"; run: string; turn: number; message: string; delta: string }
+	| { type: "message_end"; run: string; turn: number; message: string; role: "assistant" }
+	| { type: "tool_start"; run: string; turn: number; call: string; tool: string; summary: string }
+	| { type: "tool_end"; run: string; turn: number; call: string; outcome: "ok" | "error" | "interrupted"; summary: string };
+```
+
+`summary` is a bounded, host-rendered description of the tool arguments or result, never the full payload. Unknown future event types are added under a new frame `version`; a client refuses a version it does not know.
 
 The transport drops a consumer whose backlog exceeds the existing bound. Pi-durable's own overflow replaces undelivered batches with a fresh snapshot event. Closing the stream never stops a run.
 
