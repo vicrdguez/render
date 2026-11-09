@@ -19,7 +19,7 @@ async function blocked(f: Awaited<ReturnType<typeof roleFixture>>) {
 
 test("R04 missing provider, family, sandbox and overflowing constraints block without provider calls", async () => {
 	for (const [overrides, expected] of [
-		[{}, "native_provider_configuration_missing"],
+		[{}, "native_provider_configuration_missing: anthropic"],
 		[{ requiredFamily: "other" }, "required_model_family_unavailable"],
 		[{ execution: "linux-writer" as const }, "sandbox_capability_unavailable"],
 		[{ maxInputBytes: 1 }, "required_inputs_do_not_fit"],
