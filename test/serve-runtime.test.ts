@@ -4,12 +4,14 @@
 // with no token, and a token that reaches the host's or the CLI's output.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { until } from "./support/chat.ts";
 import { fakeGitHub, TOKEN } from "./support/github.ts";
 import { cli, startHost, tempDir } from "./support/host.ts";
+import { git } from "./support/source.ts";
 
 const PI_AUTH = fileURLToPath(new URL("./support/fixture-auth.json", import.meta.url));
 const dockerUp = spawnSync("docker", ["version", "--format", "{{.Server.Version}}"]).status === 0;
@@ -79,5 +81,79 @@ test("serve starts without Docker, a GitHub token or pi logins and reports each 
 			() => undefined,
 		);
 		await dir.remove();
+	}
+});
+
+/** A bare repository with one commit on `main`. */
+function bareRemote(root: string): { url: string; commit: string } {
+	const repo = join(root, "remote.git");
+	spawnSync("git", ["init", "--bare", "-q", repo]);
+	const blob = git(repo, ["hash-object", "-w", "--stdin"], "# Render\n").toString().trim();
+	const tree = git(repo, ["mktree"], `100644 blob ${blob}\tREADME.md\n`).toString().trim();
+	const commit = git(repo, ["commit-tree", tree, "-m", "First"]).toString().trim();
+	git(repo, ["update-ref", "refs/heads/main", commit]);
+	return { url: `file://${repo}`, commit };
+}
+
+test("a typed message launches the coordinator on the project's fetched commit; a GitHub project without a token shows a blocker", async () => {
+	const gh = await fakeGitHub();
+	const dir = await tempDir("serve-launch");
+	const remote = bareRemote(dir.path);
+	const started = startHost(join(dir.path, "data"), {}, ["--github-api", gh.config.api, "--github-git", gh.config.git]);
+	try {
+		const host = await started;
+		const enrolled = await cli(["admin", "--data", host.data, "enroll", "--label", "laptop"]);
+		const token = join(dir.path, "laptop.token");
+		await writeFile(token, String(enrolled.json.bearer), { mode: 0o600 });
+		const as = ["--url", host.url, "--token-file", token];
+		const workflowOn = async (remoteUrl: string) => {
+			const added = await cli([
+				...as,
+				"add-project",
+				"--name",
+				"P",
+				"--remote",
+				remoteUrl,
+				"--default-branch",
+				"main",
+				"--check-image",
+				"render-check:x",
+			]);
+			const project = String((added.json.result as { project: string }).project);
+			const created = await cli([...as, "create-workflow", "--title", "Work", "--project", project]);
+			const workflow = String((created.json.result as { workflow: string }).workflow);
+			const sent = await cli([...as, "send", "--workflow", workflow, "--text", "Fix the README.", "--follow-up"]);
+			assert.equal(sent.code, 0, sent.stdout + sent.stderr);
+			return workflow;
+		};
+		const view = async (workflow: string) =>
+			(
+				(await cli([...as, "snapshot"])).json.workflows as {
+					workflow: string;
+					blocker: { reason: string } | null;
+					messages: { coordinator: unknown };
+				}[]
+			).find((w) => w.workflow === workflow)!;
+		const local = await workflowOn(remote.url);
+		const github = await workflowOn(`${gh.config.git}/${gh.owner}/${gh.name}.git`);
+		const launched = await until(async () => (await view(local)).messages.coordinator ?? undefined, "the launched coordinator", 30_000);
+		assert.ok(launched, "Effects fetched the local remote and the launcher assigned the coordinator");
+		const snap = await cli([...as, "snapshot"]);
+		const profile = (snap.json.assignments as { packet: { profile: string; role: string; slice?: string } }[]).find(
+			(a) => a.packet.role === "coordinator",
+		);
+		assert.ok(profile);
+		const pinned = await cli([...as, "read", "--revision", profile.packet.profile, "--out", join(dir.path, "profile.json")]);
+		assert.equal(pinned.code, 0, pinned.stdout);
+		assert.match(await readFile(join(dir.path, "profile.json"), "utf8"), new RegExp(remote.commit));
+		const blocked = await until(async () => (await view(github)).blocker ?? undefined, "the GitHub project's blocker", 30_000);
+		assert.match(blocked.reason, /github_token_missing/);
+	} finally {
+		await started.then(
+			(host) => host.stop(),
+			() => undefined,
+		);
+		await dir.remove();
+		await gh.close();
 	}
 });

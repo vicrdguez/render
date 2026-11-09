@@ -18,6 +18,7 @@ import { mintContext } from "../src/ledger/principals.ts";
 import { device } from "./support/chat.ts";
 import { cli, ROOT, tempDir } from "./support/host.ts";
 import { accepted, LedgerOnlyEngine, reviewedIntake } from "./support/implementation.ts";
+import { launcher } from "./support/launcher.ts";
 import { admin, allowSameFamily, packet, roleFixture } from "./support/roles.ts";
 
 const WORKFLOW = "workflow:3";
@@ -384,5 +385,27 @@ test("the client imports nothing from Kernel", async () => {
 	for (const file of await readdir(dir)) {
 		const text = await readFile(join(dir, file), "utf8");
 		assert.equal(/from\s+"[^"]*\/kernel\//.test(text), false, `${file} imports Kernel`);
+	}
+});
+
+test("confirm-ground and accept-intake drive a launched workflow from the CLI with the host's bases", async () => {
+	const t = await launcher();
+	const s = await serve(t.f);
+	try {
+		await t.prompt();
+		await t.until(() => t.view().nextHumanAction.type === "confirmGround", "Ground proposal offered");
+		const action = t.view().nextHumanAction as { expected: string | null; content: string };
+		const confirmed = await cli([...s.as, "confirm-ground", "--workflow", WORKFLOW]);
+		assert.equal(confirmed.code, 0, confirmed.stdout + confirmed.stderr);
+		const sent = JSON.parse(s.posts[0]!);
+		assert.deepEqual(sent.expected, { document: action.expected });
+		assert.equal(Buffer.from(sent.command.content, "base64").toString(), action.content);
+		await t.until(() => !!(t.view().nextHumanAction as { basis?: unknown }).basis, "a reviewed intake");
+		const acceptedIntake = await cli([...s.as, "accept-intake", "--workflow", WORKFLOW]);
+		assert.equal(acceptedIntake.code, 0, acceptedIntake.stdout + acceptedIntake.stderr);
+		await t.until(() => t.assignments().some((a) => a.packet.role === "implementer"), "the launched implementer");
+	} finally {
+		await s.close();
+		await t.close();
 	}
 });
