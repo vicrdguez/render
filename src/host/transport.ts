@@ -10,10 +10,16 @@ import type { HistoryQuery } from "../ledger/history.ts";
 import type { Artifact, Frame, Ledger, LedgerRefusal } from "../ledger/ledger.ts";
 import type { AuthenticatedContext, Principals } from "../ledger/principals.ts";
 import { CHAT_VERSION, type ChatFrame, chatMapper } from "./chat.ts";
+import type { Readiness } from "./production.ts";
 import { isSecretName, type Secrets } from "./secrets.ts";
 
-/** Without `secrets` the secrets routes answer `not_found`. */
-export type HostApi = { readonly ledger: Ledger; readonly engine: Pick<Engine, "watch">; readonly secrets?: Secrets };
+/** Without `secrets` the secrets routes answer `not_found`; without `readiness` the admin status omits `runtime`. */
+export type HostApi = {
+	readonly ledger: Ledger;
+	readonly engine: Pick<Engine, "watch">;
+	readonly secrets?: Secrets;
+	readonly readiness?: () => Promise<Readiness>;
+};
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 /** Frames queued behind a full socket before a slow observer is disconnected. */
@@ -286,7 +292,7 @@ export function adminServer(api: HostApi, principals: Principals, socketPath: st
 				if (req.method === "GET" && url.pathname === "/v1/admin/devices") return send(res, { devices: ledger.status().devices });
 				if (req.method === "GET" && url.pathname === "/v1/admin/status") {
 					const { devices: _devices, ...status } = ledger.status();
-					return send(res, status);
+					return send(res, api.readiness ? { ...status, runtime: yield* fromPromise(api.readiness) } : status);
 				}
 				return yield* route(api, principals, context, req, res);
 			});

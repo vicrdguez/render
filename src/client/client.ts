@@ -61,6 +61,26 @@ export class RenderClient {
 		return this.request("GET", `/v1/workflows/${encodeURIComponent(workflow)}/messages${query}`);
 	}
 
+	/** Live chat frames of one workflow until the host ends the stream; a refusal is yielded as one `refused` frame. */
+	async *chat(workflow: string): AsyncGenerator<Record<string, unknown>, void, void> {
+		const res = await runPromise(this.#fetch("GET", `/v1/workflows/${encodeURIComponent(workflow)}/chat?version=${SUPPORTED_VERSION}`));
+		if (res.status !== 200 || res.body === null) {
+			yield { kind: "refused", httpStatus: res.status, ...parseBody(await res.text()) };
+			return;
+		}
+		let buffered = "";
+		const decoder = new TextDecoder();
+		for await (const chunk of res.body) {
+			buffered += decoder.decode(chunk, { stream: true });
+			for (let newline = buffered.indexOf("\n"); newline >= 0; newline = buffered.indexOf("\n")) {
+				const frame = JSON.parse(buffered.slice(0, newline)) as Record<string, unknown>;
+				buffered = buffered.slice(newline + 1);
+				if (frame.version !== SUPPORTED_VERSION) throw new UnsupportedFrameVersion(String(frame.version));
+				yield frame;
+			}
+		}
+	}
+
 	/**
 	 * Observation frames with the protocol's client rules: refuse unknown versions, discard repeated or older
 	 * sequences, and take a fresh snapshot (reconnect) on a gap or a dropped stream.

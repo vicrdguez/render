@@ -82,6 +82,7 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 			return backend(req, res, url, body);
 		}
 		if (req.headers.authorization !== `Bearer ${TOKEN}`) return json(res, 401, { message: "Bad credentials" });
+		if (url.pathname === "/user" && req.method === "GET") return json(res, 200, { login: actor });
 		const target = /^\/repos\/([^/]+\/[^/]+)\/pulls(?:\/(\d+))?$/.exec(url.pathname);
 		const of = target && repos.has(target[1]!) ? target[1]! : undefined;
 		if (of && !target![2] && req.method === "GET") {
@@ -215,8 +216,8 @@ export async function fakeGitHub(options: { owner?: string; name?: string; actor
 		config: {
 			api: base,
 			git: `${base}/git`,
-			token: TOKEN,
-			actor,
+			token: () => TOKEN,
+			actor: async () => actor,
 		},
 		posts: () => requests.filter((r) => r.method === "POST" && r.path === pullsPath).length,
 		readyRequests: () => requests.filter((r) => r.method === "POST" && r.path === "/graphql"),

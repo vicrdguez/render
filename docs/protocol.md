@@ -301,6 +301,15 @@ outcome (`pending`). Accepted intake appears explicitly in `commitment.acceptedI
 
 For blocked assignments other than a parent awaiting role results, `nextHumanAction` identifies `cancelWork` with `workflow`, `assignment`, `generation`, `attempt` and an explanatory `reason`. This takes priority over initial Ground setup. To submit it, place `workflow` on the envelope and only `type`, `assignment`, `generation`, `attempt` in `command`; `reason` is display guidance, not a command field. Cancellation still requires a human principal and the current identity. Quiescence and host-scheduled fresh replacement remain separate checked steps, not authority conveyed by the snapshot.
 
+The review actions carry the host-authored `basis` their decision command names, so no client recomputes a Kernel
+rule. `reviewIntake` adds `basis: {intake, review, annotations, policyBinding, decisions}`: send it unchanged as
+`acceptIntake`. `review` is the fidelity report on exactly that intake and annotation count. `reviewCheckpoint` adds
+`basis: {request, emission, manifest, annotations, policyBinding}`, the manifest's `decisions` as `[{node,
+alternatives}]` and the saved `concerns`: send `approveCheckpoint` with the basis, one alternative per node in
+`decisions` and the concerns the human declares `nonbinding`. `basis` is `null` while the work is not yet decidable,
+for example before an independent review of the current revision and annotations exists. A basis that changed
+between the snapshot and the command refuses `stale_basis`; take a fresh snapshot rather than retrying.
+
 Role-aware snapshots add scoped `assignments`, including exact packet/report refs, generation/Attempt, ownership,
 executing capacity and visible blockers. Workflow owner/evidence summaries reflect these assignments. A blocked owner
 may still consume a slot; `executing: false` does not surrender ownership. Assignment-agent reads expose only their own

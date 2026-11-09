@@ -1,6 +1,6 @@
 // Test-owned process and transport helpers. They deliberately avoid the product client so that
 // transport-level expectations are checked with independent code.
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { request } from "node:http";
@@ -51,10 +51,35 @@ export function track(proc: ChildProcess): ChildProcess {
 
 export type SpawnResult = { code: number | null; events: HostEvent[]; stderr: string; stdout: string };
 
+export type CliResult = { code: number | null; stdout: string; stderr: string; json: Record<string, unknown> };
+
+/** Runs the product CLI to completion; `input` is its whole stdin. */
+export function cli(args: string[], options: { env?: Record<string, string>; input?: string } = {}): Promise<CliResult> {
+	return new Promise((resolve) => {
+		const child = execFile(
+			process.execPath,
+			[CLIENT_CLI, ...args],
+			{ env: { ...process.env, ...options.env } },
+			(error, stdout, stderr) => {
+				let json: Record<string, unknown> = {};
+				try {
+					json = JSON.parse(stdout) as Record<string, unknown>;
+				} catch {
+					json = {};
+				}
+				const code = error === null ? 0 : typeof error.code === "number" ? error.code : null;
+				resolve({ code, stdout, stderr, json });
+			},
+		);
+		child.stdin?.end(options.input ?? "");
+	});
+}
+
 /** Spawn a host and wait for it to exit or become ready. */
 export function spawnHost(
 	data: string,
 	env: Record<string, string> = {},
+	args: string[] = [],
 ): {
 	proc: ChildProcess;
 	events: HostEvent[];
@@ -63,7 +88,7 @@ export function spawnHost(
 	exited: Promise<number | null>;
 	next(name: string, timeoutMs?: number): Promise<HostEvent>;
 } {
-	const proc = spawn(process.execPath, [HOST_MAIN, "serve", "--data", data, "--port", "0"], {
+	const proc = spawn(process.execPath, [HOST_MAIN, "serve", "--data", data, "--port", "0", ...args], {
 		env: { ...process.env, ...env },
 		stdio: ["ignore", "pipe", "pipe"],
 	});
@@ -110,8 +135,8 @@ export function spawnHost(
 	return { proc, events, stdout, stderr, exited, next };
 }
 
-export async function startHost(data: string, env: Record<string, string> = {}): Promise<HostProcess> {
-	const s = spawnHost(data, env);
+export async function startHost(data: string, env: Record<string, string> = {}, args: string[] = []): Promise<HostProcess> {
+	const s = spawnHost(data, env, args);
 	const ready = await s.next("ready");
 	const kill = async () => {
 		if (s.proc.exitCode === null && s.proc.signalCode === null) s.proc.kill("SIGKILL");
