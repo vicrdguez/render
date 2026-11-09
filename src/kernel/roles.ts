@@ -165,7 +165,8 @@ export type RoleAssignment = {
 	parent: string | null;
 	requestKey: string | null;
 	delivery: boolean;
-	status: "queued" | "running" | "blocked" | "submitted" | "canceling" | "canceled";
+	/** `idle`: a chat coordinator between runs, holding its conversation and no executing slot (X4). */
+	status: "queued" | "running" | "idle" | "blocked" | "submitted" | "canceling" | "canceled";
 	executing: boolean;
 	executionOrdinal: number;
 	blocker: string | null;
@@ -293,6 +294,10 @@ export const ROLE_COMMANDS = [
 
 function refusal(code: RefusalCode, reason: string): Refusal {
 	return { outcome: "refused", code, reason };
+}
+/** A top-level coordinator: humans chat with it, and it idles between runs instead of blocking. */
+export function isChatCoordinator(a: Pick<RoleAssignment, "packet" | "parent">): boolean {
+	return a.packet.role === "coordinator" && a.parent === null;
 }
 export function sameAgent(a: RoleAssignment, p: Principal): boolean {
 	return (
@@ -1452,7 +1457,8 @@ export const changeRole = Effect.fnUntraced(function* (state: KernelState, comma
 				result.runtimeHistory = a.runtimeHistory;
 				break;
 			case "stageTask":
-				if (a.status !== "queued") return yield* Effect.fail(refusal("assignment_not_queued", "Only queued work starts."));
+				if (a.status !== "queued" && a.status !== "idle")
+					return yield* Effect.fail(refusal("assignment_not_queued", "Only queued work or an idle coordinator starts."));
 				if (c.executorEpoch !== facts.executorEpoch)
 					return yield* Effect.fail(refusal("stale_executor", "Dispatch belongs to another executor epoch."));
 				if (work.assignments.filter((a) => a.executing).length >= 4)
@@ -1538,6 +1544,11 @@ export const changeRole = Effect.fnUntraced(function* (state: KernelState, comma
 					a.executorEpoch = c.executorEpoch ?? null;
 				} else {
 					a.executing = false;
+					// A chat run ended without a report: the coordinator keeps its conversation and gives up its slot.
+					if (a.status === "running" && isChatCoordinator(a)) {
+						a.status = "idle";
+						a.blocker = null;
+					}
 					if (a.status === "canceling") {
 						a.status = "canceled";
 						a.blocker = null;

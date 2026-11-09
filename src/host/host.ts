@@ -40,19 +40,15 @@ export function openHost(options: OpenHostOptions): Effect.Effect<Host, unknown>
 		const scope = yield* Scope.make();
 		const secrets = secretsFile(join(options.data, "secrets.json"));
 		return yield* Effect.gen(function* () {
+			const engine = new Engine({ ownedChecks: options.ownedChecks, piAuth: options.piAuth, secrets });
 			const opened = yield* openLedger({
 				data: options.data,
-				runtime: (report) =>
-					new Engine({
-						ownedChecks: options.ownedChecks,
-						piAuth: options.piAuth,
-						secrets,
-					}).options(report),
+				runtime: (report) => engine.options(report),
 				onFatal: (error) => options.onFatal?.(error),
 			});
 			yield* Scope.addFinalizer(scope, opened.close().pipe(Effect.orDie));
 			const socketPath = join(options.data, "admin.sock");
-			const api = { ledger: opened.ledger, secrets };
+			const api = { ledger: opened.ledger, engine, secrets };
 			const admin = yield* adminServer(api, opened.principals, socketPath);
 			yield* Scope.addFinalizer(scope, closeServer(admin));
 			const listener = deviceServer(api, opened.principals);

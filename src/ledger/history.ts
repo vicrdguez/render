@@ -25,6 +25,7 @@ const KINDS = [
 	"engine_settings",
 	"runtime_transcript",
 	"runtime_task",
+	"chat_transcript",
 ];
 export type HistoryQuery = Readonly<Record<string, string | undefined>>;
 export type HistoryScope = { workflows: string[]; global: boolean; kinds: string[] };

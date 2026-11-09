@@ -91,7 +91,10 @@ async function idleAndResponsive() {
 	assert.ok("snapshot" in observer);
 	try {
 		const start = performance.now();
-		assert.equal((await f.command({ type: "postCoordinatorMessage", text: "Human remains in control." }, admin)).status, "accepted");
+		assert.equal(
+			(await f.command({ type: "postCoordinatorMessage", whenBusy: "followUp", text: "Human remains in control." }, admin)).status,
+			"accepted",
+		);
 		const ackMs = performance.now() - start;
 		assert.ok(ackMs < 1000, `human command remains responsive: ${ackMs} ms`);
 		assert.equal(observed.length, 1, "human observer sees its acknowledged change while roles wait");

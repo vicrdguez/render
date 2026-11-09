@@ -2,7 +2,7 @@
 // only places that establish principals.
 import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { ConversationId, EntryId, Harness, Tx } from "@earendil-works/pi-durable";
+import type { ConversationId, EntryId, EntryRecord, Harness, Tx } from "@earendil-works/pi-durable";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -12,6 +12,7 @@ import { type PromptInput, renderLocalVerification } from "../engine/local-verif
 import type { RoleTaskStaging } from "../engine/runtime.ts";
 import type { WebWorking } from "../engine/web.ts";
 import { candidateEvidence } from "../kernel/candidates.ts";
+import { type Chat, chatCoordinator } from "../kernel/chat.ts";
 import { initialCheckpointSettings, type CheckpointSettings as SettingsState } from "../kernel/checkpoint-settings.ts";
 import {
 	CHECKPOINT_COMMANDS,
@@ -49,7 +50,7 @@ import {
 import { bindingFor, initialPolicy, type PolicyState } from "../kernel/policy.ts";
 import type { Project } from "../kernel/projects.ts";
 import { mainCoverage, publicationView } from "../kernel/publication.ts";
-import { packetRefs, type RoleAssignment, type RolePacket, type RoleWorkState, sameAgent } from "../kernel/roles.ts";
+import { isChatCoordinator, packetRefs, type RoleAssignment, type RolePacket, type RoleWorkState, sameAgent } from "../kernel/roles.ts";
 import type { CatalogEvidence } from "../kernel/verification.ts";
 import { faultBarrier } from "./barrier.ts";
 import { decodeUtf8, type Envelope, PROTOCOL_VERSION, parseEnvelope } from "./envelope.ts";
@@ -149,6 +150,17 @@ export type Artifact = {
 };
 
 export type HostMode = "active" | "failed" | "closing";
+
+export type ChatEnd = "credential_revoked" | "host_closing" | "coordinator_replaced";
+/** Ledger's authorization to watch one workflow's coordinator conversation, and when it ends. */
+export type ChatAuthorization = {
+	readonly conversation: number;
+	readonly assignment: string;
+	readonly generation: number;
+	readonly ended: Promise<ChatEnd>;
+	/** Withdraw the authorization when the watcher leaves first. */
+	stop(): void;
+};
 
 const UNAUTHORIZED: LedgerRefusal = { status: "refused", code: "unauthorized", reason: "Authentication required." };
 const NOT_FOUND: LedgerRefusal = { status: "refused", code: "not_found", reason: "Not found." };
@@ -1021,6 +1033,7 @@ export class Ledger {
 				...(implementationSource ? { implementationSource } : {}),
 				mainDeliveries,
 				principal: current,
+				commandId: env.commandId,
 				sequence,
 				executorEpoch: meta.executorEpoch,
 				ids: {
@@ -1046,6 +1059,7 @@ export class Ledger {
 				policy: plain(policy),
 				projects: plain(projects.projects),
 				workflow: workflow?.exists ? { id: workflow.id, messageCount: workflow.messageCount, title: workflow.title } : null,
+				...(workflow?.exists && workflow.chat ? { chat: plain(workflow.chat) } : {}),
 				...(workflow?.exists && workflow.publication ? { publication: plain(workflow.publication) } : {}),
 				document,
 				device: target?.exists ? { id: target.device, revoked: target.revokedAtSequence !== null } : null,
@@ -1651,6 +1665,12 @@ export class Ledger {
 						w.messageCount++;
 						break;
 					}
+					case "chat.replace": {
+						const w = yield* fromPromise(() => tx.doc(Workflow, write.workflow, null));
+						if (!w.exists) throw new Error("chat without workflow");
+						w.chat = plain(write.state) as Chat;
+						break;
+					}
 					case "device.enroll": {
 						if (verifier === undefined) throw new Error("enrollment without a verifier");
 						Object.assign(yield* fromPromise(() => tx.doc(Device, write.device, null)), {
@@ -1844,15 +1864,18 @@ export class Ledger {
 
 	/** Starts an observation: a complete snapshot, then change frames delivered without ever delaying commits. */
 	observe(context: AuthenticatedContext, request: { history: HistoryQuery }): Effect.Effect<HistoryPage | LedgerRefusal, unknown>;
+	/** Authorizes a human to watch the workflow's coordinator conversation until revocation, close or replacement. */
+	observe(context: AuthenticatedContext, request: { conversation: string }): Effect.Effect<ChatAuthorization | LedgerRefusal>;
 	observe(
 		context: AuthenticatedContext,
 		sink: { send(frame: Frame): void; end(frame: Frame): void },
 	): Effect.Effect<{ snapshot: Frame; stop(): void } | LedgerRefusal>;
 	observe(
 		context: AuthenticatedContext,
-		sink: { send(frame: Frame): void; end(frame: Frame): void } | { history: HistoryQuery },
-	): Effect.Effect<{ snapshot: Frame; stop(): void } | LedgerRefusal | HistoryPage, unknown> {
+		sink: { send(frame: Frame): void; end(frame: Frame): void } | { history: HistoryQuery } | { conversation: string },
+	): Effect.Effect<{ snapshot: Frame; stop(): void } | LedgerRefusal | HistoryPage | ChatAuthorization, unknown> {
 		if ("history" in sink) return this.#history(context, sink.history, false);
+		if ("conversation" in sink) return Effect.sync(() => this.#authorizeChat(context, sink.conversation));
 		return Effect.sync((): { snapshot: Frame; stop(): void } | LedgerRefusal => {
 			const principal = principalOf(context);
 			if (principal === undefined || !this.#current(principal)) return UNAUTHORIZED;
@@ -1868,6 +1891,37 @@ export class Ledger {
 			this.#observers.add(observer);
 			return { snapshot, stop: () => this.#observers.delete(observer) };
 		});
+	}
+
+	#authorizeChat(context: AuthenticatedContext, workflow: string): ChatAuthorization | LedgerRefusal {
+		const principal = principalOf(context);
+		if (principal === undefined || !this.#current(principal)) return UNAUTHORIZED;
+		if (principal.kind !== "human") return refusal("forbidden_principal", "Only a human watches a coordinator conversation.");
+		if (this.#mode !== "active") return { status: "refused", code: "host_unavailable", reason: `The host is ${this.#mode}.` };
+		if (!this.#workflows.has(workflow) || !visible(principal, workflow)) return NOT_FOUND;
+		const a = chatCoordinator(this.#roleWork.assignments, workflow);
+		if (!a) return refusal("not_found", `${workflow} has no coordinator conversation yet.`);
+		const ended = Promise.withResolvers<ChatEnd>();
+		const observer: Observer = {
+			principal,
+			device: principal.route === "device" ? principal.device : null,
+			last: this.#meta.sequence,
+			send: () => {
+				const current = chatCoordinator(this.#roleWork.assignments, workflow);
+				if (current?.id === a.id && current.generation === a.generation) return;
+				this.#observers.delete(observer);
+				ended.resolve("coordinator_replaced");
+			},
+			end: (frame) => ended.resolve(frame.reason === "credential_revoked" ? "credential_revoked" : "host_closing"),
+		};
+		this.#observers.add(observer);
+		return {
+			conversation: a.conversation,
+			assignment: a.id,
+			generation: a.generation,
+			ended: ended.promise,
+			stop: () => this.#observers.delete(observer),
+		};
 	}
 
 	receipt(context: AuthenticatedContext, commandId: string): Effect.Effect<ReceiptBody | LedgerRefusal, unknown> {
@@ -2153,8 +2207,10 @@ export class Ledger {
 		);
 	}
 
-	/** Scoped coordinator messages of one workflow, oldest first. */
-
+	/**
+	 * The workflow's coordinator transcript, oldest first: human inputs as placed, host inputs, replies and tool results,
+	 * read from the coordinators' committed conversations. A withdrawn or undelivered message is not in it.
+	 */
 	messages(
 		context: AuthenticatedContext,
 		workflow: string,
@@ -2163,37 +2219,38 @@ export class Ledger {
 	): Effect.Effect<{ messages: Record<string, unknown>[]; next: string | null; complete: boolean } | LedgerRefusal, unknown> {
 		return this.#read(context, (principal) =>
 			Effect.gen({ self: this }, function* () {
-				const w = this.#workflows.get(workflow);
-				if (w === undefined || !visible(principal, workflow)) return NOT_FOUND;
-				const conversation = yield* fromPromise(() => this.#harness.conversation(w.conversation as ConversationId, ctx));
-				if (conversation === undefined) return NOT_FOUND;
-				const messages: Record<string, unknown>[] = [];
-				let scanCursor: Parameters<typeof conversation.entries>[2];
-				let last = cursor ?? 0;
-				for (;;) {
-					const page = yield* fromPromise(() =>
-						conversation.entries({ order: "ascending", minEntryId: (last + 1) as EntryId }, 200, scanCursor, ctx),
-					);
-					for (const e of page.items) {
-						last = e.id;
-						if (e.kind !== MessageEntry.kind) continue;
-						const d = e.data as Record<string, unknown>;
-						const unsupported = unsupportedRecordSchema(d.schema, `entry:${e.id}`);
-						if (unsupported !== undefined) return unsupported;
-						messages.push({
-							message: d.message,
-							text: d.text,
-							createdBy: d.createdBy,
-							commandId: d.commandId,
-							recordedAtSequence: d.recordedAtSequence,
-						});
-						if (messages.length === limit) return { messages, next: String(e.id), complete: false };
-					}
-					if (page.next === undefined) return { messages, next: null, complete: true };
-					scanCursor = page.next;
-				}
+				if (!this.#workflows.has(workflow) || !visible(principal, workflow)) return NOT_FOUND;
+				const items: Record<string, unknown>[] = [];
+				for (const a of this.#roleWork.assignments.filter((a) => a.workflow === workflow && isChatCoordinator(a)))
+					items.push(...(yield* this.#transcript(a, (cursor ?? 0) + 1, Number.MAX_SAFE_INTEGER, limit + 1)));
+				items.sort((x, y) => Number(x.entry) - Number(y.entry));
+				const page = items.slice(0, limit);
+				return items.length > limit
+					? { messages: page, next: String(page.at(-1)?.entry), complete: false }
+					: { messages: page, next: null, complete: true };
 			}),
 		);
+	}
+
+	/** Up to `limit` transcript items of one coordinator with entry IDs in [from, to]. */
+	#transcript(a: RoleAssignment, from: number, to: number, limit: number) {
+		return Effect.gen({ self: this }, function* () {
+			const items: Record<string, unknown>[] = [];
+			const conversation = yield* fromPromise(() => this.#harness.conversation(a.conversation as ConversationId, ctx));
+			let cursor: Parameters<NonNullable<typeof conversation>["entries"]>[2];
+			while (conversation && items.length < limit) {
+				const page = yield* fromPromise(() =>
+					conversation.entries({ order: "ascending", minEntryId: from as EntryId, maxEntryId: to as EntryId }, 200, cursor, ctx),
+				);
+				for (const entry of page.items) {
+					const item = chatEntry(a.id, entry);
+					if (item && items.length < limit) items.push(item);
+				}
+				if (page.next === undefined) break;
+				cursor = page.next;
+			}
+			return items;
+		});
 	}
 
 	#messageArtifact(principal: Principal, ref: string) {
@@ -2273,6 +2330,9 @@ export class Ledger {
 					outcomeRefs: [],
 				});
 				const conversations: { id: number; workflow: string | null; projects?: Set<string> }[] = [];
+				let after = Number.MAX_SAFE_INTEGER;
+				/** [entry, sequence] of every selected Ledger record at or before the cutoff. */
+				const marks: [number, number][] = [];
 				for (const id of state.scope.workflows) {
 					const w = this.#workflows.get(id);
 					if (!w || w.createdAtSequence > state.cutoff) continue;
@@ -2298,7 +2358,11 @@ export class Ledger {
 						for (const entry of page.items) {
 							const d = entry.data as Record<string, unknown>;
 							const sequence = Number(d.recordedAtSequence ?? d.sequence);
-							if (sequence > state.cutoff) continue;
+							if (sequence > state.cutoff) {
+								after = Math.min(after, entry.id);
+								continue;
+							}
+							if (!Number.isNaN(sequence)) marks.push([entry.id, sequence]);
 							if (owner.projects && (entry.kind !== ProjectEntry.kind || !owner.projects.has(String(d.project)))) continue;
 							const ref = String(
 								entry.kind === PolicyEntry.kind ||
@@ -2485,6 +2549,31 @@ export class Ledger {
 						cursor = page.next;
 					}
 				}
+				// Coordinator transcripts carry no Render sequence: an entry belongs to the cutoff when it was committed
+				// before the first record after it.
+				for (const a of this.#roleWork.assignments) {
+					if (!wanted("chat_transcript") || !isChatCoordinator(a) || !state.scope.workflows.includes(a.workflow)) continue;
+					const entries = yield* this.#transcript(a, 1, after - 1, Number.MAX_SAFE_INTEGER);
+					if (!entries.length) continue;
+					const ref = `chat-transcript:${a.id}`;
+					const text = JSON.stringify({ entries });
+					// The transcript as of the newest Ledger record before its last entry, which a later cutoff keeps.
+					const last = Number(entries.at(-1)?.entry);
+					const sequence = Math.max(0, ...marks.filter(([id]) => id < last).map(([, n]) => n));
+					add({
+						...base(ref, "chat_transcript", a.workflow, sequence, null),
+						assignment: a.id,
+						conversation: a.conversation,
+						entries,
+						claimType: "unverified_transcript",
+						content: true,
+						mediaType: "text/plain",
+						digest: sha256(Buffer.from(text)),
+						byteLength: Buffer.byteLength(text),
+						redacted: ["hidden_reasoning", "opaque_provider_fields"],
+					});
+					content[ref] = Buffer.from(text).toString("base64");
+				}
 				for (const ref of expectedRetained) if (!seenRetained.has(ref)) missing.push({ ref, code: "missing_content" });
 				for (const ref of artifacts) {
 					const artifact = ref.startsWith("message:")
@@ -2633,6 +2722,48 @@ export class Ledger {
 	}
 }
 
+function textOf(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content.map((block: { type?: string; text?: string }) => (block.type === "text" ? (block.text ?? "") : "")).join("");
+}
+
+/** A coordinator transcript entry as clients and exports read it: hidden reasoning and opaque provider fields removed. */
+function chatEntry(assignment: string, e: EntryRecord): Record<string, unknown> | undefined {
+	const message = e.model?.[0];
+	if (e.kind === "render.human") {
+		const d = e.data as { device: string | null; commandId: string };
+		return { entry: e.id, kind: "human", assignment, commandId: d.commandId, device: d.device, text: textOf(message?.content) };
+	}
+	if (e.kind === "pi.user") return { entry: e.id, kind: "input", assignment, text: textOf(message?.content) };
+	if (e.kind === "pi.assistant" && message?.role === "assistant")
+		return {
+			entry: e.id,
+			kind: "assistant",
+			assignment,
+			content: message.content.flatMap((block): Record<string, unknown>[] =>
+				block.type === "text"
+					? [{ type: "text", text: block.text }]
+					: block.type === "toolCall"
+						? [{ type: "toolCall", id: block.id, name: block.name, arguments: block.arguments }]
+						: [],
+			),
+			stopReason: message.stopReason,
+			...(message.errorMessage ? { error: message.errorMessage } : {}),
+		};
+	if (e.kind === "pi.tool-result" && message?.role === "toolResult")
+		return {
+			entry: e.id,
+			kind: "tool_result",
+			assignment,
+			call: message.toolCallId,
+			tool: message.toolName,
+			isError: message.isError,
+			text: textOf(message.content),
+		};
+	return undefined;
+}
+
 /** Validate already-located message bytes identically for exact reads and history, without rescanning. */
 function messageArtifact(ref: string, workflow: string, d: Record<string, unknown>): Artifact | LedgerRefusal {
 	const unsupported = unsupportedRecordSchema(d.schema, ref);
@@ -2732,6 +2863,7 @@ function workflowState(
 		project: w.project,
 		documents,
 		messageCount: w.messageCount,
+		...(w.chat ? { chat: plain(w.chat) } : {}),
 		assignments: plain(roles.assignments.filter((a) => a.workflow === w.id)),
 		integrated: qualifiedSlices(roles.passes ?? [], w.id, w.intakes?.slices ?? []),
 		delivered: delivered(w.intakes, roles, workflows),

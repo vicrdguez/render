@@ -5,6 +5,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { lazyStream, type Provider, Type } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import {
+	type AgentEvent,
 	type ConversationId,
 	configure,
 	createRegistry,
@@ -16,13 +17,19 @@ import {
 	type Harness,
 	type HarnessOptions,
 	hook,
+	InboxDoc,
 	type JsonObject,
+	LiveDoc,
 	ProviderDoc,
 	type ReportInfo,
+	type SnapshotEvent,
+	type SubmissionId,
+	type SubmissionRecord,
 	section,
 	type TaskId,
 	type ToolExecutionApi,
 	type Tx,
+	watchEvents,
 } from "@earendil-works/pi-durable";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -30,6 +37,7 @@ import * as Exit from "effect/Exit";
 import { fromPromise, runPromise } from "../effect.ts";
 import type { ForgeConfig, ForgeDispatch } from "../effects/forge.ts";
 import { Effects, type Source, type SourceReceipt, type TargetObservation, treeOid } from "../effects/source.ts";
+import { type ChatCommand, type CoordinatorView, chatCoordinator, chatInbox, coordinatorView, type InboxEntry } from "../kernel/chat.ts";
 import { type EngineSettings, type EngineSettingsRevision, initialEngineSettings } from "../kernel/engine-settings.ts";
 import { experimentInputs } from "../kernel/experiments.ts";
 import {
@@ -59,6 +67,7 @@ import type { ForgeObservation, ForgeOperation, PublicationView } from "../kerne
 import {
 	currentChildren,
 	type ImplementationPass,
+	isChatCoordinator,
 	latestPass,
 	packetRefs,
 	type RoleAssignment,
@@ -74,8 +83,8 @@ import {
 	type SelectedCatalog,
 } from "../kernel/verification.ts";
 import { faultBarrier } from "../ledger/barrier.ts";
-import type { CommandReply, Ledger } from "../ledger/ledger.ts";
-import { mintContext } from "../ledger/principals.ts";
+import type { ChatEnd, CommandReply, Ledger, LedgerRefusal } from "../ledger/ledger.ts";
+import { type AuthenticatedContext, mintContext } from "../ledger/principals.ts";
 import { EngineSettingsEntry, Meta, RoleBinding, RoleWork, Workflow } from "../ledger/records.ts";
 import {
 	type ExecutionResult,
@@ -94,7 +103,8 @@ import { previewWeb, research, type WebConfig } from "./web.ts";
 
 const ctx = BACKGROUND_CONTEXT;
 const scheduling = mintContext({ kind: "host", scope: "scheduling" });
-const Budget = defineDoc<{ requests: number[] }>({
+/** Provider requests counted against `maxTurns`; a chat coordinator counts per run, keyed by the run's first input. */
+const Budget = defineDoc<{ requests: number[]; run?: number | null }>({
 	kind: "render.role-budget",
 	version: 1,
 	scope: "conversation",
@@ -103,6 +113,19 @@ const Budget = defineDoc<{ requests: number[] }>({
 	initial: () => ({ requests: [] }),
 	checkpointWhen: () => true,
 });
+
+/** A live, read-only view of one workflow's coordinator conversation, for a scope Ledger authorized. */
+export type CoordinatorWatch = {
+	readonly coordinator: CoordinatorView;
+	readonly snapshot: SnapshotEvent;
+	/** The submission records of the snapshot run's inputs, which name the human messages among them. */
+	readonly inputs: readonly SubmissionRecord[];
+	readonly inbox: readonly InboxEntry[];
+	/** Each committed batch of agent events, with the inbox as of that batch; Ledger-only inbox changes arrive with no events. */
+	start(listener: (update: { readonly events: readonly AgentEvent[]; readonly inbox: readonly InboxEntry[] }) => void): void;
+	stop(): Promise<void>;
+	readonly ended: Promise<ChatEnd>;
+};
 
 export type RoleTaskStaging = {
 	stage(tx: Tx, intent: RoleIntent, assignment: RoleAssignment): Promise<number>;
@@ -296,6 +319,13 @@ export class Engine {
 									)
 										throw new Error("Role provider admission is fenced.");
 									const budget = await tx.doc(Budget, a.conversation as ConversationId);
+									if (isChatCoordinator(a)) {
+										const run = (await tx.doc(LiveDoc, a.conversation as ConversationId)).run?.inputs[0] ?? null;
+										if (budget.run !== run) {
+											budget.run = run;
+											budget.requests = [];
+										}
+									}
 									if (!budget.requests.includes(scope.task)) {
 										if (budget.requests.length >= a.packet.maxTurns) throw new Error("Role turn budget exhausted.");
 										budget.requests.push(scope.task);
@@ -758,7 +788,9 @@ export class Engine {
 							Effect.gen({ self: this }, function* () {
 								const binding = yield* fromPromise(() => api.snapshot(RoleBinding, api.conversationId, ctx));
 								const a = binding ? this.#assignment(binding.assignment) : undefined;
-								if (a) yield* this.#command(a, { type: "recordRuntimeHistory", key: `tools:${api.taskId}:${assistant}` });
+								// Chat runs add no snapshots: the export reads the committed coordinator transcript (C10).
+								if (a && !isChatCoordinator(a))
+									yield* this.#command(a, { type: "recordRuntimeHistory", key: `tools:${api.taskId}:${assistant}` });
 							}),
 						),
 				}),
@@ -766,7 +798,12 @@ export class Engine {
 		});
 		this.#run = defineTask<
 			{ assignment: string },
-			({ phase: "run"; round: number } | { phase: "resume"; round: number } | { phase: "wait"; submission: number; round: number }) & {
+			(
+				| { phase: "run"; round: number }
+				| { phase: "resume"; round: number }
+				| { phase: "wait"; submission: number; round: number }
+				| { phase: "idle"; round: number }
+			) & {
 				consumed?: string[];
 				observingExecutorEpoch?: string;
 			},
@@ -908,6 +945,19 @@ export class Engine {
 					runPromise(
 						Effect.gen({ self: this }, function* () {
 							if (task.state.checkpoint.phase !== "wait") throw new Error("wrong phase");
+							const chat = this.#assignment(task.input.assignment);
+							if (chat && isChatCoordinator(chat)) {
+								const settled = yield* this.#chatSettled(chat.id, task.state.checkpoint.consumed ?? []);
+								const { round, consumed } = task.state.checkpoint;
+								if (settled !== "terminal")
+									return yield* fromPromise(() =>
+										runtime.commit(() => ({ status: "running", checkpoint: { phase: settled, round, consumed } }), context),
+									);
+								yield* fromPromise(() =>
+									runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context),
+								);
+								return yield* this.reconcile();
+							}
 							const submission = yield* fromPromise(() => this.#harness!.submission(task.state.checkpoint.submission as never, context));
 							if (!submission) throw new Error("Missing role submission");
 							yield* fromPromise(() => submission.wait(context));
@@ -934,6 +984,29 @@ export class Engine {
 										() => ({ status: "running", checkpoint: { phase: "resume", round: task.state.checkpoint.round } }),
 										context,
 									),
+								);
+							yield* fromPromise(() =>
+								runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context),
+							);
+							return yield* this.reconcile();
+						}),
+					),
+				// A chat coordinator between runs: delivery of a human message starts it again (X4).
+				idle: (task, runtime, context) =>
+					runPromise(
+						Effect.gen({ self: this }, function* () {
+							yield* fromPromise(() =>
+								runtime.commit(async (tx, current) => {
+									const { executorEpoch } = await tx.doc(Meta);
+									if (current.state.checkpoint.observingExecutorEpoch !== executorEpoch)
+										return { status: "running", checkpoint: { ...current.state.checkpoint, observingExecutorEpoch: executorEpoch } };
+								}, context),
+							);
+							yield* this.#waitUntil(runtime.signal, () => this.#assignment(task.input.assignment)?.status !== "idle");
+							const { round, consumed } = task.state.checkpoint;
+							if (this.#assignment(task.input.assignment)?.status === "running")
+								return yield* fromPromise(() =>
+									runtime.commit(() => ({ status: "running", checkpoint: { phase: "wait", submission: 0, round, consumed } }), context),
 								);
 							yield* fromPromise(() =>
 								runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), context),
@@ -1510,6 +1583,12 @@ export class Engine {
 						yield* this.#command(a, { type: "recordQuiescence", providerIdle: true, environment, effects: "reconciled" });
 					}
 				}
+				for (const workflow of new Set(
+					this.#assignments()
+						.filter((a) => isChatCoordinator(a) && a.status !== "canceled" && a.status !== "submitted")
+						.map((a) => a.workflow),
+				))
+					yield* this.#deliverChat(workflow);
 				// A scope change on an unchanged head reaches the PR summary on the next reconcile, not only on new source.
 				for (const w of this.#publications()) if (w.publication.summaryStale) this.#schedulePublication(w.workflow);
 			}).pipe(
@@ -1524,6 +1603,194 @@ export class Engine {
 				),
 			);
 		}).pipe(Effect.uninterruptible);
+	}
+	/**
+	 * Wait until a chat coordinator's conversation has no run, then release its slot. The check and the release run under
+	 * the workflow's chat lock, so no delivery lands between them (C4). A run that ends places queued follow-ups and late
+	 * steers in the same commit that starts the next run, so the slot stays held across them. Only a failed run leaves
+	 * inputs queued on an idle conversation (pi-durable's `afterFailedRun: keep`); they do not hold the slot and join the
+	 * next delivered message.
+	 */
+	#chatSettled(assignment: string, consumed: readonly string[]): Effect.Effect<"idle" | "resume" | "terminal", unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const harness = this.#harness!;
+			for (;;) {
+				const start = this.#assignment(assignment);
+				if (!start) return "terminal";
+				const conversation = yield* fromPromise(() => harness.conversation(start.conversation as ConversationId, ctx));
+				if (!conversation) throw new Error("Missing coordinator conversation");
+				yield* fromPromise(() => conversation.waitForIdle(ctx));
+				const settled = yield* this.#serialized(`chat:${start.workflow}`, () =>
+					Effect.gen({ self: this }, function* () {
+						if ((yield* fromPromise(() => harness.snapshot(LiveDoc, conversation.id, ctx)))?.run) return undefined;
+						const a = this.#assignment(assignment);
+						if (!a) return "terminal" as const;
+						const children = currentChildren(this.#assignments(), a.id).filter((child) => !consumed.includes(child.id));
+						if (a.status === "running" && children.length)
+							yield* this.#command(a, { type: "recordBlocker", reason: "awaiting_role_results" });
+						if (a.executing)
+							yield* this.#command(this.#assignment(a.id)!, {
+								type: "recordQuiescence",
+								providerIdle: true,
+								environment: "absent",
+								effects: "reconciled",
+							});
+						const now = this.#assignment(a.id);
+						return now?.status === "idle"
+							? ("idle" as const)
+							: now?.blocker === "awaiting_role_results" && children.length
+								? ("resume" as const)
+								: ("terminal" as const);
+					}),
+				);
+				if (settled) return settled;
+			}
+		});
+	}
+	/**
+	 * Hand Ledger's chat to the workflow's coordinator conversation, in order: a pending interrupt, requested
+	 * withdrawals, then accepted messages. An idle coordinator takes a slot first; without one, messages wait.
+	 */
+	#deliverChat(workflow: string): Effect.Effect<void, unknown> {
+		return this.#serialized(`chat:${workflow}`, () =>
+			Effect.gen({ self: this }, function* () {
+				const harness = this.#harness!;
+				const record = yield* fromPromise(() => harness.snapshot(Workflow, workflow, ctx));
+				const chat = record?.exists ? record.chat : undefined;
+				let a = chatCoordinator(this.#assignments(), workflow);
+				if (!chat || !a || !a.conversation) return;
+				const conversation = yield* fromPromise(() => harness.conversation(a!.conversation as ConversationId, ctx));
+				if (!conversation) return;
+				if (chat.interrupts.requested > chat.interrupts.handled) {
+					// Not `cancelWork`: other role tasks of the workflow keep running (C7).
+					yield* fromPromise(() => conversation.abort(ctx));
+					yield* this.#chatCommand({ type: "recordInterrupt", workflow, interrupt: chat.interrupts.requested });
+				}
+				for (const m of chat.messages)
+					if (m.withdrawal?.outcome === "requested" && m.submission) {
+						const outcome = yield* fromPromise(() => harness.abortSubmission(m.submission!.id as SubmissionId, ctx));
+						yield* this.#chatCommand({ type: "recordMessageWithdrawal", workflow, message: m.commandId, outcome });
+					}
+				for (const m of chat.messages) {
+					if (m.submission || m.withdrawal) continue;
+					if (a.status === "idle") {
+						const started = yield* this.#command(a, { type: "stageTask", executorEpoch: this.#ledger!.status().executorEpoch });
+						if (started.status !== "accepted") return;
+						a = this.#assignment(a.id)!;
+					}
+					if (a.status !== "running" || !a.executing) return;
+					yield* faultBarrier("before-message-submission", m.commandId);
+					const submission = yield* fromPromise(() =>
+						conversation.submit(
+							{
+								type: "input",
+								requestId: m.commandId,
+								content: m.text,
+								whenBusy: m.whenBusy,
+								entry: { kind: "render.human", data: { device: m.device, commandId: m.commandId } },
+							},
+							ctx,
+						),
+					);
+					yield* faultBarrier("after-message-submission", m.commandId);
+					yield* this.#chatCommand({
+						type: "recordMessageSubmission",
+						workflow,
+						message: m.commandId,
+						assignment: a.id,
+						generation: a.generation,
+						submission: submission.id,
+					});
+				}
+			}),
+		);
+	}
+	#chatCommand(command: Exclude<ChatCommand, { type: "postCoordinatorMessage" | "withdrawCoordinatorMessage" | "interruptCoordinator" }>) {
+		const { workflow, ...body } = command;
+		return this.#ledger!.command(
+			{
+				version: 1,
+				authorityEpoch: this.#ledger!.status().authorityEpoch,
+				commandId: `engine:chat:${workflow}:${createHash("sha256").update(JSON.stringify(command)).digest("hex").slice(0, 24)}`,
+				workflow,
+				command: body,
+			},
+			scheduling,
+		);
+	}
+	/** Undelivered messages: Ledger's, plus those submitted and still waiting in the conversation's own inbox. */
+	#chatInbox(workflow: string, conversation: number): Effect.Effect<InboxEntry[], unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const harness = this.#harness!;
+			const record = yield* fromPromise(() => harness.snapshot(Workflow, workflow, ctx));
+			const inbox = yield* fromPromise(() => harness.snapshot(InboxDoc, conversation as ConversationId, ctx));
+			const queued = new Set(
+				(inbox?.items ?? []).flatMap((item) =>
+					item.mode !== "write" && item.entry?.kind === "render.human"
+						? [String((item.entry.data as { commandId: string }).commandId)]
+						: [],
+				),
+			);
+			return chatInbox(record?.exists ? record.chat : undefined, queued);
+		});
+	}
+
+	/** Watch the workflow's coordinator conversation, read-only, for as long as Ledger's authorization holds. */
+	watch(context: AuthenticatedContext, workflow: string): Effect.Effect<CoordinatorWatch | LedgerRefusal, unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const ledger = this.#ledger;
+			const harness = this.#harness;
+			if (!ledger || !harness) return { status: "refused", code: "host_unavailable", reason: "The host is starting." } as const;
+			const authorized = yield* ledger.observe(context, { conversation: workflow });
+			if ("status" in authorized) return authorized;
+			return yield* Effect.gen({ self: this }, function* () {
+				const stream = yield* fromPromise(() => watchEvents(harness, authorized.conversation as ConversationId, ctx));
+				const inputs = yield* fromPromise(() =>
+					Promise.all((stream.snapshot.run?.inputs ?? []).map(async (id) => (await harness.submission(id, ctx))?.status(ctx))),
+				);
+				const inbox = yield* this.#chatInbox(workflow, authorized.conversation);
+				const record = yield* fromPromise(() => harness.snapshot(Workflow, workflow, ctx));
+				const coordinator = coordinatorView(this.#assignments(), workflow, record?.exists ? record.chat : undefined) ?? {
+					assignment: authorized.assignment,
+					generation: authorized.generation,
+					state: "none" as const,
+				};
+				let stopLedger = () => {};
+				return {
+					coordinator,
+					snapshot: stream.snapshot,
+					inputs: inputs.filter((r) => r !== undefined),
+					inbox,
+					start: (listener) => {
+						// One queue keeps runtime batches and Ledger-only inbox changes in commit order.
+						let queue = Promise.resolve();
+						const push = (events: readonly AgentEvent[]) => {
+							queue = queue.then(async () =>
+								listener({ events, inbox: await runPromise(this.#chatInbox(workflow, authorized.conversation)) }),
+							);
+							return queue;
+						};
+						stream.start((events) => push(events));
+						const observation = Effect.runSync(
+							ledger.observe(scheduling, {
+								send: (frame) => {
+									if ((frame.workflows as { workflow: string }[] | undefined)?.some((w) => w.workflow === workflow))
+										void push([]).catch(() => {});
+								},
+								end: () => {},
+							}),
+						);
+						if ("stop" in observation) stopLedger = observation.stop;
+					},
+					stop: async () => {
+						stopLedger();
+						authorized.stop();
+						await stream.stop();
+					},
+					ended: authorized.ended,
+				} satisfies CoordinatorWatch;
+			}).pipe(Effect.onError(() => Effect.sync(() => authorized.stop())));
+		});
 	}
 	#waitUntil(signal: AbortSignal, ready: () => boolean): Effect.Effect<void, unknown> {
 		return Effect.gen({ self: this }, function* () {

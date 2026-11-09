@@ -17,7 +17,7 @@ test("history-command-load: retained messages scale without quadratic rescans or
 				bearer: device.bearer,
 				body: envelope(
 					String(host.ready.authorityEpoch),
-					{ type: "postCoordinatorMessage", text: `message ${i}\r\n☃` },
+					{ type: "postCoordinatorMessage", whenBusy: "followUp", text: `message ${i}\r\n☃` },
 					{ workflow: workflows[i % 10], commandId: `load-${i}` },
 				),
 			});

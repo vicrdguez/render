@@ -203,7 +203,11 @@ describe(`V2 seeded schedules on real SQLite (${SCHEDULES})`, () => {
 						if (op.kind === "message") {
 							const r = await http(host.url, "POST", "/v1/commands", {
 								bearer: dev.bearer,
-								body: envelope(epoch, { type: "postCoordinatorMessage", text: `message ${k} from ${op.device}` }, { workflow: w }),
+								body: envelope(
+									epoch,
+									{ type: "postCoordinatorMessage", whenBusy: "followUp", text: `message ${k} from ${op.device}` },
+									{ workflow: w },
+								),
 							});
 							if (revoked[op.device]) {
 								assert.equal(r.status, 401, ctx);

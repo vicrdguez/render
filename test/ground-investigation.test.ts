@@ -371,7 +371,8 @@ for (const failure of ["missing_content", "content_corrupt"])
 				),
 				"accepted",
 			);
-			await until(() => assignments(f.ledger)[0]?.status === "blocked" && !assignments(f.ledger)[0]?.executing);
+			// The coordinator settles idle after a run without a report (C11), holding no slot.
+			await until(() => assignments(f.ledger)[0]?.status === "idle" && !assignments(f.ledger)[0]?.executing);
 			const a = assignments(f.ledger)[0]!;
 			assert.ok(sourceRef(a));
 			await f.harness.close(ctx);

@@ -236,7 +236,12 @@ test("LP3/LP6/LP7 regeneration preserves exact history across message feedback a
 		const first = accepted(await f.command(firstCommand, admin, "original-prompt"));
 		const original = await Effect.runPromise(f.ledger.artifact(admin, { read: String(first.result.textArtifact) }));
 		assert.ok("content" in original);
-		accepted(await f.command({ type: "postCoordinatorMessage", text: "Local observation: signing is unrun; no credentials." }, admin));
+		accepted(
+			await f.command(
+				{ type: "postCoordinatorMessage", whenBusy: "followUp", text: "Local observation: signing is unrun; no credentials." },
+				admin,
+			),
+		);
 		const offer = await Effect.runPromise(
 			f.ledger.command(
 				{

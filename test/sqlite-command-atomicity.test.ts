@@ -445,7 +445,7 @@ describe("B4 retained application schema compatibility", () => {
 				bearer: dev.bearer,
 				body: envelope(
 					String(host.ready.authorityEpoch),
-					{ type: "postCoordinatorMessage", text: "retained message literal" },
+					{ type: "postCoordinatorMessage", whenBusy: "followUp", text: "retained message literal" },
 					{ workflow: w },
 				),
 			});
@@ -486,10 +486,12 @@ describe("B4 retained application schema compatibility", () => {
 				assert.deepEqual(blocked.body.refs, { record: ref });
 			});
 			await t.test("message reads refuse unsupported application records", async () => {
-				const messages = await http(host.url, "GET", `/v1/workflows/${encodeURIComponent(w)}/messages`, { bearer: dev.bearer });
-				assert.equal(messages.status, 409, `unsupported message schema must refuse: ${messages.text}`);
-				assert.equal(messages.body.code, "unsupported_schema");
-				assert.ok(!("messages" in messages.body));
+				// The messages route reads the coordinator transcript; the posted record is read as its artifact.
+				const ref = String((message.body.result as Record<string, unknown>).message);
+				const read = await artifact(host, dev.bearer, ref);
+				assert.equal(read.status, 409, `unsupported message schema must refuse: ${read.text}`);
+				assert.equal(read.body.code, "unsupported_schema");
+				assert.ok(!("content" in read.body));
 			});
 			assert.equal(Number((await snapshot(host, dev.bearer)).body.sequence), before);
 			assert.equal(currentRevision((await snapshot(host, dev.bearer)).body, w, "ground"), ref);

@@ -204,7 +204,7 @@ function toCommand(m: Model, step: Step): Record<string, unknown> {
 		case "requestLocalVerificationPrompt":
 			return { type, workflow: c.workflow, source: "revision:missing", expectedSequence: c.expected === "current" ? m.sequence : -1 };
 		case "postCoordinatorMessage":
-			return { type, workflow: c.workflow, text: "hello" };
+			return { type, workflow: c.workflow, text: "hello", whenBusy: "followUp" };
 		case "enrollDevice":
 			return { type, label: "phone", scope: { workflows: "all" } };
 		case "revokeDevice":
@@ -224,6 +224,7 @@ function facts(m: Model, principal: Principal, step: Step): VerifiedFacts {
 	const seq = m.sequence + 1;
 	return {
 		principal,
+		commandId: `command:${seq}`,
 		sequence: seq,
 		ids: {
 			workflow: `workflow:${seq}`,

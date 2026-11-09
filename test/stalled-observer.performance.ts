@@ -27,7 +27,7 @@ test("B3-05 a stalled observer cannot block commits and is disconnected", async 
 				bearer,
 				body: envelope(
 					String(host.ready.authorityEpoch),
-					{ type: "postCoordinatorMessage", text: `${"backlog ".repeat(40)}${i}` },
+					{ type: "postCoordinatorMessage", whenBusy: "followUp", text: `${"backlog ".repeat(40)}${i}` },
 					{ workflow: w },
 				),
 			});

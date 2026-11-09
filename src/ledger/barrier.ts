@@ -17,7 +17,9 @@ export function faultBarrier(
 		| "before-integration-cas"
 		| "after-integration-cas"
 		| "after-integration-readback"
-		| "after-integration-qualification",
+		| "after-integration-qualification"
+		| "before-message-submission"
+		| "after-message-submission",
 	commandId: string,
 ): Effect.Effect<void, unknown> {
 	return Effect.gen(function* () {

@@ -51,10 +51,10 @@ const engine = new Engine({ provider: provider.provider, ...claudeFixture });
 const opened = await Effect.runPromise(
 	openLedger({ data, runtime: (report) => engine.options(report), onFatal: (error) => console.error(error) }),
 );
-const device = deviceServer(opened, opened.principals);
+const device = deviceServer({ ledger: opened.ledger, engine }, opened.principals);
 await new Promise<void>((resolve) => device.listen(0, "127.0.0.1", () => resolve()));
 const socket = join(data, "admin.sock");
-const adminListener = await Effect.runPromise(adminServer(opened, opened.principals, socket));
+const adminListener = await Effect.runPromise(adminServer({ ledger: opened.ledger, engine }, opened.principals, socket));
 let n = 0;
 const command = async (workflow: string | undefined, command: Record<string, unknown>, context = admin, extra = {}) => {
 	const reply = await Effect.runPromise(

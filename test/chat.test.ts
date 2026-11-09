@@ -187,23 +187,20 @@ test("C6 withdrawal: a queued message is aborted and never placed; a placed one 
 		await until(() => (f.view().inbox as unknown[]).length === 0 || undefined, "the follow-up submitted");
 		const withdrawn = await f.withdraw("c6-queued", "c6-withdraw");
 		assert.equal(withdrawn.status, "accepted", JSON.stringify(withdrawn));
-		await until(async () => (await outcomes(f))["c6-queued"], "the recorded withdrawal outcome");
+		const placed = await f.withdraw("c6-start", "c6-withdraw-placed");
+		assert.equal(placed.status, "accepted");
+		await until(async () => (await outcomes(f))["c6-queued"] && (await outcomes(f))["c6-start"], "the recorded withdrawal outcomes");
 		first.release();
 		await idle(f);
-		assert.equal((await outcomes(f))["c6-queued"], "aborted");
-		const transcript = await f.transcript();
+		assert.deepEqual(await outcomes(f), { "c6-queued": "aborted", "c6-start": "already_placed" });
 		assert.equal(
-			transcript.some((m) => m.commandId === "c6-queued"),
+			(await f.transcript()).some((m) => m.commandId === "c6-queued"),
 			false,
 		);
 		assert.equal(
 			f.chat.requests.some((r) => r.users.includes("Never mind this.")),
 			false,
 		);
-		const placed = await f.withdraw("c6-start", "c6-withdraw-placed");
-		assert.equal(placed.status, "accepted");
-		await until(async () => (await outcomes(f))["c6-start"], "the placed message's outcome");
-		assert.equal((await outcomes(f))["c6-start"], "already_placed");
 	} finally {
 		await f.close();
 	}
@@ -231,6 +228,8 @@ test("C6 a withdrawal that commits while Engine is submitting still records the 
 			delete process.env.RENDER_FAULT_BARRIER;
 			delete process.env.RENDER_FAULT_COMMAND;
 		}
+		// The test runner writes a diagnostic report on this signal; this process only needs the barrier's release.
+		for (const listener of process.listeners("SIGUSR2")) if (listener.name === "signalHandler") process.off("SIGUSR2", listener);
 		process.kill(process.pid, "SIGUSR2");
 		await until(
 			async () => (await facts(f)).some((r) => r.command === "recordMessageWithdrawal" && r.refs?.message === "race-queued"),

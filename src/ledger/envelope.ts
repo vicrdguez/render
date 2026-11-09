@@ -2,6 +2,7 @@
 // body field can pose as a principal, route or capability.
 import { createHash } from "node:crypto";
 import { PROVIDERS } from "../engine/providers.ts";
+import { CHAT_COMMANDS, WITHDRAWAL_OUTCOMES, type WithdrawalOutcome } from "../kernel/chat.ts";
 import { validCheckpointModes } from "../kernel/checkpoint-settings.ts";
 import { CHECKPOINT_COMMANDS, type CheckpointCommand } from "../kernel/checkpoints.ts";
 import { validEngineSettingsShape } from "../kernel/engine-settings.ts";
@@ -95,7 +96,7 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 		type === "requestLocalVerificationPrompt" ||
 		type === "adoptPolicy" ||
 		type === "saveDocument" ||
-		type === "postCoordinatorMessage" ||
+		CHAT_COMMANDS.includes(type) ||
 		ROLE_COMMANDS.includes(type) ||
 		PUBLICATION_COMMANDS.includes(type) ||
 		CHECKPOINT_COMMANDS.includes(type) ||
@@ -238,8 +239,39 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 			};
 		}
 		case "postCoordinatorMessage":
-			only(c, ["type", "text"], "command");
-			return { command: { type, workflow: workflow as string, text: text(c.text, "text", 65_536) } };
+			only(c, ["type", "text", "whenBusy"], "command");
+			if (c.whenBusy !== "steer" && c.whenBusy !== "followUp") malformed("whenBusy must be steer or followUp");
+			return { command: { type, workflow: workflow as string, text: text(c.text, "text", 65_536), whenBusy: c.whenBusy } };
+		case "withdrawCoordinatorMessage":
+			only(c, ["type", "message"], "command");
+			return { command: { type, workflow: workflow as string, message: text(c.message, "message", 128) } };
+		case "interruptCoordinator":
+			only(c, ["type"], "command");
+			return { command: { type, workflow: workflow as string } };
+		case "recordMessageSubmission":
+			only(c, ["type", "message", "assignment", "generation", "submission"], "command");
+			if (!Number.isSafeInteger(c.generation) || !Number.isSafeInteger(c.submission)) malformed("generation and submission are integers");
+			return {
+				command: {
+					type,
+					workflow: workflow as string,
+					message: text(c.message, "message", 128),
+					assignment: text(c.assignment, "assignment", 128),
+					generation: c.generation as number,
+					submission: c.submission as number,
+				},
+			};
+		case "recordMessageWithdrawal":
+			only(c, ["type", "message", "outcome"], "command");
+			if (!WITHDRAWAL_OUTCOMES.includes(c.outcome as WithdrawalOutcome))
+				malformed("outcome is aborted, already_placed, settled or not_found");
+			return {
+				command: { type, workflow: workflow as string, message: text(c.message, "message", 128), outcome: c.outcome as WithdrawalOutcome },
+			};
+		case "recordInterrupt":
+			only(c, ["type", "interrupt"], "command");
+			if (!Number.isSafeInteger(c.interrupt)) malformed("interrupt is an integer");
+			return { command: { type, workflow: workflow as string, interrupt: c.interrupt as number } };
 		case "enrollDevice": {
 			only(c, ["type", "label", "scope"], "command");
 			const scope = object(c.scope, "scope");

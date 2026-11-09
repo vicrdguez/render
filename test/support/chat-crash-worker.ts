@@ -30,19 +30,19 @@ const opened = await Effect.runPromise(
 		},
 	}),
 );
-const send = (command: Record<string, unknown>, id: string, context = admin, workflow: string | undefined = WORKFLOW) =>
+const send = (command: Record<string, unknown>, id: string, context = admin, workflow: string | null = WORKFLOW) =>
 	Effect.runPromise(
 		opened.ledger.command(
-			{ version: 1, authorityEpoch: opened.authorityEpoch, commandId: id, ...(workflow ? { workflow } : {}), command },
+			{ version: 1, authorityEpoch: opened.authorityEpoch, commandId: id, ...(workflow === null ? {} : { workflow }), command },
 			context,
 		),
 	);
-const coordinator = () => ((opened.ledger.snapshot(admin) as { assignments: RoleAssignment[] }).assignments ?? [])[0];
+const coordinator = () => ((opened.ledger.snapshot(admin) as unknown as { assignments: RoleAssignment[] }).assignments ?? [])[0];
 const idle = () => until(() => (coordinator()?.status === "idle" && !coordinator()?.executing) || undefined, "idle coordinator", 15_000);
 try {
 	if (mode === "crash") {
-		await send(addProject(), "project", admin, undefined);
-		await send({ type: "createWorkflow", title: "chat crash", project: PROJECT }, "create", admin, undefined);
+		await send(addProject(), "project", admin, null);
+		await send({ type: "createWorkflow", title: "chat crash", project: PROJECT }, "create", admin, null);
 		await Effect.runPromise(
 			opened.ledger.command(
 				{

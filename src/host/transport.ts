@@ -4,14 +4,16 @@ import { chmod, rm } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import * as Effect from "effect/Effect";
 import { fromPromise, runPromise } from "../effect.ts";
+import type { Engine } from "../engine/runtime.ts";
 import { PROTOCOL_VERSION } from "../ledger/envelope.ts";
 import type { HistoryQuery } from "../ledger/history.ts";
 import type { Artifact, Frame, Ledger, LedgerRefusal } from "../ledger/ledger.ts";
 import type { AuthenticatedContext, Principals } from "../ledger/principals.ts";
+import { CHAT_VERSION, type ChatFrame, chatMapper } from "./chat.ts";
 import { isSecretName, type Secrets } from "./secrets.ts";
 
 /** Without `secrets` the secrets routes answer `not_found`. */
-export type HostApi = { readonly ledger: Ledger; readonly secrets?: Secrets };
+export type HostApi = { readonly ledger: Ledger; readonly engine: Pick<Engine, "watch">; readonly secrets?: Secrets };
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 /** Frames queued behind a full socket before a slow observer is disconnected. */
@@ -158,13 +160,51 @@ function secrets(
 	});
 }
 
+/** Live coordinator chat for one workflow. Read-only: closing it never stops a run. */
+function chat(api: HostApi, context: AuthenticatedContext, workflow: string, res: ServerResponse): Effect.Effect<void, unknown> {
+	return Effect.gen(function* () {
+		const watch = yield* api.engine.watch(context, workflow);
+		if ("status" in watch) return send(res, watch);
+		const mapper = chatMapper(workflow, watch);
+		let open = true;
+		let pending = 0;
+		const close = () => {
+			if (!open) return;
+			open = false;
+			// Best effort: the runtime may already be closing with the host.
+			watch.stop().catch(() => {});
+		};
+		const finish = (frame: ChatFrame) => {
+			if (open) res.end(`${JSON.stringify(frame)}\n`);
+			close();
+		};
+		const write = (frame: ChatFrame) => {
+			if (!open) return;
+			if (res.write(`${JSON.stringify(frame)}\n`)) return;
+			// A consumer that falls too far behind is ended and takes a fresh chat snapshot.
+			if (++pending > MAX_PENDING_FRAMES) finish({ version: CHAT_VERSION, kind: "end", reason: "backlog" });
+		};
+		res.on("drain", () => {
+			pending = 0;
+		});
+		res.on("close", close);
+		res.writeHead(200, { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" });
+		write(mapper.snapshot);
+		watch.start((update) => {
+			for (const frame of mapper.map(update)) write(frame);
+		});
+		void watch.ended.then((reason) => finish({ version: CHAT_VERSION, kind: "end", reason }));
+	});
+}
+
 function route(
-	{ ledger, secrets: file }: HostApi,
+	api: HostApi,
 	principals: Principals,
 	context: AuthenticatedContext,
 	req: IncomingMessage,
 	res: ServerResponse,
 ): Effect.Effect<void, unknown> {
+	const { ledger, secrets: file } = api;
 	return Effect.gen(function* () {
 		const url = new URL(req.url ?? "/", "http://render.invalid");
 		const path = url.pathname;
@@ -196,6 +236,11 @@ function route(
 		const artifact = /^\/v1\/artifacts\/([^/]+)$/.exec(path);
 		if (req.method === "GET" && artifact)
 			return send(res, artifactBody(yield* ledger.artifact(context, { read: decodeURIComponent(artifact[1] as string) })));
+		const live = /^\/v1\/workflows\/([^/]+)\/chat$/.exec(path);
+		if (req.method === "GET" && live) {
+			if (version !== null && version !== String(CHAT_VERSION)) return send(res, UNSUPPORTED_VERSION);
+			return yield* chat(api, context, decodeURIComponent(live[1] as string), res);
+		}
 		const messages = /^\/v1\/workflows\/([^/]+)\/messages$/.exec(path);
 		if (req.method === "GET" && messages) {
 			const cursor = url.searchParams.get("cursor");

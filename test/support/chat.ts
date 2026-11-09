@@ -52,7 +52,8 @@ export function chatProvider() {
 	p.setResponses(
 		Array.from({ length: 400 }, () => async (context: TranscriptContext, options: { signal?: AbortSignal } | undefined) => {
 			const system = context.messages.find((m) => m.role === "system" && m.sections && Object.hasOwn(m.sections, "role-packet"));
-			const rendered = JSON.parse(String((system as { sections: Record<string, string> } | undefined)?.sections["role-packet"] ?? "{}"));
+			const section = String((system as { sections: Record<string, string> } | undefined)?.sections["role-packet"] ?? "{}");
+			const rendered = JSON.parse(section.slice(section.indexOf("{"), section.lastIndexOf("}") + 1));
 			const request: ChatRequest = {
 				assignment: String(rendered.assignment),
 				role: String(rendered.packet?.role),
@@ -120,7 +121,7 @@ export async function chatFixture(options: { packet?: Partial<RolePacket> } = {}
 				context,
 			),
 		);
-	const assignments = () => (f.ledger.snapshot(admin) as { assignments: RoleAssignment[] }).assignments;
+	const assignments = () => (f.ledger.snapshot(admin) as unknown as { assignments: RoleAssignment[] }).assignments;
 	const assigned = await f.command({ type: "assignTask", slice: WORKFLOW, delivery: false, packet: coordinatorPacket(options.packet) });
 	if (assigned.status !== "accepted") throw new Error(JSON.stringify(assigned));
 	const coordinator = String(assigned.result.assignment);
@@ -137,7 +138,7 @@ export async function chatFixture(options: { packet?: Partial<RolePacket> } = {}
 		withdraw: (message: string, id?: string) => human({ type: "withdrawCoordinatorMessage", message }, id),
 		interrupt: (id?: string) => human({ type: "interruptCoordinator" }, id),
 		view: () =>
-			(f.ledger.snapshot(admin) as { workflows: { workflow: string; messages: Record<string, unknown> }[] }).workflows.find(
+			(f.ledger.snapshot(admin) as unknown as { workflows: { workflow: string; messages: Record<string, unknown> }[] }).workflows.find(
 				(w) => w.workflow === WORKFLOW,
 			)!.messages,
 		transcript: async () => {

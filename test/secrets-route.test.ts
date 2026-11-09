@@ -16,9 +16,10 @@ const VALUE = "ghp_routeSecretValueNeverDisclosed0123";
 
 async function host() {
 	const data = await mkdtemp(join(tmpdir(), "render-secrets-route-"));
-	const opened = await Effect.runPromise(openLedger({ data, runtime: (report) => new Engine().options(report), onFatal: () => {} }));
+	const engine = new Engine();
+	const opened = await Effect.runPromise(openLedger({ data, runtime: (report) => engine.options(report), onFatal: () => {} }));
 	const file = join(data, "secrets.json");
-	const server: Server = deviceServer({ ledger: opened.ledger, secrets: secretsFile(file) }, opened.principals);
+	const server: Server = deviceServer({ ledger: opened.ledger, engine, secrets: secretsFile(file) }, opened.principals);
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 	const address = server.address();
 	assert.ok(address && typeof address !== "string");
