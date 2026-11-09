@@ -9,7 +9,7 @@ import { Engine } from "../../src/engine/runtime.ts";
 import { RoleBinding } from "../../src/ledger/records.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
 import { assignments, finding, investigationPacket, saveGround, until } from "./investigation.ts";
-import { admin, scheduler } from "./roles.ts";
+import { admin, claudeFixture, scheduler } from "./roles.ts";
 
 const [data, mode, repo, commit] = process.argv.slice(2) as [string, string, string, string];
 const provider = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
@@ -30,8 +30,7 @@ provider.setResponses(
 );
 const engine = new Engine({
 	provider: provider.provider,
-	apiKey: "fixture",
-	families: { "claude-sonnet-4-6": "claude" },
+	...claudeFixture,
 	investigations: { root: join(data, "source"), repositories: { owned: repo } },
 });
 let harness!: Harness;

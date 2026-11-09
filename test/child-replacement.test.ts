@@ -8,7 +8,7 @@ import type { WorkflowView } from "../src/kernel/kernel.ts";
 import type { PolicyState } from "../src/kernel/policy.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
-import { admin, allowSameFamily, packet, roleFixture } from "./support/roles.ts";
+import { admin, allowSameFamily, claudeFixture, packet, roleFixture } from "./support/roles.ts";
 
 for (const scenario of ["policy adoption", "policy adoption across restart", "repeated unsubmitted child"] as const) {
 	test(`child replacement: ${scenario} resumes the waiting owner with only the linked result`, async () => {
@@ -46,7 +46,7 @@ for (const scenario of ["policy adoption", "policy adoption across restart", "re
 				});
 			}),
 		);
-		const engine = () => new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } });
+		const engine = () => new Engine({ provider: p.provider, ...claudeFixture });
 		const f = await roleFixture(engine());
 		const snapshot = () => {
 			const frame = f.ledger.snapshot(admin);

@@ -12,7 +12,7 @@ import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
-import { admin, packet, roleFixture } from "./support/roles.ts";
+import { admin, claudeFixture, packet, roleFixture } from "./support/roles.ts";
 import { webHttpFixture as fixture, retainedEvidenceRef, roleWebJourney } from "./support/web-http.ts";
 
 test("B3/B4 retained fallback evidence keeps the Exa failure and eligibility uncertainty", async () => {
@@ -331,8 +331,7 @@ for (const damage of ["missing", "corrupt"])
 			f = await roleFixture(
 				new Engine({
 					provider: p.provider,
-					apiKey: "fixture",
-					families: { "claude-sonnet-4-6": "claude" },
+					...claudeFixture,
 					web: { exaKey: "fixture", exaBaseUrl: http.url },
 				}),
 			);

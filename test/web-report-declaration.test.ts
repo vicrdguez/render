@@ -8,7 +8,7 @@ import { change, type KernelState, type VerifiedFacts } from "../src/kernel/kern
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { decision } from "./support/kernel.ts";
-import { admin, packet, roleFixture } from "./support/roles.ts";
+import { admin, claudeFixture, packet, roleFixture } from "./support/roles.ts";
 
 // These values are literal accepted-boundary oracles, not derived from report implementation.
 test("B4 Kernel requires an explicit web reliance declaration and own promoted support", () => {
@@ -102,7 +102,7 @@ test("B4 registered report omission refuses; explicit no-web declaration survive
 			});
 		},
 	]);
-	f = await roleFixture(new Engine({ provider: p.provider, apiKey: "fixture", families: { "claude-sonnet-4-6": "claude" } }));
+	f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 	try {
 		await f.command({ type: "assignTask", slice: "slice:declaration", delivery: true, packet: packet() });
 		let a!: RoleAssignment;

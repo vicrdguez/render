@@ -10,7 +10,7 @@ import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import type { CommandReply } from "../../src/ledger/ledger.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
 import type { LinuxProfile } from "../../src/sandboxes/sandboxes.ts";
-import { admin, packet, roleFixture } from "./roles.ts";
+import { admin, claudeFixture, packet, roleFixture } from "./roles.ts";
 import { git, gitSourceFixture, sourceFixture } from "./source.ts";
 
 export const catalog = (_sanity = "exit 0", cleanup = "true") => `# Owned catalog
@@ -95,8 +95,7 @@ export async function catalogFixture(
 	const engine = new Engine({
 		ownedChecks: config,
 		provider: provider.provider,
-		apiKey: "fixture",
-		families: { "claude-sonnet-4-6": "claude" },
+		...claudeFixture,
 		...(options.forge ? { forge: options.forge } : {}),
 	});
 	const f = await roleFixture(engine);

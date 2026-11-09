@@ -13,7 +13,7 @@ import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
-import { admin, allowSameFamily, packet, recovery, roleFixture } from "./support/roles.ts";
+import { admin, allowSameFamily, claudeFixture, packet, recovery, roleFixture } from "./support/roles.ts";
 
 async function until(check: () => boolean) {
 	const end = Date.now() + 5000;
@@ -41,7 +41,7 @@ test("R12 retained role packets, reports, task receipts and uncertainty export a
 			});
 		}),
 	);
-	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }));
+	const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 	await allowSameFamily(f.ledger);
 	const assignments = () => roleAssignments(f);
 	try {

@@ -5,7 +5,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
-import { admin, packet, roleFixture } from "./support/roles.ts";
+import { admin, claudeFixture, packet, roleFixture } from "./support/roles.ts";
 
 function assignments(f: Awaited<ReturnType<typeof roleFixture>>) {
 	const frame = f.ledger.snapshot(admin);
@@ -85,7 +85,7 @@ test("context-continuation-independence: same-family review requires recorded hu
 			});
 		},
 	]);
-	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
+	const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 	try {
 		await f.command({
 			type: "assignTask",
@@ -142,7 +142,7 @@ for (const source of [
 		const canary = "PRIVATE-RESULT-CANARY-6";
 		const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
 		p.setResponses([fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: canary }), { stopReason: "toolUse" })]);
-		const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
+		const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 		try {
 			assert.equal(
 				(

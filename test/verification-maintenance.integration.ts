@@ -9,7 +9,7 @@ import type { RoleAssignment } from "../src/kernel/roles.ts";
 import type { CommandReply } from "../src/ledger/ledger.ts";
 import { type AuthenticatedContext as Context, mintContext } from "../src/ledger/principals.ts";
 import { settled } from "./support/catalog.ts";
-import { admin, packet, roleFixture, scheduler } from "./support/roles.ts";
+import { admin, claudeFixture, packet, roleFixture, scheduler } from "./support/roles.ts";
 import { git, sourceFixture } from "./support/source.ts";
 
 type Row = { run: string; expectations: string };
@@ -196,8 +196,7 @@ before(async () => {
 	const engine = new Engine({
 		ownedChecks: config as never,
 		provider: provider.provider,
-		apiKey: "fixture",
-		families: { "claude-sonnet-4-6": "claude" },
+		...claudeFixture,
 	});
 	f = await roleFixture(engine);
 	for (const [name, files] of Object.entries(commits) as [keyof typeof commits, Record<string, string>][]) {

@@ -7,7 +7,7 @@ import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
-import { admin, packet, roleFixture } from "./support/roles.ts";
+import { admin, claudeFixture, packet, roleFixture } from "./support/roles.ts";
 
 test("native-compaction-history: Engine exports scoped committed transcript and terminal receipt, not transient tokens", async () => {
 	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
@@ -16,7 +16,7 @@ test("native-compaction-history: Engine exports scoped committed transcript and 
 			stopReason: "toolUse",
 		}),
 	]);
-	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
+	const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 	try {
 		await f.command({ type: "assignTask", slice: "runtime-history", delivery: true, packet: packet() });
 		let bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
@@ -84,7 +84,7 @@ test("native-compaction-history: Engine compacts twice, refreshes exact constrai
 			};
 		}
 	}
-	const f = await roleFixture(new SmallContext({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
+	const f = await roleFixture(new SmallContext({ provider: p.provider, ...claudeFixture }));
 	const roles = () =>
 		(f.ledger.snapshot(admin) as import("../src/ledger/ledger.ts").Frame).assignments as import("../src/kernel/roles.ts").RoleAssignment[];
 	try {
@@ -173,7 +173,7 @@ for (const damage of ["missing", "corrupt", "schema"] as const) {
 		p.setResponses([
 			fauxAssistantMessage(fauxToolCall("submit_role_result", { supports: [], text: "Retained report." }), { stopReason: "toolUse" }),
 		]);
-		const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
+		const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 		try {
 			await f.command({ type: "assignTask", slice: "damaged-history", delivery: true, packet: packet() });
 			for (let n = 0; n < 300; n++) {

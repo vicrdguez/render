@@ -171,3 +171,8 @@ export async function roleFixture(engine = new Engine()) {
 		},
 	};
 }
+/** A Claude family authenticated by a fixture API key, so role fixtures need no pi login file. */
+export const claudeFixture = {
+	families: [{ name: "claude", provider: "anthropic", auth: "api-key" }],
+	secrets: () => ({ apiKeys: { anthropic: "fixture" } }),
+} as const;

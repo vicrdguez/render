@@ -6,16 +6,15 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
 import { openLedger, StartupFailure } from "../../src/ledger/startup.ts";
-import { packet, roleFixture } from "./roles.ts";
+import { claudeFixture, packet, roleFixture } from "./roles.ts";
 
 const [mode, data, url] = process.argv.slice(2);
 assert.ok(mode && data && url);
 const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
 p.setResponses([fauxAssistantMessage(fauxToolCall("web_search", { queries: ["crash-boundary"] }), { stopReason: "toolUse" })]);
 const engine = new Engine({
-	apiKey: "fixture",
+	...claudeFixture,
 	provider: p.provider,
-	families: { "claude-sonnet-4-6": "claude" },
 	web: {
 		exaKey: "fixture",
 		tavilyKey: "fixture",

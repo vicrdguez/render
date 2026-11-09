@@ -6,7 +6,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import { assignments, finding, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
-import { admin, packet, roleFixture } from "./support/roles.ts";
+import { admin, claudeFixture, packet, roleFixture } from "./support/roles.ts";
 import { sourceFixture } from "./support/source.ts";
 
 test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence and independent comparison after cleanup", async () => {
@@ -14,8 +14,7 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6", reasoning: true }] });
 	const engine = new Engine({
 		provider: p.provider,
-		apiKey: "owned-fixture",
-		families: { "claude-sonnet-4-6": "claude" },
+		...claudeFixture,
 		experiments: { root: join(source.root, "experiments"), repositories: { owned: source.repo } },
 		investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
 	});

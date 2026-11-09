@@ -10,7 +10,7 @@ import { deviceServer } from "../src/ledger/http.ts";
 import type { CommandReply } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { assignments, finding, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
-import { admin, roleFixture, scheduler } from "./support/roles.ts";
+import { admin, claudeFixture, roleFixture, scheduler } from "./support/roles.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
 
 async function fixture() {
@@ -36,8 +36,7 @@ async function fixture() {
 	const f = await roleFixture(
 		new Engine({
 			provider: provider.provider,
-			apiKey: "owned-fixture",
-			families: { "claude-sonnet-4-6": "claude" },
+			...claudeFixture,
 			investigations: { root: join(source.root, "investigation"), repositories: { owned: source.repo } },
 		}),
 	);

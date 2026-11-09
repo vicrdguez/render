@@ -28,7 +28,7 @@ async function scratch(files: Record<string, unknown>) {
 }
 async function settled(f: Fixture, status: RoleAssignment["status"]) {
 	for (let n = 0; n < 500; n++) {
-		const a = ((f.ledger.snapshot(admin) as { assignments: RoleAssignment[] }).assignments ?? [])[0];
+		const a = ((f.ledger.snapshot(admin) as unknown as { assignments: RoleAssignment[] }).assignments ?? [])[0];
 		if (a?.status === status && !a.executing) return a;
 		await setTimeout(10);
 	}
@@ -50,7 +50,9 @@ async function assertAbsent(f: Fixture, secret: string) {
 }
 
 test("M1 a role on openai/gpt-6.1-sol authenticates with the operator's openai pi login and stores no token", async () => {
-	const dir = await scratch({ "auth.json": { openai: { type: "oauth", access: OPENAI_TOKEN, refresh: "r", expires: Date.now() + 3_600_000 } } });
+	const dir = await scratch({
+		"auth.json": { openai: { type: "oauth", access: OPENAI_TOKEN, refresh: "r", expires: Date.now() + 3_600_000 } },
+	});
 	const p = fauxProvider({ provider: "openai", api: "openai-responses", models: [{ id: "gpt-6.1-sol" }] });
 	let carried: string | undefined;
 	p.setResponses([

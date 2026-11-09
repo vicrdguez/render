@@ -10,7 +10,7 @@ import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { until } from "./support/investigation.ts";
 import { decision } from "./support/kernel.ts";
-import { admin, allowSameFamily, packet, roleFixture } from "./support/roles.ts";
+import { admin, allowSameFamily, claudeFixture, packet, roleFixture } from "./support/roles.ts";
 
 function accepted(reply: CommandReply) {
 	assert.equal(reply.status, "accepted", JSON.stringify(reply));
@@ -89,7 +89,7 @@ async function fixture(direction = true, change?: (packets: RolePacket[]) => voi
 			return fauxAssistantMessage("stopped");
 		}),
 	);
-	const engine = new Engine({ provider: provider.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } });
+	const engine = new Engine({ provider: provider.provider, ...claudeFixture });
 	const f = await roleFixture(engine);
 	if (direction) await allowSameFamily(f.ledger);
 	let seq = 0;

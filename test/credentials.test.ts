@@ -7,6 +7,7 @@ import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { setTimeout } from "node:timers/promises";
 import type { OAuthCredential } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
@@ -68,6 +69,7 @@ test("M2 Render and pi refreshing the same expired login at once refresh exactly
 					...oauth,
 					toAuth: async (credential) => ({ apiKey: credential.access }),
 					refresh: async (credential) => {
+						await setTimeout(500);
 						await writeFile(f.log, "render\n", { flag: "a" });
 						return { ...credential, access: "render-access", expires: Date.now() + 3_600_000 };
 					},

@@ -11,7 +11,7 @@ import { deviceServer } from "../src/ledger/http.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { finding, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
-import { admin, allowSameFamily, packet, passOwner, roleFixture } from "./support/roles.ts";
+import { admin, allowSameFamily, claudeFixture, packet, passOwner, roleFixture } from "./support/roles.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
 
 function accepted(reply: CommandReply) {
@@ -93,8 +93,7 @@ async function fixture(shape: "bug" | "design" = "bug", investigations?: { root:
 	const f = await roleFixture(
 		new Engine({
 			provider: provider.provider,
-			apiKey: "owned-fixture",
-			families: { "claude-sonnet-4-6": "claude" },
+			...claudeFixture,
 			...(investigations ? { investigations } : {}),
 		}),
 	);

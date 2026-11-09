@@ -12,7 +12,7 @@ import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import type { Frame } from "../../src/ledger/ledger.ts";
 import { RoleBinding } from "../../src/ledger/records.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
-import { admin, allowSameFamily, packet, scheduler } from "./roles.ts";
+import { admin, allowSameFamily, claudeFixture, packet, scheduler } from "./roles.ts";
 
 const data = process.argv[2]!;
 const mode = process.argv[3]!;
@@ -38,7 +38,7 @@ const scripted: import("@earendil-works/pi-ai/providers/faux").FauxResponseFacto
 	return fauxAssistantMessage(fauxToolCall("request_role", { key: "challenge" }, { id: "reused-provider-id" }), { stopReason: "toolUse" });
 };
 p.setResponses(Array.from({ length: 12 }, () => scripted));
-const engine = new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } });
+const engine = new Engine({ provider: p.provider, ...claudeFixture });
 let harness!: Harness;
 const opened = await Effect.runPromise(
 	openLedger({

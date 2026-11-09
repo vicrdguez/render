@@ -4,7 +4,7 @@ import { fauxProvider } from "@earendil-works/pi-ai/providers/faux";
 import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import { assignments, saveGround, until } from "./support/investigation.ts";
-import { admin, packet, roleFixture } from "./support/roles.ts";
+import { admin, claudeFixture, packet, roleFixture } from "./support/roles.ts";
 import { gitSourceFixture } from "./support/source.ts";
 
 const protocol = {
@@ -140,8 +140,7 @@ test("E14 exact source refusal before allocation does not consume executing capa
 	const f = await roleFixture(
 		new Engine({
 			provider: provider.provider,
-			apiKey: "fixture",
-			families: { "claude-sonnet-4-6": "claude" },
+			...claudeFixture,
 			experiments: { root: `${source.root}/experiments`, repositories: { owned: source.repo } },
 		}),
 	);

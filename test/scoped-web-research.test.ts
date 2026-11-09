@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { Engine } from "../src/engine/runtime.ts";
-import { admin, packet, roleFixture } from "./support/roles.ts";
+import { admin, claudeFixture, packet, roleFixture } from "./support/roles.ts";
 import { classify, webHttpFixture as fixture, roleWebJourney } from "./support/web-http.ts";
 
 test("B1/B3 empty success is final; provider refusal falls back once with distinct provenance", async () => {
@@ -237,8 +237,7 @@ for (const status of [429, 402])
 			f = await roleFixture(
 				new Engine({
 					provider: p.provider,
-					apiKey: "fixture",
-					families: { "claude-sonnet-4-6": "claude" },
+					...claudeFixture,
 					web: { exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: http.url, tavilyBaseUrl: http.url },
 				}),
 			);

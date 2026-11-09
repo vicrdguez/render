@@ -11,7 +11,7 @@ import { Engine } from "../../src/engine/runtime.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import type { Ledger } from "../../src/ledger/ledger.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
-import { admin, allowSameFamily, packet, scheduler } from "./roles.ts";
+import { admin, allowSameFamily, claudeFixture, packet, scheduler } from "./roles.ts";
 
 const [data, mode, action] = process.argv.slice(2);
 assert.ok(data && mode && action);
@@ -26,7 +26,7 @@ p.setResponses(
 				});
 	}),
 );
-const engine = new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } });
+const engine = new Engine({ provider: p.provider, ...claudeFixture });
 let harness!: Harness;
 let boundLedger!: Ledger;
 const opened = await Effect.runPromise(
