@@ -32,8 +32,8 @@ type Cut = {
 	/** The killed host's Git also left a canonical-ref lock behind. */
 	staleLock?: true;
 };
-const PASS = "integration:pass:workflow:2:value:1";
-const PROPOSAL = "integration:workflow:2";
+const PASS = "integration:pass:workflow:3:value:1";
+const PROPOSAL = "integration:workflow:3";
 const CUTS: Cut[] = [
 	{ barrier: "before-integration-admission", key: PASS, moved: false, recovery: "fresh-admission" },
 	{ barrier: "after-integration-admission", key: PASS, moved: false, recovery: "reconcile-then-fresh", staleLock: true },
@@ -67,14 +67,14 @@ async function cut({ barrier, key, moved, recovery, staleLock }: Cut) {
 		setup = JSON.parse(output.split("\n").find((line) => line.includes('"event":"data"'))!);
 		const store = join(setup!.config.root, "effects", "projects", "project:2.git");
 		const ref = () =>
-			git(store, ["rev-parse", proposalRef("workflow:2")])
+			git(store, ["rev-parse", proposalRef("workflow:3")])
 				.toString()
 				.trim();
 		const before = ref();
 		const died = new Promise<void>((resolve) => child.once("exit", () => resolve()));
 		child.kill("SIGKILL");
 		await died;
-		const lock = join(store, `${proposalRef("workflow:2")}.lock`);
+		const lock = join(store, `${proposalRef("workflow:3")}.lock`);
 		if (staleLock) await writeFile(lock, `${before}\n`);
 		const provider = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
 		// The fixture's paused coordinator may resume; no delivery or review role may run again.

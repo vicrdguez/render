@@ -28,7 +28,7 @@ import {
 	proposalRef,
 	releaseBarrier,
 } from "./support/implementation-engine.ts";
-import { admin } from "./support/roles.ts";
+import { admin, PROJECT } from "./support/roles.ts";
 import { git } from "./support/source.ts";
 
 // Written independently of the product's record type: these are the fields the Contract requires a reader to find.
@@ -94,7 +94,7 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 		const pass = (frame.implementationPasses as ImplementationPass[]).find((p) => p.ref === opening.passRef);
 		assert.ok(pass?.handoff, "handoff and its preparation are committed on the pass");
 		assert.ok(pass.handoff.preparationTask, "preparation task is staged atomically with handoff");
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of [opening.passRecord, pass.handoff.record, ...reviews.map((a) => a.report)])
 			assert.ok(exported.content[ref as string], `export retains ${ref}`);
@@ -131,7 +131,7 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 		const base = t.writer.verification!.commit;
 		const store = effectsStore(t);
 		assert.equal(
-			git(store, ["rev-parse", proposalRef("workflow:2")])
+			git(store, ["rev-parse", proposalRef("workflow:3")])
 				.toString()
 				.trim(),
 			base,
@@ -140,7 +140,7 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 		assert.equal(first.handoff!.preparations?.length, 1);
 		const x1 = await prepared(first.handoff!.preparations![0]!);
 		assert.equal(x1.outcome, "checked");
-		assert.deepEqual(x1.target, { proposal: "workflow:2", ref: proposalRef("workflow:2"), commit: base });
+		assert.deepEqual(x1.target, { proposal: "workflow:3", ref: proposalRef("workflow:3"), commit: base });
 		assert.equal(x1.preparation?.kind, "clean");
 		assert.equal(x1.preparation?.base, base, "recorded assignment base, not the sealed capture parent");
 		assert.equal(x1.preparation?.source, receipt.source.commit);
@@ -244,7 +244,7 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 		assert.equal(x2.target.commit, T1);
 		assert.equal(x2.preparation?.result, b2.commit, "B2 already includes T1");
 		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0);
-		const twoPass = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const twoPass = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in twoPass && twoPass.manifest.complete);
 		for (const ref of [
 			p1.record,
@@ -289,9 +289,9 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 		assert.match(stalled.blocker ?? "", /^implementation_opening_source_unavailable/);
 		assert.equal(t.prompts.filter((p) => p.implementation?.ordinal === 3).length, 0, "no writer turn starts without its base");
 		assert.equal(passes()[2]?.workspace, undefined);
-		const settledExport = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const settledExport = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in settledExport);
-		const page = await Effect.runPromise(t.f.ledger.observe(admin, { history: { workflow: "workflow:2", limit: "1" } }));
+		const page = await Effect.runPromise(t.f.ledger.observe(admin, { history: { workflow: "workflow:3", limit: "1" } }));
 		assert.ok("next" in page && page.next);
 		assert.equal(page.cutoff, settledExport.manifest.cutoff);
 		t.gate.resolve();
@@ -364,7 +364,7 @@ test("TP01/TP11/TP13: clean merge, drift after combined checks and a failing X c
 		assert.deepEqual(JSON.parse(await h.read(p2.opening!.observation)), {
 			schema: 1,
 			cause: "prepared-check-failure",
-			repository: "owned",
+			repository: PROJECT,
 			source: p1.handoff.source,
 			sourceCommit: h.B.commit,
 			baseCommit: h.base,
@@ -414,7 +414,7 @@ async function verifierDefect(verifier: (text: string) => string, defect: RegExp
 		assert.deepEqual(JSON.parse(await h.read(p2.opening!.observation)), {
 			schema: 1,
 			cause: "prepared-verifier-defect",
-			repository: "owned",
+			repository: PROJECT,
 			source: p1.handoff.source,
 			sourceCommit: h.B.commit,
 			baseCommit: h.base,
@@ -457,7 +457,7 @@ test("TP28: a policy adopted while X's checks run never leaves X qualified under
 		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
 		holdAt("before-prepared-check", `prepared-check:${opening.passRef}:1`);
 		await parked("X checks under the handoff-time binding");
-		const old = policyOf(t).bindings["workflow:2"]!;
+		const old = policyOf(t).bindings["workflow:3"]!;
 		assert.equal(policyOf(t).revisions[old.policy]!.minimumEvidenceRank, "tests", "X's checks started under minimum tests");
 		const published = accepted(
 			await Effect.runPromise(
@@ -509,7 +509,7 @@ test("TP29: missing retained policy bytes block preparation instead of qualifyin
 	const t = await fixture();
 	try {
 		const h = await preparedHarness(t);
-		const binding = policyOf(t).bindings["workflow:2"]!;
+		const binding = policyOf(t).bindings["workflow:3"]!;
 		assert.equal(policyOf(t).revisions[binding.policy]!.minimumEvidenceRank, "tests", "the cached policy still says tests");
 		const db = new DatabaseSync(join(t.f.data, "render.db"));
 		const removed: Record<string, SQLInputValue>[] = [];
@@ -571,7 +571,7 @@ test("TP30: each explicit retry of a checked handoff settles visibly and stays r
 		const opening = accepted(await t.f.command({ type: "assignTask", slice: "value", delivery: true, packet: t.writer }));
 		await t.wait(() => /^awaiting_watchdog/.test(blocker()), "first preparation checked");
 		const first = blocker();
-		const old = policyOf(t).bindings["workflow:2"]!;
+		const old = policyOf(t).bindings["workflow:3"]!;
 		const current = policyOf(t).revisions[old.policy] as { minimumEvidenceRank: string | null } & Record<string, unknown>;
 		assert.equal(current.minimumEvidenceRank, "tests");
 		// A new binding that keeps minimum tests: X and T are unchanged, so the rechecked readiness reads exactly as before.
@@ -671,7 +671,7 @@ test("TP08/TP12/TP14: an aborted merge stays operational across restart until an
 		assert.equal(retried.target.commit, T1);
 		assert.equal(t.assignments().filter((a) => a.auditReview).length, 2, "no new Audit");
 		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0);
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of p1!.handoff!.preparations!) assert.ok(exported.content[ref], `export retains ${ref}`);
 	} finally {
@@ -729,7 +729,7 @@ test("raw checkpoint cannot hand off checked B after writer changes workspace to
 			const owner = t.assignments().find((a) => a.id === opening.assignment);
 			return !!owner && !owner.executing && !!owner.runtimeTaskCaptured;
 		}, "raw stale handoff outcome retained");
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete, "terminal tool results are retained");
 		const history =
 			exported.jsonl +

@@ -65,6 +65,10 @@ export async function fixture(
 		dependent?: boolean;
 		/** Trusted Forge configuration for the Engine's Effects (an owned fake GitHub in tests). */
 		forge?: ForgeConfig;
+		/** The project's remote, when not the fixture's own upstream: its `main` starts at the implementation base. */
+		upstream?: { repo: string; remote: string };
+		/** The project's check image reference; the default is the fixture image's digest. */
+		checkImage?: string;
 		/** A compact bug Contract: the writer reproduces before product code (a missing tool first, then the real failure). */
 		bug?: boolean;
 	} = {},
@@ -72,6 +76,10 @@ export async function fixture(
 	const f = await catalogFixture(true, {
 		text: catalog().replaceAll("endpoint", "tests").replace("printf 'SUITE OK'", "sh verify-suite"),
 		...(options.forge ? { forge: options.forge } : {}),
+		project: {
+			...(options.upstream ? { remote: options.upstream.remote, defaultBranch: "main" } : {}),
+			...(options.checkImage ? { checkImage: options.checkImage } : {}),
+		},
 	});
 	const originalTree = git(f.source.repo, ["rev-parse", `${f.selection.commit}^{tree}`])
 		.toString()
@@ -90,6 +98,9 @@ export async function fixture(
 	const commit = git(f.source.repo, ["commit-tree", tree], "Initial implementation source\n").toString().trim();
 	f.selection.commit = commit;
 	f.config.checks["revision:4"].commit = commit;
+	// The project's default branch is the implementation base, so a fetched T0 equals it.
+	if (options.upstream) git(f.source.repo, ["push", "-q", options.upstream.repo, `${commit}:refs/heads/main`]);
+	else git(f.source.repo, ["update-ref", "refs/heads/fixture", commit]);
 	if (options.bootstrap) {
 		assert.equal(git(f.source.repo, ["ls-tree", commit, ".skl/verify.md"]).toString(), "");
 		assert.notEqual(git(f.source.repo, ["ls-tree", commit, ".skl/journey.md"]).toString(), "");

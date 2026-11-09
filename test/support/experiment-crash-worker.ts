@@ -10,7 +10,7 @@ import { Engine } from "../../src/engine/runtime.ts";
 import { RoleBinding } from "../../src/ledger/records.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
 import { assignments, saveGround, until } from "./investigation.ts";
-import { admin, packet, scheduler } from "./roles.ts";
+import { addProject, admin, PROJECT, packet, scheduler } from "./roles.ts";
 
 const [data, mode, repo, commit, image] = process.argv.slice(2) as [string, string, string, string, string];
 const provider = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
@@ -47,7 +47,7 @@ const engine = new Engine({
 	provider: provider.provider,
 	apiKey: "fixture",
 	families: { "claude-sonnet-4-6": "claude" },
-	experiments: { root: join(data, "experiments"), repositories: { owned: repo } },
+	experiments: { root: join(data, "experiments") },
 });
 const opened = await Effect.runPromise(
 	openLedger({
@@ -75,7 +75,7 @@ const opened = await Effect.runPromise(
 								process.env.RENDER_FAULT_COMMAND = `role:${createHash("sha256")
 									.update(
 										JSON.stringify([
-											"workflow:2",
+											"workflow:3",
 											api.conversationId,
 											binding.assignment,
 											binding.generation,
@@ -107,7 +107,7 @@ if (mode === "cancel")
 								version: 1,
 								authorityEpoch: opened.authorityEpoch,
 								commandId: "cancel",
-								workflow: "workflow:2",
+								workflow: "workflow:3",
 								command: { type: "cancelWork", assignment: a.id, generation: a.generation, attempt: a.attempt },
 							},
 							admin,
@@ -133,14 +133,18 @@ try {
 						version: 1,
 						authorityEpoch: opened.authorityEpoch,
 						commandId: id,
-						...(id === "create" ? {} : { workflow: "workflow:2" }),
+						...(id === "create" || id === "project" ? {} : { workflow: "workflow:3" }),
 						...(save ? { expected: { document: null } } : {}),
 						command,
 					},
 					human ? admin : scheduler,
 				),
 			);
-		assert.equal((await command("create", { type: "createWorkflow", title: "Experiment" }, true)).status, "accepted");
+		assert.equal(
+			(await command("project", addProject({ remote: repo, defaultBranch: "fixture", checkImage: image }), true)).status,
+			"accepted",
+		);
+		assert.equal((await command("create", { type: "createWorkflow", title: "Experiment", project: PROJECT }, true)).status, "accepted");
 		assert.equal(
 			(
 				await command(
@@ -171,7 +175,7 @@ try {
 			retainedOutputs: ["measurement.txt", "raw result"],
 			budget: { maxCommands: 1, timeoutMs: 1000 },
 			profile: { image, exclusions: [".git"], maxBytes: 1048576, maxEntries: 1000 },
-			source: { repository: "owned", commit },
+			source: { repository: PROJECT, commit },
 			candidates: ["favorite"],
 		};
 		const retained = await command(
@@ -190,7 +194,7 @@ try {
 			(
 				await command("assign", {
 					type: "assignTask",
-					slice: "workflow:2",
+					slice: "workflow:3",
 					delivery: false,
 					packet: {
 						...packet({ role: "experiment-candidate", execution: "linux-writer", maxInputBytes: 1048576 }),
@@ -203,7 +207,7 @@ try {
 	}
 	if (mode === "cancel") {
 		await until(() => assignments(opened.ledger)[0]?.status === "canceled" && !assignments(opened.ledger)[0]?.executing);
-		const exported = await Effect.runPromise(opened.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(opened.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		assert.ok(
 			Object.values(exported.content).some((bytes) => {
@@ -236,7 +240,7 @@ try {
 		const snapshot = await Effect.runPromise(opened.ledger.artifact(admin, { read: a.experimentSource! }));
 		assert.ok("content" in snapshot);
 		assert.equal(JSON.parse(snapshot.content.toString()).executions.length, 1, "interruption must not replay candidate execution");
-		const exported = await Effect.runPromise(opened.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(opened.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		const reports = exported.jsonl
 			.trim()

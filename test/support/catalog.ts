@@ -51,7 +51,13 @@ export const journey = (sanity = "exit 0") => `# Independent journey
 export const rows = ["behavior", "full-suite", "typecheck", "lint"];
 export async function catalogFixture(
 	linux = false,
-	options: { sanity?: string; cleanup?: string; text?: string; forge?: ForgeConfig } = {},
+	options: {
+		sanity?: string;
+		cleanup?: string;
+		text?: string;
+		forge?: ForgeConfig;
+		project?: { remote?: string; defaultBranch?: string; checkImage?: string };
+	} = {},
 ) {
 	const text = options.text ?? catalog(options.sanity, options.cleanup);
 	const files = { "verify.md": { text }, "journey.md": { text: journey(options.sanity) } };
@@ -98,7 +104,12 @@ export async function catalogFixture(
 		families: { "claude-sonnet-4-6": "claude" },
 		...(options.forge ? { forge: options.forge } : {}),
 	});
-	const f = await roleFixture(engine, { remote: source.repo, defaultBranch: "fixture", checkImage: profile.image });
+	const f = await roleFixture(engine, {
+		remote: source.repo,
+		defaultBranch: "fixture",
+		checkImage: profile.image,
+		...options.project,
+	});
 	return {
 		...f,
 		get ledger() {

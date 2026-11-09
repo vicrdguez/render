@@ -10,10 +10,8 @@ test("cancellation fences authority but retains the already admitted source effe
 	const f = await sourceFixture();
 	const config = {
 		root: join(f.root, "owned"),
-		repositories: { owned: f.repo },
 		checks: {
-			"revision:3": {
-				repository: "owned",
+			"revision:4": {
 				commit: f.commit,
 				profile: f.profile,
 				argv: ["sh", "-c", "printf 'admitted effect' > result"],
@@ -22,7 +20,11 @@ test("cancellation fences authority but retains the already admitted source effe
 			},
 		},
 	};
-	const child = spawn(process.execPath, [new URL("./support/owned-check-worker.ts", import.meta.url).pathname, JSON.stringify(config)], {
+	const child = spawn(process.execPath, [
+			new URL("./support/owned-check-worker.ts", import.meta.url).pathname,
+			JSON.stringify(config),
+			JSON.stringify({ remote: f.repo, defaultBranch: "fixture", checkImage: f.profile.image }),
+		], {
 		env: { ...process.env, RENDER_FAULT_BARRIER: "after-source-root", RENDER_FAULT_COMMAND: "owned-source" },
 		stdio: ["ignore", "pipe", "pipe", "ipc"],
 	});

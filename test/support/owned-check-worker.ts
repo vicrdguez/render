@@ -3,7 +3,7 @@ import { Engine } from "../../src/engine/runtime.ts";
 import { admin, packet, roleFixture } from "./roles.ts";
 
 const config = JSON.parse(process.argv[2]!);
-const f = await roleFixture(new Engine({ ownedChecks: config }));
+const f = await roleFixture(new Engine({ ownedChecks: config }), JSON.parse(process.argv[3]!));
 process.stdout.write(`${JSON.stringify({ event: "data", data: f.data })}\n`);
 process.on("message", async (message) => {
 	if (message === "snapshot") {

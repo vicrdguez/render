@@ -12,10 +12,8 @@ test("owned check exact command/source/platform receipt survives history, export
 	const source = await sourceFixture();
 	const config = {
 		root: join(source.root, "owned"),
-		repositories: { owned: source.repo },
 		checks: {
-			"revision:3": {
-				repository: "owned",
+			"revision:4": {
 				commit: source.commit,
 				profile: source.profile,
 				argv: ["sh", "-c", "printf 'delivered\\r\\n' > deliverable; test -L link; test -x run"],
@@ -24,7 +22,7 @@ test("owned check exact command/source/platform receipt survives history, export
 			},
 		},
 	};
-	const f = await roleFixture(new Engine({ ownedChecks: config }));
+	const f = await roleFixture(new Engine({ ownedChecks: config }), { remote: source.repo, defaultBranch: "fixture", checkImage: source.profile.image });
 	try {
 		const assigned = await f.command({
 			type: "assignTask",
@@ -54,9 +52,9 @@ test("owned check exact command/source/platform receipt survives history, export
 		assert.equal(receipt.source.source.entries.find((e: { path: string }) => e.path === "deliverable").byteLength, 11);
 		assert.ok(receipt.source.source.entries.find((e: { path: string }) => e.path === "deliverable").oid);
 		assert.equal(receipt.verifierRevision, source.commit);
-		assert.deepEqual(receipt.execution.argv, config.checks["revision:3"].argv);
+		assert.deepEqual(receipt.execution.argv, config.checks["revision:4"].argv);
 		assert.equal(receipt.source.freeze.running, false);
-		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported);
 		assert.equal(exported.manifest.complete, true);
 		assert.ok(
@@ -82,10 +80,8 @@ for (const [exitCode, status] of [
 		const source = await sourceFixture();
 		const config = {
 			root: join(source.root, "owned"),
-			repositories: { owned: source.repo },
 			checks: {
-				"revision:3": {
-					repository: "owned",
+				"revision:4": {
 					commit: source.commit,
 					profile: { ...source.profile, exclusions: [".git", "node_modules", "cache", "absent"] },
 					argv: [
@@ -98,7 +94,7 @@ for (const [exitCode, status] of [
 				},
 			},
 		};
-		const f = await roleFixture(new Engine({ ownedChecks: config }));
+		const f = await roleFixture(new Engine({ ownedChecks: config }), { remote: source.repo, defaultBranch: "fixture", checkImage: source.profile.image });
 		try {
 			assert.equal(
 				(

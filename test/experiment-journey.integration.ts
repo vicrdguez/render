@@ -6,7 +6,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import { assignments, finding, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
-import { admin, packet, roleFixture } from "./support/roles.ts";
+import { admin, PROJECT, packet, roleFixture } from "./support/roles.ts";
 import { sourceFixture } from "./support/source.ts";
 
 test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence and independent comparison after cleanup", async () => {
@@ -36,7 +36,7 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 			retainedOutputs: ["measurement.txt", "raw stdout", "source and fixture", "report"],
 			budget: { maxCommands: 2, timeoutMs: 2000 },
 			profile: { ...source.profile, maxBytes: 1048576 },
-			source: { repository: "owned", commit: source.commit },
+			source: { repository: PROJECT, commit: source.commit },
 			candidates: ["favorite", "control"],
 		});
 		const saved = await Effect.runPromise(
@@ -45,7 +45,7 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 					version: 1,
 					authorityEpoch: f.ledger.status().authorityEpoch,
 					commandId: "protocol",
-					workflow: "workflow:2",
+					workflow: "workflow:3",
 					expected: { document: null },
 					command: {
 						type: "saveDocument",
@@ -85,7 +85,7 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 				...packet({ role: candidate ? "experiment-candidate" : "experiment-parent", execution: "linux-writer", maxInputBytes: 1048576 }),
 				experiment: { protocol, candidate },
 			};
-			const reply = await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: input });
+			const reply = await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: input });
 			assert.ok(reply.status === "accepted", JSON.stringify(reply));
 			const id = String(reply.result.assignment);
 			await until(() => {
@@ -101,7 +101,7 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 							version: 1,
 							authorityEpoch: f.ledger.status().authorityEpoch,
 							commandId: "material-deviation",
-							workflow: "workflow:2",
+							workflow: "workflow:3",
 							expected: { document: protocol },
 							command: {
 								type: "saveDocument",
@@ -132,7 +132,7 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 			inherited.status === "refused" && inherited.code === "forbidden_scope",
 			`watchdog cannot inherit earlier experiment-candidate report: ${JSON.stringify(inherited)}`,
 		);
-		const before = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const before = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in before && before.manifest.complete);
 		const parent = all[2]!;
 		assert.equal(
@@ -234,7 +234,7 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 		);
 		assert.ok(damagedPrompt.reason.includes(snapshots[0]!));
 		assert.equal(f.ledger.status().sequence, sequence);
-		const damaged = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const damaged = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in damaged && !damaged.manifest.complete);
 		assert.ok(damaged.manifest.missing.some((missing) => missing.ref === snapshots[0] && missing.code === "content_corrupt"));
 	} finally {
