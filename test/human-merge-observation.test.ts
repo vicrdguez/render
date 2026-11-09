@@ -403,7 +403,7 @@ test("HM05 a cross-proposal edge clears only on the prerequisite's observed main
 			),
 		);
 		assert.ok(enrolled.status === "accepted" && enrolled.credential);
-		const device = t.f.ledger.authenticate(`Bearer ${enrolled.credential.bearer}`)!;
+		const device = t.f.principals.device(`Bearer ${enrolled.credential.bearer}`)!;
 		refused(await amend(t, [mainEdge("cross", "read-fix")], device, C), "forbidden_scope", "edge outside device scope");
 		accepted(await amend(t, [mainEdge("cross", "read-fix")], admin, C));
 		refused(await assign(), "dependency_blocked", "a prerequisite's private ref and passing review clear no cross-proposal edge");

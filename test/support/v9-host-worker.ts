@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
+import { adminServer, deviceServer } from "../../src/host/transport.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
-import { adminServer, deviceServer } from "../../src/ledger/http.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
 import { packet } from "./roles.ts";
@@ -51,10 +51,10 @@ const engine = new Engine({ provider: provider.provider, apiKey: "owned-fixture"
 const opened = await Effect.runPromise(
 	openLedger({ data, runtime: (report) => engine.options(report), onFatal: (error) => console.error(error) }),
 );
-const device = deviceServer(opened.ledger);
+const device = deviceServer(opened, opened.principals);
 await new Promise<void>((resolve) => device.listen(0, "127.0.0.1", () => resolve()));
 const socket = join(data, "admin.sock");
-const adminListener = await Effect.runPromise(adminServer(opened.ledger, socket));
+const adminListener = await Effect.runPromise(adminServer(opened, opened.principals, socket));
 let n = 0;
 const command = async (workflow: string | undefined, command: Record<string, unknown>, context = admin, extra = {}) => {
 	const reply = await Effect.runPromise(

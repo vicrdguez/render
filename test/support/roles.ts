@@ -159,6 +159,9 @@ export async function roleFixture(engine = new Engine()) {
 		get ledger() {
 			return opened.ledger;
 		},
+		get principals() {
+			return opened.principals;
+		},
 		engine,
 		async reopen(next = new Engine()) {
 			await Effect.runPromise(opened.close());

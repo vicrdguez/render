@@ -62,7 +62,16 @@ import {
 	refusal,
 	selectHistory,
 } from "./history.ts";
-import { type AuthenticatedContext, bearerOf, mintContext, newSecret, parseBearer, principalOf, verifies } from "./principals.ts";
+import {
+	type AuthenticatedContext,
+	bearerOf,
+	mintContext,
+	newSecret,
+	type Principals,
+	parseBearer,
+	principalOf,
+	verifies,
+} from "./principals.ts";
 import {
 	type AcceptedBy,
 	CheckpointSettings,
@@ -239,7 +248,33 @@ export class Ledger {
 				const d = yield* fromPromise(() => harness.snapshot(Device, id, ctx));
 				if (d?.exists) ledger.#devices.set(id, plain(d) as Present<DeviceRecord>);
 			}
-			return ledger;
+			const principals: Principals = {
+				device: (header) => {
+					const bearer = parseBearer(header);
+					const device = bearer === undefined ? undefined : ledger.#devices.get(bearer.device);
+					if (
+						bearer === undefined ||
+						device === undefined ||
+						device.revokedAtSequence !== null ||
+						!verifies(bearer.secret, device.verifier)
+					)
+						return undefined;
+					return mintContext({
+						kind: "human",
+						human: device.human,
+						route: "device",
+						device: device.device,
+						workflows: device.scope.workflows,
+					});
+				},
+				localAdmin: () => mintContext({ kind: "human", human: ledger.#meta.human, route: "local-admin" }),
+				projectWideHuman: (context) => {
+					const principal = principalOf(context);
+					if (principal?.kind !== "human" || principal.human !== ledger.#meta.human || !ledger.#current(principal)) return false;
+					return principal.route === "local-admin" || ledger.#devices.get(principal.device)?.scope.workflows === "all";
+				},
+			};
+			return { ledger, principals };
 		});
 	}
 
@@ -262,15 +297,6 @@ export class Ledger {
 				revokedAtSequence: d.revokedAtSequence,
 			})),
 		};
-	}
-
-	/** Establishes a device context from an Authorization header against current, unrevoked credentials. */
-	authenticate(header: string | undefined): AuthenticatedContext | undefined {
-		const bearer = parseBearer(header);
-		const device = bearer === undefined ? undefined : this.#devices.get(bearer.device);
-		if (bearer === undefined || device === undefined || device.revokedAtSequence !== null || !verifies(bearer.secret, device.verifier))
-			return undefined;
-		return mintContext({ kind: "human", human: device.human, route: "device", device: device.device, workflows: device.scope.workflows });
 	}
 
 	/** An admitted transaction and its read-model adoption must finish even if the caller leaves. */

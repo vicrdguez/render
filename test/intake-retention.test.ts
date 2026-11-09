@@ -5,9 +5,9 @@ import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
+import { deviceServer } from "../src/host/transport.ts";
 import type { IntakeManifest, Intakes } from "../src/kernel/intake.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
-import { deviceServer } from "../src/ledger/http.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { finding, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
@@ -560,7 +560,7 @@ test("F5 a coordinator cannot read or propagate a concern outside its Ground inp
 
 test("I05 V4 two authenticated clients race intake acceptance and complete saved concern", async () => {
 	const t = await fixture();
-	const server = deviceServer(t.f.ledger);
+	const server = deviceServer(t.f, t.f.principals);
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 	try {
 		const addr = server.address();

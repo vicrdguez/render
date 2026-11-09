@@ -18,7 +18,7 @@ import { fromPromise } from "../effect.ts";
 import type { RenderRuntimeOptions } from "../engine/runtime.ts";
 import type { Persistence } from "../kernel/kernel.ts";
 import { Ledger } from "./ledger.ts";
-import { mintContext } from "./principals.ts";
+import { mintContext, type Principals } from "./principals.ts";
 import { APPLICATION_ID, CheckpointSettings, Meta, STORE_SCHEMA } from "./records.ts";
 
 const ctx = BACKGROUND_CONTEXT;
@@ -45,6 +45,7 @@ function blocked(code: string, detail: string, action: string): StartupFailure {
 
 export type OpenedLedger = {
 	readonly ledger: Ledger;
+	readonly principals: Principals;
 	readonly persistence: Persistence;
 	readonly authorityEpoch: string;
 	readonly executorEpoch: string;
@@ -173,7 +174,7 @@ export function openLedger(options: OpenLedgerOptions): Effect.Effect<OpenedLedg
 				);
 			}
 			const executorEpoch = `executor-${randomUUID()}`;
-			const ledger = yield* Ledger.load(harness, opened.persistence, options.onFatal, runtime.roleTasks).pipe(
+			const { ledger, principals } = yield* Ledger.load(harness, opened.persistence, options.onFatal, runtime.roleTasks).pipe(
 				Effect.catchCause((cause) =>
 					Effect.fail(
 						blocked(
@@ -231,6 +232,7 @@ export function openLedger(options: OpenLedgerOptions): Effect.Effect<OpenedLedg
 			closeStore = ledger.close();
 			return {
 				ledger,
+				principals,
 				persistence: opened.persistence,
 				authorityEpoch: ledger.status().authorityEpoch,
 				executorEpoch,

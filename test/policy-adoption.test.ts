@@ -295,7 +295,7 @@ for (const damage of ["missing", "corrupt", "schema"] as const) {
 				),
 			);
 			assert.ok(enrolled.status === "accepted" && enrolled.credential);
-			const scoped = f.ledger.authenticate(`Bearer ${enrolled.credential.bearer}`);
+			const scoped = f.principals.device(`Bearer ${enrolled.credential.bearer}`);
 			assert.ok(scoped);
 			const forbidden = await Effect.runPromise(
 				f.ledger.command(

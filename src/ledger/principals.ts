@@ -1,10 +1,15 @@
-// Principal establishment, internal to Ledger. Only Ledger's adapters mint contexts; an object built by any other
-// caller is not in the registry and is refused.
+// Contexts minted by trusted Ledger and Engine code are registered here. Hand-built objects are refused.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Principal } from "../kernel/kernel.ts";
 
 declare const contextBrand: unique symbol;
 export type AuthenticatedContext = { readonly [contextBrand]: true };
+
+export type Principals = {
+	device(authorization: string | undefined): AuthenticatedContext | undefined;
+	localAdmin(): AuthenticatedContext;
+	projectWideHuman(context: AuthenticatedContext): boolean;
+};
 
 const minted = new WeakMap<object, Principal>();
 

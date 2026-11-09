@@ -6,7 +6,7 @@ import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
-import { deviceServer } from "../src/ledger/http.ts";
+import { deviceServer } from "../src/host/transport.ts";
 import type { CommandReply } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { assignments, finding, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
@@ -110,7 +110,7 @@ function accepted(reply: CommandReply) {
 
 test("LP1/LP5 two clients retain one exact advisory receipt; stale requests do not generate", async () => {
 	const f = await fixture();
-	const server = deviceServer(f.ledger);
+	const server = deviceServer(f, f.principals);
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 	try {
 		const address = server.address();

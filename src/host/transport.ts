@@ -1,13 +1,15 @@
-// Ledger's transport adapters. The device listener authenticates bearers; the admin socket is the restrictive
+// Host transport adapters. The device listener authenticates bearers; the admin socket is the restrictive
 // OS-owner route. No header, query parameter or body field selects a principal.
 import { chmod, rm } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import * as Effect from "effect/Effect";
 import { fromPromise, runPromise } from "../effect.ts";
-import { PROTOCOL_VERSION } from "./envelope.ts";
-import type { HistoryQuery } from "./history.ts";
-import type { Artifact, Frame, Ledger, LedgerRefusal } from "./ledger.ts";
-import { type AuthenticatedContext, mintContext } from "./principals.ts";
+import { PROTOCOL_VERSION } from "../ledger/envelope.ts";
+import type { HistoryQuery } from "../ledger/history.ts";
+import type { Artifact, Frame, Ledger, LedgerRefusal } from "../ledger/ledger.ts";
+import type { AuthenticatedContext, Principals } from "../ledger/principals.ts";
+
+export type HostApi = { readonly ledger: Ledger };
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 /** Frames queued behind a full socket before a slow observer is disconnected. */
@@ -181,9 +183,9 @@ function failSafe(res: ServerResponse, error: unknown): void {
 }
 
 /** Device listener: bearer authentication precedes every route, so unauthenticated requests learn nothing. */
-export function deviceServer(ledger: Ledger): Server {
+export function deviceServer({ ledger }: HostApi, principals: Principals): Server {
 	return createServer((req, res) => {
-		const context = ledger.authenticate(req.headers.authorization);
+		const context = principals.device(req.headers.authorization);
 		if (context === undefined) {
 			send(res, UNAUTHORIZED);
 			return;
@@ -194,11 +196,11 @@ export function deviceServer(ledger: Ledger): Server {
 
 /** Local-admin route on a Unix socket inside the 0700 data directory; reaching it is the OS owner's authentication. */
 
-export function adminServer(ledger: Ledger, socketPath: string): Effect.Effect<Server, unknown> {
+export function adminServer({ ledger }: HostApi, principals: Principals, socketPath: string): Effect.Effect<Server, unknown> {
 	return Effect.gen(function* () {
 		yield* fromPromise(() => rm(socketPath, { force: true }));
 		const server = createServer((req, res) => {
-			const context = mintContext({ kind: "human", human: ledger.status().human, route: "local-admin" });
+			const context = principals.localAdmin();
 			const handle = Effect.gen(function* () {
 				const url = new URL(req.url ?? "/", "http://render.invalid");
 				if (req.method === "POST" && url.pathname === "/v1/admin/commands") return yield* command(ledger, context, req, res);
