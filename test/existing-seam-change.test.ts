@@ -185,7 +185,7 @@ test("ES05 a fresh device reconstructs the five handover answers with partial de
 		const { operation, attempt } = await admitted(t, t.id, round);
 		accepted(await record(t, t.id, operation, observation(operation, attempt)));
 		await t.f.reopen(new LedgerOnlyEngine());
-		const fresh = t.f.ledger.authenticate(bearer) as AuthenticatedContext;
+		const fresh = t.f.principals.device(bearer) as AuthenticatedContext;
 		assert.ok(fresh, "enrollment survives reopen");
 		const frame = t.f.ledger.snapshot(fresh) as Frame;
 		const v = view(frame);
@@ -207,11 +207,11 @@ test("ES05 a fresh device reconstructs the five handover answers with partial de
 		assert.equal(v.nextHumanAction.type, "none", "next human action");
 		const contract = await Effect.runPromise(t.f.ledger.artifact(fresh, { read: t.contract }));
 		assert.ok("content" in contract && contract.content.toString().includes("Fix read"), "exact Contract bytes");
-		assert.deepEqual((t.f.ledger.snapshot(t.f.ledger.authenticate(elsewhere)!) as Frame).workflows, [], "scoped elsewhere");
+		assert.deepEqual((t.f.ledger.snapshot(t.f.principals.device(elsewhere)!) as Frame).workflows, [], "scoped elsewhere");
 
 		damageImplementation(t.f.data, t.nextContract!, "content_corrupt");
 		await t.f.reopen(new LedgerOnlyEngine());
-		const read = await Effect.runPromise(t.f.ledger.artifact(t.f.ledger.authenticate(bearer)!, { read: t.nextContract! }));
+		const read = await Effect.runPromise(t.f.ledger.artifact(t.f.principals.device(bearer)!, { read: t.nextContract! }));
 		assert.ok("code" in read && read.code === "content_corrupt", "corrupt Contract refuses rather than substitutes");
 		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: W } }));
 		assert.ok("manifest" in exported && !exported.manifest.complete && !(t.nextContract! in exported.content));

@@ -3,9 +3,9 @@ import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
+import { deviceServer } from "../src/host/transport.ts";
 import type { Checkpoints } from "../src/kernel/checkpoints.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
-import { deviceServer } from "../src/ledger/http.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { until } from "./support/investigation.ts";
@@ -64,7 +64,7 @@ function assignments(f: Awaited<ReturnType<typeof roleFixture>>) {
 	return (f.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[];
 }
 async function deviceClients(f: Awaited<ReturnType<typeof roleFixture>>) {
-	const server = deviceServer(f.ledger);
+	const server = deviceServer(f, f.principals);
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 	const address = server.address();
 	assert.ok(address && typeof address !== "string");

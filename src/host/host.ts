@@ -9,9 +9,9 @@ import * as Scope from "effect/Scope";
 import { fromPromise } from "../effect.ts";
 import { Engine, type OwnedChecks, runtimeOptions } from "../engine/runtime.ts";
 import type { Persistence } from "../kernel/kernel.ts";
-import { adminServer, deviceServer } from "../ledger/http.ts";
 import type { Ledger } from "../ledger/ledger.ts";
 import { openLedger } from "../ledger/startup.ts";
+import { adminServer, deviceServer } from "./transport.ts";
 
 export type Host = {
 	readonly url: string;
@@ -43,9 +43,9 @@ export function openHost(options: OpenHostOptions): Effect.Effect<Host, unknown>
 			});
 			yield* Scope.addFinalizer(scope, opened.close().pipe(Effect.orDie));
 			const socketPath = join(options.data, "admin.sock");
-			const admin = yield* adminServer(opened.ledger, socketPath);
+			const admin = yield* adminServer(opened, opened.principals, socketPath);
 			yield* Scope.addFinalizer(scope, closeServer(admin));
-			const listener = deviceServer(opened.ledger);
+			const listener = deviceServer(opened, opened.principals);
 			yield* Scope.addFinalizer(scope, closeServer(listener));
 			yield* fromPromise(
 				() =>

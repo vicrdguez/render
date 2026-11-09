@@ -20,6 +20,27 @@
 			"preset": "recommended"
 		}
 	},
+	"overrides": [
+		{
+			"includes": ["src/ledger/**", "src/kernel/**", "src/engine/**", "src/effects/**", "src/sandboxes/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"paths": {
+									"node:http": "HTTP belongs in the host transport.",
+									"node:net": "Sockets belong in the host transport."
+								},
+								"patterns": [{ "group": ["**/host", "**/host/**"], "message": "Internal modules must not depend on the host." }]
+							}
+						}
+					}
+				}
+			}
+		}
+	],
 	"javascript": {
 		"formatter": {
 			"quoteStyle": "double"

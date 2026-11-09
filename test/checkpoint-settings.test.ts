@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
-import { deviceServer } from "../src/ledger/http.ts";
+import { deviceServer } from "../src/host/transport.ts";
 import type { Frame, Ledger } from "../src/ledger/ledger.ts";
 import { openLedger } from "../src/ledger/startup.ts";
 import { admin, roleFixture, scheduler } from "./support/roles.ts";
@@ -116,7 +116,7 @@ for (const damage of ["missing", "corrupt"] as const)
 
 test("S02/S03 two project clients race settings; import is local-admin only; closed modes", async () => {
 	const f = await roleFixture();
-	const server = deviceServer(f.ledger);
+	const server = deviceServer(f, f.principals);
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 	try {
 		assert.deepEqual(settings(f.ledger), { currentRevision: "settings:initial", modes: human });
