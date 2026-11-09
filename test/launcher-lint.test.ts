@@ -21,10 +21,10 @@ test("L7: an assignTask built outside the launcher fails lint; the launcher and 
 		const run = spawnSync(BIOME, ["lint", "--vcs-enabled=false", "--max-diagnostics=50", "."], { cwd: root, encoding: "utf8" });
 		const output = `${run.stdout}${run.stderr}`;
 		assert.equal(run.status, 1, output);
-		assert.match(output, /src\/ledger\/probe\.ts/);
-		assert.match(output, /src\/engine\/runtime\.ts/);
-		assert.doesNotMatch(output, /src\/engine\/playbooks\.ts/);
-		assert.doesNotMatch(output, /test\/probe\.ts/);
+		assert.match(output, /src\/ledger\/probe\.ts:1/);
+		assert.match(output, /src\/engine\/runtime\.ts:1/);
+		assert.doesNotMatch(output, /src\/engine\/playbooks\.ts:1/);
+		assert.doesNotMatch(output, /test\/probe\.ts:1/);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

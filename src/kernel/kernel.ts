@@ -24,7 +24,7 @@ import {
 } from "./checkpoints.ts";
 import { changeEngineSettings, type EngineSettingsCommand, type EngineSettingsRevision } from "./engine-settings.ts";
 import { changeIntake, cleared, emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, type Intakes, type IntakeWrite } from "./intake.ts";
-import type { Ground } from "./investigation.ts";
+import { confirmedGround, type Ground, groundShape, unconfirmedShape } from "./investigation.ts";
 import { changePolicy, initialPolicy, type PolicyCommand, type PolicyState } from "./policy.ts";
 import { changeProject, PROJECT_COMMANDS, type Project, type ProjectCommand } from "./projects.ts";
 import {
@@ -35,7 +35,15 @@ import {
 	type PublicationView,
 	type PublicationWrite,
 } from "./publication.ts";
-import { changeRole, ROLE_COMMANDS, type RoleAssignment, type RoleCommand, type RoleIntent, type RoleWorkState } from "./roles.ts";
+import {
+	changeRole,
+	ROLE_COMMANDS,
+	type RoleAssignment,
+	type RoleCommand,
+	type RoleIntent,
+	type RoleWorkState,
+	sameAgent,
+} from "./roles.ts";
 
 export type DeviceScope = { readonly workflows: "all" | readonly string[] };
 
@@ -91,6 +99,10 @@ export type KnownCommand =
 			readonly mediaType: MediaType;
 			readonly expected: string | null;
 	  }
+	/** The current coordinator's Ground proposal; the human confirms it by saving `ground` (X6). */
+	| { readonly type: "saveDraft"; readonly workflow: string; readonly document: "ground"; readonly mediaType: "text/plain" }
+	/** A host-authored packet document under `host/`: role instructions, a profile, principles or policy. */
+	| { readonly type: "retainHostDocument"; readonly workflow: string; readonly document: string; readonly mediaType: "text/plain" }
 	| { readonly type: "enrollDevice"; readonly label: string; readonly scope: DeviceScope }
 	| { readonly type: "revokeDevice"; readonly device: string }
 	| { readonly type: "recordStartup"; readonly executorEpoch: string; readonly persistence: Persistence };
@@ -150,7 +162,7 @@ export type VerifiedFacts = {
 		readonly fact: string;
 	};
 	/** Ledger's measurement of submitted document bytes. */
-	readonly content?: { readonly digest: string; readonly byteLength: number; readonly validUtf8: boolean };
+	readonly content?: { readonly digest: string; readonly byteLength: number; readonly validUtf8: boolean; readonly text?: string };
 };
 
 export type DomainWrite =
@@ -176,7 +188,15 @@ export type DomainWrite =
 			readonly byteLength: number;
 			readonly parent: string | null;
 	  }
-	| { readonly type: "document.advance"; readonly workflow: string; readonly document: string; readonly revision: string }
+	| {
+			readonly type: "document.advance";
+			readonly workflow: string;
+			readonly document: string;
+			readonly revision: string;
+			/** Ground only: whether its task shape is human-supplied or confirmed. */
+			readonly shapeConfirmed?: boolean;
+	  }
+	| { readonly type: "ground-draft.put"; readonly workflow: string; readonly draft: string }
 	| { readonly type: "message.append"; readonly message: string; readonly workflow: string }
 	| { readonly type: "device.enroll"; readonly device: string; readonly label: string; readonly scope: DeviceScope }
 	| { readonly type: "device.revoke"; readonly device: string }
@@ -284,7 +304,7 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	requestLocalVerificationPrompt: { family: "human-decision", available: true },
 	enrollDevice: { family: "local-admin", available: true },
 	revokeDevice: { family: "local-admin", available: true },
-	saveDraft: { family: "role-work", available: false },
+	saveDraft: { family: "role-work", available: true },
 	emitCheckpoint: { family: "role-work", available: true },
 	reworkCheckpoint: { family: "role-work", available: true },
 	requestImplementationAudit: { family: "role-work", available: true },
@@ -310,6 +330,7 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	fenceAttempt: { family: "scheduling", available: true },
 	rebindAttempt: { family: "scheduling", available: true },
 	recordBlocker: { family: "scheduling", available: true },
+	retainHostDocument: { family: "scheduling", available: true },
 	recordQuiescence: { family: "scheduling", available: true },
 	quarantineWorkspace: { family: "scheduling", available: false },
 	cleanupWorkspace: { family: "scheduling", available: false },
@@ -401,7 +422,15 @@ export const change = Effect.fnUntraced(function* (state: KernelState, command: 
 	const c = command as Extract<
 		Command,
 		{
-			type: "requestLocalVerificationPrompt" | "createWorkflow" | "saveDocument" | "enrollDevice" | "revokeDevice" | "recordStartup";
+			type:
+				| "requestLocalVerificationPrompt"
+				| "createWorkflow"
+				| "saveDocument"
+				| "saveDraft"
+				| "retainHostDocument"
+				| "enrollDevice"
+				| "revokeDevice"
+				| "recordStartup";
 		}
 	>;
 	switch (c.type) {
@@ -498,7 +527,62 @@ export const change = Effect.fnUntraced(function* (state: KernelState, command: 
 						byteLength: content.byteLength,
 						parent: current,
 					},
-					{ type: "document.advance", workflow: c.workflow, document: c.document, revision },
+					{
+						type: "document.advance",
+						workflow: c.workflow,
+						document: c.document,
+						revision,
+						...(c.document === "ground" ? { shapeConfirmed: !unconfirmedShape(facts.content?.text ?? "") } : {}),
+					},
+					fact(facts, c.type, { workflow: c.workflow, revision }),
+				],
+				facts: [facts.ids.fact],
+			};
+		}
+		case "saveDraft":
+		case "retainHostDocument": {
+			if (state.workflow === null) return yield* fail("not_found", `${c.workflow} does not exist.`, { workflow: c.workflow });
+			const own = state.roleWork?.assignments.find((a) => sameAgent(a, facts.principal));
+			if (
+				c.type === "saveDraft" &&
+				(!own ||
+					own.workflow !== c.workflow ||
+					own.packet.role !== "coordinator" ||
+					own.packet.investigation ||
+					own.status !== "running" ||
+					!own.executing ||
+					own.executorEpoch !== facts.executorEpoch)
+			)
+				return yield* fail("stale_assignment", "Only the current executing coordinator proposes Ground.");
+			const content = facts.content;
+			if (content?.text === undefined) return yield* fail("invalid_content", "Document content must be complete UTF-8 bytes.");
+			let document = c.document;
+			if (c.type === "saveDraft") {
+				if (!groundShape(content.text))
+					return yield* fail(
+						"invalid_content",
+						"A Ground proposal is a JSON object whose shape names a task shape, origin and confirmation.",
+					);
+				document = `draft/${own!.id}/ground`;
+			} else if (!document.startsWith("host/")) return yield* fail("invalid_content", "Host packet documents live under host/.");
+			const revision = required(facts.ids.revision);
+			return {
+				outcome: "accepted",
+				result: { revision, document, digest: content.digest },
+				writes: [
+					{
+						type: "revision.append",
+						revision,
+						workflow: c.workflow,
+						document,
+						kind: "document",
+						mediaType: c.mediaType,
+						digest: content.digest,
+						byteLength: content.byteLength,
+						parent: null,
+					},
+					{ type: "document.advance", workflow: c.workflow, document, revision },
+					...(c.type === "saveDraft" ? [{ type: "ground-draft.put" as const, workflow: c.workflow, draft: revision }] : []),
 					fact(facts, c.type, { workflow: c.workflow, revision }),
 				],
 				facts: [facts.ids.fact],
@@ -570,6 +654,10 @@ export type WorkflowState = {
 	readonly documents: readonly DocumentSummary[];
 	readonly messageCount: number;
 	readonly chat?: Chat;
+	/** The coordinator's latest Ground proposal. */
+	readonly groundDraft?: { readonly draft: string; readonly text: string; readonly recordedAtSequence: number };
+	/** Whether the current Ground's task shape is human-supplied or confirmed. */
+	readonly groundConfirmed?: boolean;
 };
 
 /** Capabilities a client may expect from later Render versions; reported as absent, never as empty successes. */
@@ -589,13 +677,22 @@ export type WorkflowView = {
 	readonly commitment: { readonly status: "none" | "accepted"; readonly acceptedIntake: string | null };
 	/** Slices whose current Contract has recorded qualifying integration: partial delivery, never inferred. */
 	readonly integrated: readonly string[];
-	readonly owner: { readonly status: "none" | "active" | "blocked"; readonly assignments: readonly RoleAssignment[] };
+	/** `awaiting_capacity`: a delivery owner is assigned and waits for one of the four executing slots. */
+	readonly owner: { readonly status: "none" | "active" | "blocked" | "awaiting_capacity"; readonly assignments: readonly RoleAssignment[] };
 	readonly evidence: { readonly status: "none" | "available"; readonly items: readonly string[] };
 	readonly blocker: { readonly code: string; readonly reason: string; readonly capabilities: readonly string[] } | null;
 	readonly nextHumanAction:
 		| { readonly type: "reviewIntake"; readonly intake: string; readonly annotations: number }
 		| { readonly type: "reviewCheckpoint"; readonly request: string; readonly emission: string | null; readonly annotations: number }
 		| { readonly type: "saveGround"; readonly workflow: string; readonly document: "ground"; readonly expected: null }
+		/** Save `content`, the coordinator's proposal with its shape confirmed, as `ground` on basis `expected`. */
+		| {
+				readonly type: "confirmGround";
+				readonly workflow: string;
+				readonly draft: string;
+				readonly expected: string | null;
+				readonly content: string;
+		  }
 		| {
 				readonly type: "cancelWork";
 				readonly workflow: string;
@@ -630,6 +727,9 @@ function workflowView(w: WorkflowState): WorkflowView {
 	);
 	const checkpoints = w.checkpoints ?? emptyCheckpoints();
 	const pending = checkpoints.requests.find((r) => r.status === "pending");
+	const draft = w.groundDraft;
+	const confirm =
+		draft && (ground === null || !w.groundConfirmed || ground.recordedAtSequence < draft.recordedAtSequence) ? draft : undefined;
 	return {
 		intakes,
 		checkpoints,
@@ -642,7 +742,16 @@ function workflowView(w: WorkflowState): WorkflowView {
 		messages: { count: w.messageCount, coordinator: coordinatorView(w.assignments ?? [], w.id, w.chat), inbox: chatInbox(w.chat) },
 		commitment: { status: acceptedIntake ? "accepted" : "none", acceptedIntake },
 		integrated: w.integrated ?? [],
-		owner: { status: owners.length ? (owners.some((a) => a.blocker) ? "blocked" : "active") : "none", assignments: owners },
+		owner: {
+			status: !owners.length
+				? "none"
+				: owners.some((a) => a.blocker)
+					? "blocked"
+					: owners.some((a) => a.status === "queued" && !a.executing)
+						? "awaiting_capacity"
+						: "active",
+			assignments: owners,
+		},
 		evidence: { status: evidence.length ? "available" : "none", items: evidence },
 		blocker: blocked.length
 			? { code: blocked[0]?.blocker ?? "role_blocked", reason: blocked.map((a) => `${a.id}: ${a.blocker}`).join("; "), capabilities: [] }
@@ -664,19 +773,27 @@ function workflowView(w: WorkflowState): WorkflowView {
 				? { type: "reviewIntake", intake: latestIntake.id, annotations: latestIntake.annotations }
 				: pending
 					? { type: "reviewCheckpoint", request: pending.id, emission: pending.emission, annotations: pending.annotations }
-					: recoverable
+					: confirm
 						? {
-								type: "cancelWork",
+								type: "confirmGround",
 								workflow: w.id,
-								assignment: recoverable.id,
-								generation: recoverable.generation,
-								attempt: recoverable.attempt,
-								reason:
-									"Cancel this blocked assignment to fence its Attempt. Wait for confirmed quiescence before scheduling a fresh linked replacement.",
+								draft: confirm.draft,
+								expected: ground?.revision ?? null,
+								content: confirmedGround(confirm.text),
 							}
-						: ground === null
-							? { type: "saveGround", workflow: w.id, document: "ground", expected: null }
-							: { type: "none", reason: "No further human decision is available in this host version; saved work is retained." },
+						: recoverable
+							? {
+									type: "cancelWork",
+									workflow: w.id,
+									assignment: recoverable.id,
+									generation: recoverable.generation,
+									attempt: recoverable.attempt,
+									reason:
+										"Cancel this blocked assignment to fence its Attempt. Wait for confirmed quiescence before scheduling a fresh linked replacement.",
+								}
+							: ground === null
+								? { type: "saveGround", workflow: w.id, document: "ground", expected: null }
+								: { type: "none", reason: "No further human decision is available in this host version; saved work is retained." },
 		unavailable: w.assignments === undefined ? UNAVAILABLE : UNAVAILABLE.filter((name) => name !== "assignments"),
 	};
 }

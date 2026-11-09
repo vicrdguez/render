@@ -740,7 +740,7 @@ test("I06 unresolved decisions and unconfirmed Ground cannot be waived by a clea
 	);
 	assert.equal(
 		code(unconfirmed.command({ type: "stageIntake", expected: null, text: "Contract", manifest: intakeManifest() })),
-		"invalid_content",
+		"shape_confirmation_required",
 	);
 });
 
@@ -963,9 +963,9 @@ test("BJ01/BJ02 a human-supplied bug shape needs no confirmation; a classifier p
 	assert.ok(human.stage(), "a human-supplied bug shape must not need redundant confirmation");
 	const classified = fixture();
 	setGround(classified, { ...ground(classified), shape: { value: "bug", origin: "classifier", confirmed: false } });
-	assert.deepEqual(
-		classified.command({ type: "stageIntake", expected: null, text: "Contract", manifest: intakeManifest() }),
-		refusedWith("Use exact human Ground with a confirmed matching task shape."),
+	assert.equal(
+		code(classified.command({ type: "stageIntake", expected: null, text: "Contract", manifest: intakeManifest() })),
+		"shape_confirmation_required",
 		"an unconfirmed classifier bug shape must not become consent",
 	);
 });

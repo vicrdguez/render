@@ -56,6 +56,27 @@ export function readGround(content: string): Ground | undefined {
 export function shapeConfirmed(ground: Ground): boolean {
 	return !(ground.shape.origin === "classifier" && !ground.shape.confirmed);
 }
+export const SHAPES = ["investigation", "bug", "performance", "change", "design", "experiment"] as const;
+export type GroundShape = { value: (typeof SHAPES)[number]; origin: "human" | "classifier"; confirmed: boolean };
+/** The task shape of any Ground text, with its provenance; undefined when the text names none. */
+export function groundShape(content: string): GroundShape | undefined {
+	const g = parse(content);
+	if (!object(g) || !object(g.shape)) return;
+	const { value, origin, confirmed } = g.shape;
+	if (!SHAPES.includes(value as GroundShape["value"]) || (origin !== "human" && origin !== "classifier") || typeof confirmed !== "boolean")
+		return;
+	return { value: value as GroundShape["value"], origin, confirmed };
+}
+/** A classifier-proposed shape the human has not confirmed. */
+export function unconfirmedShape(content: string): boolean {
+	const shape = groundShape(content);
+	return shape?.origin === "classifier" && !shape.confirmed;
+}
+/** A Ground proposal with its shape confirmed: the bytes a human saves to accept it. */
+export function confirmedGround(content: string): string {
+	const g = parse(content) as Record<string, unknown> & { shape: Record<string, unknown> };
+	return JSON.stringify({ ...g, shape: { ...g.shape, confirmed: true } });
+}
 export function readInvestigationOutcome(
 	content: string,
 	inputs: readonly string[],

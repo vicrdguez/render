@@ -4,10 +4,10 @@ import * as Effect from "effect/Effect";
 import { candidateEvidence, candidatePlan, validCandidateAnswer } from "./candidates.ts";
 import { initialCheckpointSettings } from "./checkpoint-settings.ts";
 import type { Intakes } from "./intake.ts";
-import { readGround, shapeConfirmed } from "./investigation.ts";
+import { unconfirmedShape } from "./investigation.ts";
 import type { Decision, DomainWrite, KernelState, Refusal, RefusalCode, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
-import { type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
+import { groundInScope, type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
 
 export const CHECKPOINT_COMMANDS = [
 	"requestCheckpoint",
@@ -268,12 +268,11 @@ export const changeCheckpoint = Effect.fnUntraced(function* (
 		const seams = work.requests.findLast((r) => r.stage === "seams" && r.status === "approved")?.approved ?? null;
 		if (c.stage === "modules" && (!seams || work.requests.some((r) => r.stage === "seams" && r.status === "pending")))
 			return yield* Effect.fail(refuse("seams_required", "Modules require current approved Seams; revised Seams need a decision first."));
-		if (!a?.packet.inputs.includes(c.scope))
+		if (!a || !groundInScope(a, c.scope))
 			return yield* Effect.fail(refuse("forbidden_scope", "Ground scope must be an explicit coordinator input."));
 		if (!inputs[c.scope]?.human || inputs[c.scope]?.document !== "ground")
 			return yield* Effect.fail(refuse("invalid_content", "Scope must cite exact human-authored Ground, not an assistant proposal."));
-		const ground = readGround(inputs[c.scope]!.text);
-		if (ground && !shapeConfirmed(ground))
+		if (unconfirmedShape(inputs[c.scope]!.text))
 			return yield* Effect.fail(
 				refuse(
 					"shape_confirmation_required",
@@ -333,7 +332,7 @@ export const changeCheckpoint = Effect.fnUntraced(function* (
 		result.request = r.id;
 	} else {
 		if (!r) return yield* Effect.fail(refuse("not_found", "No such checkpoint request."));
-		if (p.kind === "assignment-agent" && !a?.packet.inputs.includes(r.scope))
+		if (p.kind === "assignment-agent" && (!a || !groundInScope(a, r.scope)))
 			return yield* Effect.fail(refuse("forbidden_scope", "Checkpoint Ground lies outside this coordinator's input scope."));
 		if (c.type !== "saveCheckpointConcern" && r.status !== "pending")
 			return yield* Effect.fail(refuse("stale_basis", "Request is resolved; request a successor.", r));

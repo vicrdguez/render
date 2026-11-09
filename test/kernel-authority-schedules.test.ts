@@ -63,7 +63,8 @@ const MATRIX: Record<string, { admits: PrincipalClass[]; available: boolean }> =
 	importCheckpointSettings: { admits: ["local-admin"], available: true },
 	cancelWork: { admits: ["human"], available: true },
 	requestLocalVerificationPrompt: { admits: ["human"], available: true },
-	saveDraft: { admits: ["agent"], available: false },
+	saveDraft: { admits: ["agent"], available: true },
+	retainHostDocument: { admits: ["host-scheduling", "host-recovery"], available: true },
 	emitCheckpoint: { admits: ["agent"], available: true },
 	reworkCheckpoint: { admits: ["agent"], available: true },
 	requestRole: { admits: ["agent"], available: true },
@@ -322,6 +323,11 @@ function expectedDecision(m: Model, principal: Principal, step: Step, command: R
 		case "postCoordinatorMessage":
 			if (!inScope(principal, workflow)) return "forbidden_scope";
 			return exists ? "accepted" : "not_found";
+		// Generated with no assignment and no content.
+		case "saveDraft":
+			return exists ? "stale_assignment" : "not_found";
+		case "retainHostDocument":
+			return exists ? "invalid_content" : "not_found";
 		case "enrollDevice":
 		case "recordStartup":
 			return "accepted";

@@ -1,0 +1,8 @@
+language js
+
+// L7: Engine's launcher is the only production issuer of host `assignTask`.
+`type: "assignTask"` as $pair where {
+	$filename <: r".*src/.*",
+	$filename <: not r".*src/engine/playbooks\.ts",
+	register_diagnostic(span=$pair, message="Only the Engine launcher in src/engine/playbooks.ts builds an assignTask command.")
+}

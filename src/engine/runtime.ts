@@ -66,10 +66,12 @@ import { type Project, type ProjectFacts, projectFacts } from "../kernel/project
 import type { ForgeObservation, ForgeOperation, PublicationView } from "../kernel/publication.ts";
 import {
 	currentChildren,
+	groundInScope,
 	type ImplementationPass,
 	isChatCoordinator,
 	latestPass,
 	packetRefs,
+	type Role,
 	type RoleAssignment,
 	type RoleIntent,
 	sameAgent,
@@ -97,6 +99,27 @@ import {
 import { selectCatalog, VERIFICATION_AUTHORING } from "./catalog.ts";
 import { credentialStore, type SecretsFile } from "./credentials.ts";
 import { type ExperimentConfig, Experiments } from "./experiments.ts";
+import {
+	awaitingCoordinator,
+	COORDINATOR_ROLES,
+	coordinatorCommand,
+	coordinatorProfile,
+	grepSource,
+	hostDocumentTexts,
+	IMPLEMENTER_ROLES,
+	implementerCommand,
+	LINUX_WRITER_PROFILE,
+	launchedCheck,
+	launchedCoordinator,
+	listSource,
+	type PassCheck,
+	pinnedSource,
+	principlesText,
+	READ_ONLY_PROFILE,
+	readSource,
+	readySlices,
+	verificationSelection,
+} from "./playbooks.ts";
 import { PROVIDERS, type ProviderId } from "./providers.ts";
 import { entryModel, withSettingsModels } from "./settings.ts";
 import { previewWeb, research, type WebConfig } from "./web.ts";
@@ -154,7 +177,7 @@ export type OwnedChecks = {
 type PreparationJob = {
 	owner: RoleAssignment;
 	pass: ImplementationPass;
-	check: OwnedChecks["checks"][string];
+	check: PassCheck;
 	save: (scope: ExecutionScope) => Promise<unknown>;
 };
 /** X's own verifier bytes cannot define its required checks; deterministic, so repair needs a new pass, not a retry. */
@@ -203,6 +226,12 @@ export class Engine {
 	readonly #notify;
 	readonly #models;
 	readonly #settingsRevisions = new Map<number, EngineSettings>();
+	/** Launched Linux profile documents, by revision: immutable, so read once. */
+	readonly #launchedChecks = new Map<string, PassCheck>();
+	/** Launch attempts that failed, by key, with when; a failing remote is retried at most every 30 seconds. */
+	readonly #launchFailures = new Map<string, number>();
+	/** The literal tree of the commit coordinators read most recently. */
+	#pinned: Source | undefined;
 	readonly #credentials;
 
 	constructor(config: EngineConfig = {}) {
@@ -454,6 +483,86 @@ export class Engine {
 				),
 		});
 		const stop = tool("request_own_stop", schema({}), () => ({ type: "requestOwnStop" }));
+		// X5: a launched coordinator reads literal Git objects of its pinned commit; no checkout and no shell.
+		const sourceTool = (
+			name: string,
+			description: string,
+			parameters: ReturnType<typeof Type.Object>,
+			run: (a: RoleAssignment, source: Source, args: Record<string, unknown>) => Effect.Effect<{ status: string }, unknown>,
+		) =>
+			defineTool({
+				name,
+				description,
+				parameters,
+				replay: "safe",
+				execute: (args, api) =>
+					runPromise(
+						Effect.gen({ self: this }, function* () {
+							const output = (value: { status: string }) => ({
+								output: [{ type: "text" as const, text: JSON.stringify(value) }],
+								isError: value.status !== "accepted",
+							});
+							const identity = yield* this.#identity(api, name);
+							if ("code" in identity) return output(identity as { status: string });
+							const profile = yield* this.#ledger!.artifact(scheduling, { read: identity.a.packet.profile });
+							const pinned = "content" in profile ? pinnedSource(profile.content.toString("utf8")) : undefined;
+							if (!pinned)
+								return output({ status: "refused", code: "source_unavailable", reason: "This packet pins no source commit." } as {
+									status: string;
+								});
+							const source = yield* this.#pinnedTree(this.#project(identity.a.workflow), pinned.commit);
+							return output(yield* run(identity.a, source, args as Record<string, unknown>));
+						}),
+					),
+			});
+		const listTool = sourceTool(
+			"list_source",
+			"List file paths of your pinned commit, optionally under one directory path.",
+			Type.Object({ path: Type.Optional(Type.String({ maxLength: 4096 })) }, { additionalProperties: false }),
+			(_a, source, args) => Effect.succeed(listSource(source, args.path as string | undefined)),
+		);
+		const readTool = sourceTool(
+			"read_source",
+			"Read one text file of your pinned commit. The result is retained; cite its source ref.",
+			schema({ path: Type.String({ maxLength: 4096 }) }),
+			(a, source, args) =>
+				Effect.gen({ self: this }, function* () {
+					const path = args.path as string;
+					const read = readSource(source, path);
+					if (read.status !== "accepted") return read;
+					const reply = yield* this.#ledger!.command(
+						{
+							version: 1,
+							authorityEpoch: this.#ledger!.status().authorityEpoch,
+							commandId: `source-read:${a.id}:${a.generation}:${source.commit}:${createHash("sha256").update(path).digest("hex").slice(0, 32)}`,
+							workflow: a.workflow,
+							command: {
+								type: "recordSourceObservation",
+								assignment: a.id,
+								generation: a.generation,
+								attempt: a.attempt,
+								text: read.text,
+								path,
+							},
+						},
+						mintContext({ kind: "host", scope: "effects" }),
+					);
+					if (reply.status !== "accepted") return reply;
+					return { status: "accepted", source: reply.result.source as string, path, commit: source.commit, text: read.text };
+				}),
+		);
+		const grepTool = sourceTool(
+			"grep_source",
+			"Search text files of your pinned commit for a regular expression, optionally under some paths.",
+			Type.Object(
+				{
+					pattern: Type.String({ minLength: 1, maxLength: 512 }),
+					paths: Type.Optional(Type.Array(Type.String({ maxLength: 4096 }), { maxItems: 32 })),
+				},
+				{ additionalProperties: false },
+			),
+			(_a, source, args) => Effect.succeed(grepSource(source, args.pattern as string, args.paths as string[] | undefined)),
+		);
 		const read = defineTool({
 			name: "read_artifact",
 			description: "Read only immutable artifacts granted by this packet.",
@@ -649,7 +758,7 @@ export class Engine {
 									const result = yield* this.#sandboxes!.execute(workspace.handle, {
 										scope: this.#scope(a),
 										argv: (args as { argv: string[] }).argv,
-										timeoutMs: this.#config.ownedChecks!.checks[a.packet.profile]!.timeoutMs,
+										timeoutMs: (yield* this.#check(a))!.timeoutMs,
 									});
 									yield* this.#diagnostic(a, this.#scope(a), workspace.source, result);
 									return { output: [{ type: "text" as const, text: JSON.stringify(result) }], isError: result.exitCode !== 0 };
@@ -754,6 +863,9 @@ export class Engine {
 				webRead,
 				retain,
 				experimentRun,
+				listTool,
+				readTool,
+				grepTool,
 				executeImplementation,
 				auditImplementation,
 				checkImplementation,
@@ -922,6 +1034,21 @@ export class Engine {
 								}
 								const conversation = yield* fromPromise(() => runtime.conversation(a.conversation as ConversationId, context));
 								if (!conversation) throw new Error("Missing role conversation");
+								// A coordinator launched by a human message starts its first run from that message; the role-packet section
+								// carries its packet.
+								const view = (this.#frame() as { workflows?: WorkflowView[] }).workflows?.find((w) => w.workflow === a.workflow);
+								if (round === 0 && isChatCoordinator(a) && (view?.messages.count ?? 0) > 0) {
+									yield* this.#deliverChat(a.workflow);
+									return yield* fromPromise(() =>
+										runtime.commit(
+											() => ({
+												status: "running",
+												checkpoint: { phase: "wait", submission: 0, round, consumed: task.state.checkpoint.consumed ?? [] },
+											}),
+											context,
+										),
+									);
+								}
 								const input = yield* fromPromise(() =>
 									conversation.submit({ type: "input", requestId: `role:${a.attempt}:${round}`, content: prompt }, context),
 								);
@@ -1324,7 +1451,10 @@ export class Engine {
 						);
 					}
 					const tools = (this.#roles.tools ?? []).filter(
-						(tool) => (a.passRef || !tool.name.startsWith("implementation_")) && (tool.name !== "experiment_run" || !!a.packet.experiment),
+						(tool) =>
+							(a.passRef || !tool.name.startsWith("implementation_")) &&
+							(tool.name !== "experiment_run" || !!a.packet.experiment) &&
+							(!tool.name.endsWith("_source") || (a.packet.role === "coordinator" && !a.packet.investigation)),
 					);
 					await configure(tx, a.conversation as ConversationId, {
 						model: { provider: a.packet.provider, modelId: a.packet.model },
@@ -1415,9 +1545,9 @@ export class Engine {
 				...(checkpointState
 					? {
 							checkpoints: {
-								requests: checkpointState.requests.filter((r) => a.packet.inputs.includes(r.scope)),
+								requests: checkpointState.requests.filter((r) => groundInScope(a, r.scope)),
 								concerns: checkpointState.concerns.filter((c) =>
-									checkpointState.requests.some((r) => r.id === c.request && a.packet.inputs.includes(r.scope)),
+									checkpointState.requests.some((r) => r.id === c.request && groundInScope(a, r.scope)),
 								),
 							},
 						}
@@ -1426,9 +1556,9 @@ export class Engine {
 					? {
 							intakes: {
 								...workflow.intakes,
-								drafts: workflow.intakes.drafts.filter((d) => a.packet.inputs.includes(d.manifest.ground)),
+								drafts: workflow.intakes.drafts.filter((d) => groundInScope(a, d.manifest.ground)),
 								concerns: workflow.intakes.concerns.filter((n) =>
-									workflow.intakes.drafts.some((d) => d.id === n.intake && a.packet.inputs.includes(d.manifest.ground)),
+									workflow.intakes.drafts.some((d) => d.id === n.intake && groundInScope(a, d.manifest.ground)),
 								),
 							},
 						}
@@ -1603,6 +1733,7 @@ export class Engine {
 						yield* this.#command(a, { type: "recordQuiescence", providerIdle: true, environment, effects: "reconciled" });
 					}
 				}
+				yield* this.#launch();
 				for (const workflow of new Set(
 					this.#assignments()
 						.filter((a) => isChatCoordinator(a) && a.status !== "canceled" && a.status !== "submitted")
@@ -1841,6 +1972,150 @@ export class Engine {
 		if (this.#cached?.sequence !== sequence) this.#cached = { sequence, frame: deepFreeze(this.#ledger.snapshot(scheduling)) };
 		return this.#cached.frame;
 	}
+	/**
+	 * The launcher (D3), the only production issuer of host `assignTask`: a workflow's first accepted message starts its
+	 * coordinator on a freshly fetched and pinned commit, and each ready accepted Slice gets one implementer. Both read
+	 * committed state, so repeated reconciles and a restart assign nothing twice (L1).
+	 */
+	#launch(): Effect.Effect<void, unknown> {
+		return Effect.gen({ self: this }, function* () {
+			if (!this.#effects) return;
+			const workflows = (this.#frame() as { workflows?: WorkflowView[] } | undefined)?.workflows ?? [];
+			const assignments = this.#assignments();
+			for (const workflow of awaitingCoordinator(workflows, assignments))
+				yield* this.#attempt(`coordinator:${workflow}`, this.#launchCoordinator(workflow));
+			for (const w of workflows)
+				for (const ready of readySlices(w, assignments))
+					yield* this.#attempt(`implementer:${w.workflow}:${ready.slice}:${ready.contract}`, this.#launchImplementer(w.workflow, ready));
+		});
+	}
+	/** One launch; a failure (an unreachable remote, a refusal) waits 30 seconds before the next reconcile retries it. */
+	#attempt(key: string, launch: Effect.Effect<void, unknown>): Effect.Effect<void, unknown> {
+		if (Date.now() - (this.#launchFailures.get(key) ?? 0) < 30000) return Effect.void;
+		return launch.pipe(
+			Effect.catchCause((cause) =>
+				Cause.hasInterrupts(cause)
+					? Effect.failCause(cause)
+					: Effect.sync(() => {
+							this.#launchFailures.set(key, Date.now());
+						}),
+			),
+		);
+	}
+	#launchCoordinator(workflow: string): Effect.Effect<void, unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const project = this.#project(workflow);
+			const { commit } = yield* this.#effects!.perform({ type: "fetch", project });
+			const source = yield* this.#pinnedTree(project, commit);
+			const profiles = { coordinator: coordinatorProfile(project.id, commit), "read-only": READ_ONLY_PROFILE };
+			const settings = this.#settingsRevision();
+			const documents = yield* this.#retainHostDocuments(workflow, COORDINATOR_ROLES, source, profiles);
+			yield* this.#assign(
+				workflow,
+				`launch:coordinator:${workflow}:${commit}:${settings.revision}`,
+				coordinatorCommand(workflow, { settings, documents }),
+			);
+		});
+	}
+	#launchImplementer(workflow: string, ready: ReturnType<typeof readySlices>[number]): Effect.Effect<void, unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const coordinator = launchedCoordinator(this.#assignments(), workflow)!;
+			const profile = yield* this.#ledger!.artifact(scheduling, { read: coordinator.packet.profile });
+			const pinned = "content" in profile ? pinnedSource(profile.content.toString("utf8")) : undefined;
+			if (!pinned) throw new Error(`${coordinator.id} pins no source commit`);
+			const catalog = ready.manifest.catalog ? yield* this.#ledger!.artifact(scheduling, { read: ready.manifest.catalog }) : undefined;
+			const selection = verificationSelection(
+				ready.manifest,
+				ready.slice,
+				ready.contract,
+				catalog && "content" in catalog ? { document: catalog.document ?? "", text: catalog.content.toString("utf8") } : undefined,
+				pinned.project,
+				pinned.commit,
+			);
+			if (!selection) throw new Error(`playbook_verification_unmapped: ${ready.slice}`);
+			const source = yield* this.#pinnedTree(this.#project(workflow), pinned.commit);
+			const profiles = { "linux-writer": LINUX_WRITER_PROFILE, "read-only": READ_ONLY_PROFILE };
+			const settings = this.#settingsRevision();
+			const documents = yield* this.#retainHostDocuments(workflow, IMPLEMENTER_ROLES, source, profiles);
+			yield* this.#assign(
+				workflow,
+				`launch:implementer:${workflow}:${ready.slice}:${ready.contract}:${settings.revision}:${this.#policyBasis(workflow).binding}`,
+				implementerCommand(ready.slice, ready.contract, selection, { settings, documents }),
+			);
+		});
+	}
+	/** Retains the packet's host documents (X9); a command ID per exact text makes a repeat return the same revision. */
+	#retainHostDocuments(
+		workflow: string,
+		roles: readonly Role[],
+		source: Source,
+		profiles: Record<string, string>,
+	): Effect.Effect<Record<string, string>, unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const policy = (this.#frame() as unknown as { policy: PolicyState }).policy;
+			const binding = bindingFor(policy, workflow);
+			const texts = hostDocumentTexts(
+				roles,
+				principlesText(source, this.#projectOf(workflow).principles),
+				{ binding: binding.revision, policy: binding.policy, value: policy.revisions[binding.policy] },
+				profiles,
+			);
+			const refs: Record<string, string> = {};
+			for (const [document, text] of Object.entries(texts)) {
+				const reply = yield* this.#ledger!.command(
+					{
+						version: 1,
+						authorityEpoch: this.#ledger!.status().authorityEpoch,
+						commandId: `host-document:${workflow}:${document.replaceAll("/", ":")}:${createHash("sha256").update(text).digest("hex").slice(0, 32)}`,
+						workflow,
+						command: { type: "retainHostDocument", document, text },
+					},
+					scheduling,
+				);
+				if (reply.status !== "accepted") throw new Error(`${document} retention refused: ${reply.code}: ${reply.reason}`);
+				refs[document] = reply.result.revision as string;
+			}
+			return refs;
+		});
+	}
+	#assign(workflow: string, commandId: string, command: Record<string, unknown>): Effect.Effect<void, unknown> {
+		return Effect.gen({ self: this }, function* () {
+			const reply = yield* this.#ledger!.command(
+				{ version: 1, authorityEpoch: this.#ledger!.status().authorityEpoch, commandId, workflow, command },
+				scheduling,
+			);
+			if (reply.status !== "accepted") throw new Error(`launch refused: ${reply.code}: ${reply.reason}`);
+		});
+	}
+	/** The literal tree of a pinned commit, from the project's mirror. */
+	#pinnedTree(project: ProjectFacts, commit: string): Effect.Effect<Source, unknown> {
+		if (this.#pinned?.commit === commit) return Effect.succeed(this.#pinned);
+		return this.#effects!.perform({ type: "resolve", project, commit }).pipe(
+			Effect.tap((source) =>
+				Effect.sync(() => {
+					this.#pinned = source;
+				}),
+			),
+		);
+	}
+	#settingsRevision(): EngineSettingsRevision {
+		const frame = this.#frame();
+		return (frame && "settings" in frame && (frame.settings as EngineSettingsRevision | null)) || initialEngineSettings();
+	}
+	/** A pass owner's check limits: its configured owned check, else the launched profile document its packet pins. */
+	#check(a: RoleAssignment): Effect.Effect<PassCheck | undefined> {
+		const configured = this.#config.ownedChecks?.checks[a.packet.profile];
+		const cached = this.#launchedChecks.get(a.packet.profile);
+		if (configured || cached || !this.#config.ownedChecks || !this.#ledger) return Effect.succeed(configured ?? cached);
+		return this.#ledger.artifact(scheduling, { read: a.packet.profile }).pipe(
+			Effect.map((read) => {
+				const check = "content" in read ? launchedCheck(read.content.toString("utf8")) : undefined;
+				if (check) this.#launchedChecks.set(a.packet.profile, check);
+				return check;
+			}),
+			Effect.catchCause(() => Effect.succeed(undefined)),
+		);
+	}
 	/** The workflow's current project. Engine passes its facts to Effects, which never reads Ledger. */
 	#projectOf(workflow: string): Project {
 		const frame = this.#frame() as { workflows?: WorkflowView[]; projects?: Project[] } | undefined;
@@ -1853,7 +2128,7 @@ export class Engine {
 		return projectFacts(this.#projectOf(workflow));
 	}
 	/** A check's Linux profile on the project's check image, by tag; Sandboxes records the digest it resolves to (X10). */
-	#profile(check: OwnedChecks["checks"][string], workflow: string): LinuxProfile {
+	#profile(check: PassCheck, workflow: string): LinuxProfile {
 		return { ...check.profile, image: this.#projectOf(workflow).checkImage };
 	}
 	/** The current Engine settings revision's value; the default before Ledger binds. */
@@ -1941,7 +2216,7 @@ export class Engine {
 				);
 				if (admitted.status !== "accepted") throw new Error(`Execution admission refused: ${admitted.reason}`);
 			}
-			const check = this.#config.ownedChecks!.checks[a.packet.profile]!;
+			const check = (yield* this.#check(a))!;
 			const previous = this.#workspaces.get(a.id);
 			if (previous && !previous.sealed) return previous;
 			const pass = this.#implementationPass(a);
@@ -1957,7 +2232,7 @@ export class Engine {
 					source = yield* this.#effects!.perform({
 						type: "resolve",
 						project: this.#project(a.workflow),
-						commit: pass.opening?.base ?? check.commit,
+						commit: pass.opening?.base ?? pass.configuration.verification.commit,
 					});
 			}
 			const readOnly = yield* this.#conflictOriginals(pass, this.#project(a.workflow));
@@ -2049,7 +2324,7 @@ export class Engine {
 					const result = yield* this.#sandboxes!.execute(workspace.handle, {
 						scope: this.#scope(a),
 						argv,
-						timeoutMs: this.#config.ownedChecks!.checks[a.packet.profile]!.timeoutMs,
+						timeoutMs: (yield* this.#check(a))!.timeoutMs,
 						verifierRevision: digest,
 					});
 					yield* this.#diagnostic(a, this.#scope(a), workspace.source, result);
@@ -2413,7 +2688,7 @@ export class Engine {
 					const reply = yield* this.#command(this.#assignment(assignmentId)!, command, `preparation-task:${taskId}`);
 					if (reply.status !== "accepted") throw new Error(`Preparation blockage retention failed: ${reply.code}`);
 				});
-			const check = this.#config.ownedChecks?.checks[owner.packet.profile];
+			const check = yield* this.#check(owner);
 			if (!check || !this.#effects || !this.#sandboxes)
 				return yield* block("preparation_capability_unavailable: owned Effects/Sandboxes are not configured; Watchdog has not run");
 			return yield* Effect.gen({ self: this }, function* () {
@@ -2454,7 +2729,7 @@ export class Engine {
 					// A passing review integrates automatically when still current; otherwise it returns the observed target to prepare.
 					const reviewed =
 						latest && done
-							? yield* this.#serialized(owner.workflow, () => this.#integrateReviewed(owner, pass, ref!, latest, done, check, block))
+							? yield* this.#serialized(owner.workflow, () => this.#integrateReviewed(owner, pass, ref!, latest, done, block))
 							: undefined;
 					if (reviewed === "settled") return;
 					if (reviewed === "again") continue;
@@ -2573,7 +2848,6 @@ export class Engine {
 		preparation: string,
 		record: PreparationRecord,
 		review: RoleAssignment,
-		check: OwnedChecks["checks"][string],
 		block: (reason: string) => Effect.Effect<void, unknown>,
 	): Effect.Effect<"settled" | "again" | "wait" | TargetObservation, unknown> {
 		return Effect.gen({ self: this }, function* () {
@@ -2581,7 +2855,7 @@ export class Engine {
 				type: "observe",
 				project: this.#project(owner.workflow),
 				proposal: owner.workflow,
-				initial: check.commit,
+				initial: pass.configuration.verification.commit,
 			});
 			const basis = this.#policyBasis(owner.workflow);
 			const verdict = watchdogVerdict(yield* this.#reportText(review));
@@ -2780,7 +3054,7 @@ export class Engine {
 					(p) => p.workflow === workflow && p.assignment === a.id && integrated(p),
 				),
 			);
-			if (!owner || !this.#config.ownedChecks?.checks[owner.packet.profile]) return false;
+			if (!owner || !(yield* this.#check(owner))) return false;
 			const project = this.#project(workflow);
 			const effects = mintContext({ kind: "host", scope: "effects" });
 			const send = (command: Record<string, unknown>) =>
@@ -3214,7 +3488,7 @@ export class Engine {
 			const binding = a.watchdogReview!;
 			const pass = this.#passes().find((p) => p.ref === binding.passRef);
 			const owner = pass && this.#assignment(pass.assignment);
-			const check = owner && this.#config.ownedChecks?.checks[owner.packet.profile];
+			const check = owner && (yield* this.#check(owner));
 			if (!pass || !check || !this.#effects || !this.#sandboxes)
 				return "watchdog_check_capability_unavailable: owned Effects/Sandboxes are not configured";
 			const scope = this.#scope(a);
@@ -3338,10 +3612,11 @@ export class Engine {
 		return Effect.gen({ self: this }, function* () {
 			if (a.packet.experiment && !this.#experiments) return "experiment_capability_unavailable";
 			if (a.passRef) {
-				const check = this.#config.ownedChecks?.checks[a.packet.profile];
+				const configured = this.#config.ownedChecks?.checks[a.packet.profile];
+				const check = yield* this.#check(a);
 				if (!check || !this.#sandboxes || !this.#effects) return "implementation_source_or_verifier_capability_unavailable";
 				const selected = this.#implementationPass(a).configuration.verification;
-				if (this.#projectOf(a.workflow).id !== selected.repository || check.commit !== selected.commit)
+				if (this.#projectOf(a.workflow).id !== selected.repository || (configured && configured.commit !== selected.commit))
 					return "implementation_source_configuration_differs";
 				// Until intended-output exclusions are explicit, capture every non-Git file. Caches may exceed bounds; never silently drop deliverables.
 				if (JSON.stringify(check.profile.exclusions) !== '[".git"]') return "implementation_exclusion_profile_conflict";

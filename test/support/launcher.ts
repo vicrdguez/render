@@ -87,6 +87,8 @@ export async function launcher(
 	};
 	const coordinators = () => assignments().filter((a) => a.packet.role === "coordinator");
 	const toolResults: unknown[] = [];
+	/** The user messages of the coordinator's first provider request. */
+	let firstCoordinatorRequest: string[] | undefined;
 	const turns = new Map<string, number>();
 	const next = (assignment: string) => {
 		const n = turns.get(assignment) ?? 0;
@@ -187,9 +189,15 @@ export async function launcher(
 	};
 	f.provider.setResponses(
 		Array.from({ length: 300 }, () => async (transcript: { messages: Message[] }) => {
-			const section = transcript.messages.findLast((m) => m.role === "system" && m.sections?.["role-packet"])!.sections!["role-packet"]!;
-			const p = JSON.parse(section.slice(section.indexOf("{"), section.lastIndexOf("}") + 1)) as Packet;
-			if (p.packet.role === "coordinator") return coordinatorTurn(p, transcript);
+			const section = transcript.messages.findLast((m) => m.role === "system" && m.sections?.["role-packet"])?.sections?.["role-packet"];
+			const text = section ?? (transcript.messages.findLast((m) => m.role === "user")!.content as string);
+			const p = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as Packet;
+			if (p.packet.role === "coordinator") {
+				firstCoordinatorRequest ??= transcript.messages
+					.filter((m) => m.role === "user")
+					.map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)));
+				return coordinatorTurn(p, transcript);
+			}
 			if (p.intakeReview)
 				return submit({
 					...p.intakeReview,
@@ -231,8 +239,10 @@ export async function launcher(
 		intakes,
 		until,
 		toolResults,
+		firstCoordinatorRequest: () => firstCoordinatorRequest,
 		/** The operator's prompt: an ordinary coordinator message. */
-		prompt: async (text = "Change value from A to B") => accepted(await human({ type: "postCoordinatorMessage", text })),
+		prompt: async (text = "Change value from A to B") =>
+			accepted(await human({ type: "postCoordinatorMessage", text, whenBusy: "followUp" })),
 		/** Confirm Ground exactly as the host proposes it. */
 		confirmGround: async () => {
 			await until(() => view().nextHumanAction.type === "confirmGround", "confirmGround offered", 120000);
