@@ -15,7 +15,7 @@ const USAGE = `usage:
   cli.ts ... create-workflow --title T --project P [--command-id ID]
   cli.ts ... save --workflow W --document D --file PATH --expected REVISION|none [--media-type text/markdown|text/plain] [--command-id ID]
   cli.ts ... read --revision R --out PATH
-  cli.ts ... message --workflow W --text T [--command-id ID]
+  cli.ts ... message --workflow W --text T [--when-busy steer|followUp] [--command-id ID]
   cli.ts ... messages --workflow W
   cli.ts ... receipt --command-id ID
   cli.ts ... observe [--frames N]
@@ -141,6 +141,7 @@ function main(): Effect.Effect<void, unknown> {
 				revision: { type: "string" },
 				out: { type: "string" },
 				text: { type: "string" },
+				"when-busy": { type: "string" },
 				frames: { type: "string" },
 				label: { type: "string" },
 				device: { type: "string" },
@@ -192,7 +193,10 @@ function main(): Effect.Effect<void, unknown> {
 			case "message":
 				return yield* command(
 					client,
-					{ workflow: need(values, "workflow"), command: { type: "postCoordinatorMessage", text: need(values, "text") } },
+					{
+						workflow: need(values, "workflow"),
+						command: { type: "postCoordinatorMessage", text: need(values, "text"), whenBusy: values["when-busy"] ?? "followUp" },
+					},
 					values["command-id"],
 				);
 			case "messages":

@@ -165,11 +165,13 @@ test("a failed login refresh retains no credential bytes in history, snapshot or
 		await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet() });
 		for (let n = 0; n < 500; n++) {
 			const a = ((f.ledger.snapshot(admin) as unknown as { assignments: RoleAssignment[] }).assignments ?? [])[0];
-			if (a?.runtimeTaskCaptured) break;
+			if (a?.status === "idle") break;
 			await setTimeout(10);
 		}
 		const a = ((f.ledger.snapshot(admin) as unknown as { assignments: RoleAssignment[] }).assignments ?? [])[0];
-		assert.ok(a?.runtimeTaskCaptured, "the failed run's runtime history must be retained");
+		assert.equal(a?.status, "idle", "the failed chat run settles the coordinator");
+		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
+		assert.ok("jsonl" in exported && exported.jsonl.includes("chat_transcript"), "the failed run's transcript must be retained");
 		assert.equal(p.state.callCount, 0, "no request may go out without a credential");
 		await assertAbsent(f, leaked);
 	} finally {

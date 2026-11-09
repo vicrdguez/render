@@ -202,9 +202,8 @@ describe("V4 two stateless clients", () => {
 		}
 		assert.equal((view.ground as Record<string, unknown>).revision, ra);
 		assert.deepEqual(view.checkpoints, { requests: [], concerns: [] });
-		for (const absent of ["coordinator-replies"]) {
-			assert.ok((view.unavailable as string[]).includes(absent), absent);
-		}
+		assert.ok((view.unavailable as string[]).includes("evidence-receipts"), "undelivered capabilities are named");
+		assert.equal((view.unavailable as string[]).includes("coordinator-replies"), false, "coordinator chat is delivered");
 		assert.equal((snap.json.history as Record<string, unknown>).status, "available");
 		assert.equal((view.unavailable as string[]).includes("historical-export"), false);
 		assert.ok(!snap.stdout.includes(B1.digest), "unacknowledged bytes must not appear");

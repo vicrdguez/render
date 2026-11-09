@@ -91,7 +91,10 @@ async function idleAndResponsive() {
 	assert.ok("snapshot" in observer);
 	try {
 		const start = performance.now();
-		assert.equal((await f.command({ type: "postCoordinatorMessage", text: "Human remains in control." }, admin)).status, "accepted");
+		assert.equal(
+			(await f.command({ type: "postCoordinatorMessage", whenBusy: "followUp", text: "Human remains in control." }, admin)).status,
+			"accepted",
+		);
 		const ackMs = performance.now() - start;
 		assert.ok(ackMs < 1000, `human command remains responsive: ${ackMs} ms`);
 		assert.equal(observed.length, 1, "human observer sees its acknowledged change while roles wait");
@@ -163,7 +166,7 @@ try {
 				assert.equal((await f.command({ type: "requestRole", key: `child:${i}` }, own)).status, "accepted");
 			releaseParent();
 		}
-		await until(() => assignments()[0]?.blocker === "awaiting_role_results" && !assignments()[0]?.executing);
+		await until(() => assignments()[0]?.status === "idle" && !assignments()[0]?.executing);
 		if (mode === "parent") {
 			// Isolate the parent waiting path with three additional executing roles.
 			for (let i = 0; i < 3; i++)

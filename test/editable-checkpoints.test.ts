@@ -513,10 +513,16 @@ test("C17 Engine tools complete a fresh challenge and resume the workflow-owned 
 				type: "assignTask",
 				slice: "design",
 				delivery: false,
-				packet: packet({ inputs: [ground], maxTurns: 12, requests: [{ key: "challenge", packet: packet({ role: "challenger" }) }] }),
+				// The coordinator keeps its whole conversation across the review, so its input bound must hold it.
+				packet: packet({
+					inputs: [ground],
+					maxTurns: 12,
+					maxInputBytes: 262144,
+					requests: [{ key: "challenge", packet: packet({ role: "challenger" }) }],
+				}),
 			}),
 		);
-		await until(() => assignments(f)[0]?.blocker === "awaiting_role_results");
+		await until(() => assignments(f)[0]?.status === "idle" && assignments(f).length === 2);
 		reviewGate.resolve();
 		await until(() => assignments(f)[0]?.status === "submitted");
 		const requests = ((f.ledger.snapshot(admin) as Frame).workflows as { checkpoints: Checkpoints }[])[0]!.checkpoints.requests;

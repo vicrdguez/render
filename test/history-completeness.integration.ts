@@ -54,7 +54,7 @@ for (const failure of ["missing_content", "content_corrupt", "invalid_content_ty
 				bearer: dev.bearer,
 				body: envelope(
 					String(host.ready.authorityEpoch),
-					{ type: "postCoordinatorMessage", text: "acknowledged literal" },
+					{ type: "postCoordinatorMessage", whenBusy: "followUp", text: "acknowledged literal" },
 					{ workflow: w },
 				),
 			});

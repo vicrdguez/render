@@ -12,7 +12,7 @@ test("history-cutoff-export: acknowledged messages are literal claims, not runne
 			bearer: a.bearer,
 			body: envelope(
 				String(host.ready.authorityEpoch),
-				{ type: "postCoordinatorMessage", text: "rejected abandoned unknown failed succeeded\r\n" },
+				{ type: "postCoordinatorMessage", whenBusy: "followUp", text: "rejected abandoned unknown failed succeeded\r\n" },
 				{ workflow: w, commandId: "claim" },
 			),
 		});

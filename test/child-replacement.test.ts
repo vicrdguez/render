@@ -64,7 +64,9 @@ for (const scenario of ["policy adoption", "policy adoption across restart", "re
 		const identity = (a: RoleAssignment) => ({ assignment: a.id, generation: a.generation, attempt: a.attempt });
 		const assertWaiting = () => {
 			const s = snapshot();
-			assert.equal(s.assignments[0]!.blocker, "awaiting_role_results");
+			// A chat coordinator waits for its requested role idle, not blocked.
+			assert.equal(s.assignments[0]!.status, "idle");
+			assert.equal(s.assignments[0]!.blocker, null);
 			assert.equal(s.assignments[0]!.executing, false);
 			assert.equal(s.workflow.owner.assignments[0]!.id, s.assignments[0]!.id);
 			assert.equal(parentCalls, 1, "a canceled child without a submitted replacement cannot satisfy the wait");
@@ -87,7 +89,7 @@ for (const scenario of ["policy adoption", "policy adoption across restart", "re
 				"accepted",
 			);
 			await until(
-				() => childCalls === 1 && snapshot().assignments[0]?.blocker === "awaiting_role_results" && !snapshot().assignments[0]?.executing,
+				() => childCalls === 1 && snapshot().assignments[0]?.status === "idle" && !snapshot().assignments[0]?.executing,
 				"parent must wait for its executing child",
 			);
 			assertWaiting();

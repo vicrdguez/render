@@ -141,6 +141,19 @@ The task checkpoint records consumed child identities so an already-delivered re
 continuation when the resumed role does not submit. Older checkpoints without that optional list start with no consumed
 results. Admission still passes through Kernel/Ledger, and only confirmed quiescence frees an executing slot.
 
+A top-level coordinator is a chat coordinator. When its conversation is idle with no unsettled submission it records
+quiescence and becomes `idle` instead of `blocked: role_did_not_submit`: it keeps its conversation and gives up its slot,
+and its role task waits in an `idle` phase that also checkpoints the fresh executorEpoch once per start. Engine's
+reconcile delivers accepted human messages to it: at once while it runs, after `stageTask` (which admits `idle`) when a
+slot is free, otherwise later. The release check and each delivery run under one per-workflow lock, so no message lands
+between them. Its `maxTurns` counts the provider requests of one run, and its tool rounds take no runtime-history
+snapshots; history and export read the committed coordinator transcript instead. An interrupt is `conversation.abort`
+on the coordinator's own conversation, which also withdraws its queued messages; role tasks keep running. A role or
+review request ends the coordinator's run without a context reset, so its next run still sees the whole conversation.
+While requested roles work, the coordinator stays `idle` and takes human messages. When every current child has
+reported, its role task starts a results round: it takes a slot and submits the refreshed packet, whose `results` name
+the reports.
+
 `cancelWork` must name the current assignment, generation and Attempt. Ledger commits the new generation before Engine
 cancels/joins the role conversation. An unavailable whole-environment stop stays visible as a blocker and cannot release
 capacity. Late old-generation report text, when received, is retained as a quarantined artifact, never the role's

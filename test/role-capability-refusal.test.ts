@@ -57,7 +57,8 @@ test("R03 forged model command IDs produce no report; missing retained inputs re
 	]);
 	const f = await roleFixture(new Engine({ provider: p.provider, ...claudeFixture }));
 	try {
-		await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet() });
+		// A one-shot role; a chat coordinator goes idle instead (chat.test.ts, C11).
+		await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet({ role: "challenger" }) });
 		const a = await blocked(f);
 		assert.equal(a.report, null);
 		assert.equal(a.blocker, "role_did_not_submit");

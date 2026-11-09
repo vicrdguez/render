@@ -47,7 +47,9 @@ Ordinary restart preserves them, and revocation takes effect at once.
 | `editProject` | `project`, `expectedRevision` (current revision number), `name`, `defaultBranch`, `checkImage`, `principles`; no `remote` | absent | absent | device with `all` scope, or local admin |
 | `createWorkflow` | `title` (1–200 chars), `project` (an existing project; the workflow's project never changes) | absent | absent | device with `all` scope, or local admin |
 | `saveDocument` | `document` (`[a-z0-9][a-z0-9._/-]{0,127}`; `ground` is the workflow's Ground), `mediaType` (`text/markdown` or `text/plain`), `content` (base64 of the complete UTF-8 bytes) | required | `document`: the current revision ref, or `null` for a new document | device or local admin |
-| `postCoordinatorMessage` | `text` (1–65,536 chars) | required | absent | device or local admin |
+| `postCoordinatorMessage` | `text` (1–65,536 chars), `whenBusy`: `steer` or `followUp` (how the message enters a run already in progress; a message to an idle coordinator starts a run) | required | absent | device or local admin |
+| `withdrawCoordinatorMessage` | `message`: the original post's `commandId`. The receipt's `outcome` is `aborted` when nothing was delivered yet, otherwise `requested` | required | absent | device or local admin |
+| `interruptCoordinator` | none. Stops the coordinator's current run and drops its queued messages; other role work keeps running. `not_found` without a coordinator | required | absent | device or local admin |
 | `requestLocalVerificationPrompt` | `source` (exact retained source-observation ref), `expectedSequence` (observed snapshot sequence) | required | absent; basis is in the command | human device in current workflow scope or local admin; see [advisory handoff](local-verification.md) |
 | `enrollDevice` | `label` (1–100 chars), `scope`: `{ "workflows": "all" }` or `{ "workflows": ["workflow:1", …] }` | absent | absent | local admin only |
 | `revokeDevice` | `device` | absent | absent | local admin only |
@@ -56,7 +58,7 @@ Ordinary restart preserves them, and revocation takes effect at once.
 | `cancelWork` | `assignment`, current `generation` and `attempt` | required | absent | scoped device or local admin |
 
 The trusted in-process Engine can schedule `assignTask`, `stageTask`, `fenceAttempt`, `recordBlocker`,
-`recordQuiescence`, `replaceTask`, `recordRuntimeHistory` and checked `rebindAttempt`; none is a device/admin scheduling override. Assignment tools admit only
+`recordQuiescence`, `replaceTask`, `recordRuntimeHistory`, checked `rebindAttempt`, and the chat delivery records `recordMessageSubmission` (`message`, `assignment`, `generation`, `submission`), `recordMessageWithdrawal` (`message`, `outcome`: `aborted`, `already_placed`, `settled` or `not_found`) and `recordInterrupt` (`interrupt`); none is a device/admin scheduling override. Assignment tools admit only
 `requestRole` for a predefined packet key, `submitRoleResult` for their own report, `retainWebEvidence` for exact scoped passages, and `requestOwnStop`. `submitRoleResult` requires `text` and `supports` (at most 32 exact promoted revision refs). An empty list explicitly declares no web reliance; omission is malformed, not an implicit empty list. Required missing/corrupt support blocks acceptance. Accepted report receipts retain `webEvidence: none|retained` and exact support refs; older receipts without the field remain unclassified. Owned-check receipts, retained under `owned-check/<assignment>`, also lack the field: the host records them from a command run with no model conversation, so they declare no web reliance by construction. See [scoped web research](web-research.md). Recovery alone
 can retain fenced late results with `recordRecoveryState`; they are quarantined artifacts, not accepted role reports.
 `replaceTask` names the fenced, quiescent predecessor `assignment`, `generation`, `attempt` and a fresh explicit `packet`; the Slice/ownership mode follows that retained predecessor. `recordRuntimeHistory` names the current assignment identity and bounded capture `key`; bytes are read from the owned native store, never command-supplied history. These commands require a workflow and strict typed fields; task names, principals and transaction callbacks are never
@@ -202,13 +204,19 @@ Only a project-wide human (an all-workflow device or the local admin) may use th
 - `GET /v1/artifacts/<revision-or-message>`: exact bytes and provenance:
   `{ artifact, kind, schema, workflow, document, mediaType, digest, byteLength, parents, createdBy, commandId, recordedAtSequence, content }`.
   `content` is base64. Also includes `supersedes`, `source`, `policy`, `assignment`, `attempt`, `decisionRefs`, `outcomeRefs` (null/empty when not applicable). A document save supersedes its previous revision, not a domain decision. Schema compatibility is checked before interpreting content; revision digest/length are re-verified on every read. New message saves retain a digest/length and verify them on reads. Older messages without these fields remain readable with `integrity: unverified_legacy`; their digest/length is measured from retained UTF-8 text, never represented as verified original metadata. Revision and new-message reads report `integrity: verified`. Absent and out-of-scope immutable refs both answer `401 unauthorized`, without distinguishing existence.
-- `GET /v1/workflows/<workflow>/messages?cursor=<next>&limit=<n>`: scoped coordinator messages, oldest first,
+- `GET /v1/workflows/<workflow>/messages?cursor=<next>&limit=<n>`: the committed coordinator transcript, oldest first,
   `{ messages, next, complete }`. Pass `next` back as `cursor` for the following page; `complete: true` means there are
-  no more.
+  no more. Each item has `entry` (its position, also the cursor), `kind` and `assignment`:
+  `human` (`commandId`, `device` or `null` for the local admin, `text`) for a message as the coordinator received it;
+  `input` (`text`) for a host input such as a role packet; `assistant` (`content`: `text` and `toolCall` blocks,
+  `stopReason`, optional `error`); `tool_result` (`call`, `tool`, `isError`, `text`). Hidden reasoning and opaque
+  provider fields are never included. An undelivered or withdrawn message is not in the transcript; the posted text
+  stays readable as its `message:<n>` artifact.
+- `GET /v1/workflows/<workflow>/chat?version=1`: the live coordinator chat stream (below).
 
 ## Fixed-cutoff history and portable export
 
-`GET /v1/history` and `GET /v1/export` accept the same selectors: `workflow`, optional `kind`, optional opaque `cursor`, `limit` (integer 1–500, default 100), `version=1`. Unknown/duplicate selectors or invalid limits refuse `invalid_query`; unsupported versions refuse `unsupported_version`. `proposal`, `assignment`, `outcome` and not-yet-delivered kinds refuse `capability_unavailable`, never empty success. Delivered kinds: `workflow`, `ground`, `document`, `message`, `fact`, `receipt`, `project` (each project revision, as digest/length-checked canonical JSON; a workflow-scoped device sees only its workflows' projects).
+`GET /v1/history` and `GET /v1/export` accept the same selectors: `workflow`, optional `kind`, optional opaque `cursor`, `limit` (integer 1–500, default 100), `version=1`. Unknown/duplicate selectors or invalid limits refuse `invalid_query`; unsupported versions refuse `unsupported_version`. `proposal`, `assignment`, `outcome` and not-yet-delivered kinds refuse `capability_unavailable`, never empty success. Delivered kinds: `workflow`, `ground`, `document`, `message`, `fact`, `receipt`, `project` (each project revision, as digest/length-checked canonical JSON; a workflow-scoped device sees only its workflows' projects), `chat_transcript` (one record per coordinator: the committed transcript items of the messages read, up to the first record after the cutoff, with `redacted: ["hidden_reasoning", "opaque_provider_fields"]`).
 
 Without a workflow selector, scope is the exact set of workflows currently visible to the caller; local admin and all-workflow devices also select global facts. Narrow devices never select global administration. Receipt authorization is unchanged: receipts inaccessible to the reader are explicitly redacted. Credentials, verifiers and cursor signing keys are never exported. History currently admits human readers only; future assignment/host reads require their own delivered scope semantics.
 
@@ -227,6 +235,41 @@ and `private_git_source_objects`. Owned-check receipt documents retain exact man
 observations, not a portable source-object package. Attribute/module change warnings are part of those exact receipts. Role packets, submitted reports and quarantined evidence use delivered `document` records, including exact bytes and trusted assignment/generation/Attempt fields on newly retained entries. Original acceptance receipts retain task bindings; packet refs participate in declared export relationships and missing-data checks. Older entries without role provenance keep null metadata, not inferred bindings. These records do not constitute standalone assignment/Attempt chronologies: those selectors, decision/policy, classified outcome, execution/effect and runtime transcript export remain unavailable. This export is inspection/history, **not a supported recovery backup**.
 
 Engineering bound: every page and export scans selected retained conversations and assembles results in memory; page size bounds returned records, not scan cost or export size. Message entries are located and validated once per scan, rather than rescanning conversations for each message; sorting and serialization still grow with the selection. The shared SQLite runtime and host event loop mean scan/validation/serialization work can delay concurrent command acknowledgements. There is no snapshot-isolation worker or fixed latency guarantee for arbitrarily large selections; use workflow/kind filters to reduce work, and measure the actual store. `verify:history-command-load` exercises 300/1,200 retained messages over ten workflows and concurrent page/export writes; it is a bounded local regression, not full V9. This intentionally avoids a new history index/storage migration. Legacy message records lack independently stored digest metadata: export/read computes their digest and labels them `unverified_legacy`, while immutable document revisions and newly saved messages verify their original stored digest. No new integrity guarantee for arbitrary filesystem/database replacement is claimed.
+
+## Coordinator chat
+
+`GET /v1/workflows/<workflow>/chat?version=1` streams NDJSON frames for the workflow's current coordinator. Ledger
+authorizes it like any other read: an unknown workflow, one outside the device's scope, or a workflow with no
+coordinator yet answers `404 not_found`. The stream is read-only, and closing it never stops a run. Every frame carries
+`version: 1` and `kind`; a client refuses a version it does not know.
+
+- `chat-snapshot`: `workflow`, `coordinator` `{assignment, generation, state}`, `run` (`{run, inputs, turn}` or
+  `null`) and `inbox`. Always first; it also replaces the client's state when the runtime overflows a slow stream.
+- `chat-events`: `workflow`, `events`, one batch per committed runtime change.
+- `chat-inbox`: `workflow`, `items`: the undelivered messages, plus once each message that just left, as `placed` or
+  `withdrawn`.
+- `end`: `reason` is `credential_revoked`, `host_closing`, `coordinator_replaced` or `backlog`. Reconnect with a fresh
+  snapshot; no frame is replayed. Read committed history through `messages`.
+
+An inbox item is `{commandId, whenBusy, status}`, where `status` is `accepted` (not yet handed to the coordinator, for
+example while waiting for capacity), `queued` (waiting in the coordinator's conversation for a turn boundary),
+`pending` (a withdrawal awaits its outcome), `placed` or `withdrawn`. An interrupt withdraws queued messages.
+
+A `run` is named by its first input and lasts until the coordinator answers or stops. `turn` counts provider turns
+within it. Events:
+
+| `type` | Fields |
+|---|---|
+| `run_start` | `run`, `inputs` (the human command IDs that started it) |
+| `run_end` | `run`, `outcome` (`completed`, `interrupted` or `failed`), optional `reason` |
+| `turn_start`, `turn_end` | `run`, `turn` |
+| `input_placed` | `run`, `commandId`, `whenBusy`: `prompt` (sent to an idle coordinator), `steer` or `followUp` (the mode it waited in). A steer placed between turns joins the run; a follow-up, or a steer that missed its run, starts the next run |
+| `text_delta` | `run`, `turn`, `message` (`<run>:<turn>`), `delta`. A fast reply may commit before any delta |
+| `message_end` | `run`, `turn`, `message`, `role: "assistant"` |
+| `tool_start` | `run`, `turn`, `call`, `tool`, `summary` (the arguments, at most 240 characters) |
+| `tool_end` | `run`, `turn`, `call`, `outcome` (`ok`, `error` or `interrupted`), `summary` (the result, at most 240 characters) |
+
+Hidden reasoning, tool-call argument deltas, nested tool calls and provider fields are never sent.
 
 ## Observation
 
@@ -250,8 +293,11 @@ stream begins with a fresh snapshot.
 The snapshot's `projects` lists each project's current revision (`id`, `revision`, `name`, `remote`, `defaultBranch`,
 `checkImage`, `principles`). A project-wide human sees every project; a workflow-scoped device sees only the projects of
 its workflows. Each workflow view names its `project`, and carries `ground`, `documents`, `messages`, `commitment`, `owner`, `evidence`, `blocker`,
-`nextHumanAction` and `unavailable`. `unavailable` names the capabilities this host version does not deliver yet, for
-example full coordinator replies. Accepted intake appears explicitly in `commitment.acceptedIntake`; `intakes` carries current drafts, concerns, Slice revisions, permanent consumption and explicit dependency state. Undelivered capabilities are reported as absent, never as empty successes. The snapshot also reports `hostMode`, `executorEpoch` and the persistence readback. Disaster-recovery commands, startup modes and protection fields are outside v1; ordinary runtime quarantine/continuation remains supported.
+`nextHumanAction` and `unavailable`. `unavailable` names the capabilities this host version does not deliver yet.
+`messages` is `{count, coordinator, inbox}`: `coordinator` is `{assignment, generation, state}` with `state` `idle`,
+`running` or `awaiting_capacity` (a message waits for one of the four executing slots), or `null` before the workflow has
+a coordinator; `inbox` lists messages Ledger has not handed to the coordinator (`accepted`) and withdrawals awaiting their
+outcome (`pending`). Accepted intake appears explicitly in `commitment.acceptedIntake`; `intakes` carries current drafts, concerns, Slice revisions, permanent consumption and explicit dependency state. Undelivered capabilities are reported as absent, never as empty successes. The snapshot also reports `hostMode`, `executorEpoch` and the persistence readback. Disaster-recovery commands, startup modes and protection fields are outside v1; ordinary runtime quarantine/continuation remains supported.
 
 For blocked assignments other than a parent awaiting role results, `nextHumanAction` identifies `cancelWork` with `workflow`, `assignment`, `generation`, `attempt` and an explanatory `reason`. This takes priority over initial Ground setup. To submit it, place `workflow` on the envelope and only `type`, `assignment`, `generation`, `attempt` in `command`; `reason` is display guidance, not a command field. Cancellation still requires a human principal and the current identity. Quiescence and host-scheduled fresh replacement remain separate checked steps, not authority conveyed by the snapshot.
 

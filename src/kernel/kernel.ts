@@ -2,6 +2,16 @@
 // and verified facts, and stages the returned writes atomically.
 
 import * as Effect from "effect/Effect";
+import {
+	CHAT_COMMANDS,
+	type Chat,
+	type ChatCommand,
+	type CoordinatorView,
+	changeChat,
+	chatInbox,
+	coordinatorView,
+	type InboxEntry,
+} from "./chat.ts";
 import { type CheckpointSettings, changeCheckpointSettings, type SettingsCommand } from "./checkpoint-settings.ts";
 import {
 	CHECKPOINT_COMMANDS,
@@ -65,6 +75,7 @@ export type KnownCommand =
 	| SettingsCommand
 	| ProjectCommand
 	| EngineSettingsCommand
+	| ChatCommand
 	| {
 			readonly type: "requestLocalVerificationPrompt";
 			readonly workflow: string;
@@ -80,7 +91,6 @@ export type KnownCommand =
 			readonly mediaType: MediaType;
 			readonly expected: string | null;
 	  }
-	| { readonly type: "postCoordinatorMessage"; readonly workflow: string; readonly text: string }
 	| { readonly type: "enrollDevice"; readonly label: string; readonly scope: DeviceScope }
 	| { readonly type: "revokeDevice"; readonly device: string }
 	| { readonly type: "recordStartup"; readonly executorEpoch: string; readonly persistence: Persistence };
@@ -104,6 +114,8 @@ export type KernelState = {
 	readonly publication?: Publication;
 	/** Every project's current revision, by id. */
 	readonly projects?: Readonly<Record<string, Project>>;
+	/** The envelope workflow's chat with its coordinator. */
+	readonly chat?: Chat;
 	/** The envelope's workflow, when it exists. */
 	readonly workflow: { readonly id: string; readonly messageCount: number; readonly title?: string } | null;
 	/** The named document's current revision and the integrity of its retained bytes, when it exists. */
@@ -122,6 +134,8 @@ export type VerifiedFacts = {
 	/** `workflow/slice` prerequisites of this proposal's main edges that an observed human main merge contains. */
 	readonly mainDeliveries?: readonly string[];
 	readonly principal: Principal;
+	/** The envelope's command ID, which names a coordinator message. */
+	readonly commandId?: string;
 	/** The Render sequence an accepted command receives. */
 	readonly sequence: number;
 	/** Identities minted by Ledger for whatever an accepted command creates. */
@@ -150,6 +164,7 @@ export type DomainWrite =
 	| { readonly type: "roles.replace"; readonly state: RoleWorkState; readonly intents: readonly RoleIntent[] }
 	| { readonly type: "workflow.create"; readonly workflow: string; readonly title: string; readonly project: string }
 	| { readonly type: "project.put"; readonly project: Project }
+	| { readonly type: "chat.replace"; readonly workflow: string; readonly state: Chat }
 	| {
 			readonly type: "revision.append";
 			readonly revision: string;
@@ -242,6 +257,11 @@ const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly ava
 	editProject: { family: "human-decision", available: true },
 	saveDocument: { family: "human-decision", available: true },
 	postCoordinatorMessage: { family: "human-decision", available: true },
+	withdrawCoordinatorMessage: { family: "human-decision", available: true },
+	interruptCoordinator: { family: "human-decision", available: true },
+	recordMessageSubmission: { family: "scheduling", available: true },
+	recordMessageWithdrawal: { family: "scheduling", available: true },
+	recordInterrupt: { family: "scheduling", available: true },
 	approveCheckpoint: { family: "human-decision", available: true },
 	saveCheckpointConcern: { family: "human-decision", available: true },
 	cancelCheckpoint: { family: "human-decision", available: true },
@@ -368,6 +388,7 @@ export const change = Effect.fnUntraced(function* (state: KernelState, command: 
 	if (command.type === "changeEngineSettings") return yield* changeEngineSettings(state, command as EngineSettingsCommand, facts);
 	if (command.type === "changePolicy" || command.type === "adoptPolicy") return yield* changePolicy(state, command as PolicyCommand, facts);
 	if (PROJECT_COMMANDS.includes(command.type)) return yield* changeProject(state, command as ProjectCommand, facts);
+	if (CHAT_COMMANDS.includes(command.type)) return yield* changeChat(state, command as ChatCommand, facts);
 	if (INTAKE_COMMANDS.includes(command.type)) return yield* changeIntake(state, command as IntakeCommand, facts);
 	if (CHECKPOINT_COMMANDS.includes(command.type)) return yield* changeCheckpoint(state, command as CheckpointCommand, facts);
 	if (ROLE_COMMANDS.includes(command.type)) return yield* changeRole(state, command as RoleCommand, facts);
@@ -380,14 +401,7 @@ export const change = Effect.fnUntraced(function* (state: KernelState, command: 
 	const c = command as Extract<
 		Command,
 		{
-			type:
-				| "requestLocalVerificationPrompt"
-				| "createWorkflow"
-				| "saveDocument"
-				| "postCoordinatorMessage"
-				| "enrollDevice"
-				| "revokeDevice"
-				| "recordStartup";
+			type: "requestLocalVerificationPrompt" | "createWorkflow" | "saveDocument" | "enrollDevice" | "revokeDevice" | "recordStartup";
 		}
 	>;
 	switch (c.type) {
@@ -490,17 +504,6 @@ export const change = Effect.fnUntraced(function* (state: KernelState, command: 
 				facts: [facts.ids.fact],
 			};
 		}
-		case "postCoordinatorMessage": {
-			if (!inScope(facts.principal, c.workflow)) return yield* fail("forbidden_scope", `${c.workflow} is outside this device's scope.`);
-			if (state.workflow === null) return yield* fail("not_found", `${c.workflow} does not exist.`, { workflow: c.workflow });
-			const message = required(facts.ids.message);
-			return {
-				outcome: "accepted",
-				result: { message },
-				writes: [{ type: "message.append", message, workflow: c.workflow }, fact(facts, c.type, { workflow: c.workflow, message })],
-				facts: [facts.ids.fact],
-			};
-		}
 		case "enrollDevice": {
 			const device = required(facts.ids.device);
 			return {
@@ -566,10 +569,11 @@ export type WorkflowState = {
 	readonly project: string;
 	readonly documents: readonly DocumentSummary[];
 	readonly messageCount: number;
+	readonly chat?: Chat;
 };
 
 /** Capabilities a client may expect from later Render versions; reported as absent, never as empty successes. */
-export const UNAVAILABLE = ["coordinator-replies", "assignments", "evidence-receipts"] as const;
+export const UNAVAILABLE = ["assignments", "evidence-receipts"] as const;
 
 export type WorkflowView = {
 	readonly intakes: Intakes;
@@ -580,7 +584,8 @@ export type WorkflowView = {
 	readonly project: string;
 	readonly ground: DocumentSummary | null;
 	readonly documents: readonly DocumentSummary[];
-	readonly messages: { readonly count: number; readonly coordinator: "unavailable" };
+	/** `inbox`: messages Ledger has not handed to the coordinator, and withdrawals awaiting their outcome. */
+	readonly messages: { readonly count: number; readonly coordinator: CoordinatorView | null; readonly inbox: readonly InboxEntry[] };
 	readonly commitment: { readonly status: "none" | "accepted"; readonly acceptedIntake: string | null };
 	/** Slices whose current Contract has recorded qualifying integration: partial delivery, never inferred. */
 	readonly integrated: readonly string[];
@@ -634,7 +639,7 @@ function workflowView(w: WorkflowState): WorkflowView {
 		project: w.project,
 		ground,
 		documents: w.documents,
-		messages: { count: w.messageCount, coordinator: "unavailable" },
+		messages: { count: w.messageCount, coordinator: coordinatorView(w.assignments ?? [], w.id, w.chat), inbox: chatInbox(w.chat) },
 		commitment: { status: acceptedIntake ? "accepted" : "none", acceptedIntake },
 		integrated: w.integrated ?? [],
 		owner: { status: owners.length ? (owners.some((a) => a.blocker) ? "blocked" : "active") : "none", assignments: owners },
