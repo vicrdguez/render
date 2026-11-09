@@ -50,7 +50,7 @@ fail G02's named assertion; admitting a delivery owner for investigation must fa
 A third control accepting uncited results must fail G08. Setup/import failures do not count as detection.
 
 Focused selection: `node --test test/ground-investigation.test.ts` (real SQLite/Git, scripted provider only).
-Process fault selection: `node --test test/investigation-crash.integration.ts`, extended with
-`RENDER_V3_REPETITIONS=2`. Existing role retention, replay, authority schedules, source and recovery tests
-remain cumulative coverage. Full Gate is `npm run verify:gate`; unsafe controls are separate. Measure new
+Process fault selection: `node --test test/investigation-crash.integration.ts`, once per named barrier.
+Existing role retention, replay, authority schedules, source and recovery tests remain cumulative coverage.
+Full Gate is `npm run verify:gate`; the historical source-mutation runner has been removed. Measure new
 checks; no live model/search/human judgment, full delivery journey or full V9 claim follows from these fixtures.

@@ -1,9 +1,11 @@
 // Exact technical checkpoint legality. All bytes/provenance are supplied by Ledger; no I/O.
+
+import * as Effect from "effect/Effect";
 import { candidateEvidence, candidatePlan, validCandidateAnswer } from "./candidates.ts";
 import { initialCheckpointSettings } from "./checkpoint-settings.ts";
 import type { Intakes } from "./intake.ts";
 import { readGround, shapeConfirmed } from "./investigation.ts";
-import type { Decision, DomainWrite, KernelState, VerifiedFacts } from "./kernel.ts";
+import type { Decision, DomainWrite, KernelState, Refusal, RefusalCode, VerifiedFacts } from "./kernel.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
 import { type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
 
@@ -219,19 +221,24 @@ export function blockedBySeams(
 			(pending || (r.stage === "seams" ? r.approved !== latest : r.seams !== latest)),
 	);
 }
-function refuse(code: string, reason: string, r?: CheckpointRequest): Decision {
+function refuse(code: RefusalCode, reason: string, r?: CheckpointRequest): Refusal {
 	return {
 		outcome: "refused",
 		code,
 		reason,
 		...(r ? { refs: { request: r.id, emission: r.emission, annotations: String(r.annotations) } } : {}),
-	} as Decision;
+	};
 }
-export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts: VerifiedFacts): Decision {
-	if (!state.workflow || state.workflow.id !== c.workflow) return refuse("not_found", "Checkpoint requires an existing workflow.");
+export const changeCheckpoint = Effect.fnUntraced(function* (
+	state: KernelState,
+	c: CheckpointCommand,
+	facts: VerifiedFacts,
+): Effect.fn.Return<Extract<Decision, { outcome: "accepted" }>, Refusal> {
+	if (!state.workflow || state.workflow.id !== c.workflow)
+		return yield* Effect.fail(refuse("not_found", "Checkpoint requires an existing workflow."));
 	const p = facts.principal;
 	if (p.kind === "human" && p.route === "device" && p.workflows !== "all" && !p.workflows.includes(c.workflow))
-		return refuse("forbidden_scope", "Workflow is outside this device's scope.");
+		return yield* Effect.fail(refuse("forbidden_scope", "Workflow is outside this device's scope."));
 	const a = state.roleWork?.assignments.find((a) => sameAgent(a, p));
 	if (
 		p.kind === "assignment-agent" &&
@@ -243,7 +250,7 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 			!a.executing ||
 			a.executorEpoch !== facts.executorEpoch)
 	)
-		return refuse("stale_assignment", "Only the current executing design coordinator can advance a checkpoint.");
+		return yield* Effect.fail(refuse("stale_assignment", "Only the current executing design coordinator can advance a checkpoint."));
 	const work = structuredClone(state.checkpoints ?? emptyCheckpoints());
 	const policy = state.policy ?? initialPolicy();
 	const binding = bindingFor(policy, c.workflow);
@@ -254,26 +261,32 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 	const inputs = facts.checkpointInputs ?? {};
 	let r = "request" in c ? work.requests.find((r) => r.id === c.request) : undefined;
 	if (c.type === "requestCheckpoint") {
-		if (c.stage !== "seams" && c.stage !== "modules") return refuse("invalid_content", "Only technical Seams/Modules can be requested.");
+		if (c.stage !== "seams" && c.stage !== "modules")
+			return yield* Effect.fail(refuse("invalid_content", "Only technical Seams/Modules can be requested."));
 		if (work.requests.some((r) => r.stage === c.stage && r.status === "pending"))
-			return refuse("checkpoint_pending", "Continue the pending request or ask the human to cancel it.");
+			return yield* Effect.fail(refuse("checkpoint_pending", "Continue the pending request or ask the human to cancel it."));
 		const seams = work.requests.findLast((r) => r.stage === "seams" && r.status === "approved")?.approved ?? null;
 		if (c.stage === "modules" && (!seams || work.requests.some((r) => r.stage === "seams" && r.status === "pending")))
-			return refuse("seams_required", "Modules require current approved Seams; revised Seams need a decision first.");
-		if (!a?.packet.inputs.includes(c.scope)) return refuse("forbidden_scope", "Ground scope must be an explicit coordinator input.");
+			return yield* Effect.fail(refuse("seams_required", "Modules require current approved Seams; revised Seams need a decision first."));
+		if (!a?.packet.inputs.includes(c.scope))
+			return yield* Effect.fail(refuse("forbidden_scope", "Ground scope must be an explicit coordinator input."));
 		if (!inputs[c.scope]?.human || inputs[c.scope]?.document !== "ground")
-			return refuse("invalid_content", "Scope must cite exact human-authored Ground, not an assistant proposal.");
+			return yield* Effect.fail(refuse("invalid_content", "Scope must cite exact human-authored Ground, not an assistant proposal."));
 		const ground = readGround(inputs[c.scope]!.text);
 		if (ground && !shapeConfirmed(ground))
-			return refuse(
-				"shape_confirmation_required",
-				"Confirm the existing classifier-proposed task shape in human Ground before requesting a checkpoint.",
+			return yield* Effect.fail(
+				refuse(
+					"shape_confirmation_required",
+					"Confirm the existing classifier-proposed task shape in human Ground before requesting a checkpoint.",
+				),
 			);
 		const candidateKeys = c.required.candidates ? candidatePlan(a.packet, c.scope) : undefined;
 		if (c.required.candidates && !candidateKeys)
-			return refuse(
-				"invalid_content",
-				"Required comparison needs at least two read-only candidate packets with common Ground/inputs and distinct explicit conditions.",
+			return yield* Effect.fail(
+				refuse(
+					"invalid_content",
+					"Required comparison needs at least two read-only candidate packets with common Ground/inputs and distinct explicit conditions.",
+				),
 			);
 		r = {
 			...(candidateKeys ? { candidateKeys } : {}),
@@ -319,15 +332,17 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 		}
 		result.request = r.id;
 	} else {
-		if (!r) return refuse("not_found", "No such checkpoint request.");
+		if (!r) return yield* Effect.fail(refuse("not_found", "No such checkpoint request."));
 		if (p.kind === "assignment-agent" && !a?.packet.inputs.includes(r.scope))
-			return refuse("forbidden_scope", "Checkpoint Ground lies outside this coordinator's input scope.");
+			return yield* Effect.fail(refuse("forbidden_scope", "Checkpoint Ground lies outside this coordinator's input scope."));
 		if (c.type !== "saveCheckpointConcern" && r.status !== "pending")
-			return refuse("stale_basis", "Request is resolved; request a successor.", r);
+			return yield* Effect.fail(refuse("stale_basis", "Request is resolved; request a successor.", r));
 		if (c.type === "stageCheckpoint" && (!validManifest(c.manifest) || c.manifest.stage !== r.stage))
-			return refuse(
-				"invalid_content",
-				"Manifest needs stable nodes, alternatives/evidence/defaults, decomposition comparison and verification strategy.",
+			return yield* Effect.fail(
+				refuse(
+					"invalid_content",
+					"Manifest needs stable nodes, alternatives/evidence/defaults, decomposition comparison and verification strategy.",
+				),
 			);
 		if (
 			r.required.candidates &&
@@ -339,19 +354,22 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 					? c.manifest.nodes.flatMap((n) => n.evidence)
 					: (r.manifestValue?.nodes.flatMap((n) => n.evidence) ?? []);
 			if (!evidence || evidence.some((child) => !validCandidateAnswer(inputs[child.report!]?.text ?? "") || !cited.includes(child.report!)))
-				return refuse(
-					"missing_candidate_evidence",
-					"Complete and cite every required independent candidate answer before synthesis/challenge/advancement.",
-					r,
+				return yield* Effect.fail(
+					refuse(
+						"missing_candidate_evidence",
+						"Complete and cite every required independent candidate answer before synthesis/challenge/advancement.",
+						r,
+					),
 				);
 		}
 		if (c.type === "cancelCheckpoint") {
-			if (c.expectedEmission !== r.emission) return refuse("stale_basis", "Cancellation basis changed.", r);
+			if (c.expectedEmission !== r.emission) return yield* Effect.fail(refuse("stale_basis", "Cancellation basis changed.", r));
 			r.status = "canceled";
 			r.decision = ref;
 			result.request = r.id;
 		} else if (c.type === "saveCheckpointConcern") {
-			if (!r.emissions.includes(c.base)) return refuse("stale_basis", "Save complete concerns against this exact emitted revision.", r);
+			if (!r.emissions.includes(c.base))
+				return yield* Effect.fail(refuse("stale_basis", "Save complete concerns against this exact emitted revision.", r));
 			const concern: Concern = {
 				id: `concern:${facts.sequence}:1`,
 				request: r.id,
@@ -388,15 +406,13 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 			});
 		} else if (c.type === "reworkCheckpoint") {
 			if (!work.concerns.some((n) => n.stage === r!.stage))
-				return refuse("concern_required", "Save edited concerns or a separate human reason before rework.", r);
+				return yield* Effect.fail(refuse("concern_required", "Save edited concerns or a separate human reason before rework.", r));
 			r.ready = false;
 			result.request = r.id;
 		} else if (c.type === "stageCheckpoint") {
 			if (r.required.experiment)
-				return refuse(
-					"capability_unavailable",
-					"Required protocol experiment capability is unavailable; no synthesis/challenge waiver.",
-					r,
+				return yield* Effect.fail(
+					refuse("capability_unavailable", "Required protocol experiment capability is unavailable; no synthesis/challenge waiver.", r),
 				);
 			const concerns = work.concerns.filter((n) => n.stage === r!.stage);
 			const responses = c.manifest.responses;
@@ -406,7 +422,9 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 				concerns.some((n) => !responses.some((v) => v.concern === n.id)) ||
 				responses.some((n) => !c.manifest.nodes.some((v) => v.id === n.resulting))
 			)
-				return refuse("annotation_mapping_required", "Map every saved concern to a disposition, reason and resulting node.", r);
+				return yield* Effect.fail(
+					refuse("annotation_mapping_required", "Map every saved concern to a disposition, reason and resulting node.", r),
+				);
 			r.emission = `checkpoint-emission:${facts.sequence}`;
 			r.manifest = `checkpoint-manifest:${facts.sequence}`;
 			r.emissions.push(r.emission);
@@ -419,7 +437,7 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 			documents.push({ ref: r.emission, text: c.text, markdown: true }, { ref: r.manifest, text: JSON.stringify(c.manifest) });
 			Object.assign(result, { request: r.id, emission: r.emission, manifest: r.manifest });
 		} else if (c.type === "requestCheckpointReview") {
-			if (!r.emission || !r.manifest) return refuse("review_required", "Stage the exact bytes and manifest first.", r);
+			if (!r.emission || !r.manifest) return yield* Effect.fail(refuse("review_required", "Stage the exact bytes and manifest first.", r));
 			const template = a!.packet.requests.find((p) => p.key === c.key)?.packet;
 			if (
 				!template ||
@@ -428,15 +446,17 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 				template.requests.length ||
 				template.investigation
 			)
-				return refuse("forbidden_scope", "Choose an explicitly configured read-only challenger packet.");
+				return yield* Effect.fail(refuse("forbidden_scope", "Choose an explicitly configured read-only challenger packet."));
 			if (template.family === a!.packet.family && policy.revisions[binding.policy]?.reviewerDiversity !== "human-directed-same-family")
-				return refuse(
-					"capability_unavailable",
-					"Challenger needs an explicitly configured different family or recorded human policy direction.",
+				return yield* Effect.fail(
+					refuse(
+						"capability_unavailable",
+						"Challenger needs an explicitly configured different family or recorded human policy direction.",
+					),
 				);
 			const key = `${r.id}:${r.emission}:${r.annotations}`;
 			if (state.roleWork?.assignments.some((a) => a.requestKey === key))
-				return refuse("role_already_requested", "Exact review already has a fresh durable assignment.");
+				return yield* Effect.fail(refuse("role_already_requested", "Exact review already has a fresh durable assignment."));
 			const child: RoleAssignment = {
 				id: facts.ids.assignment!,
 				workflow: c.workflow,
@@ -486,7 +506,7 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 			try {
 				review = JSON.parse(inputs[c.review]?.text ?? "null");
 			} catch {
-				return refuse("invalid_content", "Challenger must submit a structured exact-revision report.");
+				return yield* Effect.fail(refuse("invalid_content", "Challenger must submit a structured exact-revision report."));
 			}
 			if (
 				!reviewer ||
@@ -498,21 +518,21 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 				) ||
 				!Array.isArray(review.objections)
 			)
-				return refuse("review_required", "Required independent challenger checks are missing.", r);
+				return yield* Effect.fail(refuse("review_required", "Required independent challenger checks are missing.", r));
 			if (
 				[review, reviewer.checkpointReview].some(
 					(basis) => !basis || basis.emission !== r!.emission || basis.manifest !== r!.manifest || basis.annotations !== r!.annotations,
 				) ||
 				reviewer.policyBinding !== binding.revision
 			)
-				return refuse("stale_basis", "Challenge must judge the exact current emission, manifest and annotations.", r);
+				return yield* Effect.fail(refuse("stale_basis", "Challenge must judge the exact current emission, manifest and annotations.", r));
 			const coordinator = state.roleWork?.assignments.find((a) => a.id === r!.coordinator);
 			if (
 				!coordinator ||
 				(reviewer.packet.family === coordinator.packet.family &&
 					policy.revisions[binding.policy]?.reviewerDiversity !== "human-directed-same-family")
 			)
-				return refuse("capability_unavailable", "Replacement challenge cannot waive configured reviewer diversity.");
+				return yield* Effect.fail(refuse("capability_unavailable", "Replacement challenge cannot waive configured reviewer diversity."));
 			const objections = review.objections;
 			if (
 				!objections.every(
@@ -529,14 +549,17 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 						!r!.manifestValue?.nodes.some((n) => n.id === o.resulting),
 				)
 			)
-				return refuse("annotation_mapping_required", "Contested list must answer every stable objection with reason and resulting node.");
+				return yield* Effect.fail(
+					refuse("annotation_mapping_required", "Contested list must answer every stable objection with reason and resulting node."),
+				);
 			r.review = c.review;
 			r.ready = true;
 			r.reviewedAnnotations = r.annotations;
 			Object.assign(result, { request: r.id, emission: r.emission, manifest: r.manifest });
 		} else if (c.type === "approveCheckpoint" || c.type === "advanceDelegatedCheckpoint") {
 			const delegated = c.type === "advanceDelegatedCheckpoint";
-			if (delegated && r.mode !== "delegated") return refuse("forbidden_scope", "This request captured human routing.", r);
+			if (delegated && r.mode !== "delegated")
+				return yield* Effect.fail(refuse("forbidden_scope", "This request captured human routing.", r));
 			if (
 				c.emission !== r.emission ||
 				c.manifest !== r.manifest ||
@@ -544,21 +567,20 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 				c.policyBinding !== r.policyBinding ||
 				binding.revision !== r.policyBinding
 			)
-				return refuse("stale_basis", "Approval basis changed; read current concerns and exact emission.", r);
-			if (!r.ready || !r.review) return refuse("review_required", "Only exact independently reviewed emissions can be approved.", r);
+				return yield* Effect.fail(refuse("stale_basis", "Approval basis changed; read current concerns and exact emission.", r));
+			if (!r.ready || !r.review)
+				return yield* Effect.fail(refuse("review_required", "Only exact independently reviewed emissions can be approved.", r));
 			if (
 				r.stage === "modules" &&
 				(work.requests.some((q) => q.stage === "seams" && q.status === "pending") ||
 					work.requests.findLast((q) => q.stage === "seams" && q.status === "approved")?.approved !== r.seams)
 			)
-				return refuse("seams_required", "Revised seams block dependent Modules, not historical acceptance.", r);
+				return yield* Effect.fail(refuse("seams_required", "Revised seams block dependent Modules, not historical acceptance.", r));
 			const notes = work.concerns.filter((n) => n.stage === r!.stage).map((n) => n.id);
 			const needsNotes = r.reviewedAnnotations !== r.annotations;
 			if (delegated && (needsNotes || c.nonbinding.length))
-				return refuse(
-					"annotation_mapping_required",
-					"Delegation cannot declare human concerns nonbinding; rework and review every concern.",
-					r,
+				return yield* Effect.fail(
+					refuse("annotation_mapping_required", "Delegation cannot declare human concerns nonbinding; rework and review every concern.", r),
 				);
 			if (
 				!unique(c.nonbinding) ||
@@ -566,17 +588,19 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 					? c.nonbinding.length !== notes.length || notes.some((n) => !c.nonbinding.includes(n))
 					: c.nonbinding.some((n) => !notes.includes(n)))
 			)
-				return refuse(
-					"annotation_mapping_required",
-					"Approve original with every saved note explicitly nonbinding, or rework and review a complete annotation map.",
-					r,
+				return yield* Effect.fail(
+					refuse(
+						"annotation_mapping_required",
+						"Approve original with every saved note explicitly nonbinding, or rework and review a complete annotation map.",
+						r,
+					),
 				);
 			if (
 				!r.manifestValue ||
 				Object.keys(c.decisions).length !== r.manifestValue.nodes.length ||
 				r.manifestValue.nodes.some((n) => !n.alternatives.includes(c.decisions[n.id] ?? ""))
 			)
-				return refuse("invalid_content", "Explicit decisions must select a listed alternative for every node.");
+				return yield* Effect.fail(refuse("invalid_content", "Explicit decisions must select a listed alternative for every node."));
 			if (delegated) {
 				let review: unknown;
 				try {
@@ -600,10 +624,12 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 							(!n.humanDecision || !inputs[n.humanDecision]?.human || !(review.humanDecisions as string[]).includes(n.humanDecision)),
 					)
 				)
-					return refuse(
-						"human_decision_required",
-						"Exact challenger must expose classification/scope and resolve product choices against retained human decisions; ask the human or re-emit and re-review.",
-						r,
+					return yield* Effect.fail(
+						refuse(
+							"human_decision_required",
+							"Exact challenger must expose classification/scope and resolve product choices against retained human decisions; ask the human or re-emit and re-review.",
+							r,
+						),
 					);
 			}
 			r.status = "approved";
@@ -633,4 +659,4 @@ export function changeCheckpoint(state: KernelState, c: CheckpointCommand, facts
 		{ type: "fact.record", fact: facts.ids.fact, command: c.type, refs: { workflow: c.workflow, checkpoint: r!.id, record: ref } },
 	);
 	return { outcome: "accepted", result, writes, facts: [facts.ids.fact] };
-}
+});

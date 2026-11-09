@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Command, change, type KernelState, type Principal } from "../src/kernel/kernel.ts";
+import { decision } from "./support/kernel.ts";
 import { packet, selection } from "./support/roles.ts";
 
 const host: Principal = { kind: "host", scope: "scheduling" };
@@ -46,17 +47,19 @@ function fixture(retained?: KernelState) {
 	function command(c: Record<string, unknown>, principal = host) {
 		sequence++;
 		const before = structuredClone(state);
-		const result = change(state, { ...c, workflow } as Command, {
-			principal,
-			sequence,
-			executorEpoch: "executor:1",
-			ids: {
-				fact: `fact:${sequence}`,
-				assignment: `assignment:${sequence}`,
-				attempt: `attempt:${sequence}`,
-				revision: `revision:${sequence}`,
-			},
-		});
+		const result = decision(
+			change(state, { ...c, workflow } as Command, {
+				principal,
+				sequence,
+				executorEpoch: "executor:1",
+				ids: {
+					fact: `fact:${sequence}`,
+					assignment: `assignment:${sequence}`,
+					attempt: `attempt:${sequence}`,
+					revision: `revision:${sequence}`,
+				},
+			}),
+		);
 		assert.deepEqual(state, before, "pass transitions must preserve Kernel input state");
 		if (result.outcome === "accepted")
 			for (const write of result.writes) {

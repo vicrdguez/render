@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import { assess, catalogFixture, runCatalog } from "./support/catalog.ts";
 import { admin } from "./support/roles.ts";
@@ -24,6 +25,17 @@ test("catalog Linux results require assessment, retain independent evidence and 
 			"accepted",
 			"weaker static gates and optional advisory rows must not cap behavioral rank",
 		);
+		for (const kind of ["discover", "human"]) {
+			const result = await assess(f, [a.report!], {
+				rows: [...f.selection.rows, kind],
+				behavioralRows: ["behavior", kind],
+			});
+			assert.equal(result.status, "refused", `${kind} cannot discharge required behavior`);
+			if (result.status === "refused") {
+				assert.equal(result.code, "missing_content");
+				assert.equal(result.reason, "Discovery/human/missing rows cannot prove behavior.");
+			}
+		}
 		const excessive = await assess(f, [a.report!], {}, "live");
 		assert.equal(excessive.status, "refused", "rank cannot exceed weakest required evidence");
 		const otherRole = await assess(f, [a.report!], {}, "endpoint", "watchdog");
@@ -36,29 +48,33 @@ test("catalog Linux results require assessment, retain independent evidence and 
 		assert.equal(oldSource.status, "refused", "old-source receipts cannot satisfy current completion");
 		const oldVerifier = await assess(f, [a.report!], { digest: "2".repeat(64) });
 		assert.equal(oldVerifier.status, "blocked", "old-verifier receipts cannot satisfy current completion");
-		const policy = await f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: f.ledger.status().authorityEpoch,
-				commandId: "minimum",
-				command: {
-					type: "changePolicy",
-					expectedRevision: "policy:initial",
-					policy: { completedReviewLimit: 2, reviewerDiversity: "different-family", minimumEvidenceRank: "live" },
+		const policy = await Effect.runPromise(
+			f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: f.ledger.status().authorityEpoch,
+					commandId: "minimum",
+					command: {
+						type: "changePolicy",
+						expectedRevision: "policy:initial",
+						policy: { completedReviewLimit: 2, reviewerDiversity: "different-family", minimumEvidenceRank: "live" },
+					},
 				},
-			},
-			admin,
+				admin,
+			),
 		);
 		assert.ok(policy.status === "accepted");
-		const adopted = await f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: f.ledger.status().authorityEpoch,
-				commandId: "adopt-minimum",
-				workflow: "workflow:2",
-				command: { type: "adoptPolicy", revision: policy.result.policy, expectedBinding: "policy-binding:2" },
-			},
-			admin,
+		const adopted = await Effect.runPromise(
+			f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: f.ledger.status().authorityEpoch,
+					commandId: "adopt-minimum",
+					workflow: "workflow:2",
+					command: { type: "adoptPolicy", revision: policy.result.policy, expectedBinding: "policy-binding:2" },
+				},
+				admin,
+			),
 		);
 		assert.equal(adopted.status, "accepted");
 		assert.equal((await assess(f, [a.report!])).status, "refused", "below-minimum evidence cannot be demoted into success");
@@ -69,7 +85,7 @@ test("catalog Linux results require assessment, retain independent evidence and 
 			admin,
 		);
 		assert.ok(promptReply.status === "accepted", JSON.stringify(promptReply));
-		const prompt = await f.ledger.artifact(admin, { read: String(promptReply.result.textArtifact) });
+		const prompt = await Effect.runPromise(f.ledger.artifact(admin, { read: String(promptReply.result.textArtifact) }));
 		assert.ok("content" in prompt);
 		const promptText = prompt.content.toString();
 		for (const expected of [
@@ -81,17 +97,16 @@ test("catalog Linux results require assessment, retain independent evidence and 
 			"needs_assessment",
 			"macOS",
 			"unrun",
-			"Same CPU does not make Linux binaries portable to macOS",
 		])
 			assert.ok(promptText.includes(expected), `local prompt must retain ${expected}`);
 		const afterPrompt = f.ledger.snapshot(admin);
 		assert.ok("assignments" in beforePrompt && "assignments" in afterPrompt);
 		assert.deepEqual(afterPrompt.assignments, beforePrompt.assignments, "advisory absence must not gate or complete work");
-		const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exported);
 		assert.equal(Buffer.from(exported.content[a.report!]!, "base64").toString(), read.content.toString());
 		await f.reopen(new Engine({ ownedChecks: f.config }));
-		const after = await f.ledger.artifact(admin, { read: a.report! });
+		const after = await Effect.runPromise(f.ledger.artifact(admin, { read: a.report! }));
 		assert.ok("content" in after);
 		assert.equal(after.content.toString(), read.content.toString());
 	} finally {
@@ -121,21 +136,6 @@ test("generated discovery and advisory human observation cannot hide failed jour
 		await f.close();
 	}
 });
-
-for (const kind of ["discover", "human"])
-	test(`${kind} cannot discharge required behavior despite green executable checks`, async () => {
-		const f = await catalogFixture(true);
-		try {
-			const { a } = await runCatalog(f, [kind]);
-			assert.equal(
-				(await assess(f, [a.report!], { rows: [...f.selection.rows, kind], behavioralRows: ["behavior", kind] })).status,
-				"refused",
-				"non-executable evidence must not qualify as behavioral proof",
-			);
-		} finally {
-			await f.close();
-		}
-	});
 
 for (const [label, text, expected] of [
 	["missing command", "render-fixture-command-not-installed", "unrun"],

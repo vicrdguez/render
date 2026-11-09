@@ -1,55 +1,8 @@
 // Pure evidence bounds. A trusted runner observation is necessary, never sufficient judgment.
-import type { ExecutionResult } from "../sandboxes/sandboxes.ts";
+import type { CatalogEvidence, CatalogResult, CatalogRow, ExecutionResult, VerificationSelection } from "./evidence-schema.ts";
 
-export type VerificationSelection = {
-	repository: string;
-	commit: string;
-	path: string;
-	digest: string;
-	contract: string;
-	rows: string[];
-	behavioralRows: string[];
-	receipts: string[];
-	/** Verify-maintain over every row; `basis` names the pre-edit classification a corrected run is judged against. */
-	maintenance?: { basis: string | null };
-};
+export type { CatalogEvidence, CatalogResult, CatalogRow, SelectedCatalog, VerificationSelection } from "./evidence-schema.ts";
 export type VerificationAssessment = { outcome: "pass" | "non-pass"; rank: string | null; reason: string };
-export type CatalogRow = {
-	name: string;
-	channel: string;
-	kind: "generated" | "executed" | "journey" | "human";
-	run: string;
-	expectations: string;
-	rank: string | null;
-	literal: string;
-	/** Maintenance only: why this row's command or journey path no longer resolves. */
-	gap?: string;
-	journey?: { path: string; digest: string; text: string; steps: string[]; sanity: string };
-};
-export type SelectedCatalog = {
-	selection: VerificationSelection;
-	text: string;
-	ranks: string[];
-	sections: Record<string, string>;
-	rows: CatalogRow[];
-	cleanup: string[];
-};
-export type CatalogResult = {
-	name: string;
-	status: "completed" | "failed" | "unrun" | "advisory" | "invalid";
-	steps: ExecutionResult[];
-	sanity?: ExecutionResult;
-};
-export type CatalogEvidence = {
-	kind: "catalog-check";
-	role: string;
-	catalog: SelectedCatalog;
-	results: CatalogResult[];
-	verification: { status: string; inputCommit: string; inputTree: string; resultTree: string };
-	cleanup: { status: "complete" | "pending"; results: ExecutionResult[] };
-	/** Standalone runner receipts carry the literal entries of the source they ran. */
-	source?: { base: { entries: { path: string; mode: string; oid: string }[] } };
-};
 /** One row's verify-maintain status from its observed basis: changed is proven harness drift. */
 export type MaintenanceRow = {
 	status: "clean" | "changed" | "blocked";

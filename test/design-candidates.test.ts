@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { Checkpoints, Manifest } from "../src/kernel/checkpoints.ts";
 import { change, type KernelState } from "../src/kernel/kernel.ts";
@@ -8,7 +9,7 @@ import type { RoleAssignment, RolePacket } from "../src/kernel/roles.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
 import { until } from "./support/investigation.ts";
-import { seeded } from "./support/random.ts";
+import { decision } from "./support/kernel.ts";
 import { admin, allowSameFamily, packet, roleFixture } from "./support/roles.ts";
 
 function accepted(reply: CommandReply) {
@@ -94,16 +95,18 @@ async function fixture(direction = true, change?: (packets: RolePacket[]) => voi
 	let seq = 0;
 	async function save(document: string, text: string) {
 		return accepted(
-			await f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: f.ledger.status().authorityEpoch,
-					commandId: `doc:${++seq}`,
-					workflow: "workflow:2",
-					expected: { document: null },
-					command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
-				},
-				admin,
+			await Effect.runPromise(
+				f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: f.ledger.status().authorityEpoch,
+						commandId: `doc:${++seq}`,
+						workflow: "workflow:2",
+						expected: { document: null },
+						command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
+					},
+					admin,
+				),
 			),
 		).revision as string;
 	}
@@ -174,18 +177,20 @@ for (const mode of ["human", "delegated"] as const) {
 		try {
 			if (mode === "delegated") {
 				accepted(
-					await x.f.ledger.command(
-						{
-							version: 1,
-							authorityEpoch: x.f.ledger.status().authorityEpoch,
-							commandId: "delegate",
-							command: {
-								type: "changeCheckpointSettings",
-								expectedRevision: "settings:initial",
-								modes: { seams: "delegated", modules: "human", proposal: "human" },
+					await Effect.runPromise(
+						x.f.ledger.command(
+							{
+								version: 1,
+								authorityEpoch: x.f.ledger.status().authorityEpoch,
+								commandId: "delegate",
+								command: {
+									type: "changeCheckpointSettings",
+									expectedRevision: "settings:initial",
+									modes: { seams: "delegated", modules: "human", proposal: "human" },
+								},
 							},
-						},
-						admin,
+							admin,
+						),
 					),
 				);
 			}
@@ -208,7 +213,7 @@ for (const mode of ["human", "delegated"] as const) {
 			const reviewerId = accepted(await x.cmd({ type: "requestCheckpointReview", request, key: "challenge" })).assignment;
 			await until(() => x.assignments().find((a) => a.id === reviewerId)?.status === "running");
 			const reviewer = x.assignments().find((a) => a.id === reviewerId)!;
-			const rendered = JSON.parse(await x.engine.render(reviewer));
+			const rendered = JSON.parse(await Effect.runPromise(x.engine.render(reviewer)));
 			assert.ok(rendered.inputs.some((v: { text: string }) => v.text === answer("Compact interface")));
 			const review = accepted(
 				await x.cmd(
@@ -257,41 +262,43 @@ for (const mode of ["human", "delegated"] as const) {
 					decisions: { N1: "separate" },
 					nonbinding: [],
 				};
-				const reviewBytes = await x.f.ledger.artifact(admin, { read: review as string });
+				const reviewBytes = await Effect.runPromise(x.f.ledger.artifact(admin, { read: review as string }));
 				assert.ok("content" in reviewBytes);
 				for (const status of ["submitted", "blocked", "canceled"] as const) {
 					const assignments = structuredClone(x.assignments());
 					assignments.find((v) => v.id === a.id)!.status = status;
-					const decision = change(
-						{
-							workflow: { id: "workflow:2", messageCount: 0 },
-							document: null,
-							device: null,
-							checkpoints,
-							roleWork: { assignments },
-							policy: frame.policy as KernelState["policy"],
-						},
-						command,
-						{
-							principal: {
-								kind: "assignment-agent",
-								assignment: x.parent.id,
-								generation: 1,
-								attempt: x.parent.attempt,
-								role: "coordinator",
+					const d = decision(
+						change(
+							{
+								workflow: { id: "workflow:2", messageCount: 0 },
+								document: null,
+								device: null,
+								checkpoints,
+								roleWork: { assignments },
+								policy: frame.policy as KernelState["policy"],
 							},
-							executorEpoch: x.parent.executorEpoch!,
-							sequence: 1000,
-							ids: { fact: "fact:1000" },
-							checkpointInputs: {
-								[ar]: { text: answer("Compact interface"), human: false, document: "role-report/A" },
-								[br]: { text: answer("Independent boundaries"), human: false, document: "role-report/B" },
-								[review as string]: { text: reviewBytes.content.toString(), human: false, document: "role-report/review" },
+							command,
+							{
+								principal: {
+									kind: "assignment-agent",
+									assignment: x.parent.id,
+									generation: 1,
+									attempt: x.parent.attempt,
+									role: "coordinator",
+								},
+								executorEpoch: x.parent.executorEpoch!,
+								sequence: 1000,
+								ids: { fact: "fact:1000" },
+								checkpointInputs: {
+									[ar]: { text: answer("Compact interface"), human: false, document: "role-report/A" },
+									[br]: { text: answer("Independent boundaries"), human: false, document: "role-report/B" },
+									[review as string]: { text: reviewBytes.content.toString(), human: false, document: "role-report/review" },
+								},
 							},
-						},
+						),
 					);
 					assert.equal(
-						decision.outcome === "refused" ? decision.code : decision.outcome,
+						d.outcome === "refused" ? d.code : d.outcome,
 						status === "submitted" ? "accepted" : "missing_candidate_evidence",
 						"delegated advancement must retain required candidate completion checks",
 					);
@@ -308,11 +315,11 @@ for (const mode of ["human", "delegated"] as const) {
 				[ar, answer("Compact interface")],
 				[br, answer("Independent boundaries")],
 			]) {
-				const value = await x.f.ledger.artifact(admin, { read: ref! });
+				const value = await Effect.runPromise(x.f.ledger.artifact(admin, { read: ref! }));
 				assert.ok("content" in value);
 				assert.equal(value.content.toString(), expected);
 			}
-			const exported = await x.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			const exported = await Effect.runPromise(x.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 			assert.ok("manifest" in exported && exported.manifest.complete);
 			assert.ok(exported.jsonl.includes(ar) && exported.jsonl.includes(br) && exported.jsonl.includes(request));
 		} finally {
@@ -333,13 +340,13 @@ test("D1/D2 candidates receive own inputs and cannot name foreign artifacts or g
 			[a, "LEFT-INPUT", "RIGHT-INPUT"],
 			[b, "RIGHT-INPUT", "LEFT-INPUT"],
 		] as const) {
-			const rendered = await x.engine.render(own);
+			const rendered = await Effect.runPromise(x.engine.render(own));
 			assert.ok(rendered.includes(ownText));
 			assert.ok(!rendered.includes(foreignText) && !rendered.includes("COORDINATOR-FAVORED-ANSWER"));
-			const positive = await x.f.ledger.artifact(actor(own), { read: own.packet.instructions });
+			const positive = await Effect.runPromise(x.f.ledger.artifact(actor(own), { read: own.packet.instructions }));
 			assert.ok("content" in positive);
 			for (const ref of [x.favored, own.id === a.id ? x.right : x.left, x.parent.packetRef, own.id === a.id ? b.packetRef : a.packetRef]) {
-				const foreign = await x.f.ledger.artifact(actor(own), { read: ref });
+				const foreign = await Effect.runPromise(x.f.ledger.artifact(actor(own), { read: ref }));
 				assert.ok(!("content" in foreign), "foreign artifact must remain unreadable even with its exact handle");
 			}
 			assert.equal(
@@ -354,11 +361,11 @@ test("D1/D2 candidates receive own inputs and cannot name foreign artifacts or g
 		}
 		const ar = accepted(await x.cmd({ type: "submitRoleResult", text: answer("LEFT-ANSWER-CANARY"), supports: [] }, a)).report as string;
 		assert.ok(
-			!("content" in (await x.f.ledger.artifact(actor(b), { read: ar }))),
+			!("content" in (await Effect.runPromise(x.f.ledger.artifact(actor(b), { read: ar })))),
 			"foreign artifact must remain unreadable even with its exact handle",
 		);
-		assert.ok("content" in (await x.f.ledger.artifact(actor(a), { read: ar })));
-		assert.ok("content" in (await x.f.ledger.artifact(actor(x.parent), { read: ar })));
+		assert.ok("content" in (await Effect.runPromise(x.f.ledger.artifact(actor(a), { read: ar }))));
+		assert.ok("content" in (await Effect.runPromise(x.f.ledger.artifact(actor(x.parent), { read: ar }))));
 		const inherited = await x.f.command({
 			type: "assignTask",
 			slice: "contaminated",
@@ -401,7 +408,7 @@ test("D1 required family cannot be replaced by an unrecorded same-family fallbac
 	}
 });
 
-test("D3 seeded completion schedules reject missing, blocked, canceled or foreign-request candidates", async () => {
+test("D3 exhaustive candidate status and request matrix requires both submitted candidates for synthesis", async () => {
 	const x = await fixture();
 	try {
 		const request = accepted(await x.request()).request as string;
@@ -409,52 +416,64 @@ test("D3 seeded completion schedules reject missing, blocked, canceled or foreig
 		await x.start(request, 1);
 		const frame = x.f.ledger.snapshot(admin) as Frame;
 		const checkpoints = (frame.workflows as { checkpoints: Checkpoints }[])[0]!.checkpoints;
-		const random = seeded(1010);
-		for (let i = 0; i < 10000; i++) {
-			const assignments = structuredClone(x.assignments());
-			const statuses = ["submitted", "blocked", "canceled", "running"] as const;
-			for (const [n, a] of assignments.slice(1).entries()) {
-				a.status = statuses[Math.floor(random() * statuses.length)]!;
-				a.report = `answer:${n}`;
+		const statuses = ["submitted", "blocked", "canceled", "running"] as const;
+		for (const firstStatus of statuses) {
+			for (const secondStatus of statuses) {
+				for (const foreignRequest of [false, true]) {
+					const assignments = structuredClone(x.assignments());
+					assignments[1]!.status = firstStatus;
+					assignments[2]!.status = secondStatus;
+					for (const [n, a] of assignments.slice(1).entries()) {
+						a.report = `answer:${n}`;
+					}
+					if (foreignRequest) assignments[1]!.checkpointCandidate!.request = "checkpoint:foreign";
+					const state: KernelState = {
+						workflow: { id: "workflow:2", messageCount: 0 },
+						document: null,
+						device: null,
+						roleWork: { assignments },
+						checkpoints,
+					};
+					const d = decision(
+						change(
+							state,
+							{
+								type: "stageCheckpoint",
+								workflow: "workflow:2",
+								request,
+								text: "Synthesis",
+								manifest: {
+									...manifest,
+									stage: "seams",
+									nodes: [{ ...manifest.nodes[0]!, classification: "judgment", evidence: ["answer:0", "answer:1"] }],
+								},
+							},
+							{
+								principal: {
+									kind: "assignment-agent",
+									assignment: x.parent.id,
+									generation: 1,
+									attempt: x.parent.attempt,
+									role: "coordinator",
+								},
+								executorEpoch: x.parent.executorEpoch!,
+								sequence: 1000,
+								ids: { fact: "fact:1000" },
+								checkpointInputs: {
+									[x.ground]: { text: "Ground", human: true, document: "ground" },
+									"answer:0": { text: answer("A"), human: false, document: "role-report/A" },
+									"answer:1": { text: answer("B"), human: false, document: "role-report/B" },
+								},
+							},
+						),
+					);
+					assert.equal(
+						d.outcome === "refused" ? d.code : d.outcome,
+						!foreignRequest && firstStatus === "submitted" && secondStatus === "submitted" ? "accepted" : "missing_candidate_evidence",
+						`firstStatus=${firstStatus}, secondStatus=${secondStatus}, foreignRequest=${foreignRequest}`,
+					);
+				}
 			}
-			if (i % 5 === 0) assignments[1]!.checkpointCandidate!.request = "checkpoint:foreign";
-			const state: KernelState = {
-				workflow: { id: "workflow:2", messageCount: 0 },
-				document: null,
-				device: null,
-				roleWork: { assignments },
-				checkpoints,
-			};
-			const decision = change(
-				state,
-				{
-					type: "stageCheckpoint",
-					workflow: "workflow:2",
-					request,
-					text: "Synthesis",
-					manifest: {
-						...manifest,
-						stage: "seams",
-						nodes: [{ ...manifest.nodes[0]!, classification: "judgment", evidence: ["answer:0", "answer:1"] }],
-					},
-				},
-				{
-					principal: { kind: "assignment-agent", assignment: x.parent.id, generation: 1, attempt: x.parent.attempt, role: "coordinator" },
-					executorEpoch: x.parent.executorEpoch!,
-					sequence: 1000,
-					ids: { fact: "fact:1000" },
-					checkpointInputs: {
-						[x.ground]: { text: "Ground", human: true, document: "ground" },
-						"answer:0": { text: answer("A"), human: false, document: "role-report/A" },
-						"answer:1": { text: answer("B"), human: false, document: "role-report/B" },
-					},
-				},
-			);
-			assert.equal(
-				decision.outcome === "refused" ? decision.code : decision.outcome,
-				i % 5 !== 0 && assignments.slice(1).every((a) => a.status === "submitted") ? "accepted" : "missing_candidate_evidence",
-				`candidate schedule ${i}`,
-			);
 		}
 	} finally {
 		await x.close();
@@ -533,20 +552,22 @@ test("D1/D3 candidate assignment retains accepted Contract scope and permanent c
 		},
 	};
 	const assign = (inputs: string[]) =>
-		change(
-			state,
-			{
-				type: "assignTask",
-				workflow: "workflow:2",
-				slice: "comparison",
-				delivery: false,
-				packet: packet({ role: "candidate", inputs }),
-			},
-			{
-				principal: { kind: "host", scope: "scheduling" },
-				sequence: 10,
-				ids: { fact: "fact:10", assignment: "candidate:10", attempt: "attempt:10" },
-			},
+		decision(
+			change(
+				state,
+				{
+					type: "assignTask",
+					workflow: "workflow:2",
+					slice: "comparison",
+					delivery: false,
+					packet: packet({ role: "candidate", inputs }),
+				},
+				{
+					principal: { kind: "host", scope: "scheduling" },
+					sequence: 10,
+					ids: { fact: "fact:10", assignment: "candidate:10", attempt: "attempt:10" },
+				},
+			),
 		);
 	const missing = assign([]);
 	assert.equal(

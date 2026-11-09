@@ -1,5 +1,9 @@
 // Pure implementation evidence validation. Ledger resolves and integrity-checks the actual bytes.
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import type { SourceReceipt } from "../effects/source.ts";
+import type { ImplementationSource } from "./evidence-schema.ts";
+import { ImplementationSourceSchema } from "./evidence-schema.ts";
 import type { PolicyBasis } from "./policy.ts";
 import type { ImplementationPass, RoleAssignment, RolePacket } from "./roles.ts";
 import { validatePath } from "./source-path.ts";
@@ -11,7 +15,7 @@ import {
 	type VerificationSelection,
 } from "./verification.ts";
 
-export type ImplementationSource = { schema: 1; source: SourceReceipt; verification?: CatalogEvidence };
+export type { ImplementationSource } from "./evidence-schema.ts";
 export type AuditBinding = { passRef: string; audit: string; source: string; contract: string };
 export type AuditFinding = { id: string; text: string; needsHuman: boolean };
 export type FindingDisposition = {
@@ -381,7 +385,7 @@ export function reviewQualification(input: {
 	verdict: WatchdogVerdict | undefined;
 	target: string;
 	basis: PolicyBasis;
-}): { code: string; reason: string } | undefined {
+}): { code: "stale_basis" | "missing_content" | "forbidden_scope"; reason: string } | undefined {
 	const { pass, preparation, record, review, verdict, target, basis } = input;
 	const binding = review.watchdogReview;
 	if (!pass.handoff || pass.handoff.preparations?.at(-1) !== preparation || binding?.preparation !== preparation)
@@ -410,100 +414,13 @@ export function watchdogVerdict(value: string | undefined): WatchdogVerdict | un
 		return;
 	}
 }
-/** Shape validation is total: even trusted-host protocol input can be malformed. */
+/** Complete shape decoding; callers can inspect paths without exposing input values in public refusals. */
+export const decodeImplementationSource = Schema.decodeUnknownResult(ImplementationSourceSchema, { errors: "all" });
+
+/** Compatibility interface for callers that only need to know whether the evidence is usable. */
 export function implementationSource(value: unknown): ImplementationSource | undefined {
-	if (!object(value) || value.schema !== 1 || !object(value.source)) return;
-	const r = value.source;
-	if (!object(r.freeze) || !object(r.freeze.scope) || r.freeze.running !== false || !text(r.freeze.runtime)) return;
-	if (
-		!["assignment", "attempt", "executorEpoch"].every((k) => text((r.freeze as { scope: Record<string, unknown> }).scope[k])) ||
-		!Number.isSafeInteger(r.freeze.scope.generation)
-	)
-		return;
-	for (const s of [r.base, r.source]) {
-		if (
-			!object(s) ||
-			!text(s.repository) ||
-			!["sha1", "sha256"].includes(String(s.objectFormat)) ||
-			!text(s.root) ||
-			!Array.isArray(s.entries)
-		)
-			return;
-		if (![s.commit, s.tree].every(objectId(s.objectFormat))) return;
-		if (
-			!s.entries.every(
-				(e) =>
-					object(e) &&
-					text(e.path) &&
-					["100644", "100755", "120000"].includes(String(e.mode)) &&
-					text(e.oid) &&
-					typeof e.content === "string",
-			)
-		)
-			return;
-	}
-	if (
-		(r.base as Record<string, unknown>).repository !== (r.source as Record<string, unknown>).repository ||
-		(r.base as Record<string, unknown>).objectFormat !== (r.source as Record<string, unknown>).objectFormat
-	)
-		return;
-	if (
-		!texts(r.exclusions) ||
-		!texts(r.deleted) ||
-		!texts(r.configurationChanges) ||
-		!Number.isSafeInteger(r.bytes) ||
-		Number(r.bytes) < 0 ||
-		!Number.isSafeInteger(r.entries) ||
-		Number(r.entries) < 0 ||
-		!object(r.durability) ||
-		r.durability.fsync !== "all" ||
-		r.durability.method !== "fsync" ||
-		!text(r.durability.git)
-	)
-		return;
-	if (value.verification !== undefined) {
-		const e = value.verification;
-		if (
-			!object(e) ||
-			e.kind !== "catalog-check" ||
-			!text(e.role) ||
-			!object(e.catalog) ||
-			!object(e.catalog.selection) ||
-			!object(e.verification) ||
-			!object(e.cleanup)
-		)
-			return;
-		const s = e.catalog.selection;
-		if (
-			!["repository", "commit", "path", "digest", "contract"].every((k) => text(s[k])) ||
-			![s.rows, s.behavioralRows, s.receipts, e.catalog.ranks].every(texts)
-		)
-			return;
-		if (
-			!Array.isArray(e.catalog.rows) ||
-			!e.catalog.rows.every((row) => object(row) && text(row.name) && text(row.kind) && (row.rank === null || text(row.rank)))
-		)
-			return;
-		if (
-			!Array.isArray(e.results) ||
-			!e.results.every(
-				(row) =>
-					object(row) &&
-					text(row.name) &&
-					text(row.status) &&
-					Array.isArray(row.steps) &&
-					row.steps.every((step) => object(step)) &&
-					(row.sanity === undefined || object(row.sanity)),
-			)
-		)
-			return;
-		if (
-			!["status", "inputCommit", "inputTree", "resultTree"].every((k) => text((e.verification as Record<string, unknown>)[k])) ||
-			!text(e.cleanup.status)
-		)
-			return;
-	}
-	return value as ImplementationSource;
+	const decoded = decodeImplementationSource(value);
+	return Result.isSuccess(decoded) ? decoded.success : undefined;
 }
 /**
  * Whether a pre-fix catalog run is red-on-the-bug proof: a regression row fails and its own output shows the observed

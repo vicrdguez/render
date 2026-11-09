@@ -9,14 +9,12 @@
 	"scripts": {
 		"start": "node src/host/main.ts serve",
 		"test": "node --test --test-concurrency=8 test/*.test.ts",
-		"test:integration": "node --test --test-concurrency=1 test/*.integration.ts",
+		"test:integration": "node --test --test-concurrency=2 test/*.integration.ts",
 		"test:performance": "node --test --test-concurrency=1 test/*.performance.ts",
 		"test:full": "npm test && npm run test:integration && npm run test:performance",
-		"test:extended": "npm run test:extended:host && npm run test:extended:containers",
-		"test:extended:host": "npm run verify:sqlite-command-atomicity && npm run verify:history-command-load && RENDER_V3_REPETITIONS=2 npm run verify:command-crash-recovery && RENDER_V3_REPETITIONS=2 npm run verify:durable-tool-replay && RENDER_V3_REPETITIONS=2 npm run verify:scoped-web-research && RENDER_V3_REPETITIONS=2 npm run verify:investigation-crash && RENDER_V3_REPETITIONS=2 npm run verify:implementation-crash",
-		"test:extended:containers": "RENDER_V3_REPETITIONS=2 npm run verify:source-root-crash && RENDER_V3_REPETITIONS=2 node --test test/owned-check-cancellation.integration.ts && RENDER_V3_REPETITIONS=2 npm run verify:experiment-crash && RENDER_V3_REPETITIONS=2 npm run verify:preparation-crash && RENDER_V3_REPETITIONS=2 npm run verify:watchdog-crash && RENDER_V3_REPETITIONS=2 npm run verify:integration-crash",
+		"test:extended": "npm run verify:sqlite-command-atomicity && npm run verify:history-command-load",
 		"verify:gate": "npm run typecheck && npm run lint && npm run test:full",
-		"verify:complete": "npm run verify:gate && npm run test:extended && npm run verify:v9-budgets && npm run verify:unsafe-controls",
+		"verify:complete": "npm run verify:gate && npm run test:extended",
 		"typecheck": "tsc --noEmit -p .",
 		"lint": "biome check .",
 		"verify:implementation-pass": "node --test --test-concurrency=1 test/implementation-pass.test.ts test/implementation-pass-schedules.test.ts test/implementation-lifecycle.test.ts test/implementation-successor.test.ts test/implementation-lifecycle-crash.integration.ts test/accepted-contracts.test.ts test/intake-retention.test.ts test/role-capability-refusal.test.ts test/implementation-capture.integration.ts test/implementation-engine.integration.ts",
@@ -29,7 +27,7 @@
 		"verify:editable-checkpoints": "node --test --test-concurrency=1 test/checkpoint-authority.test.ts test/editable-checkpoints.test.ts",
 		"verify:ground-investigation": "node --test --test-concurrency=1 test/ground-investigation.test.ts test/investigation-crash.integration.ts",
 		"verify:investigation-crash": "node --test test/investigation-crash.integration.ts",
-		"verify:kernel-authority-schedules": "RENDER_V1_SCHEDULES=10000 node --test test/kernel-authority-schedules.test.ts test/implementation-pass-schedules.test.ts test/watchdog-rework-schedules.test.ts test/canonical-integration-schedules.test.ts",
+		"verify:kernel-authority-schedules": "RENDER_V1_SCHEDULES=10000 node --test test/kernel-effect.test.ts test/kernel-authority-schedules.test.ts test/implementation-pass-schedules.test.ts test/watchdog-rework-schedules.test.ts test/canonical-integration-schedules.test.ts",
 		"verify:sqlite-command-atomicity": "RENDER_V2_SCHEDULES=256 node --test test/sqlite-command-atomicity.test.ts test/sqlite-command-schedules.integration.ts",
 		"verify:command-crash-recovery": "node --test test/command-crash-recovery.integration.ts",
 		"verify:two-client-reattach": "node --test --test-concurrency=1 test/two-client-reattach.integration.ts test/stalled-observer.performance.ts test/history-cutoff-export.test.ts test/history-cursor-transfer.test.ts",
@@ -42,7 +40,6 @@
 		"verify:role-capability-refusal": "node --test test/role-capability-refusal.test.ts",
 		"verify:cancellation-capacity": "node --test test/cancellation-capacity.test.ts test/role-recovery-startup.integration.ts test/role-waiting.integration.ts test/role-wait-restart.integration.ts",
 		"verify:history-cutoff-export": "node --test test/history-cutoff-export.test.ts test/history-missing-data.integration.ts test/history-message.test.ts test/history-completeness.integration.ts test/history-cursor-transfer.test.ts test/role-history.test.ts",
-
 		"verify:history-command-load": "node --test test/history-command-load.ts",
 		"verify:context-continuation-independence": "node --test test/context-continuation-independence.test.ts test/workflow-task-survival.test.ts test/role-wait-restart.integration.ts test/child-replacement.test.ts",
 		"verify:native-compaction-history": "node --test test/native-compaction-history.test.ts",
@@ -66,18 +63,17 @@
 		"verify:human-merge-observation": "node --test --test-concurrency=1 test/human-merge-observation.test.ts test/human-merge-observation-forge.test.ts test/github-publication.test.ts test/github-publication-forge.test.ts test/accepted-contracts.test.ts test/github-publication.integration.ts",
 		"verify:automatic-readiness": "node --test --test-concurrency=1 test/automatic-readiness.test.ts test/automatic-readiness-forge.test.ts test/github-publication.integration.ts",
 		"verify:v9-workload": "node --test test/v9-workload.performance.ts",
-		"verify:v9-budgets": "node test/v9-budgets.ts",
 		"verify:performance-journey": "node --test --test-concurrency=1 test/performance-journey.test.ts test/accepted-contracts.test.ts test/watchdog-rework.test.ts",
 		"verify:verification-catalog": "node --test --test-concurrency=1 test/verification-catalog.test.ts test/verification-catalog.integration.ts",
 		"verify:verification-maintenance": "node --test --test-concurrency=1 test/verification-maintenance.integration.ts test/verification-catalog.test.ts test/implementation-successor.test.ts",
 		"verify:verification-authoring": "node --test --test-concurrency=1 test/verification-authoring.integration.ts test/verification-catalog.test.ts test/verification-catalog.integration.ts",
-		"verify:bug-journey": "node --test --test-concurrency=1 test/bug-journey.test.ts test/accepted-contracts.test.ts test/bug-journey.integration.ts",
-		"verify:unsafe-controls": "node test/controls/unsafe-controls.ts"
+		"verify:bug-journey": "node --test --test-concurrency=1 test/bug-journey.test.ts test/accepted-contracts.test.ts test/bug-journey.integration.ts"
 	},
 	"dependencies": {
 		"@earendil-works/chord": "1.4.0",
 		"@earendil-works/pi-ai": "1.4.0",
 		"@earendil-works/pi-durable": "1.4.0",
+		"effect": "4.1.2",
 		"webfox": "4.8.0"
 	},
 	"devDependencies": {

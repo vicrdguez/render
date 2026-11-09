@@ -1,8 +1,10 @@
 // Bounded Contract intake. Ledger supplies exact scoped bytes; this module performs no I/O.
+
+import * as Effect from "effect/Effect";
 import { catalogDefinition } from "./catalog.ts";
 import type { CheckpointInput, Checkpoints } from "./checkpoints.ts";
 import { qualifiedSlices } from "./integration.ts";
-import type { Decision, DomainWrite, KernelState, VerifiedFacts } from "./kernel.ts";
+import type { Decision, DomainWrite, KernelState, Refusal, RefusalCode, VerifiedFacts } from "./kernel.ts";
 import { performanceCommitment } from "./performance.ts";
 import { bindingFor, initialPolicy } from "./policy.ts";
 import { type RoleAssignment, type RolePacket, sameAgent } from "./roles.ts";
@@ -434,8 +436,8 @@ export function bugReproduction(intakes: Intakes | undefined, contract: string):
 	const checks = m.mapping.find((x) => x.slice === slice.id && x.obligation === m.reproduction!.obligation)?.checks ?? [];
 	return { rows: m.checks.filter((c) => checks.includes(c.id)).map((c) => c.row), observed: m.reproduction.observed };
 }
-function refused(code: string, reason: string): Decision {
-	return { outcome: "refused", code, reason } as Decision;
+function refused(code: RefusalCode, reason: string): Refusal {
+	return { outcome: "refused", code, reason };
 }
 function claimed(state: KernelState, slice: string): boolean {
 	return !!state.roleWork?.assignments.some(
@@ -447,7 +449,7 @@ export function intakeAssignmentGap(
 	slice: string,
 	packet: RolePacket,
 	delivered: readonly string[],
-): Decision | undefined {
+): Refusal | undefined {
 	const s = state.intakes?.slices.find((s) => s.id === slice);
 	if (!s) return state.intakes?.slices.length ? refused("not_found", "Delivery must name an accepted Slice in this workflow.") : undefined;
 	if (s.status !== "accepted") return refused("contract_superseded", "Superseded work is not completed or assignable.");
@@ -506,11 +508,16 @@ export function consumeIntake(state: KernelState, slice: string, assignment: str
 		],
 	};
 }
-export function changeIntake(state: KernelState, c: IntakeCommand, facts: VerifiedFacts): Decision {
-	if (!state.workflow || state.workflow.id !== c.workflow) return refused("not_found", "Intake needs an existing workflow.");
+export const changeIntake = Effect.fnUntraced(function* (
+	state: KernelState,
+	c: IntakeCommand,
+	facts: VerifiedFacts,
+): Effect.fn.Return<Extract<Decision, { outcome: "accepted" }>, Refusal> {
+	if (!state.workflow || state.workflow.id !== c.workflow)
+		return yield* Effect.fail(refused("not_found", "Intake needs an existing workflow."));
 	const p = facts.principal;
 	if (p.kind === "human" && p.route === "device" && p.workflows !== "all" && !p.workflows.includes(c.workflow))
-		return refused("forbidden_scope", "Workflow outside device scope.");
+		return yield* Effect.fail(refused("forbidden_scope", "Workflow outside device scope."));
 	const a = state.roleWork?.assignments.find((a) => sameAgent(a, p));
 	if (
 		p.kind === "assignment-agent" &&
@@ -522,15 +529,17 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 			!a.executing ||
 			a.executorEpoch !== facts.executorEpoch)
 	)
-		return refused("stale_assignment", "Only the current scoped executing coordinator can stage/review intake.");
+		return yield* Effect.fail(refused("stale_assignment", "Only the current scoped executing coordinator can stage/review intake."));
 	const work = structuredClone(state.intakes ?? emptyIntakes());
 	if (
 		p.kind === "assignment-agent" &&
 		work.concerns.some((n) => !work.drafts.some((d) => d.id === n.intake && a!.packet.inputs.includes(d.manifest.ground)))
 	)
-		return refused(
-			"forbidden_scope",
-			"Every retained intake concern needs its originating Ground in coordinator scope; concerns cannot be dropped or silently propagated.",
+		return yield* Effect.fail(
+			refused(
+				"forbidden_scope",
+				"Every retained intake concern needs its originating Ground in coordinator scope; concerns cannot be dropped or silently propagated.",
+			),
 		);
 	const policy = state.policy ?? initialPolicy(),
 		binding = bindingFor(policy, c.workflow);
@@ -541,17 +550,18 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 	const record = `intake-record:${facts.sequence}`;
 	const d = "intake" in c ? work.drafts.find((d) => d.id === c.intake) : undefined;
 	if (p.kind === "assignment-agent" && d && !a!.packet.inputs.includes(d.manifest.ground))
-		return refused("forbidden_scope", "Ground outside coordinator inputs.");
+		return yield* Effect.fail(refused("forbidden_scope", "Ground outside coordinator inputs."));
 	if (c.type === "stageIntake") {
 		if (c.expected !== (work.drafts.at(-1)?.id ?? null))
-			return refused("stale_basis", "Read the latest draft before staging its successor.");
+			return yield* Effect.fail(refused("stale_basis", "Read the latest draft before staging its successor."));
 		if (!validIntakeShape(c.manifest) || !text(c.text))
-			return refused("invalid_content", "Intake needs bounded Slices, obligations, choices, coverage and provenance.");
-		if (!a!.packet.inputs.includes(c.manifest.ground)) return refused("forbidden_scope", "Ground outside coordinator inputs.");
+			return yield* Effect.fail(refused("invalid_content", "Intake needs bounded Slices, obligations, choices, coverage and provenance."));
+		if (!a!.packet.inputs.includes(c.manifest.ground))
+			return yield* Effect.fail(refused("forbidden_scope", "Ground outside coordinator inputs."));
 		const gap = lint(state, c.manifest, inputs);
-		if (gap) return refused("invalid_content", gap);
+		if (gap) return yield* Effect.fail(refused("invalid_content", gap));
 		if (!mappedConcerns(work, c.manifest))
-			return refused("annotation_mapping_required", "Map every saved concern to a reason and resulting obligation.");
+			return yield* Effect.fail(refused("annotation_mapping_required", "Map every saved concern to a reason and resulting obligation."));
 		const id = `intake:${facts.sequence}`,
 			manifestRef = `intake-manifest:${facts.sequence}`;
 		work.drafts.push({
@@ -566,11 +576,13 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 		documents.push({ ref: id, text: c.text, markdown: true }, { ref: manifestRef, text: JSON.stringify(c.manifest) });
 		Object.assign(result, { intake: id, manifest: manifestRef });
 	} else if (c.type === "amendDependencies") {
-		if (c.expected !== work.revision) return refused("stale_basis", "Dependency basis changed.");
+		if (c.expected !== work.revision) return yield* Effect.fail(refused("stale_basis", "Dependency basis changed."));
 		if (c.dependencies.some((e) => e.kind === "inclusion"))
-			return refused(
-				"capability_unavailable",
-				"Separately authorized/reviewed inclusion is not available; a cross-proposal edge clears only on an observed human main merge.",
+			return yield* Effect.fail(
+				refused(
+					"capability_unavailable",
+					"Separately authorized/reviewed inclusion is not available; a cross-proposal edge clears only on an observed human main merge.",
+				),
 			);
 		const edges = c.dependencies as Dependency[];
 		if (
@@ -579,9 +591,9 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 			p.workflows !== "all" &&
 			edges.some((e) => e.kind === "main" && !p.workflows.includes(e.workflow))
 		)
-			return refused("forbidden_scope", "A main edge names a proposal outside device scope.");
+			return yield* Effect.fail(refused("forbidden_scope", "A main edge names a proposal outside device scope."));
 		if (!text(c.reason) || !graphValid(work.slices, edges, c.workflow))
-			return refused("invalid_content", "Human dependency amendments require a reason and an acyclic eligible graph.");
+			return yield* Effect.fail(refused("invalid_content", "Human dependency amendments require a reason and an acyclic eligible graph."));
 		const affected = new Set(
 			[...work.dependencies, ...edges]
 				.filter(
@@ -591,10 +603,11 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 				)
 				.map((e) => e.slice),
 		);
-		if ([...affected].some((id) => claimed(state, id))) return refused("ownership_conflict", "Cannot alter dependencies of claimed work.");
+		if ([...affected].some((id) => claimed(state, id)))
+			return yield* Effect.fail(refused("ownership_conflict", "Cannot alter dependencies of claimed work."));
 		work.dependencies = structuredClone(edges);
 	} else {
-		if (!d) return refused("not_found", "No such immutable intake.");
+		if (!d) return yield* Effect.fail(refused("not_found", "No such immutable intake."));
 		if (c.type === "saveIntakeConcern") {
 			const concern = {
 				id: `intake-concern:${facts.sequence}`,
@@ -607,7 +620,8 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 			documents.push({ ref: concern.revision, text: c.text, markdown: true });
 			Object.assign(result, { concern: concern.id, revision: concern.revision, changeRequest: String(concern.changeRequest) });
 		} else if (c.type === "requestIntakeReview") {
-			if (d.acceptance || work.drafts.at(-1)?.id !== d.id) return refused("stale_basis", "Review the latest unaccepted intake.");
+			if (d.acceptance || work.drafts.at(-1)?.id !== d.id)
+				return yield* Effect.fail(refused("stale_basis", "Review the latest unaccepted intake."));
 			const template = a!.packet.requests.find((r) => r.key === c.key)?.packet;
 			if (
 				!template ||
@@ -616,13 +630,16 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 				template.requests.length ||
 				template.investigation
 			)
-				return refused("forbidden_scope", "Choose an explicit read-only independent fidelity challenger.");
+				return yield* Effect.fail(refused("forbidden_scope", "Choose an explicit read-only independent fidelity challenger."));
 			if (template.family === a!.packet.family && policy.revisions[binding.policy]?.reviewerDiversity !== "human-directed-same-family")
-				return refused("capability_unavailable", "Fidelity requires configured independent family or explicit human policy direction.");
-			if (d.policyBinding !== binding.revision) return refused("stale_basis", "Restage intake on current policy before review.");
+				return yield* Effect.fail(
+					refused("capability_unavailable", "Fidelity requires configured independent family or explicit human policy direction."),
+				);
+			if (d.policyBinding !== binding.revision)
+				return yield* Effect.fail(refused("stale_basis", "Restage intake on current policy before review."));
 			const key = `${d.id}:${d.annotations}`;
 			if (state.roleWork?.assignments.some((a) => a.requestKey === key))
-				return refused("role_already_requested", "This exact review already has durable work; continue or replace it.");
+				return yield* Effect.fail(refused("role_already_requested", "This exact review already has durable work; continue or replace it."));
 			const child: RoleAssignment = {
 				id: facts.ids.assignment!,
 				workflow: c.workflow,
@@ -665,15 +682,16 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 				JSON.stringify(c.decisions) !== JSON.stringify(d.manifest.decisions) ||
 				!currentDecisions(state, d.manifest)
 			)
-				return refused(
-					"stale_basis",
-					"Acceptance requires the displayed latest immutable intake, current decisions, annotations and policy.",
+				return yield* Effect.fail(
+					refused("stale_basis", "Acceptance requires the displayed latest immutable intake, current decisions, annotations and policy."),
 				);
 			const target = "slice" in c ? work.slices.find((s) => s.id === c.slice) : undefined;
 			if (c.type !== "acceptIntake" && (!target || target.status !== "accepted" || target.contract !== c.expected))
-				return refused("stale_basis", "Name the current accepted Contract revision.");
+				return yield* Effect.fail(refused("stale_basis", "Name the current accepted Contract revision."));
 			if (c.type === "amendContract" && target!.everAssigned)
-				return refused("contract_frozen", "Ever-assigned obligations are permanently frozen, including after release; supersede instead.");
+				return yield* Effect.fail(
+					refused("contract_frozen", "Ever-assigned obligations are permanently frozen, including after release; supersede instead."),
+				);
 			const reviewer = state.roleWork?.assignments.find(
 				(a) => a.report === c.review && a.status === "submitted" && a.packet.role === "challenger" && a.intakeReview?.intake === d.id,
 			);
@@ -688,46 +706,55 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 				) ||
 				!Array.isArray(review.findings)
 			)
-				return refused("review_required", "Require a fresh independent fidelity report, not self-certification.");
+				return yield* Effect.fail(refused("review_required", "Require a fresh independent fidelity report, not self-certification."));
 			if (
 				[review, reviewer.intakeReview].some(
 					(b) => !b || b.intake !== d.id || b.manifest !== d.manifestRef || b.annotations !== d.annotations,
 				) ||
 				reviewer.policyBinding !== binding.revision
 			)
-				return refused("stale_basis", "Fidelity must cover exact intake and saved annotations.");
+				return yield* Effect.fail(refused("stale_basis", "Fidelity must cover exact intake and saved annotations."));
 			const coordinator = state.roleWork?.assignments.find((a) => a.id === d.coordinator);
 			if (
 				!coordinator ||
 				(reviewer.packet.family === coordinator.packet.family &&
 					policy.revisions[binding.policy]?.reviewerDiversity !== "human-directed-same-family")
 			)
-				return refused("capability_unavailable", "Replacement fidelity must retain independent configured review.");
+				return yield* Effect.fail(refused("capability_unavailable", "Replacement fidelity must retain independent configured review."));
 			if (review.findings.length)
-				return refused(
-					"fidelity_required",
-					"Resolve fidelity findings; transcription repairs restage, technical/product decisions require their decision path.",
+				return yield* Effect.fail(
+					refused(
+						"fidelity_required",
+						"Resolve fidelity findings; transcription repairs restage, technical/product decisions require their decision path.",
+					),
 				);
 			if (d.manifest.unresolved.length)
-				return refused("decision_required", "Unresolved technical/product choices require human direction or revised approved decisions.");
+				return yield* Effect.fail(
+					refused("decision_required", "Unresolved technical/product choices require human direction or revised approved decisions."),
+				);
 			if (!mappedConcerns(work, d.manifest))
-				return refused("annotation_mapping_required", "Every saved concern requires a reviewed disposition before acceptance.");
+				return yield* Effect.fail(
+					refused("annotation_mapping_required", "Every saved concern requires a reviewed disposition before acceptance."),
+				);
 			const gap = lint(state, d.manifest, inputs);
-			if (gap) return refused("invalid_content", gap);
+			if (gap) return yield* Effect.fail(refused("invalid_content", gap));
 			if (c.type === "amendContract" && (d.manifest.slices.length !== 1 || d.manifest.slices[0]!.id !== c.slice))
-				return refused("invalid_content", "Amendment replaces exactly the named unconsumed Slice.");
+				return yield* Effect.fail(refused("invalid_content", "Amendment replaces exactly the named unconsumed Slice."));
 			if (c.type !== "amendContract" && d.manifest.slices.some((s) => work.slices.some((old) => old.id === s.id)))
-				return refused("invalid_content", "New/replacement Slices need unused identities; history is not overwritten.");
+				return yield* Effect.fail(refused("invalid_content", "New/replacement Slices need unused identities; history is not overwritten."));
 			if (
 				c.type !== "amendContract" &&
 				d.manifest.slices.some((s) => state.roleWork?.assignments.some((a) => a.workflow === c.workflow && a.slice === s.id))
 			)
-				return refused(
-					"contract_frozen",
-					"A previously assigned identity cannot receive a retroactive initial Contract; choose a new Slice identity.",
+				return yield* Effect.fail(
+					refused(
+						"contract_frozen",
+						"A previously assigned identity cannot receive a retroactive initial Contract; choose a new Slice identity.",
+					),
 				);
 			if (c.type === "supersedeContract") {
-				if (claimed(state, c.slice)) return refused("ownership_conflict", "Fence and release work before supersession.");
+				if (claimed(state, c.slice))
+					return yield* Effect.fail(refused("ownership_conflict", "Fence and release work before supersession."));
 				const dependents = work.dependencies.filter((e) => e.requires === c.slice && (e.kind !== "main" || e.workflow === c.workflow));
 				if (
 					!unique(c.dispositions.map((d) => d.slice)) ||
@@ -743,11 +770,14 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 							),
 					)
 				)
-					return refused(
-						"dependent_disposition_required",
-						"Explicitly redirect every dependent to an eligible replacement; no silent abandonment.",
+					return yield* Effect.fail(
+						refused(
+							"dependent_disposition_required",
+							"Explicitly redirect every dependent to an eligible replacement; no silent abandonment.",
+						),
 					);
-				if (dependents.some((e) => claimed(state, e.slice))) return refused("ownership_conflict", "Cannot redirect a claimed dependent.");
+				if (dependents.some((e) => claimed(state, e.slice)))
+					return yield* Effect.fail(refused("ownership_conflict", "Cannot redirect a claimed dependent."));
 				for (const e of dependents) e.requires = c.dispositions.find((d) => d.slice === e.slice)!.replacement;
 				target!.status = "superseded";
 				work.dependencies = work.dependencies.filter((e) => e.slice !== c.slice);
@@ -790,7 +820,7 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 				});
 			}
 			if (!graphValid(work.slices, work.dependencies, c.workflow))
-				return refused("invalid_content", "Replacement/dependency dispositions introduce an invalid or cyclic graph.");
+				return yield* Effect.fail(refused("invalid_content", "Replacement/dependency dispositions introduce an invalid or cyclic graph."));
 			d.acceptance = record;
 			result.acceptance = record;
 		}
@@ -807,7 +837,7 @@ export function changeIntake(state: KernelState, c: IntakeCommand, facts: Verifi
 		},
 	);
 	return { outcome: "accepted", result, writes, facts: [facts.ids.fact] };
-}
+});
 // Debt: workflow-wide concerns require dispositions even in unrelated later intakes or after supersession.
 // Any narrower lifecycle must preserve the explicit no-silent-drop obligation.
 function mappedConcerns(work: Intakes, m: IntakeManifest): boolean {

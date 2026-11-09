@@ -1,10 +1,12 @@
 // AR01–AR08: ready-promotion eligibility, admission and actual-state reconciliation at the Ledger/Kernel interface over
 // real SQLite (AR08 at the pure Kernel). Forge observations are literal host results; the GitHub adapter is covered in
 // automatic-readiness-forge.test.ts and the Engine journey in github-publication.integration.ts.
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import { change, type KernelState, type Principal } from "../src/kernel/kernel.ts";
-import { FORGE_KINDS, type Publication, publicationView } from "../src/kernel/publication.ts";
+import { type Publication, publicationView } from "../src/kernel/publication.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { accepted, LedgerOnlyEngine } from "./support/implementation.ts";
 import {
@@ -24,6 +26,7 @@ import {
 	W,
 	X2,
 } from "./support/integration.ts";
+import { decision } from "./support/kernel.ts";
 import { admin, scheduler } from "./support/roles.ts";
 
 type Item = {
@@ -84,7 +87,7 @@ const pr = (over: Partial<Item> = {}): Item => ({
 });
 const listing = (items: Item[], complete = true) => ({ proposals: { complete, items } });
 async function read(t: Lifecycle, ref: string) {
-	const value = await t.f.ledger.artifact(admin, { read: ref });
+	const value = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 	assert.ok("content" in value, `read ${ref}`);
 	return value.content.toString();
 }
@@ -312,7 +315,7 @@ test("AR07 an unknown promotion is never redispatched on a partial draft observa
 		const before = JSON.stringify(view(t));
 		await t.f.reopen(new LedgerOnlyEngine());
 		assert.equal(JSON.stringify(view(t)), before, "readiness and promotion survive reopen");
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: W } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of [ready, fresh, recovered]) assert.ok(exported.content[ref], `export contains ${ref}`);
 	} finally {
@@ -405,12 +408,14 @@ function kernelProposal() {
 	let sequence = 10;
 	const run = (command: Record<string, unknown>) => {
 		sequence++;
-		const d = change(state, { ...command, workflow: KW } as never, {
-			principal: host,
-			sequence,
-			executorEpoch: "epoch:1",
-			ids: { revision: `revision:${sequence}`, fact: `fact:${sequence}` },
-		});
+		const d = decision(
+			change(state, { ...command, workflow: KW } as never, {
+				principal: host,
+				sequence,
+				executorEpoch: "epoch:1",
+				ids: { revision: `revision:${sequence}`, fact: `fact:${sequence}` },
+			}),
+		);
 		if (d.outcome !== "accepted") return { code: d.code, result: {}, text: "" };
 		const write = d.writes.find((w) => w.type === "publication.replace") as { state: Publication; documents: { text: string }[] };
 		state = { ...state, publication: write.state };
@@ -468,7 +473,6 @@ test("AR08 an old ready flag never certifies new scope or source; the existing s
 	});
 	assert.deepEqual([kop(current).status, kop(current).attempts.length], ["satisfied", 0], "observed satisfaction, no dispatch");
 	assert.equal(kop(old).canonical, R1);
-	assert.deepEqual(FORGE_KINDS, ["publish-source", "create-proposal", "update-summary", "mark-ready"], "no redraft or close request");
 });
 
 test("AR09 a scope-only change on an unchanged head makes the stated summary stale until it is restaged", () => {

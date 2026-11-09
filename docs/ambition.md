@@ -111,7 +111,7 @@ A profiler is useful later if measurements show scheduling, rendering, or storag
 
 > For every named failure point in the representative workflow, Render either resumes safely or stops with a precise, actionable explanation—without manual ledger repair, invented approval, or silently duplicated accepted work.
 
-A concrete stress target would be **10,000 seeded execution schedules with zero invariant violations**, plus targeted real-process crash tests. That is meaningful evidence, not proof against every possible failure.
+A concrete stress target would exercise distinct meaningful execution interleavings with independent invariant checks, plus targeted real-process crash tests. Seeded schedules can explore a large state space, but a repetition count alone is neither evidence of distinct behavior nor proof against every possible failure.
 
 Do not promise exactly-once GitHub effects. Promise identifiable operations, reconciliation, and safe handling of uncertainty.
 

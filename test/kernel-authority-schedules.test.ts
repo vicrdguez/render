@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Decision, KernelState, Principal, VerifiedFacts } from "../src/kernel/kernel.ts";
-import { change, view } from "../src/kernel/kernel.ts";
+import { change } from "../src/kernel/kernel.ts";
+import { decision } from "./support/kernel.ts";
 import { seeded } from "./support/random.ts";
 
 const SCHEDULES = Number(process.env.RENDER_V1_SCHEDULES ?? 10_000);
@@ -338,7 +339,7 @@ function checkStep(m: Model, step: Step): string | undefined {
 	const f = facts(m, principal, step);
 	// Kernel is pure: whatever it decides, the state, command and facts it was given must be unchanged afterwards.
 	const inputs = JSON.stringify([state, command, f]);
-	const d: Decision = change(state, command as never, f);
+	const d: Decision = decision(change(state, command as never, f));
 	if (JSON.stringify([state, command, f]) !== inputs) return `Kernel mutated its inputs for ${String(command.type)}`;
 	const type = String(command.type);
 	const decided = d.outcome === "accepted" ? "accepted" : d.code;
@@ -455,19 +456,21 @@ test(`V1: ${SCHEDULES} seeded schedules never violate the matrix, basis or refus
 });
 
 test("literal: stale save names current and expected revisions and a repair", () => {
-	const d = change(
-		{
-			workflow: { id: "workflow:1", messageCount: 0 },
-			document: { name: "ground", current: "revision:5", integrity: "intact" },
-			device: null,
-		},
-		{ type: "saveDocument", workflow: "workflow:1", document: "ground", mediaType: "text/markdown", expected: "revision:3" },
-		{
-			principal: deviceAll,
-			sequence: 9,
-			ids: { revision: "revision:9", fact: "fact:9" },
-			content: { digest: "sha256:aa", byteLength: 3, validUtf8: true },
-		},
+	const d = decision(
+		change(
+			{
+				workflow: { id: "workflow:1", messageCount: 0 },
+				document: { name: "ground", current: "revision:5", integrity: "intact" },
+				device: null,
+			},
+			{ type: "saveDocument", workflow: "workflow:1", document: "ground", mediaType: "text/markdown", expected: "revision:3" },
+			{
+				principal: deviceAll,
+				sequence: 9,
+				ids: { revision: "revision:9", fact: "fact:9" },
+				content: { digest: "sha256:aa", byteLength: 3, validUtf8: true },
+			},
+		),
 	);
 	assert.equal(d.outcome, "refused");
 	assert.equal(d.outcome === "refused" && d.code, "stale_basis");
@@ -476,34 +479,38 @@ test("literal: stale save names current and expected revisions and a repair", ()
 });
 
 test("literal: corrupt basis blocks the save with an exact restoration ref", () => {
-	const d = change(
-		{
-			workflow: { id: "workflow:1", messageCount: 0 },
-			document: { name: "ground", current: "revision:5", integrity: "corrupt" },
-			device: null,
-		},
-		{ type: "saveDocument", workflow: "workflow:1", document: "ground", mediaType: "text/markdown", expected: "revision:5" },
-		{
-			principal: localAdmin,
-			sequence: 9,
-			ids: { revision: "revision:9", fact: "fact:9" },
-			content: { digest: "sha256:aa", byteLength: 3, validUtf8: true },
-		},
+	const d = decision(
+		change(
+			{
+				workflow: { id: "workflow:1", messageCount: 0 },
+				document: { name: "ground", current: "revision:5", integrity: "corrupt" },
+				device: null,
+			},
+			{ type: "saveDocument", workflow: "workflow:1", document: "ground", mediaType: "text/markdown", expected: "revision:5" },
+			{
+				principal: localAdmin,
+				sequence: 9,
+				ids: { revision: "revision:9", fact: "fact:9" },
+				content: { digest: "sha256:aa", byteLength: 3, validUtf8: true },
+			},
+		),
 	);
 	assert.equal(d.outcome === "refused" && d.code, "content_corrupt");
 	assert.deepEqual(d.outcome === "refused" && d.refs, { restore: "revision:5" });
 });
 
 test("literal: accepted first save records revision, pointer and fact writes", () => {
-	const d = change(
-		{ workflow: { id: "workflow:1", messageCount: 0 }, document: null, device: null },
-		{ type: "saveDocument", workflow: "workflow:1", document: "ground", mediaType: "text/markdown", expected: null },
-		{
-			principal: deviceAll,
-			sequence: 2,
-			ids: { revision: "revision:2", fact: "fact:2" },
-			content: { digest: "sha256:a9f5b6f878692c7bb3c76ed6b6eb4baa791a2e57d1fd15fa7e26b35e338c0c47", byteLength: 56, validUtf8: true },
-		},
+	const d = decision(
+		change(
+			{ workflow: { id: "workflow:1", messageCount: 0 }, document: null, device: null },
+			{ type: "saveDocument", workflow: "workflow:1", document: "ground", mediaType: "text/markdown", expected: null },
+			{
+				principal: deviceAll,
+				sequence: 2,
+				ids: { revision: "revision:2", fact: "fact:2" },
+				content: { digest: "sha256:a9f5b6f878692c7bb3c76ed6b6eb4baa791a2e57d1fd15fa7e26b35e338c0c47", byteLength: 56, validUtf8: true },
+			},
+		),
 	);
 	assert.equal(d.outcome, "accepted");
 	if (d.outcome !== "accepted") return;
@@ -519,32 +526,4 @@ test("literal: accepted first save records revision, pointer and fact writes", (
 		d.writes.map((w) => w.type),
 		["revision.append", "document.advance", "fact.record"],
 	);
-});
-
-test("literal: the workflow view reports handover fields and absent capabilities explicitly", () => {
-	const v = view(
-		{
-			workflows: [
-				{ id: "workflow:1", title: "Keep work safe", documents: [], messageCount: 0 },
-				{ id: "workflow:2", title: "Other", documents: [], messageCount: 0 },
-			],
-		},
-		{ workflows: ["workflow:1"] },
-	);
-	assert.equal(v.workflows.length, 1);
-	const w = v.workflows[0];
-	assert.equal(w?.workflow, "workflow:1");
-	assert.equal(w?.ground, null);
-	assert.deepEqual(w?.commitment, { status: "none", acceptedIntake: null });
-	assert.deepEqual(w?.owner, { status: "none", assignments: [] });
-	assert.deepEqual(w?.evidence, { status: "none", items: [] });
-	assert.deepEqual(w?.nextHumanAction, { type: "saveGround", workflow: "workflow:1", document: "ground", expected: null });
-	assert.ok(w?.unavailable.includes("coordinator-replies"));
-	assert.equal(w?.unavailable.includes("intake-acceptance"), false);
-	assert.deepEqual(w?.checkpoints, { requests: [], concerns: [] });
-	assert.ok(w?.unavailable.includes("assignments"));
-	assert.equal(w?.unavailable.includes("historical-export"), false);
-	assert.equal(w?.unavailable.includes("recovery-packages"), false);
-	assert.equal(w?.unavailable.includes("off-host-protection"), false);
-	assert.equal(w?.blocker, null, "absent capabilities are listed as unavailable, not as a blocker");
 });

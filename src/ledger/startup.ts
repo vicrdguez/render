@@ -10,6 +10,11 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type NodeSqliteDatabase, openNodeSqliteDatabase } from "@earendil-works/chord/sqlite/node";
 import { Harness, type ReportInfo } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Scope from "effect/Scope";
+import { fromPromise } from "../effect.ts";
 import type { RenderRuntimeOptions } from "../engine/runtime.ts";
 import type { Persistence } from "../kernel/kernel.ts";
 import { Ledger } from "./ledger.ts";
@@ -44,169 +49,196 @@ export type OpenedLedger = {
 	readonly authorityEpoch: string;
 	readonly executorEpoch: string;
 	readonly dataDir: string;
-	close(): Promise<void>;
+	close(): Effect.Effect<void, unknown>;
 };
 
-export async function openLedger(options: {
+export type OpenLedgerOptions = {
 	readonly data: string;
 	readonly runtime: (onReport: (error: unknown, info: ReportInfo) => void) => RenderRuntimeOptions;
 	readonly onFatal: (error: unknown) => void;
-}): Promise<OpenedLedger> {
-	await mkdir(options.data, { recursive: true, mode: 0o700 });
-	await chmod(options.data, 0o700);
-	const lock = acquireOwnerLock(join(options.data, "owner.lock"));
-	let adapter: NodeSqliteDatabase | undefined;
-	let harness: Harness | undefined;
-	try {
-		const path = join(options.data, "render.db");
-		const fresh = identifyStore(path) === "new";
-		const opened = await openPersistent(path, fresh);
-		adapter = opened.adapter;
-		const storage = await SqliteStorage.open(adapter).catch((error: unknown) => {
-			throw blocked(
-				"unsupported_schema",
-				`The runtime store schema is not supported: ${message(error)}`,
-				"Run a Render version that supports this store.",
+};
+
+export function openLedger(options: OpenLedgerOptions): Effect.Effect<OpenedLedger, unknown> {
+	return Effect.gen(function* () {
+		const scope = yield* Scope.make();
+		return yield* Effect.gen(function* () {
+			yield* fromPromise(() => mkdir(options.data, { recursive: true, mode: 0o700 }));
+			yield* fromPromise(() => chmod(options.data, 0o700));
+			const lock = yield* Effect.try({ try: () => acquireOwnerLock(join(options.data, "owner.lock")), catch: (error) => error });
+			let closeStore: Effect.Effect<void, unknown> = Effect.void;
+			// The store owner changes during acquisition; the lock stays held until that owner has closed.
+			yield* Scope.addFinalizerExit(scope, (exit) => {
+				return (Exit.isFailure(exit) ? Effect.ignore(closeStore) : Effect.orDie(closeStore)).pipe(
+					Effect.andThen(Effect.sync(() => lock.release())),
+				);
+			});
+			const path = join(options.data, "render.db");
+			const fresh = yield* Effect.try({ try: () => identifyStore(path) === "new", catch: (error) => error });
+			const opened = yield* openPersistent(path, fresh);
+			closeStore = fromPromise(() => opened.adapter.close());
+			const storage = yield* fromPromise(() => SqliteStorage.open(opened.adapter)).pipe(
+				Effect.mapError((error) =>
+					blocked(
+						"unsupported_schema",
+						`The runtime store schema is not supported: ${message(error)}`,
+						"Run a Render version that supports this store.",
+					),
+				),
 			);
-		});
-		const runtime = options.runtime((error, info) => {
-			if (info.type === "session_failed") options.onFatal(error);
-		});
-		harness = await Harness.open(storage, runtime, ctx);
-		// Read-only inspection: nothing is scheduled, aborted or migrated here.
-		const inspection = await harness.inspect(ctx);
-		const unsupported = inspection.tasks.filter((t) => t.state.kind === "blocked");
-		if (unsupported.length > 0) {
-			throw blocked(
-				"unsupported_definitions",
-				`Retained tasks have no compatible definition: ${unsupported
-					.map((t) => `${t.record.kind} v${t.record.version} (task ${t.record.id}, ${t.state.kind === "blocked" ? t.state.reason : ""})`)
-					.join("; ")}`,
-				"Start the Render version that owns these tasks. The store was left unchanged.",
-			);
-		}
-		// Orphaned state and an interrupted unsafe tool are uncertainty, not permission to replay.
-		const uncertain = await harness.commit(async (tx) => {
-			let cursor: Parameters<typeof tx.scanTasks>[2];
-			for (;;) {
-				const page = await tx.scanTasks({}, 200, cursor);
-				for (const task of page.items) {
-					if (task.state.status === "terminal" && task.state.outcome.status === "orphaned") return `orphaned task ${task.id}`;
-					if (
-						task.kind === "pi.tool" &&
-						"checkpoint" in task.state &&
-						(task.state.checkpoint as { phase?: string; replay?: string }).phase === "execute" &&
-						(task.state.checkpoint as { replay?: string }).replay !== "safe"
-					)
-						return `uncertain tool ${task.id}`;
-				}
-				if (!page.next) return undefined;
-				cursor = page.next;
-			}
-		}, ctx);
-		if (uncertain)
-			throw blocked(
-				"uncertain_execution",
-				uncertain,
-				"Reconcile original execution and effects before explicit resume; no automatic replay.",
-			);
-		const meta = await harness.snapshot(Meta, ctx).catch((error: unknown) => {
-			throw blocked(
-				"unsupported_schema",
-				`Render records are not readable: ${message(error)}`,
-				"Run a Render version that supports this store.",
-			);
-		});
-		if (meta !== undefined && meta.schema !== STORE_SCHEMA)
-			throw blocked(
-				"unsupported_schema",
-				`Render records have schema ${meta.schema}; this host supports ${STORE_SCHEMA}.`,
-				"Run a compatible Render version.",
-			);
-		if (meta === undefined || !meta.initialized) {
-			await harness.commit(async (tx) => {
-				const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
-				Object.assign(await tx.doc(Meta), {
-					initialized: true,
-					authorityEpoch: `authority-${randomUUID()}`,
-					ledgerConversation: conversation.id,
-				});
-			}, ctx);
-		}
-		if (meta?.historyCursorKey === undefined) {
-			await harness.commit(async (tx) => {
-				const current = await tx.doc(Meta);
-				current.historyCursorKey ??= randomUUID();
-			}, ctx);
-		}
-		const executorEpoch = `executor-${randomUUID()}`;
-		const ledger = await Ledger.load(harness, opened.persistence, options.onFatal, runtime.roleTasks).catch((error: unknown) => {
-			throw blocked(
-				"unsupported_schema",
-				`Retained Ledger records are unreadable: ${message(error)}`,
-				"Run a compatible Render version; no tasks were dispatched.",
-			);
-		});
-		const settingsEmpty = (await harness.snapshot(CheckpointSettings, ctx)) === undefined;
-		const settingsFile = join(options.data, "checkpoint-settings.json");
-		if (settingsEmpty && existsSync(settingsFile)) {
-			let modes: unknown;
-			try {
-				modes = JSON.parse(await readFile(settingsFile, "utf8"));
-			} catch {
-				throw blocked(
-					"invalid_checkpoint_settings",
-					`Cannot parse initial ${settingsFile}.`,
-					"Correct the initial settings JSON; no tasks were dispatched.",
+			const runtime = options.runtime((error, info) => {
+				if (info.type === "session_failed") options.onFatal(error);
+			});
+			const harness = yield* fromPromise(() => Harness.open(storage, runtime, ctx));
+			closeStore = fromPromise(() => harness.close(ctx));
+			// Read-only inspection: nothing is scheduled, aborted or migrated here.
+			const inspection = yield* fromPromise(() => harness.inspect(ctx));
+			const unsupported = inspection.tasks.filter((t) => t.state.kind === "blocked");
+			if (unsupported.length > 0) {
+				return yield* Effect.fail(
+					blocked(
+						"unsupported_definitions",
+						`Retained tasks have no compatible definition: ${unsupported
+							.map(
+								(t) => `${t.record.kind} v${t.record.version} (task ${t.record.id}, ${t.state.kind === "blocked" ? t.state.reason : ""})`,
+							)
+							.join("; ")}`,
+						"Start the Render version that owns these tasks. The store was left unchanged.",
+					),
 				);
 			}
-			const admin = mintContext({ kind: "human", human: "human:owner", route: "local-admin" });
-			const settings = (await harness.snapshot(CheckpointSettings, ctx)) ?? { currentRevision: "settings:initial" };
-			const seeded = await ledger.command(
+			// Orphaned state and an interrupted unsafe tool are uncertainty, not permission to replay.
+			const uncertain = yield* fromPromise(() =>
+				harness.commit(async (tx) => {
+					let cursor: Parameters<typeof tx.scanTasks>[2];
+					for (;;) {
+						const page = await tx.scanTasks({}, 200, cursor);
+						for (const task of page.items) {
+							if (task.state.status === "terminal" && task.state.outcome.status === "orphaned") return `orphaned task ${task.id}`;
+							if (
+								task.kind === "pi.tool" &&
+								"checkpoint" in task.state &&
+								(task.state.checkpoint as { phase?: string; replay?: string }).phase === "execute" &&
+								(task.state.checkpoint as { replay?: string }).replay !== "safe"
+							)
+								return `uncertain tool ${task.id}`;
+						}
+						if (!page.next) return undefined;
+						cursor = page.next;
+					}
+				}, ctx),
+			);
+			if (uncertain)
+				return yield* Effect.fail(
+					blocked(
+						"uncertain_execution",
+						uncertain,
+						"Reconcile original execution and effects before explicit resume; no automatic replay.",
+					),
+				);
+			const meta = yield* fromPromise(() => harness.snapshot(Meta, ctx)).pipe(
+				Effect.mapError((error) =>
+					blocked(
+						"unsupported_schema",
+						`Render records are not readable: ${message(error)}`,
+						"Run a Render version that supports this store.",
+					),
+				),
+			);
+			if (meta !== undefined && meta.schema !== STORE_SCHEMA)
+				return yield* Effect.fail(
+					blocked(
+						"unsupported_schema",
+						`Render records have schema ${meta.schema}; this host supports ${STORE_SCHEMA}.`,
+						"Run a compatible Render version.",
+					),
+				);
+			if (meta === undefined || !meta.initialized) {
+				yield* fromPromise(() =>
+					harness.commit(async (tx) => {
+						const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
+						Object.assign(await tx.doc(Meta), {
+							initialized: true,
+							authorityEpoch: `authority-${randomUUID()}`,
+							ledgerConversation: conversation.id,
+						});
+					}, ctx),
+				);
+			}
+			if (meta?.historyCursorKey === undefined) {
+				yield* fromPromise(() =>
+					harness.commit(async (tx) => {
+						const current = await tx.doc(Meta);
+						current.historyCursorKey ??= randomUUID();
+					}, ctx),
+				);
+			}
+			const executorEpoch = `executor-${randomUUID()}`;
+			const ledger = yield* Ledger.load(harness, opened.persistence, options.onFatal, runtime.roleTasks).pipe(
+				Effect.catchCause((cause) =>
+					Effect.fail(
+						blocked(
+							"unsupported_schema",
+							`Retained Ledger records are unreadable: ${message(Cause.squash(cause))}`,
+							"Run a compatible Render version; no tasks were dispatched.",
+						),
+					),
+				),
+			);
+			const settingsEmpty = (yield* fromPromise(() => harness.snapshot(CheckpointSettings, ctx))) === undefined;
+			const settingsFile = join(options.data, "checkpoint-settings.json");
+			if (settingsEmpty && existsSync(settingsFile)) {
+				const modes: unknown = yield* fromPromise(async () => JSON.parse(await readFile(settingsFile, "utf8"))).pipe(
+					Effect.mapError(() =>
+						blocked(
+							"invalid_checkpoint_settings",
+							`Cannot parse initial ${settingsFile}.`,
+							"Correct the initial settings JSON; no tasks were dispatched.",
+						),
+					),
+				);
+				const admin = mintContext({ kind: "human", human: "human:owner", route: "local-admin" });
+				const settings = (yield* fromPromise(() => harness.snapshot(CheckpointSettings, ctx))) ?? { currentRevision: "settings:initial" };
+				const seeded = yield* ledger.command(
+					{
+						version: 1,
+						authorityEpoch: ledger.status().authorityEpoch,
+						commandId: `settings-seed:${executorEpoch}`,
+						command: { type: "importCheckpointSettings", expectedRevision: settings.currentRevision, modes },
+					},
+					admin,
+				);
+				if (seeded.status !== "accepted")
+					return yield* Effect.fail(
+						blocked("invalid_checkpoint_settings", JSON.stringify(seeded), "Correct initial settings; no tasks were dispatched."),
+					);
+			}
+			runtime.bindLedger?.(ledger, harness);
+			const fence = yield* ledger.command(
 				{
 					version: 1,
 					authorityEpoch: ledger.status().authorityEpoch,
-					commandId: `settings-seed:${executorEpoch}`,
-					command: { type: "importCheckpointSettings", expectedRevision: settings.currentRevision, modes },
+					commandId: `startup:${executorEpoch}`,
+					command: { type: "recordStartup", executorEpoch, persistence: opened.persistence },
 				},
-				admin,
+				mintContext({ kind: "host", scope: "recovery" }),
 			);
-			if (seeded.status !== "accepted")
-				throw blocked("invalid_checkpoint_settings", JSON.stringify(seeded), "Correct initial settings; no tasks were dispatched.");
-		}
-		runtime.bindLedger?.(ledger, harness);
-		const fence = await ledger.command(
-			{
-				version: 1,
+			if (fence.status !== "accepted")
+				return yield* Effect.fail(blocked("startup_fence_refused", JSON.stringify(fence), "Inspect the store; nothing was dispatched."));
+			// Unchecked work is fenced by the new executorEpoch; only now may scheduling start.
+			yield* fromPromise(async () => runtime.beforeResume?.());
+			harness.resume();
+			runtime.afterResume?.();
+			closeStore = ledger.close();
+			return {
+				ledger,
+				persistence: opened.persistence,
 				authorityEpoch: ledger.status().authorityEpoch,
-				commandId: `startup:${executorEpoch}`,
-				command: { type: "recordStartup", executorEpoch, persistence: opened.persistence },
-			},
-			mintContext({ kind: "host", scope: "recovery" }),
-		);
-		if (fence.status !== "accepted")
-			throw blocked("startup_fence_refused", JSON.stringify(fence), "Inspect the store; nothing was dispatched.");
-		// Unchecked work is fenced by the new executorEpoch; only now may scheduling start.
-		await runtime.beforeResume?.();
-		harness.resume();
-		runtime.afterResume?.();
-		return {
-			ledger,
-			persistence: opened.persistence,
-			authorityEpoch: ledger.status().authorityEpoch,
-			executorEpoch,
-			dataDir: options.data,
-			close: async () => {
-				await ledger.close();
-				lock.release();
-			},
-		};
-	} catch (error) {
-		await harness?.close(ctx).catch(() => undefined);
-		if (harness === undefined) await adapter?.close().catch(() => undefined);
-		lock.release();
-		throw error;
-	}
+				executorEpoch,
+				dataDir: options.data,
+				close: () => Scope.close(scope, Exit.void),
+			};
+		}).pipe(Effect.catchCause((cause) => Scope.close(scope, Exit.failCause(cause)).pipe(Effect.flatMap(() => Effect.failCause(cause)))));
+	}).pipe(Effect.uninterruptible);
 }
 
 /** OS-lifetime exclusive lock: SQLite's exclusive file lock on a separate lock file, released by the kernel on exit. */
@@ -272,46 +304,52 @@ function identifyStore(path: string): "new" | "render" {
 }
 
 /** Opens the store with the declared profile and refuses to admit work if the effective settings differ. */
-async function openPersistent(path: string, fresh: boolean): Promise<{ adapter: NodeSqliteDatabase; persistence: Persistence }> {
-	let adapter: NodeSqliteDatabase | undefined;
-	try {
+function openPersistent(path: string, fresh: boolean): Effect.Effect<{ adapter: NodeSqliteDatabase; persistence: Persistence }, unknown> {
+	return Effect.gen(function* () {
 		// A read-only store or directory cannot hold WAL writes; SQLite would only fail at the first real write.
-		await access(dirname(path), constants.W_OK);
-		if (!fresh || existsSync(path)) await access(path, constants.R_OK | constants.W_OK);
-		adapter = await openNodeSqliteDatabase(path);
-		await adapter.exec("PRAGMA synchronous = FULL");
-		await adapter.exec("PRAGMA fullfsync = ON");
-		await adapter.exec("PRAGMA checkpoint_fullfsync = ON");
-		const read = async (pragma: string) => Object.values((await adapter?.get<Record<string, unknown>>(`PRAGMA ${pragma}`)) ?? {})[0];
-		const persistence: Persistence = {
-			journal_mode: String(await read("journal_mode")),
-			synchronous: Number(await read("synchronous")),
-			fullfsync: Number(await read("fullfsync")),
-			checkpoint_fullfsync: Number(await read("checkpoint_fullfsync")),
-		};
-		const mismatched = (Object.keys(REQUIRED_PERSISTENCE) as (keyof Persistence)[]).filter(
-			(k) => persistence[k] !== REQUIRED_PERSISTENCE[k],
-		);
-		if (mismatched.length > 0)
-			throw blocked(
-				"persistence_unavailable",
-				`Effective persistence ${JSON.stringify(persistence)} differs from the required ${JSON.stringify(REQUIRED_PERSISTENCE)}.`,
-				"Move the data directory to a local filesystem that supports SQLite WAL with full synchronization.",
+		yield* fromPromise(() => access(dirname(path), constants.W_OK));
+		if (!fresh || existsSync(path)) yield* fromPromise(() => access(path, constants.R_OK | constants.W_OK));
+		const adapter = yield* fromPromise(() => openNodeSqliteDatabase(path));
+		return yield* Effect.gen(function* () {
+			yield* fromPromise(() => adapter.exec("PRAGMA synchronous = FULL"));
+			yield* fromPromise(() => adapter.exec("PRAGMA fullfsync = ON"));
+			yield* fromPromise(() => adapter.exec("PRAGMA checkpoint_fullfsync = ON"));
+			const read = (pragma: string) =>
+				fromPromise(() => adapter.get<Record<string, unknown>>(`PRAGMA ${pragma}`)).pipe(Effect.map((row) => Object.values(row ?? {})[0]));
+			const persistence: Persistence = {
+				journal_mode: String(yield* read("journal_mode")),
+				synchronous: Number(yield* read("synchronous")),
+				fullfsync: Number(yield* read("fullfsync")),
+				checkpoint_fullfsync: Number(yield* read("checkpoint_fullfsync")),
+			};
+			const mismatched = (Object.keys(REQUIRED_PERSISTENCE) as (keyof Persistence)[]).filter(
+				(k) => persistence[k] !== REQUIRED_PERSISTENCE[k],
 			);
-		if (fresh) {
-			await adapter.exec(`PRAGMA application_id = ${APPLICATION_ID}`);
-			await adapter.exec(`PRAGMA user_version = ${STORE_SCHEMA}`);
-		}
-		return { adapter, persistence };
-	} catch (error) {
-		await adapter?.close().catch(() => undefined);
-		if (error instanceof StartupFailure) throw error;
-		throw blocked(
-			"persistence_unavailable",
-			`The store cannot be opened with the required persistence profile: ${message(error)}`,
-			"Check that render.db and its directory are writable by this user; the file was left unchanged.",
-		);
-	}
+			if (mismatched.length > 0)
+				return yield* Effect.fail(
+					blocked(
+						"persistence_unavailable",
+						`Effective persistence ${JSON.stringify(persistence)} differs from the required ${JSON.stringify(REQUIRED_PERSISTENCE)}.`,
+						"Move the data directory to a local filesystem that supports SQLite WAL with full synchronization.",
+					),
+				);
+			if (fresh) {
+				yield* fromPromise(() => adapter.exec(`PRAGMA application_id = ${APPLICATION_ID}`));
+				yield* fromPromise(() => adapter.exec(`PRAGMA user_version = ${STORE_SCHEMA}`));
+			}
+			return { adapter, persistence };
+		}).pipe(Effect.onError(() => fromPromise(() => adapter.close()).pipe(Effect.ignore)));
+	}).pipe(
+		Effect.mapError((error) =>
+			error instanceof StartupFailure
+				? error
+				: blocked(
+						"persistence_unavailable",
+						`The store cannot be opened with the required persistence profile: ${message(error)}`,
+						"Check that render.db and its directory are writable by this user; the file was left unchanged.",
+					),
+		),
+	);
 }
 
 function message(error: unknown): string {

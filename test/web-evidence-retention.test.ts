@@ -1,4 +1,5 @@
 // B3/B4/B5: registered web tools, Durable transcripts and real SQLite retaining what a role observed and relied on.
+
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -7,6 +8,7 @@ import { setTimeout } from "node:timers/promises";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { ConversationId } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
@@ -40,7 +42,7 @@ test("B3/B4 retained fallback evidence keeps the Exa failure and eligibility unc
 		try {
 			const ref = await retainedEvidenceRef(f);
 			assert.ok(ref, "selected evidence must enter Ledger before reliance");
-			const retained = await f.ledger.artifact(admin, { read: ref });
+			const retained = await Effect.runPromise(f.ledger.artifact(admin, { read: ref }));
 			assert.ok("content" in retained);
 			const evidence = JSON.parse(retained.content.toString()) as {
 				provider: string;
@@ -110,10 +112,10 @@ test("B3/B5 identical bytes remain distinct observations; own tail paging is sco
 				attempt: assignment.attempt,
 				role: assignment.packet.role,
 			});
-			const page = await first.f.ledger.artifact(own, { read: first.reply.handle! });
+			const page = await Effect.runPromise(first.f.ledger.artifact(own, { read: first.reply.handle! }));
 			assert.ok("content" in page);
 			assert.match(page.content.toString(), /TAIL-CANARY-9281/);
-			const foreign = await second.f.ledger.artifact(own, { read: first.reply.handle! });
+			const foreign = await Effect.runPromise(second.f.ledger.artifact(own, { read: first.reply.handle! }));
 			assert.equal("code" in foreign ? foreign.code : "disclosed", "working_result_unavailable");
 			const other = await first.f.command({ type: "assignTask", slice: "slice:foreign", delivery: true, packet: packet() });
 			assert.equal(other.status, "accepted");
@@ -125,7 +127,7 @@ test("B3/B5 identical bytes remain distinct observations; own tail paging is sco
 					attempt: other.result.attempt as string,
 					role: "coordinator",
 				});
-				const known = await first.f.ledger.artifact(outsider, { read: first.reply.handle! });
+				const known = await Effect.runPromise(first.f.ledger.artifact(outsider, { read: first.reply.handle! }));
 				assert.equal(
 					"code" in known ? known.code : "disclosed",
 					"working_result_unavailable",
@@ -142,7 +144,7 @@ test("B3/B5 identical bytes remain distinct observations; own tail paging is sco
 	}
 });
 
-test("B4 selected negative evidence survives expiry/reopen/export; old working handle never refetches", async () => {
+test("B4 selected negative evidence is exported by ref and readable after expiry/reopen; old working handle never refetches", async () => {
 	const http = await fixture(() => ({
 		body: { results: [{ url: "https://example.org/negative", text: "Context: no support for this claim. Conflicting result remains." }] },
 	}));
@@ -167,7 +169,7 @@ test("B4 selected negative evidence survives expiry/reopen/export; old working h
 		try {
 			const ref = await retainedEvidenceRef(f);
 			assert.ok(ref, "selected evidence must enter Ledger before reliance");
-			const retained = await f.ledger.artifact(admin, { read: ref });
+			const retained = await Effect.runPromise(f.ledger.artifact(admin, { read: ref }));
 			assert.ok("content" in retained);
 			assert.match(retained.content.toString(), /Context: no support for this claim. Conflicting result remains./);
 			assert.match(retained.content.toString(), /negative/);
@@ -194,7 +196,7 @@ test("B4 selected negative evidence survives expiry/reopen/export; old working h
 			);
 			assert.equal("code" in missing ? missing.code : "accepted", "missing_content", "a working handle is not retained report support");
 			await setTimeout(1100);
-			const expired = await f.ledger.artifact(admin, { read: reply.handle! });
+			const expired = await Effect.runPromise(f.ledger.artifact(admin, { read: reply.handle! }));
 			assert.equal("code" in expired ? expired.code : "disclosed", "working_result_unavailable");
 			const assignment = (f.ledger.snapshot(admin) as unknown as { assignments: RoleAssignment[] }).assignments[0]!;
 			const conversation = await f.harness.conversation(assignment.conversation as ConversationId, BACKGROUND_CONTEXT);
@@ -203,7 +205,7 @@ test("B4 selected negative evidence survives expiry/reopen/export; old working h
 			const native = entries.items.flatMap((e) => e.model ?? []).filter((m) => m.role === "toolResult" && m.toolName === "web_contents");
 			assert.match(JSON.stringify(native), /Context: no support for this claim/, "committed output survives working expiry");
 			await f.reopen();
-			const after = await f.ledger.artifact(admin, { read: ref });
+			const after = await Effect.runPromise(f.ledger.artifact(admin, { read: ref }));
 			assert.ok("content" in after, "retained evidence remains available independently of working cache");
 			assert.deepEqual(after.content, retained.content, "cache cleanup must not delete retained evidence");
 			assert.equal(http.calls.length, 1);
@@ -345,7 +347,7 @@ for (const damage of ["missing", "corrupt"])
 				if (failure) throw failure;
 				assert.ok(checked, "required support verification must execute");
 				assert.equal(a.status, "submitted");
-				const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+				const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 				assert.ok("jsonl" in exported);
 				assert.match(exported.jsonl, /"webEvidence":"retained"/);
 				assert.match(exported.jsonl, new RegExp(`"support0":"${evidence}"`));

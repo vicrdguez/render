@@ -1,4 +1,4 @@
-// V1: seeded pure-Kernel schedules of Watchdog rounds on one handed-off pass. An independent oracle counts accepted
+// V1: deterministic pure-Kernel edge cases of Watchdog rounds on one handed-off pass. An independent oracle counts accepted
 // verdict submissions and decides from the accepted rules (spec §6.4) whether automatic rework may open: never after
 // Needs Human, only while completed reviews < limit, and a valid pass is never refused by the cap.
 import assert from "node:assert/strict";
@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { type Command, change, type KernelState, type Principal, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { CatalogEvidence } from "../src/kernel/verification.ts";
 import { assessment, capture, selection } from "./support/implementation.ts";
-import { seeded } from "./support/random.ts";
+import { decision } from "./support/kernel.ts";
 import { packet } from "./support/roles.ts";
 
 const host: Principal = { kind: "host", scope: "scheduling" };
@@ -31,14 +31,6 @@ const writer = packet({
 	],
 });
 type Step = "pass" | "rework" | "needs-human" | "duplicate" | "adopt";
-const steps: Step[] = ["pass", "rework", "needs-human", "duplicate", "adopt"];
-function generate(seed: number): { limit: number; steps: Step[] } {
-	const random = seeded(seed);
-	return {
-		limit: Math.floor(random() * 4),
-		steps: Array.from({ length: 6 }, () => steps[Math.floor(random() * steps.length)] as Step),
-	};
-}
 type Coverage = { opened: number; stopped: number; passAboveCap: number; limits: Set<number> };
 
 function run(schedule: { limit: number; steps: Step[] }, coverage?: Coverage): string | undefined {
@@ -104,19 +96,19 @@ function run(schedule: { limit: number; steps: Step[] }, coverage?: Coverage): s
 				},
 			};
 			const before = JSON.stringify([state, input, facts]);
-			const decision = change(state, input, facts as unknown as VerifiedFacts);
+			const d = decision(change(state, input, facts as unknown as VerifiedFacts));
 			assert.equal(JSON.stringify([state, input, facts]), before, "Kernel mutated input");
-			assert.equal(decision.outcome, expected, `${String(c.type)}: ${JSON.stringify(decision)}`);
-			if (decision.outcome === "refused") {
-				assert.ok(!("writes" in decision), "refusal cannot write");
-				return { code: decision.code } as Record<string, unknown>;
+			assert.equal(d.outcome, expected, `${String(c.type)}: ${JSON.stringify(d)}`);
+			if (d.outcome === "refused") {
+				assert.ok(!("writes" in d), "refusal cannot write");
+				return { code: d.code } as Record<string, unknown>;
 			}
-			for (const write of decision.writes) {
+			for (const write of d.writes) {
 				if (write.type === "roles.replace") state = { ...state, roleWork: write.state };
 				if (write.type === "intakes.replace") state = { ...state, intakes: write.state };
 				if (write.type === "policy.replace") state = { ...state, policy: write.state };
 			}
-			return decision.result as Record<string, unknown>;
+			return d.result as Record<string, unknown>;
 		}
 		const own = (id: string) => state.roleWork!.assignments.find((a) => a.id === id)!;
 		const agent = (id: string): Principal => {
@@ -367,20 +359,39 @@ function run(schedule: { limit: number; steps: Step[] }, coverage?: Coverage): s
 	}
 }
 
-test("V1 seeded Watchdog rounds: counts never reset, Needs Human stops, the cap stops rework but never a valid pass", () => {
-	const base = Number(process.env.RENDER_V1_SEED ?? 0x3a7c);
-	const count = Number(process.env.RENDER_V1_SCHEDULES ?? 10_000);
+test("V1 Watchdog rounds: counts never reset, Needs Human stops, the cap stops rework but never a valid pass", () => {
+	const scenarios: [description: string, limit: number, steps: Step[]][] = [
+		["zero cap refuses immediate rework and its duplicate", 0, ["rework", "duplicate"]],
+		["first rework reaches the cap of one", 1, ["rework"]],
+		["first rework is immediately below the default cap", 2, ["rework"]],
+		["first rework is below the cap of three", 3, ["rework"]],
+		["immediate Needs Human at zero cap", 0, ["needs-human"]],
+		["immediate Needs Human at cap one", 1, ["needs-human"]],
+		["Needs Human alone stops below the default cap", 2, ["needs-human"]],
+		["Needs Human below cap three refuses a duplicate but permits a pass", 3, ["needs-human", "duplicate", "pass"]],
+		["duplicate before any submission leaves zero count and four passes exceed zero cap", 0, ["duplicate", "pass", "pass", "pass", "pass"]],
+		["four passes succeed above cap one", 1, ["pass", "pass", "pass", "pass"]],
+		["duplicate pass does not count and further passes exceed the default cap", 2, ["pass", "duplicate", "pass", "pass", "pass"]],
+		["four passes succeed above cap three", 3, ["pass", "pass", "pass", "pass"]],
+		["one pass puts rework immediately below cap three", 3, ["pass", "rework"]],
+		["one pass puts rework at the default cap", 2, ["pass", "rework"]],
+		["two passes put rework at cap three", 3, ["pass", "pass", "rework"]],
+		["adoption raises zero cap enough to permit rework", 0, ["adopt", "rework"]],
+		["both adoptions are needed to permit the third review's rework", 0, ["adopt", "adopt", "pass", "pass", "rework"]],
+		["Needs Human still decides after adoption with room below the new cap", 3, ["needs-human", "adopt", "rework"]],
+		["adoption permits late rework after two passes", 2, ["pass", "pass", "adopt", "rework"]],
+		["adoption preserves the count so late rework reaches the new cap", 2, ["pass", "pass", "adopt", "pass", "rework"]],
+	];
 	const coverage: Coverage = { opened: 0, stopped: 0, passAboveCap: 0, limits: new Set() };
-	for (let n = 0; n < count; n++) {
-		const seed = base + n;
-		const schedule = generate(seed);
-		coverage.limits.add(schedule.limit);
-		const failure = run(schedule, coverage);
-		if (failure) assert.fail(`seed ${seed}: ${failure}\nreplay: RENDER_V1_SEED=${seed} RENDER_V1_SCHEDULES=1`);
+	for (const [description, limit, steps] of scenarios) {
+		coverage.limits.add(limit);
+		assert.equal(run({ limit, steps }, coverage), undefined, `${description}: limit ${limit}, steps ${steps.join(", ")}`);
 	}
-	if (count >= 1000) {
-		assert.deepEqual(coverage.limits, new Set([0, 1, 2, 3]), "limits 0, default 2 and either side are exercised");
-		assert.ok(coverage.opened > 0 && coverage.stopped > 0 && coverage.passAboveCap > 0);
-	}
-	console.log(JSON.stringify({ measure: "watchdog_schedule_paths", schedules: count, ...coverage, limits: [...coverage.limits] }));
+	assert.deepEqual(coverage.limits, new Set([0, 1, 2, 3]), "limits 0, default 2 and either side are exercised");
+	assert.ok(coverage.opened > 0, "eligible rework opens a successor");
+	assert.ok(coverage.stopped > 0, "Needs Human or the cap stops automatic rework");
+	assert.ok(coverage.passAboveCap > 0, "valid passes succeed above the cap");
+	console.log(
+		JSON.stringify({ measure: "watchdog_schedule_paths", schedules: scenarios.length, ...coverage, limits: [...coverage.limits] }),
+	);
 });

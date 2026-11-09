@@ -1,5 +1,6 @@
 // Literal performance-journey material at the Ledger seam: human Ground, trusted catalog receipts with measured
 // stdout and a scripted Watchdog round. Fixture data for authority/comparison checks, never evidence a model judged.
+import * as Effect from "effect/Effect";
 import type { IntakeManifest, Intakes } from "../../src/kernel/intake.ts";
 import type { ImplementationPass, RoleAssignment } from "../../src/kernel/roles.ts";
 import type { CommandReply, Frame } from "../../src/ledger/ledger.ts";
@@ -125,16 +126,18 @@ export async function performanceFixture() {
 	let n = 0;
 	const save = async (document: string, text: string) => {
 		const revision = accepted(
-			await f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: f.ledger.status().authorityEpoch,
-					commandId: `performance-fixture:${++n}`,
-					workflow: "workflow:2",
-					expected: { document: current[document] ?? null },
-					command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
-				},
-				admin,
+			await Effect.runPromise(
+				f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: f.ledger.status().authorityEpoch,
+						commandId: `performance-fixture:${++n}`,
+						workflow: "workflow:2",
+						expected: { document: current[document] ?? null },
+						command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
+					},
+					admin,
+				),
 			),
 		).revision as string;
 		current[document] = revision;

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import { deviceServer } from "../src/ledger/http.ts";
 import type { Frame, Ledger } from "../src/ledger/ledger.ts";
@@ -23,20 +24,22 @@ const change = (
 	type = "changeCheckpointSettings",
 	actor = admin,
 ) =>
-	ledger.command(
-		{
-			version: 1,
-			authorityEpoch: ledger.status().authorityEpoch,
-			commandId: `settings:${++n}`,
-			command: { type, modes, expectedRevision },
-		},
-		actor,
+	Effect.runPromise(
+		ledger.command(
+			{
+				version: 1,
+				authorityEpoch: ledger.status().authorityEpoch,
+				commandId: `settings:${++n}`,
+				command: { type, modes, expectedRevision },
+			},
+			actor,
+		),
 	);
 
 test("S01 initial file seeds only empty settings; restart cannot overwrite accepted settings", async () => {
 	const data = await mkdtemp(join(tmpdir(), "render-settings-"));
 	const file = join(data, "checkpoint-settings.json");
-	const open = () => openLedger({ data, runtime: (report) => new Engine().options(report), onFatal: () => {} });
+	const open = () => Effect.runPromise(openLedger({ data, runtime: (report) => new Engine().options(report), onFatal: () => {} }));
 	await writeFile(file, JSON.stringify(delegated));
 	let f = await open();
 	try {
@@ -45,18 +48,18 @@ test("S01 initial file seeds only empty settings; restart cannot overwrite accep
 		const edited = await change(f.ledger, human);
 		assert.equal(edited.status, "accepted");
 		const latest = settings(f.ledger).currentRevision;
-		await f.close();
+		await Effect.runPromise(f.close());
 		f = await open();
 		assert.equal(settings(f.ledger).currentRevision, latest, "restart must not overwrite accepted settings");
 		assert.deepEqual(settings(f.ledger).modes, human);
 		assert.equal((await change(f.ledger, delegated, seeded, "importCheckpointSettings")).status, "refused");
 		assert.equal((await change(f.ledger, delegated, latest, "importCheckpointSettings")).status, "accepted");
 		const imported = settings(f.ledger).currentRevision;
-		await f.close();
+		await Effect.runPromise(f.close());
 		await writeFile(file, "malformed old file is not authority");
 		f = await open();
 		assert.equal(settings(f.ledger).currentRevision, imported);
-		const exported = await f.ledger.artifact(admin, { export: {} });
+		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: {} }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		const records = exported.jsonl
 			.trim()
@@ -70,7 +73,7 @@ test("S01 initial file seeds only empty settings; restart cannot overwrite accep
 		);
 		for (const r of revisions) assert.ok(exported.content[r.ref], "exact settings bytes retained");
 	} finally {
-		await f.close();
+		await Effect.runPromise(f.close());
 		await rm(data, { recursive: true, force: true });
 	}
 });
@@ -103,7 +106,7 @@ for (const damage of ["missing", "corrupt"] as const)
 				assert.equal(reply.code, damage === "missing" ? "missing_content" : "content_corrupt");
 				assert.ok(reply.reason.includes(revision));
 			}
-			const exported = await f.ledger.artifact(admin, { export: {} });
+			const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: {} }));
 			assert.ok("manifest" in exported && !exported.manifest.complete);
 			assert.ok(exported.manifest.missing.some((m) => m.ref === revision));
 		} finally {
@@ -121,14 +124,16 @@ test("S02/S03 two project clients race settings; import is local-admin only; clo
 		assert.ok(address && typeof address !== "string");
 		const clients = await Promise.all(
 			["all", "all", []].map(async (workflows, i) => {
-				const r = await f.ledger.command(
-					{
-						version: 1,
-						authorityEpoch: f.ledger.status().authorityEpoch,
-						commandId: `enroll:${i}`,
-						command: { type: "enrollDevice", label: `client ${i}`, scope: { workflows } },
-					},
-					admin,
+				const r = await Effect.runPromise(
+					f.ledger.command(
+						{
+							version: 1,
+							authorityEpoch: f.ledger.status().authorityEpoch,
+							commandId: `enroll:${i}`,
+							command: { type: "enrollDevice", label: `client ${i}`, scope: { workflows } },
+						},
+						admin,
+					),
 				);
 				assert.ok(r.status === "accepted" && r.credential);
 				const bearer = r.credential.bearer;

@@ -4,6 +4,7 @@ import type { CheckpointRequest } from "../src/kernel/checkpoints.ts";
 import type { IntakeManifest } from "../src/kernel/intake.ts";
 import { type Command, change, type KernelState, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
+import { decision } from "./support/kernel.ts";
 import { packet, passOwner } from "./support/roles.ts";
 
 const workflow = "workflow:1";
@@ -119,18 +120,20 @@ function fixture() {
 	function command(c: Record<string, unknown>, principal = agent) {
 		sequence++;
 		const before = structuredClone(state);
-		const d = change(state, { ...c, workflow } as Command, {
-			principal,
-			sequence,
-			executorEpoch: "executor",
-			ids: {
-				fact: `fact:${sequence}`,
-				assignment: `assignment:${sequence}`,
-				attempt: `attempt:${sequence}`,
-				revision: `revision:${sequence}`,
-			},
-			checkpointInputs: inputs,
-		});
+		const d = decision(
+			change(state, { ...c, workflow } as Command, {
+				principal,
+				sequence,
+				executorEpoch: "executor",
+				ids: {
+					fact: `fact:${sequence}`,
+					assignment: `assignment:${sequence}`,
+					attempt: `attempt:${sequence}`,
+					revision: `revision:${sequence}`,
+				},
+				checkpointInputs: inputs,
+			}),
+		);
 		assert.deepEqual(state, before, "intake transitions must not mutate inputs");
 		if (d.outcome === "accepted") {
 			for (const w of d.writes) {
@@ -204,7 +207,7 @@ function fixture() {
 		},
 	};
 }
-function code(d: ReturnType<typeof change>) {
+function code(d: ReturnType<typeof decision>) {
 	return d.outcome === "refused" ? d.code : d.outcome;
 }
 

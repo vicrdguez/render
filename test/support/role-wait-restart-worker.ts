@@ -1,10 +1,12 @@
 // Repeated real process death at the Ledger/Engine seam; providers alone are scripted.
+
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { setTimeout } from "node:timers/promises";
 import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { Harness } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import type { Ledger } from "../../src/ledger/ledger.ts";
@@ -27,39 +29,41 @@ p.setResponses(
 const engine = new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } });
 let harness!: Harness;
 let boundLedger!: Ledger;
-const opened = await openLedger({
-	data,
-	onFatal: (e) => {
-		throw e;
-	},
-	runtime: (report) => {
-		const options = engine.options(report);
-		return {
-			...options,
-			bindLedger: (ledger, h) => {
-				boundLedger = ledger;
-				harness = h;
-				options.bindLedger?.(ledger, h);
-			},
-			beforeResume: async () => {
-				await options.beforeResume?.();
-				if (action !== "seed" || mode !== "capacity") return;
-				// Real accepted scheduling intents, with demonstrably absent providers/environments.
-				// Blocked execution retains capacity until explicit quiescence, even across host death.
-				await command({ type: "createWorkflow", title: "Restart waits" }, admin);
-				await saveInput();
-				for (let i = 0; i < 5; i++) {
-					const accepted = await command({ type: "assignTask", slice: `holder:${i}`, delivery: true, packet: packet() });
-					if (i === 4) continue;
-					assert.equal(accepted.status, "accepted");
-					const a = assignments().find((a) => a.id === accepted.result!.assignment)!;
-					await command({ type: "stageTask", ...identity(a), executorEpoch: boundLedger.status().executorEpoch });
-					await command({ type: "recordBlocker", ...identity(a), reason: "human decision" });
-				}
-			},
-		};
-	},
-});
+const opened = await Effect.runPromise(
+	openLedger({
+		data,
+		onFatal: (e) => {
+			throw e;
+		},
+		runtime: (report) => {
+			const options = engine.options(report);
+			return {
+				...options,
+				bindLedger: (ledger, h) => {
+					boundLedger = ledger;
+					harness = h;
+					options.bindLedger?.(ledger, h);
+				},
+				beforeResume: async () => {
+					await options.beforeResume?.();
+					if (action !== "seed" || mode !== "capacity") return;
+					// Real accepted scheduling intents, with demonstrably absent providers/environments.
+					// Blocked execution retains capacity until explicit quiescence, even across host death.
+					await command({ type: "createWorkflow", title: "Restart waits" }, admin);
+					await saveInput();
+					for (let i = 0; i < 5; i++) {
+						const accepted = await command({ type: "assignTask", slice: `holder:${i}`, delivery: true, packet: packet() });
+						if (i === 4) continue;
+						assert.equal(accepted.status, "accepted");
+						const a = assignments().find((a) => a.id === accepted.result!.assignment)!;
+						await command({ type: "stageTask", ...identity(a), executorEpoch: boundLedger.status().executorEpoch });
+						await command({ type: "recordBlocker", ...identity(a), reason: "human decision" });
+					}
+				},
+			};
+		},
+	}),
+);
 function assignments(): RoleAssignment[] {
 	const frame = boundLedger.snapshot(admin);
 	assert.ok("assignments" in frame);
@@ -77,16 +81,18 @@ async function until(check: () => boolean | Promise<boolean>) {
 }
 async function command(c: Record<string, unknown>, principal = scheduler) {
 	const ledger = boundLedger;
-	const reply = await ledger.command(
-		{
-			version: 1,
-			authorityEpoch: ledger.status().authorityEpoch,
-			commandId: `restart:${action}:${createHash("sha256").update(JSON.stringify(c)).digest("hex")}`,
-			workflow: c.type === "createWorkflow" ? undefined : "workflow:2",
-			expected: c.type === "saveDocument" ? { document: null } : undefined,
-			command: c,
-		},
-		principal,
+	const reply = await Effect.runPromise(
+		ledger.command(
+			{
+				version: 1,
+				authorityEpoch: ledger.status().authorityEpoch,
+				commandId: `restart:${action}:${createHash("sha256").update(JSON.stringify(c)).digest("hex")}`,
+				workflow: c.type === "createWorkflow" ? undefined : "workflow:2",
+				expected: c.type === "saveDocument" ? { document: null } : undefined,
+				command: c,
+			},
+			principal,
+		),
 	);
 	assert.ok(reply.status === "accepted", JSON.stringify(reply));
 	return reply;
@@ -144,7 +150,7 @@ if (action === "resolve") {
 			await command({ type: "recordQuiescence", ...identity(current), providerIdle: true, environment: "absent", effects: "reconciled" });
 		}
 		await until(() => assignments()[4]?.status === "submitted" && assignments().every((a) => !a.executing));
-		const result = await opened.ledger.artifact(admin, { read: assignments()[4]!.report! });
+		const result = await Effect.runPromise(opened.ledger.artifact(admin, { read: assignments()[4]!.report! }));
 		assert.ok("content" in result);
 		assert.equal(result.content.toString(), "Queued work complete.\n");
 	} else {
@@ -155,7 +161,7 @@ if (action === "resolve") {
 		assert.equal(p.state.callCount, 0, "recovery must not replay the parent or unavailable child");
 	}
 	console.log(JSON.stringify({ event: "resolved", mode }));
-	await opened.close();
+	await Effect.runPromise(opened.close());
 } else {
 	setInterval(() => {}, 1000);
 	await new Promise(() => {});

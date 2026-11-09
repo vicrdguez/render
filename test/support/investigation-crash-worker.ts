@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { type ConversationId, type Harness, hook, type Registry, ToolTask } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
 import { RoleBinding } from "../../src/ledger/records.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
@@ -34,86 +35,92 @@ const engine = new Engine({
 	investigations: { root: join(data, "source"), repositories: { owned: repo } },
 });
 let harness!: Harness;
-const opened = await openLedger({
-	data,
-	onFatal: (error) => {
-		console.error(error);
-	},
-	runtime: (report) => {
-		const options = engine.options(report);
-		if (mode === "crash") {
-			const registry = options.registry as Registry;
-			const roles = registry.snapshot().extension("render.roles")!;
-			registry.install({
-				...roles,
-				hooks: [
-					...(roles.hooks ?? []),
-					hook(ToolTask, {
-						beforeTool: async (call, api) => {
-							if (call.name !== "submit_role_result") return;
-							const binding = await api.snapshot(RoleBinding, api.conversationId, ctx);
-							assert.ok(binding);
-							process.env.RENDER_FAULT_COMMAND = `role:${createHash("sha256")
-								.update(
-									JSON.stringify([
-										"workflow:2",
-										api.conversationId,
-										binding.assignment,
-										binding.generation,
-										binding.attempt,
-										api.taskId,
-										call.id,
-									]),
-								)
-								.digest("hex")}`;
-							process.env.RENDER_FAULT_BARRIER = process.env.RENDER_INVESTIGATION_BARRIER;
-						},
-					}),
-				],
-			});
-		}
-		return {
-			...options,
-			bindLedger: (ledger, h) => {
-				harness = h;
-				options.bindLedger?.(ledger, h);
-			},
-		};
-	},
-});
+const opened = await Effect.runPromise(
+	openLedger({
+		data,
+		onFatal: (error) => {
+			console.error(error);
+		},
+		runtime: (report) => {
+			const options = engine.options(report);
+			if (mode === "crash") {
+				const registry = options.registry as Registry;
+				const roles = registry.snapshot().extension("render.roles")!;
+				registry.install({
+					...roles,
+					hooks: [
+						...(roles.hooks ?? []),
+						hook(ToolTask, {
+							beforeTool: async (call, api) => {
+								if (call.name !== "submit_role_result") return;
+								const binding = await api.snapshot(RoleBinding, api.conversationId, ctx);
+								assert.ok(binding);
+								process.env.RENDER_FAULT_COMMAND = `role:${createHash("sha256")
+									.update(
+										JSON.stringify([
+											"workflow:2",
+											api.conversationId,
+											binding.assignment,
+											binding.generation,
+											binding.attempt,
+											api.taskId,
+											call.id,
+										]),
+									)
+									.digest("hex")}`;
+								process.env.RENDER_FAULT_BARRIER = process.env.RENDER_INVESTIGATION_BARRIER;
+							},
+						}),
+					],
+				});
+			}
+			return {
+				...options,
+				bindLedger: (ledger, h) => {
+					harness = h;
+					options.bindLedger?.(ledger, h);
+				},
+			};
+		},
+	}),
+);
 try {
 	if (mode === "crash") {
 		assert.equal(
 			(
-				await opened.ledger.command(
-					{
-						version: 1,
-						authorityEpoch: opened.authorityEpoch,
-						commandId: "create",
-						command: { type: "createWorkflow", title: "Investigate" },
-					},
-					admin,
+				await Effect.runPromise(
+					opened.ledger.command(
+						{
+							version: 1,
+							authorityEpoch: opened.authorityEpoch,
+							commandId: "create",
+							command: { type: "createWorkflow", title: "Investigate" },
+						},
+						admin,
+					),
 				)
 			).status,
 			"accepted",
 		);
 		assert.equal(
 			(
-				await opened.ledger.command(
-					{
-						version: 1,
-						authorityEpoch: opened.authorityEpoch,
-						commandId: "principles",
-						workflow: "workflow:2",
-						expected: { document: null },
-						command: {
-							type: "saveDocument",
-							document: "principles",
-							mediaType: "text/plain",
-							content: Buffer.from("Read only; retain exact facts.").toString("base64"),
+				await Effect.runPromise(
+					opened.ledger.command(
+						{
+							version: 1,
+							authorityEpoch: opened.authorityEpoch,
+							commandId: "principles",
+							workflow: "workflow:2",
+							expected: { document: null },
+							command: {
+								type: "saveDocument",
+								document: "principles",
+								mediaType: "text/plain",
+								content: Buffer.from("Read only; retain exact facts.").toString("base64"),
+							},
 						},
-					},
-					admin,
+						admin,
+					),
 				)
 			).status,
 			"accepted",
@@ -121,15 +128,17 @@ try {
 		const ground = await saveGround(opened.ledger);
 		assert.equal(
 			(
-				await opened.ledger.command(
-					{
-						version: 1,
-						authorityEpoch: opened.authorityEpoch,
-						commandId: "start",
-						workflow: "workflow:2",
-						command: { type: "assignTask", slice: "workflow:2", delivery: false, packet: investigationPacket(ground, commit) },
-					},
-					scheduler,
+				await Effect.runPromise(
+					opened.ledger.command(
+						{
+							version: 1,
+							authorityEpoch: opened.authorityEpoch,
+							commandId: "start",
+							workflow: "workflow:2",
+							command: { type: "assignTask", slice: "workflow:2", delivery: false, packet: investigationPacket(ground, commit) },
+						},
+						scheduler,
+					),
 				)
 			).status,
 			"accepted",
@@ -139,7 +148,7 @@ try {
 	assert.notEqual(mode, "crash", "fault barrier must interrupt submission");
 	const a = assignments(opened.ledger)[0]!;
 	assert.equal(assignments(opened.ledger).length, 1);
-	const report = await opened.ledger.artifact(admin, { read: a.report! });
+	const report = await Effect.runPromise(opened.ledger.artifact(admin, { read: a.report! }));
 	assert.ok("content" in report);
 	assert.equal(JSON.parse(report.content.toString()).summary, "The strict positive predicate excludes zero.");
 	const conversation = await harness.conversation(a.conversation as ConversationId, ctx);
@@ -155,7 +164,7 @@ try {
 			.join(""),
 	);
 	assert.equal(receipt.status, "accepted");
-	const bundle = await opened.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+	const bundle = await Effect.runPromise(opened.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 	assert.ok("manifest" in bundle && bundle.manifest.complete);
 	const reports = bundle.jsonl
 		.trim()
@@ -165,5 +174,5 @@ try {
 	assert.equal(reports.length, 1, "one retained report across crash/replay");
 	console.log(JSON.stringify({ report: a.report, duplicate: receipt.duplicate ?? false, assignments: 1, exact: true }));
 } finally {
-	await opened.close();
+	await Effect.runPromise(opened.close());
 }

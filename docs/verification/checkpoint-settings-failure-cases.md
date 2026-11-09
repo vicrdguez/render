@@ -15,6 +15,6 @@ Literal outcomes below are written before product changes. Tests use Kernel.chan
 | S08 | B3 | Agent acceptIntake or human approval tool impersonation | forbidden_principal; no Contract acceptance |
 | S09 | B4 | Policy defaults/adoption while pending; canceled coordinator | Routing unchanged; policy basis stales; counts/history remain; revoked assignment cannot advance |
 | S10 | A2 | Missing/corrupt exact settings source, Ground, review or evidence | Affected operation refuses naming exact missing source; no newer substitution |
-| S11 | B2/A3 | 10,000 seeded schedules, both routing directions, all principal kinds | Capture immutable, at most one pending per workflow/stage, no unauthorized settings writes |
+| S11 | B2/A3 | Explicit human/delegated routing cases, all principal kinds | Capture immutable, at most one pending per workflow/stage, no unauthorized settings writes |
 
 Retain existing checkpoint edit/approval, V1 schedules, V2 256 and real lock, V3 critical-point, V4 reattach, V8 scripted journeys and V9 workloads. Full Gate is verify:gate; expensive extended jobs and unsafe controls are separate. Add targeted mutations for second pending identity, restart file overwrite, delegated product bypass and agent intake acceptance. Setup/import failures are not mutation detection. Final intake/candidates/experiments and full source-delivery load remain unavailable capabilities, not claims established by these tests.

@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
 import { admin, packet, roleFixture } from "./roles.ts";
 
@@ -7,7 +8,7 @@ process.stdout.write(`${JSON.stringify({ event: "data", data: f.data })}\n`);
 process.on("message", async (message) => {
 	if (message === "snapshot") {
 		const snapshot = f.ledger.snapshot(admin);
-		const history = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const history = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		process.stdout.write(`${JSON.stringify({ event: "snapshot", snapshot, history })}\n`);
 	}
 	if (message === "cancel") {

@@ -1,9 +1,11 @@
 // Owned real SQLite/runtime observations; only provider latency and responses are scripted.
+
 import assert from "node:assert/strict";
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
@@ -85,7 +87,7 @@ async function idleAndResponsive() {
 	assert.equal(after.mtimeNs, before.mtimeNs, "idle waiting assignments must not continuously write durable commits");
 	assert.ok(lag < 1000, `waiting roles must yield the host event loop: ${lag} ms lag`);
 	const observed: unknown[] = [];
-	const observer = f.ledger.observe(admin, { send: (frame) => observed.push(frame), end: () => {} });
+	const observer = Effect.runSync(f.ledger.observe(admin, { send: (frame) => observed.push(frame), end: () => {} }));
 	assert.ok("snapshot" in observer);
 	try {
 		const start = performance.now();
@@ -182,7 +184,7 @@ try {
 		release();
 		await until(() => assignments()[0]?.status === "submitted" && assignments().every((a) => !a.executing));
 		const parent = assignments()[0]!;
-		const report = await f.ledger.artifact(admin, { read: parent.report! });
+		const report = await Effect.runPromise(f.ledger.artifact(admin, { read: parent.report! }));
 		assert.ok("content" in report);
 		assert.equal(report.content.toString(), "Parent complete.\n", "committed child reports wake the retained parent");
 		assert.equal(assignments().filter((a) => a.parent === parent.id && a.status === "submitted").length, childCount);

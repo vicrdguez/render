@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { WorkflowView } from "../src/kernel/kernel.ts";
 import type { PolicyState } from "../src/kernel/policy.ts";
@@ -95,18 +96,20 @@ for (const scenario of ["policy adoption", "policy adoption across restart", "re
 			const original = snapshot().assignments[1]!;
 			if (scenario !== "repeated unsubmitted child") {
 				const state = snapshot().policy;
-				const changed = await f.ledger.command(
-					{
-						version: 1,
-						authorityEpoch: f.ledger.status().authorityEpoch,
-						commandId: "child-policy",
-						command: {
-							type: "changePolicy",
-							expectedRevision: state.defaultRevision,
-							policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+				const changed = await Effect.runPromise(
+					f.ledger.command(
+						{
+							version: 1,
+							authorityEpoch: f.ledger.status().authorityEpoch,
+							commandId: "child-policy",
+							command: {
+								type: "changePolicy",
+								expectedRevision: state.defaultRevision,
+								policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+							},
 						},
-					},
-					admin,
+						admin,
+					),
 				);
 				assert.ok(changed.status === "accepted");
 				assert.equal(
@@ -187,12 +190,14 @@ for (const scenario of ["policy adoption", "policy adoption across restart", "re
 			assert.equal((await rebind()).status, "refused", "an executing replacement is not yet a result");
 			assertWaiting();
 			// Observe the committed report before the next provider request reads it.
-			const observer = f.ledger.observe(admin, {
-				send: () => {
-					resultRef = snapshot().assignments.at(-1)?.report ?? "";
-				},
-				end: () => {},
-			});
+			const observer = Effect.runSync(
+				f.ledger.observe(admin, {
+					send: () => {
+						resultRef = snapshot().assignments.at(-1)?.report ?? "";
+					},
+					end: () => {},
+				}),
+			);
 			assert.ok("snapshot" in observer);
 			try {
 				freshGate.resolve();

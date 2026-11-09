@@ -1,10 +1,12 @@
 // TP18–TP20 at the Ledger interface over real SQLite/Durable staging. Preparation records are literal host results here:
 // these checks establish acceptance, ordering, retry and retention boundaries, not that Effects or Linux produced them.
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
 import { type ConversationId, createRegistry, defineExtension, defineTask, type Harness } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { ImplementationPass, RoleAssignment, RoleIntent } from "../src/kernel/roles.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
@@ -173,7 +175,7 @@ test("TP18 only trusted Effects retains one well-formed attempt per handed-off p
 		);
 		const after = structuredClone(passes(h));
 		refused(h, await h.f.command(recordCommand(h, valid), effects), "stale_basis", after, "attempt 1 again");
-		const read = await h.f.ledger.artifact(admin, { read: ref });
+		const read = await Effect.runPromise(h.f.ledger.artifact(admin, { read: ref }));
 		assert.ok("content" in read && read.content.toString() === valid, "exact record bytes are retained");
 	} finally {
 		await h.close();
@@ -290,14 +292,14 @@ test("TP20 records survive reopen and export and stay readable by the successor 
 				effects,
 			),
 		);
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: WORKFLOW } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: WORKFLOW } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		assert.ok(exported.content[ref], "export retains the preparation record");
 		const before = structuredClone(passes(t));
 		await t.f.reopen(new LedgerOnlyEngine());
 		assert.deepEqual(passes(t), before);
 		const successor = await t.start(opened.assignment as string);
-		const read = await t.f.ledger.artifact(successor, { read: ref });
+		const read = await Effect.runPromise(t.f.ledger.artifact(successor, { read: ref }));
 		assert.ok("content" in read, "successor owner reads predecessor preparation evidence");
 		const auditRecord = accepted(
 			await t.f.command(
@@ -318,7 +320,11 @@ test("TP20 records survive reopen and export and stay readable by the successor 
 		accepted(await t.f.command({ type: "requestImplementationAudit" }, successor));
 		const reviewer = t.assignments().find((a) => a.parent === opened.assignment)!;
 		const principal = await t.start(reviewer.id);
-		assert.equal("content" in (await t.f.ledger.artifact(principal, { read: ref })), false, "fresh reviewers see only A2");
+		assert.equal(
+			"content" in (await Effect.runPromise(t.f.ledger.artifact(principal, { read: ref }))),
+			false,
+			"fresh reviewers see only A2",
+		);
 	} finally {
 		await t.close();
 	}

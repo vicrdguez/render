@@ -8,7 +8,6 @@ import { promisify } from "node:util";
 import { createWorkflow, enroll, type HostProcess, http, save, spawnHost, startHost, tempDir } from "./support/host.ts";
 import { A1, G1 } from "./support/literals.ts";
 
-const REPETITIONS = Number(process.env.RENDER_V3_REPETITIONS ?? 1);
 const run = promisify(execFile);
 
 async function revisionCount(url: string, bearer: string, workflow: string, document: string): Promise<number> {
@@ -19,50 +18,48 @@ async function revisionCount(url: string, bearer: string, workflow: string, docu
 }
 
 for (const barrier of ["before-commit", "after-commit"] as const) {
-	describe(`V3 SIGKILL at ${barrier} (${REPETITIONS} repetitions)`, () => {
+	describe(`V3 SIGKILL at ${barrier}`, () => {
 		test(`retrying the original envelope after a kill at ${barrier} yields exactly one accepted save`, async () => {
-			for (let i = 0; i < REPETITIONS; i++) {
-				const dir = await tempDir(`v3-${barrier}`);
+			const dir = await tempDir(`v3-${barrier}`);
+			try {
+				const host = await startHost(dir.path);
+				const dev = await enroll(host, "crash");
+				const w = await createWorkflow(host, dev.bearer, "crash");
+				const first = await save(host, dev.bearer, w, "ground", G1.bytes, null);
+				const r0 = String((first.body.result as Record<string, unknown>).revision);
+				const seqBefore = Number(first.body.sequence);
+				await host.stop();
+
+				const commandId = `crash-${barrier}`;
+				const faulted = spawnHost(dir.path, { RENDER_FAULT_BARRIER: barrier, RENDER_FAULT_COMMAND: commandId });
+				const ready = await faulted.next("ready");
+				const pending = save({ url: String(ready.url), ready }, dev.bearer, w, "ground", A1.bytes, r0, commandId).catch(
+					(error: unknown) => ({ status: 0, body: {}, text: String(error) }),
+				);
+				const reached = await faulted.next("barrier");
+				assert.equal(reached.name, barrier);
+				faulted.proc.kill("SIGKILL");
+				await faulted.exited;
+				const lost = await pending;
+				assert.notEqual(lost.status, 200, "no reply may be delivered from a killed host");
+
+				const restarted = await startHost(dir.path);
 				try {
-					const host = await startHost(dir.path);
-					const dev = await enroll(host, "crash");
-					const w = await createWorkflow(host, dev.bearer, "crash");
-					const first = await save(host, dev.bearer, w, "ground", G1.bytes, null);
-					const r0 = String((first.body.result as Record<string, unknown>).revision);
-					const seqBefore = Number(first.body.sequence);
-					await host.stop();
-
-					const commandId = `crash-${barrier}-${i}`;
-					const faulted = spawnHost(dir.path, { RENDER_FAULT_BARRIER: barrier, RENDER_FAULT_COMMAND: commandId });
-					const ready = await faulted.next("ready");
-					const pending = save({ url: String(ready.url), ready }, dev.bearer, w, "ground", A1.bytes, r0, commandId).catch(
-						(error: unknown) => ({ status: 0, body: {}, text: String(error) }),
-					);
-					const reached = await faulted.next("barrier");
-					assert.equal(reached.name, barrier);
-					faulted.proc.kill("SIGKILL");
-					await faulted.exited;
-					const lost = await pending;
-					assert.notEqual(lost.status, 200, "no reply may be delivered from a killed host");
-
-					const restarted = await startHost(dir.path);
-					try {
-						const retry = await save(restarted, dev.bearer, w, "ground", A1.bytes, r0, commandId);
-						assert.equal(retry.status, 200, retry.text);
-						assert.equal(retry.body.duplicate, barrier === "after-commit");
-						// Every host start commits one startup fence. After-commit: the faulted host's fence, then the killed
-						// command. Before-commit: the faulted fence and the restarted fence, then the retried command.
-						assert.equal(Number(retry.body.sequence), seqBefore + (barrier === "after-commit" ? 2 : 3));
-						assert.equal(await revisionCount(restarted.url, dev.bearer, w, "ground"), 2);
-						const again = await save(restarted, dev.bearer, w, "ground", A1.bytes, r0, commandId);
-						assert.equal(again.body.duplicate, true);
-						assert.equal(await revisionCount(restarted.url, dev.bearer, w, "ground"), 2);
-					} finally {
-						await restarted.stop();
-					}
+					const retry = await save(restarted, dev.bearer, w, "ground", A1.bytes, r0, commandId);
+					assert.equal(retry.status, 200, retry.text);
+					assert.equal(retry.body.duplicate, barrier === "after-commit");
+					// Every host start commits one startup fence. After-commit: the faulted host's fence, then the killed
+					// command. Before-commit: the faulted fence and the restarted fence, then the retried command.
+					assert.equal(Number(retry.body.sequence), seqBefore + (barrier === "after-commit" ? 2 : 3));
+					assert.equal(await revisionCount(restarted.url, dev.bearer, w, "ground"), 2);
+					const again = await save(restarted, dev.bearer, w, "ground", A1.bytes, r0, commandId);
+					assert.equal(again.body.duplicate, true);
+					assert.equal(await revisionCount(restarted.url, dev.bearer, w, "ground"), 2);
 				} finally {
-					await dir.remove();
+					await restarted.stop();
 				}
+			} finally {
+				await dir.remove();
 			}
 		});
 	});

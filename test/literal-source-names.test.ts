@@ -1,6 +1,8 @@
 // Refusals that happen at source resolution, before any sandbox preparation: real Git, no container runtime.
+
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import * as Effect from "effect/Effect";
 import { git, gitSourceFixture } from "./support/source.ts";
 
 // Each case adds its own tree and commit to one real repository; resolution refuses before anything else is touched.
@@ -28,11 +30,14 @@ for (const [label, names] of [
 			.toString()
 			.trim();
 		const commit = git(f.repo, ["commit-tree", tree], "invalid names\n").toString().trim();
-		await assert.rejects(f.effects.perform({ type: "resolve", repository: "owned", commit }), /name|collision|UTF8|representation/i);
+		await assert.rejects(
+			Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit })),
+			/name|collision|UTF8|representation/i,
+		);
 	});
 
 test("literal-source-roundtrip: gitlinks refuse rather than fetch modules", async () => {
 	const tree = git(f.repo, ["mktree"], `160000 commit ${f.commit}\tmodule\n`).toString().trim();
 	const commit = git(f.repo, ["commit-tree", tree], "Gitlink fixture\n").toString().trim();
-	await assert.rejects(f.effects.perform({ type: "resolve", repository: "owned", commit }), /gitlink|submodule/i);
+	await assert.rejects(Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit })), /gitlink|submodule/i);
 });

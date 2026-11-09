@@ -1,8 +1,10 @@
 // RB03/RB04, RB06–RB08, RB11 and RB12 at the Ledger/Kernel interface over real SQLite/Durable staging. Read-fix is a
 // Record Slice with one ADR obligation; read-next consumes it by a Record edge. Preparation, verdicts and canonical-ref
 // observations are literal host/scripted results: they establish authority, blocking and retention, not Git or a model.
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import type { Intakes } from "../src/kernel/intake.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import {
@@ -53,16 +55,18 @@ function carries(inputs: readonly string[], refs: string[], label: string) {
 let saves = 0;
 async function saveDocument(t: Pick<Lifecycle, "f">, document: string, text: string) {
 	return accepted(
-		await t.f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: t.f.ledger.status().authorityEpoch,
-				commandId: `record-document:${++saves}`,
-				workflow: W,
-				expected: { document: null },
-				command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
-			},
-			admin,
+		await Effect.runPromise(
+			t.f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: t.f.ledger.status().authorityEpoch,
+					commandId: `record-document:${++saves}`,
+					workflow: W,
+					expected: { document: null },
+					command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
+				},
+				admin,
+			),
 		),
 	).revision as string;
 }
@@ -108,8 +112,7 @@ test("RB06/RB07/RB12 only recorded qualifying integration of the Record pass rel
 	const t = await handedOff("record");
 	try {
 		await saveDocument(t, "docs/adr/0001-retained-seam.md", "# ADR 1\nRetain the seam.\n");
-		refused(await assignNext(t), "dependency_blocked", "document-only");
-		refused(await assignNext(t), "dependency_blocked", "fidelity-only: intake fidelity, Audit and handoff");
+		refused(await assignNext(t), "dependency_blocked", "document, fidelity, Audit and handoff without qualification");
 		const r = await passedRound(t);
 		carries(own(t, r.id).packet.inputs, [t.contract, ...basis(t)], "Watchdog");
 		refused(await assignNext(t), "dependency_blocked", "Watchdog-only");
@@ -120,7 +123,7 @@ test("RB06/RB07/RB12 only recorded qualifying integration of the Record pass rel
 		const attempt = accepted(await admit(t, t.id, planned)).integrationAttempt as string;
 		const applied = accepted(await record(t, t.id, planned, observation(planned, attempt))).observation as string;
 		await t.f.reopen(new LedgerOnlyEngine());
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: W } }));
 		assert.ok("manifest" in exported && exported.manifest.complete, "complete export");
 		for (const ref of [t.contract, t.fidelity, applied]) assert.ok(ref in exported.content, `export retains ${ref}`);
 		accepted(await assignNext(t));
@@ -192,7 +195,7 @@ for (const failure of ["content_corrupt", "missing_content"] as const)
 	test(`RB11 ${failure} Record fidelity bytes block the assignment by exact ref; newer equal text does not substitute`, async () => {
 		const t = await acceptedImplementation(undefined, "record");
 		try {
-			const text = await t.f.ledger.artifact(admin, { read: t.fidelity });
+			const text = await Effect.runPromise(t.f.ledger.artifact(admin, { read: t.fidelity }));
 			assert.ok("content" in text);
 			damageImplementation(t.f.data, t.fidelity, failure);
 			await t.f.reopen(new LedgerOnlyEngine());

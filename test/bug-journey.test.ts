@@ -1,6 +1,8 @@
 // Bug journey at the Ledger interface over real SQLite. Literal expected outcomes: docs/verification/bug-journey-failure-cases.md.
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import type { Intakes } from "../src/kernel/intake.ts";
 import type { ImplementationPass, RoleAssignment } from "../src/kernel/roles.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
@@ -70,16 +72,18 @@ test("BJ06 saving bug Ground implies no implementation commitment; Ground and th
 			expected: EXPECTED,
 		});
 		const saved = accepted(
-			await f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: f.ledger.status().authorityEpoch,
-					commandId: "bug-ground",
-					workflow: "workflow:2",
-					expected: { document: null },
-					command: { type: "saveDocument", document: "ground", mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
-				},
-				admin,
+			await Effect.runPromise(
+				f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: f.ledger.status().authorityEpoch,
+						commandId: "bug-ground",
+						workflow: "workflow:2",
+						expected: { document: null },
+						command: { type: "saveDocument", document: "ground", mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
+					},
+					admin,
+				),
 			),
 		).revision as string;
 		const frame = () => f.ledger.snapshot(admin) as Frame;
@@ -88,7 +92,7 @@ test("BJ06 saving bug Ground implies no implementation commitment; Ground and th
 		assert.deepEqual(workflow().intakes.slices, []);
 		assert.deepEqual(frame().assignments, []);
 		await f.reopen(new LedgerOnlyEngine());
-		const read = await f.ledger.artifact(admin, { read: saved });
+		const read = await Effect.runPromise(f.ledger.artifact(admin, { read: saved }));
 		assert.ok("content" in read);
 		assert.equal(read.content.toString(), text, "exact reproduction and expected correction survive reopen");
 	} finally {
@@ -96,9 +100,9 @@ test("BJ06 saving bug Ground implies no implementation commitment; Ground and th
 	}
 	const t = await acceptedImplementation(new LedgerOnlyEngine(), "bug");
 	try {
-		const contract = await t.f.ledger.artifact(admin, { read: t.contract });
+		const contract = await Effect.runPromise(t.f.ledger.artifact(admin, { read: t.contract }));
 		assert.ok("content" in contract);
-		const manifest = await t.f.ledger.artifact(admin, { read: JSON.parse(contract.content.toString()).manifest });
+		const manifest = await Effect.runPromise(t.f.ledger.artifact(admin, { read: JSON.parse(contract.content.toString()).manifest }));
 		assert.ok("content" in manifest);
 		assert.deepEqual(JSON.parse(manifest.content.toString()).reproduction, { obligation: "B1", observed: OBSERVED, expected: EXPECTED });
 	} finally {
@@ -353,7 +357,7 @@ test("BJ15 the reproduction is retained in history/export and survives reopen", 
 		);
 		const red = accepted(await t.reproduce({ exitCode: 1, stdout: OBSERVED }));
 		const check = async () => {
-			const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 			assert.ok("manifest" in exported && exported.manifest.complete);
 			assert.equal(
 				Buffer.from(exported.content[missing.source as string]!, "base64").toString(),

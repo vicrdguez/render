@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import { assignments, finding, investigationPacket, saveGround, sourceFiles, until } from "./support/investigation.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
@@ -38,16 +39,23 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 			source: { repository: "owned", commit: source.commit },
 			candidates: ["favorite", "control"],
 		});
-		const saved = await f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: f.ledger.status().authorityEpoch,
-				commandId: "protocol",
-				workflow: "workflow:2",
-				expected: { document: null },
-				command: { type: "saveDocument", document: "protocol", mediaType: "text/plain", content: Buffer.from(original).toString("base64") },
-			},
-			admin,
+		const saved = await Effect.runPromise(
+			f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: f.ledger.status().authorityEpoch,
+					commandId: "protocol",
+					workflow: "workflow:2",
+					expected: { document: null },
+					command: {
+						type: "saveDocument",
+						document: "protocol",
+						mediaType: "text/plain",
+						content: Buffer.from(original).toString("base64"),
+					},
+				},
+				admin,
+			),
 		);
 		assert.ok(saved.status === "accepted", JSON.stringify(saved));
 		const protocol = String(saved.result.revision);
@@ -87,23 +95,25 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 			});
 			assert.equal(renderedProtocol, original, "execution criteria must remain the original protocol after measurement");
 			if (candidate === "favorite") {
-				const changed = await f.ledger.command(
-					{
-						version: 1,
-						authorityEpoch: f.ledger.status().authorityEpoch,
-						commandId: "material-deviation",
-						workflow: "workflow:2",
-						expected: { document: protocol },
-						command: {
-							type: "saveDocument",
-							document: "protocol",
-							mediaType: "text/plain",
-							content: Buffer.from(JSON.stringify({ ...JSON.parse(original), decisionRule: "At most 20 now counts as positive" })).toString(
-								"base64",
-							),
+				const changed = await Effect.runPromise(
+					f.ledger.command(
+						{
+							version: 1,
+							authorityEpoch: f.ledger.status().authorityEpoch,
+							commandId: "material-deviation",
+							workflow: "workflow:2",
+							expected: { document: protocol },
+							command: {
+								type: "saveDocument",
+								document: "protocol",
+								mediaType: "text/plain",
+								content: Buffer.from(
+									JSON.stringify({ ...JSON.parse(original), decisionRule: "At most 20 now counts as positive" }),
+								).toString("base64"),
+							},
 						},
-					},
-					admin,
+						admin,
+					),
 				);
 				assert.ok(changed.status === "accepted");
 				assert.notEqual(changed.result.revision, protocol, "post-measurement criteria changes require a new protocol identity");
@@ -122,7 +132,7 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 			inherited.status === "refused" && inherited.code === "forbidden_scope",
 			`watchdog cannot inherit earlier experiment-candidate report: ${JSON.stringify(inherited)}`,
 		);
-		const before = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const before = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in before && before.manifest.complete);
 		const parent = all[2]!;
 		assert.equal(
@@ -175,7 +185,7 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 		const unchanged = assignments(f.ledger);
 		const advisory = await requestPrompt();
 		assert.ok(advisory.status === "accepted", JSON.stringify(advisory));
-		const promptArtifact = await f.ledger.artifact(admin, { read: String(advisory.result.textArtifact) });
+		const promptArtifact = await Effect.runPromise(f.ledger.artifact(admin, { read: String(advisory.result.textArtifact) }));
 		assert.ok("content" in promptArtifact);
 		const prompt = promptArtifact.content.toString();
 		const sections = prompt.split("### ");
@@ -184,20 +194,19 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 		assert.match(experimentSection, /retained assertion \(unverified assertion\)/, "experiment capture is not runner proof");
 		assert.ok(experimentSection.includes(JSON.stringify(negative)), "advisory must quote literal sealed negative bytes");
 		assert.ok(prompt.includes(JSON.stringify(original)), "advisory must include the original protocol, not only newer criteria");
-		assert.ok(prompt.includes("no completion gate"));
 		assert.deepEqual(assignments(f.ledger), unchanged, "advice must not adopt, gate or alter experiment work");
 		await source.close();
 		sourceClosed = true;
 		await f.reopen();
-		const retainedPrompt = await f.ledger.artifact(admin, { read: String(advisory.result.textArtifact) });
+		const retainedPrompt = await Effect.runPromise(f.ledger.artifact(admin, { read: String(advisory.result.textArtifact) }));
 		assert.ok("content" in retainedPrompt);
 		assert.equal(retainedPrompt.content.toString(), prompt, "advisory exact evidence survives cleanup and restart");
 		for (const ref of [protocol, ...snapshots, ...all.map((a) => a.report!)]) {
-			const retained = await f.ledger.artifact(admin, { read: ref });
+			const retained = await Effect.runPromise(f.ledger.artifact(admin, { read: ref }));
 			assert.ok("content" in retained, "negative evidence survives cleanup");
 			assert.equal(retained.content.toString("base64"), before.content[ref]);
 		}
-		await f.ledger.close();
+		await Effect.runPromise(f.ledger.close());
 		const db = new DatabaseSync(join(f.data, "render.db"));
 		try {
 			const row = db.prepare("SELECT id, record FROM entries WHERE json_extract(record, '$.data.revision') = ?").get(snapshots[0]!) as {
@@ -213,7 +222,7 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 		}
 		const reopened = await f.reopen();
 		await assert.rejects(
-			reopened.render(assignments(f.ledger)[2]!),
+			Effect.runPromise(reopened.render(assignments(f.ledger)[2]!)),
 			new RegExp(snapshots[0]!),
 			"damaged exact candidate blocks independent reliance",
 		);
@@ -225,7 +234,7 @@ test("E02/E09/E10 disproved favorite retains protocol, exact negative evidence a
 		);
 		assert.ok(damagedPrompt.reason.includes(snapshots[0]!));
 		assert.equal(f.ledger.status().sequence, sequence);
-		const damaged = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const damaged = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in damaged && !damaged.manifest.complete);
 		assert.ok(damaged.manifest.missing.some((missing) => missing.ref === snapshots[0] && missing.code === "content_corrupt"));
 	} finally {

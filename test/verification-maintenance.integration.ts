@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import type { CommandReply } from "../src/ledger/ledger.ts";
@@ -119,7 +120,7 @@ async function run(c: keyof typeof commits) {
 	assert.ok(reply.status === "accepted", JSON.stringify(reply));
 	const a = await settled(f as never, String(reply.result.assignment));
 	assert.equal(a.status, "submitted", a.blocker ?? "maintenance runner should retain a receipt");
-	const read = await f.ledger.artifact(admin, { read: a.report! });
+	const read = await Effect.runPromise(f.ledger.artifact(admin, { read: a.report! }));
 	assert.ok("content" in read);
 	receipts[c] = a.report!;
 	return JSON.parse(read.content.toString());
@@ -131,7 +132,7 @@ async function classify(
 	rows: Classification,
 	refs: string[],
 	basisRef: string | null = null,
-	others: Context[] = [],
+	options: { others?: Context[]; beforeSubmit?: (context: Context) => Promise<void> } = {},
 ): Promise<{ reply: CommandReply | { status: "unsubmitted"; reason: string }; others: CommandReply[]; assignment: RoleAssignment }> {
 	let reply: CommandReply | undefined;
 	const refused: CommandReply[] = [];
@@ -139,7 +140,7 @@ async function classify(
 	provider.setResponses([
 		async () => {
 			const a = assignments().at(-1)!;
-			for (const context of others) refused.push(await f.command({ type: "submitRoleResult", text, supports: [] }, context));
+			for (const context of options.others ?? []) refused.push(await f.command({ type: "submitRoleResult", text, supports: [] }, context));
 			const context = mintContext({
 				kind: "assignment-agent",
 				assignment: a.id,
@@ -147,6 +148,7 @@ async function classify(
 				attempt: a.attempt,
 				role: "implementer",
 			});
+			await options.beforeSubmit?.(context);
 			reply = await f.command({ type: "submitRoleResult", text, supports: [] }, context);
 			return fauxAssistantMessage(fauxToolCall("submit_role_result", { text, supports: [] }), { stopReason: "toolUse" });
 		},
@@ -203,21 +205,23 @@ before(async () => {
 			.toString()
 			.trim();
 		git(source.repo, ["update-ref", `refs/heads/${name}`, commit]);
-		const saved = await f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: f.ledger.status().authorityEpoch,
-				commandId: `profile-${name}`,
-				workflow: "workflow:2",
-				expected: { document: null },
-				command: {
-					type: "saveDocument",
-					document: `profile-${name}`,
-					mediaType: "text/plain",
-					content: Buffer.from(name).toString("base64"),
+		const saved = await Effect.runPromise(
+			f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: f.ledger.status().authorityEpoch,
+					commandId: `profile-${name}`,
+					workflow: "workflow:2",
+					expected: { document: null },
+					command: {
+						type: "saveDocument",
+						document: `profile-${name}`,
+						mediaType: "text/plain",
+						content: Buffer.from(name).toString("base64"),
+					},
 				},
-			},
-			admin,
+				admin,
+			),
 		);
 		assert.ok(saved.status === "accepted", JSON.stringify(saved));
 		const profile = String(saved.result.revision);
@@ -252,38 +256,90 @@ test("VM01 maintenance runs every non-human row and keeps an unresolvable row as
 	assert.deepEqual(receipt.catalog.selection.maintenance, { basis: null });
 });
 
-for (const [label, rows] of [
-	["an omitted row", { ...honest, lint: undefined }],
-	["an unknown row", { ...honest, absent: { status: "clean", reason: "x" } }],
-	["a classified human row", { ...honest, human: { status: "clean", reason: "looked" } }],
-	["discovery without compared rows", { ...honest, discover: { status: "clean", reason: "listed" } }],
-	["discovery compared with a non-row", { ...honest, discover: { ...honest.discover!, compared: ["absent"] } }],
-	["a failed row called clean", { ...honest, stale: { status: "clean", reason: "looks fine" } }],
-	["a product failure called clean", { ...honest, product: { status: "clean", reason: "close enough" } }],
-	["an unrun sanity called clean", { ...honest, fixture: { status: "clean", reason: "steps passed" } }],
-	["an invalid row called clean", { ...honest, moved: { status: "clean", reason: "skipped" } }],
-	["blocked without a cause", { ...honest, product: { status: "blocked", reason: "fails" } }],
-] as const)
-	test(`VM02 classification refuses ${label}`, async () => {
-		const { reply } = await classify("c0", JSON.parse(JSON.stringify(rows)), [receipts.c0!]);
-		assert.equal(reply.status, "refused", `${label} must not be retained as a classification`);
+const invalidClassifications = [
+	["an omitted row", { ...honest, lint: undefined }, "missing_content", /Classify every non-human row/],
+	["an unknown row", { ...honest, absent: { status: "clean", reason: "x" } }, "missing_content", /Classify every non-human row/],
+	[
+		"a classified human row",
+		{ ...honest, human: { status: "clean", reason: "looked" } },
+		"missing_content",
+		/Classify every non-human row/,
+	],
+	[
+		"discovery without compared rows",
+		{ ...honest, discover: { status: "clean", reason: "listed" } },
+		"missing_content",
+		/Compare discovery discover/,
+	],
+	[
+		"discovery compared with a non-row",
+		{ ...honest, discover: { ...honest.discover!, compared: ["absent"] } },
+		"missing_content",
+		/Compare discovery discover/,
+	],
+	[
+		"a failed row called clean",
+		{ ...honest, stale: { status: "clean", reason: "looks fine" } },
+		"missing_content",
+		/Row stale did not execute successfully/,
+	],
+	[
+		"a product failure called clean",
+		{ ...honest, product: { status: "clean", reason: "close enough" } },
+		"missing_content",
+		/Row product did not execute successfully/,
+	],
+	[
+		"an unrun sanity called clean",
+		{ ...honest, fixture: { status: "clean", reason: "steps passed" } },
+		"missing_content",
+		/Row fixture did not execute successfully/,
+	],
+	[
+		"an invalid row called clean",
+		{ ...honest, moved: { status: "clean", reason: "skipped" } },
+		"missing_content",
+		/Row moved did not execute successfully/,
+	],
+	[
+		"blocked without a cause",
+		{ ...honest, product: { status: "blocked", reason: "fails" } },
+		"invalid_content",
+		/cause:product\|prerequisite when blocked/,
+	],
+] as const;
+
+test("VM02 classification refuses each invalid row or classification", async () => {
+	const attempts: CommandReply[] = [];
+	const { reply } = await classify("c0", honest, [receipts.c0!], null, {
+		beforeSubmit: async (context) => {
+			for (const [, rows] of invalidClassifications) {
+				const text = JSON.stringify({ schema: 1, maintenance: rows });
+				attempts.push(await f.command({ type: "submitRoleResult", text, supports: [] }, context));
+			}
+		},
 	});
+	assert.equal(attempts.length, invalidClassifications.length);
+	for (const [index, [label, , code, reason]] of invalidClassifications.entries()) {
+		const attempt = attempts[index]!;
+		assert.equal(attempt.status, "refused", `${label} must not be retained as a classification`);
+		if (attempt.status !== "refused") throw new Error("unreachable");
+		assert.equal(attempt.code, code, label);
+		assert.match(attempt.reason, reason, label);
+	}
+	assert.equal(reply.status, "accepted", "the assignment remains usable after the refused submissions");
+});
 
 test("VM02 classification refuses without an exact maintenance receipt", async () => {
 	assert.equal((await classify("c0", honest, [])).reply.status, "refused", "no observed basis");
 });
 
-test("VM11 humans and host scheduling cannot submit an agent's classification", async () => {
-	const { reply, others } = await classify("c0", honest, [receipts.c0!], null, [admin, scheduler]);
+test("VM03/VM11 only the agent retains the honest pre-edit classification per row", async () => {
+	const { reply, others, assignment } = await classify("c0", honest, [receipts.c0!], null, { others: [admin, scheduler] });
 	assert.deepEqual(
 		others.map((r) => r.status),
 		["refused", "refused"],
 	);
-	assert.equal(reply.status, "accepted", JSON.stringify(reply));
-});
-
-test("VM03 the honest pre-edit classification is retained per row before any corrected source exists", async () => {
-	const { reply, assignment } = await classify("c0", honest, [receipts.c0!]);
 	assert.equal(reply.status, "accepted", JSON.stringify(reply));
 	basis = assignment.id;
 	assert.deepEqual(statuses(assignment), {
@@ -372,12 +428,12 @@ test("VM07 a drift correction keeps the row's expectations", async () => {
 test("VM12 receipts and classifications survive export and reopen exactly", async () => {
 	const reports = assignments().filter((a) => a.report && a.slice.startsWith("maintenance:"));
 	const classified = reports.filter((a) => (a as { maintenance?: unknown }).maintenance);
-	assert.equal(classified.length, 3, "VM11, VM03 and VM04 classifications");
-	const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+	assert.equal(classified.length, 3, "VM02, VM03/VM11 and VM04 classifications");
+	const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 	assert.ok("manifest" in exported);
 	const bytes = new Map<string, string>();
 	for (const a of reports) {
-		const read = await f.ledger.artifact(admin, { read: a.report! });
+		const read = await Effect.runPromise(f.ledger.artifact(admin, { read: a.report! }));
 		assert.ok("content" in read);
 		bytes.set(a.report!, read.content.toString());
 		assert.equal(Buffer.from(exported.content[a.report!]!, "base64").toString(), read.content.toString());
@@ -385,7 +441,7 @@ test("VM12 receipts and classifications survive export and reopen exactly", asyn
 	const before = Object.fromEntries(classified.map((a) => [a.id, statuses(a)]));
 	await f.reopen(new Engine({ ownedChecks: config as never }));
 	for (const [ref, text] of bytes) {
-		const read = await f.ledger.artifact(admin, { read: ref });
+		const read = await Effect.runPromise(f.ledger.artifact(admin, { read: ref }));
 		assert.ok("content" in read);
 		assert.equal(read.content.toString(), text);
 	}

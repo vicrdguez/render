@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
@@ -43,7 +44,7 @@ test("owned check exact command/source/platform receipt survives history, export
 			await setTimeout(20);
 		}
 		assert.equal(a.status, "submitted");
-		const read = await f.ledger.artifact(admin, { read: a.report! });
+		const read = await Effect.runPromise(f.ledger.artifact(admin, { read: a.report! }));
 		assert.ok("content" in read);
 		const receipt = JSON.parse(read.content.toString());
 		assert.equal(receipt.execution.exitCode, 0);
@@ -55,7 +56,7 @@ test("owned check exact command/source/platform receipt survives history, export
 		assert.equal(receipt.verifierRevision, source.commit);
 		assert.deepEqual(receipt.execution.argv, config.checks["revision:3"].argv);
 		assert.equal(receipt.source.freeze.running, false);
-		const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exported);
 		assert.equal(exported.manifest.complete, true);
 		assert.ok(
@@ -64,7 +65,7 @@ test("owned check exact command/source/platform receipt survives history, export
 		);
 		assert.equal(Buffer.from(exported.content[a.report!]!, "base64").toString(), read.content.toString());
 		await f.reopen(new Engine({ ownedChecks: config }));
-		const after = await f.ledger.artifact(admin, { read: a.report! });
+		const after = await Effect.runPromise(f.ledger.artifact(admin, { read: a.report! }));
 		assert.ok("content" in after);
 		assert.equal(after.content.toString(), read.content.toString());
 	} finally {
@@ -121,7 +122,7 @@ for (const [exitCode, status] of [
 				await setTimeout(20);
 			}
 			assert.equal(a.status, "submitted", a.blocker ?? "expected retained receipt");
-			const read = await f.ledger.artifact(admin, { read: a.report! });
+			const read = await Effect.runPromise(f.ledger.artifact(admin, { read: a.report! }));
 			assert.ok("content" in read);
 			const receipt = JSON.parse(read.content.toString());
 			assert.equal(receipt.execution.exitCode, exitCode);

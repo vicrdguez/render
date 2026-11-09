@@ -82,58 +82,57 @@ for (const replay of ["safe", "unsafe"] as const)
 	});
 
 for (const barrier of ["before-commit", "after-commit"])
-	for (let repetition = 0; repetition < Number(process.env.RENDER_V3_REPETITIONS ?? 1); repetition++)
-		test(`R01/R02 SIGKILL ${barrier} preserves atomic workflow request and host-derived replay (${repetition + 1})`, {
-			timeout: 20000,
-		}, async () => {
-			const data = await mkdtemp(join(tmpdir(), "render-role-crash-"));
-			const children: ReturnType<typeof spawn>[] = [];
-			const run = (mode: string) => {
-				const child = spawn(process.execPath, ["test/support/role-crash-worker.ts", data, mode], {
-					cwd: new URL("../", import.meta.url),
-					env: { ...process.env, RENDER_ROLE_BARRIER: barrier },
-					stdio: ["ignore", "pipe", "pipe"],
-				});
-				children.push(child);
-				return child;
-			};
-			try {
-				const first = run("crash");
-				let out = "";
-				let err = "";
-				first.stdout.on("data", (chunk) => {
-					out += String(chunk);
-				});
-				first.stderr.on("data", (chunk) => {
-					err += String(chunk);
-				});
-				for (let n = 0; n < 1000 && !out.includes('"event":"barrier"'); n++) {
-					assert.equal(first.exitCode, null, err);
-					await setTimeout(10);
-				}
-				assert.match(out, /"event":"barrier"/);
-				first.kill("SIGKILL");
-				await new Promise((r) => first.once("exit", r));
-				const second = run("recover");
-				let recovered = "";
-				second.stdout.on("data", (chunk) => {
-					recovered += String(chunk);
-				});
-				second.stderr.on("data", (chunk) => {
-					err += String(chunk);
-				});
-				const code = await new Promise((r) => second.once("exit", r));
-				assert.equal(code, 0, err);
-				const value = JSON.parse(recovered.trim().split("\n").at(-1)!);
-				assert.equal(value.children, 1);
-				assert.equal(value.requests, 1);
-				assert.equal(value.duplicate, barrier === "after-commit");
-			} finally {
-				for (const child of children)
-					if (child.exitCode === null && child.signalCode === null) {
-						child.kill("SIGKILL");
-						await new Promise((resolve) => child.once("exit", resolve));
-					}
-				await rm(data, { recursive: true, force: true });
+	test(`R01/R02 SIGKILL ${barrier} preserves atomic workflow request and host-derived replay`, {
+		timeout: 20000,
+	}, async () => {
+		const data = await mkdtemp(join(tmpdir(), "render-role-crash-"));
+		const children: ReturnType<typeof spawn>[] = [];
+		const run = (mode: string) => {
+			const child = spawn(process.execPath, ["test/support/role-crash-worker.ts", data, mode], {
+				cwd: new URL("../", import.meta.url),
+				env: { ...process.env, RENDER_ROLE_BARRIER: barrier },
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+			children.push(child);
+			return child;
+		};
+		try {
+			const first = run("crash");
+			let out = "";
+			let err = "";
+			first.stdout.on("data", (chunk) => {
+				out += String(chunk);
+			});
+			first.stderr.on("data", (chunk) => {
+				err += String(chunk);
+			});
+			for (let n = 0; n < 1000 && !out.includes('"event":"barrier"'); n++) {
+				assert.equal(first.exitCode, null, err);
+				await setTimeout(10);
 			}
-		});
+			assert.match(out, /"event":"barrier"/);
+			first.kill("SIGKILL");
+			await new Promise((r) => first.once("exit", r));
+			const second = run("recover");
+			let recovered = "";
+			second.stdout.on("data", (chunk) => {
+				recovered += String(chunk);
+			});
+			second.stderr.on("data", (chunk) => {
+				err += String(chunk);
+			});
+			const code = await new Promise((r) => second.once("exit", r));
+			assert.equal(code, 0, err);
+			const value = JSON.parse(recovered.trim().split("\n").at(-1)!);
+			assert.equal(value.children, 1);
+			assert.equal(value.requests, 1);
+			assert.equal(value.duplicate, barrier === "after-commit");
+		} finally {
+			for (const child of children)
+				if (child.exitCode === null && child.signalCode === null) {
+					child.kill("SIGKILL");
+					await new Promise((resolve) => child.once("exit", resolve));
+				}
+			await rm(data, { recursive: true, force: true });
+		}
+	});

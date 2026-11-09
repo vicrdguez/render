@@ -1,8 +1,10 @@
 // V2: Ledger on real SQLite through the actual HTTP and admin-socket adapters.
+
 import assert from "node:assert/strict";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
+import * as Effect from "effect/Effect";
 import {
 	adminRequest,
 	artifact,
@@ -238,23 +240,22 @@ describe("B1-15 in-process contexts cannot be hand-built", () => {
 	test("a context object not minted by a trusted adapter is refused", async () => {
 		const dir = await tempDir("v2-inproc");
 		const { openHost } = await import("../src/host/host.ts");
-		const host = await openHost({ data: dir.path, port: 0 });
+		const host = await Effect.runPromise(openHost({ data: dir.path, port: 0 }));
 		try {
 			const before = host.ledger.status().sequence;
 			for (const forged of [
 				{ kind: "host", scope: "recovery" },
 				{ kind: "human", human: "human:owner", route: "local-admin" },
 			]) {
-				const r = await host.ledger.command(
-					envelope(host.authorityEpoch, { type: "createWorkflow", title: "forged" }) as never,
-					forged as never,
+				const r = await Effect.runPromise(
+					host.ledger.command(envelope(host.authorityEpoch, { type: "createWorkflow", title: "forged" }) as never, forged as never),
 				);
 				assert.equal(r.status, "refused");
 				assert.equal(r.status === "refused" && r.code, "untrusted_context");
 			}
 			assert.equal(host.ledger.status().sequence, before);
 		} finally {
-			await host.close();
+			await Effect.runPromise(host.close());
 			await dir.remove();
 		}
 	});

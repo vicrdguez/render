@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Command, change, type KernelState, type VerifiedFacts } from "../src/kernel/kernel.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
+import { decision } from "./support/kernel.ts";
 import { packet } from "./support/roles.ts";
 
 // Merge failure cases: neither experiment correction nor design-packet fidelity may disappear;
@@ -42,10 +43,12 @@ function decide(a: RoleAssignment, c: Command) {
 		roleWork: { assignments: [a] },
 	};
 	const before = structuredClone(state);
-	const result = change(state, c, {
-		...facts,
-		principal: { kind: "host", scope: c.type === "recordRunnerObservation" ? "effects" : "scheduling" },
-	});
+	const result = decision(
+		change(state, c, {
+			...facts,
+			principal: { kind: "host", scope: c.type === "recordRunnerObservation" ? "effects" : "scheduling" },
+		}),
+	);
 	assert.deepEqual(state, before, "legality must leave input state unchanged");
 	return result;
 }

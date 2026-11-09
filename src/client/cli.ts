@@ -6,6 +6,8 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import * as Effect from "effect/Effect";
+import { fromPromise, runPromise } from "../effect.ts";
 import { AdminClient, type RenderClient as Client, RenderClient, type Reply, UnsupportedFrameVersion } from "./client.ts";
 
 const USAGE = `usage:
@@ -42,170 +44,187 @@ function need(values: Record<string, string | undefined>, name: string): string 
 	return value;
 }
 
-async function command(client: Client, body: Record<string, unknown>, commandId: string | undefined): Promise<never> {
-	const snap = await client.snapshot();
-	if (snap.status !== 200) finish(snap);
-	finish(
-		await client.command({ version: 1, authorityEpoch: snap.body.authorityEpoch, commandId: commandId ?? `cli-${randomUUID()}`, ...body }),
-	);
+function command(client: Client, body: Record<string, unknown>, commandId: string | undefined): Effect.Effect<never, unknown> {
+	return Effect.gen(function* () {
+		const snap = yield* client.snapshot();
+		if (snap.status !== 200) finish(snap);
+		return finish(
+			yield* client.command({
+				version: 1,
+				authorityEpoch: snap.body.authorityEpoch,
+				commandId: commandId ?? `cli-${randomUUID()}`,
+				...body,
+			}),
+		);
+	});
 }
 
-async function admin(data: string, verb: string | undefined, values: Record<string, string | undefined>): Promise<never> {
-	const socket = join(data, "admin.sock");
-	if (!existsSync(socket)) {
-		process.stderr.write(`no admin socket at ${socket}; is a Render host running on this data directory?\n`);
-		process.exit(3);
-	}
-	const client = new AdminClient(socket);
-	const status = await client.request("GET", "/v1/admin/status");
-	const envelope = (command: Record<string, unknown>) => ({
-		version: 1,
-		authorityEpoch: status.body.authorityEpoch,
-		commandId: values["command-id"] ?? `admin-${randomUUID()}`,
-		command,
-	});
-	switch (verb) {
-		case "enroll": {
-			const workflows = values.workflows === undefined || values.workflows === "all" ? "all" : values.workflows.split(",");
-			const r = await client.request(
-				"POST",
-				"/v1/admin/commands",
-				envelope({ type: "enrollDevice", label: need(values, "label"), scope: { workflows } }),
-			);
-			if (r.status !== 200) finish(r);
-			const result = r.body.result as Record<string, unknown>;
-			const credential = r.body.credential as Record<string, unknown> | undefined;
-			// The bearer is shown exactly once; store it in a 0600 file for the client device.
-			out({ device: result.device, scope: result.scope, bearer: credential?.bearer ?? null, receipt: r.body.receipt });
-			process.exit(0);
-			break;
+function admin(data: string, verb: string | undefined, values: Record<string, string | undefined>): Effect.Effect<never, unknown> {
+	return Effect.gen(function* () {
+		const socket = join(data, "admin.sock");
+		if (!existsSync(socket)) {
+			process.stderr.write(`no admin socket at ${socket}; is a Render host running on this data directory?\n`);
+			process.exit(3);
 		}
-		case "import-checkpoint-settings":
-			finish(
-				await client.request(
+		const client = new AdminClient(socket);
+		const status = yield* client.request("GET", "/v1/admin/status");
+		const envelope = (command: Record<string, unknown>) => ({
+			version: 1,
+			authorityEpoch: status.body.authorityEpoch,
+			commandId: values["command-id"] ?? `admin-${randomUUID()}`,
+			command,
+		});
+		switch (verb) {
+			case "enroll": {
+				const workflows = values.workflows === undefined || values.workflows === "all" ? "all" : values.workflows.split(",");
+				const r = yield* client.request(
 					"POST",
 					"/v1/admin/commands",
-					envelope({
-						type: "importCheckpointSettings",
-						expectedRevision: need(values, "expected"),
-						modes: JSON.parse(await readFile(need(values, "file"), "utf8")),
-					}),
-				),
-			);
-			break;
-		case "revoke":
-			finish(await client.request("POST", "/v1/admin/commands", envelope({ type: "revokeDevice", device: need(values, "device") })));
-			break;
-		case "devices":
-			finish(await client.request("GET", "/v1/admin/devices"));
-			break;
-		case "status":
-			finish(status);
-			break;
-		default:
-			usage(`unknown admin command ${verb}`);
-	}
-}
-
-async function main(): Promise<void> {
-	const { positionals, values } = parseArgs({
-		allowPositionals: true,
-		options: {
-			url: { type: "string" },
-			"token-file": { type: "string" },
-			data: { type: "string" },
-			title: { type: "string" },
-			workflow: { type: "string" },
-			workflows: { type: "string" },
-			document: { type: "string" },
-			file: { type: "string" },
-			expected: { type: "string" },
-			"media-type": { type: "string" },
-			"command-id": { type: "string" },
-			revision: { type: "string" },
-			out: { type: "string" },
-			text: { type: "string" },
-			frames: { type: "string" },
-			label: { type: "string" },
-			device: { type: "string" },
-		},
-	});
-	const [verb, sub] = positionals;
-	if (verb === "admin") return admin(need(values, "data"), sub, values);
-	const url = values.url ?? process.env.RENDER_URL;
-	const tokenFile = values["token-file"] ?? process.env.RENDER_TOKEN_FILE;
-	if (url === undefined || tokenFile === undefined) usage("missing --url or --token-file");
-	const client = new RenderClient(url, (await readFile(tokenFile, "utf8")).trim());
-	switch (verb) {
-		case "snapshot":
-			return finish(await client.snapshot());
-		case "create-workflow":
-			return command(client, { command: { type: "createWorkflow", title: need(values, "title") } }, values["command-id"]);
-		case "save": {
-			const expected = need(values, "expected");
-			const bytes = await readFile(need(values, "file"));
-			return command(
-				client,
-				{
-					workflow: need(values, "workflow"),
-					expected: { document: expected === "none" ? null : expected },
-					command: {
-						type: "saveDocument",
-						document: need(values, "document"),
-						mediaType: values["media-type"] ?? "text/markdown",
-						content: bytes.toString("base64"),
-					},
-				},
-				values["command-id"],
-			);
-		}
-		case "read": {
-			const r = await client.artifact(need(values, "revision"));
-			if (r.status !== 200) finish(r);
-			const { content, ...metadata } = r.body;
-			await writeFile(need(values, "out"), Buffer.from(String(content), "base64"));
-			out(metadata);
-			process.exit(0);
-			break;
-		}
-		case "message":
-			return command(
-				client,
-				{ workflow: need(values, "workflow"), command: { type: "postCoordinatorMessage", text: need(values, "text") } },
-				values["command-id"],
-			);
-		case "messages":
-			return finish(await client.messages(need(values, "workflow")));
-		case "receipt":
-			return finish(await client.receipt(need(values, "command-id")));
-		case "observe": {
-			const limit = values.frames === undefined ? Number.POSITIVE_INFINITY : Number(values.frames);
-			let count = 0;
-			try {
-				for await (const frame of client.observe()) {
-					out(frame);
-					if (frame.kind === "refused") process.exit(1);
-					if (frame.kind === "end") process.exit(4);
-					if (++count >= limit) process.exit(0);
-				}
-			} catch (error) {
-				if (error instanceof UnsupportedFrameVersion) {
-					process.stderr.write(
-						`The host sent observation frame version ${error.message}; this client understands version 1. Upgrade the Render client.\n`,
-					);
-					process.exit(5);
-				}
-				throw error;
+					envelope({ type: "enrollDevice", label: need(values, "label"), scope: { workflows } }),
+				);
+				if (r.status !== 200) finish(r);
+				const result = r.body.result as Record<string, unknown>;
+				const credential = r.body.credential as Record<string, unknown> | undefined;
+				// The bearer is shown exactly once; store it in a 0600 file for the client device.
+				out({ device: result.device, scope: result.scope, bearer: credential?.bearer ?? null, receipt: r.body.receipt });
+				process.exit(0);
+				break;
 			}
-			process.exit(0);
-			break;
+			case "import-checkpoint-settings": {
+				const expectedRevision = need(values, "expected");
+				const file = yield* fromPromise(() => readFile(need(values, "file"), "utf8"));
+				finish(
+					yield* client.request(
+						"POST",
+						"/v1/admin/commands",
+						envelope({
+							type: "importCheckpointSettings",
+							expectedRevision,
+							modes: JSON.parse(file),
+						}),
+					),
+				);
+				break;
+			}
+			case "revoke":
+				finish(yield* client.request("POST", "/v1/admin/commands", envelope({ type: "revokeDevice", device: need(values, "device") })));
+				break;
+			case "devices":
+				finish(yield* client.request("GET", "/v1/admin/devices"));
+				break;
+			case "status":
+				finish(status);
+				break;
+			default:
+				usage(`unknown admin command ${verb}`);
 		}
-		default:
-			usage(verb === undefined ? undefined : `unknown command ${verb}`);
-	}
+	});
 }
 
-main().catch((error: unknown) => {
+function main(): Effect.Effect<void, unknown> {
+	return Effect.gen(function* () {
+		const { positionals, values } = parseArgs({
+			allowPositionals: true,
+			options: {
+				url: { type: "string" },
+				"token-file": { type: "string" },
+				data: { type: "string" },
+				title: { type: "string" },
+				workflow: { type: "string" },
+				workflows: { type: "string" },
+				document: { type: "string" },
+				file: { type: "string" },
+				expected: { type: "string" },
+				"media-type": { type: "string" },
+				"command-id": { type: "string" },
+				revision: { type: "string" },
+				out: { type: "string" },
+				text: { type: "string" },
+				frames: { type: "string" },
+				label: { type: "string" },
+				device: { type: "string" },
+			},
+		});
+		const [verb, sub] = positionals;
+		if (verb === "admin") return yield* admin(need(values, "data"), sub, values);
+		const url = values.url ?? process.env.RENDER_URL;
+		const tokenFile = values["token-file"] ?? process.env.RENDER_TOKEN_FILE;
+		if (url === undefined || tokenFile === undefined) usage("missing --url or --token-file");
+		const token = yield* fromPromise(() => readFile(tokenFile, "utf8"));
+		const client = new RenderClient(url, token.trim());
+		switch (verb) {
+			case "snapshot":
+				return finish(yield* client.snapshot());
+			case "create-workflow":
+				return yield* command(client, { command: { type: "createWorkflow", title: need(values, "title") } }, values["command-id"]);
+			case "save": {
+				const expected = need(values, "expected");
+				const bytes = yield* fromPromise(() => readFile(need(values, "file")));
+				return yield* command(
+					client,
+					{
+						workflow: need(values, "workflow"),
+						expected: { document: expected === "none" ? null : expected },
+						command: {
+							type: "saveDocument",
+							document: need(values, "document"),
+							mediaType: values["media-type"] ?? "text/markdown",
+							content: bytes.toString("base64"),
+						},
+					},
+					values["command-id"],
+				);
+			}
+			case "read": {
+				const r = yield* client.artifact(need(values, "revision"));
+				if (r.status !== 200) finish(r);
+				const { content, ...metadata } = r.body;
+				yield* fromPromise(() => writeFile(need(values, "out"), Buffer.from(String(content), "base64")));
+				out(metadata);
+				process.exit(0);
+				break;
+			}
+			case "message":
+				return yield* command(
+					client,
+					{ workflow: need(values, "workflow"), command: { type: "postCoordinatorMessage", text: need(values, "text") } },
+					values["command-id"],
+				);
+			case "messages":
+				return finish(yield* client.messages(need(values, "workflow")));
+			case "receipt":
+				return finish(yield* client.receipt(need(values, "command-id")));
+			case "observe": {
+				const limit = values.frames === undefined ? Number.POSITIVE_INFINITY : Number(values.frames);
+				yield* fromPromise(async () => {
+					let count = 0;
+					try {
+						for await (const frame of client.observe()) {
+							out(frame);
+							if (frame.kind === "refused") process.exit(1);
+							if (frame.kind === "end") process.exit(4);
+							if (++count >= limit) process.exit(0);
+						}
+					} catch (error) {
+						if (error instanceof UnsupportedFrameVersion) {
+							process.stderr.write(
+								`The host sent observation frame version ${error.message}; this client understands version 1. Upgrade the Render client.\n`,
+							);
+							process.exit(5);
+						}
+						throw error;
+					}
+					process.exit(0);
+				});
+				break;
+			}
+			default:
+				usage(verb === undefined ? undefined : `unknown command ${verb}`);
+		}
+	});
+}
+
+runPromise(main()).catch((error: unknown) => {
 	process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
 	process.exit(3);
 });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { Checkpoints } from "../src/kernel/checkpoints.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
@@ -70,14 +71,16 @@ async function deviceClients(f: Awaited<ReturnType<typeof roleFixture>>) {
 	let n = 0;
 	const clients = await Promise.all(
 		["A", "B"].map(async (label) => {
-			const enrolled = await f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: f.ledger.status().authorityEpoch,
-					commandId: `device:${label}`,
-					command: { type: "enrollDevice", label, scope: { workflows: ["workflow:2"] } },
-				},
-				admin,
+			const enrolled = await Effect.runPromise(
+				f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: f.ledger.status().authorityEpoch,
+						commandId: `device:${label}`,
+						command: { type: "enrollDevice", label, scope: { workflows: ["workflow:2"] } },
+					},
+					admin,
+				),
 			);
 			assert.ok(enrolled.status === "accepted" && enrolled.credential);
 			const bearer = enrolled.credential.bearer;
@@ -157,21 +160,23 @@ async function fixture(sameFamily = true, reviewOverrides: Record<string, unknow
 	);
 	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned-fixture", families: { "claude-sonnet-4-6": "claude" } }));
 	if (sameFamily) await allowSameFamily(f.ledger);
-	const ground = await f.ledger.command(
-		{
-			version: 1,
-			authorityEpoch: f.ledger.status().authorityEpoch,
-			commandId: "ground",
-			workflow: "workflow:2",
-			expected: { document: null },
-			command: {
-				type: "saveDocument",
-				document: "ground",
-				mediaType: "text/markdown",
-				content: Buffer.from("Human goal: design a service; keep two boundaries.").toString("base64"),
+	const ground = await Effect.runPromise(
+		f.ledger.command(
+			{
+				version: 1,
+				authorityEpoch: f.ledger.status().authorityEpoch,
+				commandId: "ground",
+				workflow: "workflow:2",
+				expected: { document: null },
+				command: {
+					type: "saveDocument",
+					document: "ground",
+					mediaType: "text/markdown",
+					content: Buffer.from("Human goal: design a service; keep two boundaries.").toString("base64"),
+				},
 			},
-		},
-		admin,
+			admin,
+		),
 	);
 	const scope = result(ground).revision;
 	result(
@@ -265,18 +270,20 @@ async function fixture(sameFamily = true, reviewOverrides: Record<string, unknow
 async function setRouting(t: Awaited<ReturnType<typeof fixture>>, mode: "human" | "delegated") {
 	const settings = (t.f.ledger.snapshot(admin) as Frame).checkpointSettings as { currentRevision: string };
 	return result(
-		await t.f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: t.f.ledger.status().authorityEpoch,
-				commandId: `routing:${settings.currentRevision}`,
-				command: {
-					type: "changeCheckpointSettings",
-					expectedRevision: settings.currentRevision,
-					modes: { seams: mode, modules: mode, proposal: "human" },
+		await Effect.runPromise(
+			t.f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: t.f.ledger.status().authorityEpoch,
+					commandId: `routing:${settings.currentRevision}`,
+					command: {
+						type: "changeCheckpointSettings",
+						expectedRevision: settings.currentRevision,
+						modes: { seams: mode, modules: mode, proposal: "human" },
+					},
 				},
-			},
-			admin,
+				admin,
+			),
 		),
 	).settings;
 }
@@ -312,7 +319,7 @@ test("S04/S07 captured human survives rework; later Modules captures delegated w
 		await t.draft(modules, [], "modules", { manifest: { ...m, nodes: [{ ...m.nodes[0], humanDecision: t.scope }] } });
 		await t.emit(modules);
 		const approved = result(await t.cmd({ type: "advanceDelegatedCheckpoint", ...t.basis(modules), nonbinding: [] }));
-		const artifact = await t.f.ledger.artifact(admin, { read: approved.decision as string });
+		const artifact = await Effect.runPromise(t.f.ledger.artifact(admin, { read: approved.decision as string }));
 		assert.ok("content" in artifact);
 		const decision = JSON.parse(artifact.content.toString());
 		assert.equal(decision.mode, "delegated");
@@ -336,7 +343,7 @@ test("S04/S07 captured human survives rework; later Modules captures delegated w
 		);
 		await t.reopen();
 		assert.equal(t.pending().requests[1]!.decision, approved.decision);
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete && exported.content[approved.decision as string]);
 	} finally {
 		await t.close();
@@ -482,21 +489,23 @@ test("C17 Engine tools complete a fresh challenge and resume the workflow-owned 
 	try {
 		await allowSameFamily(f.ledger);
 		const ground = result(
-			await f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: f.ledger.status().authorityEpoch,
-					commandId: "tool-ground",
-					workflow: "workflow:2",
-					expected: { document: null },
-					command: {
-						type: "saveDocument",
-						document: "ground",
-						mediaType: "text/markdown",
-						content: Buffer.from("Design a service with explicit ownership.").toString("base64"),
+			await Effect.runPromise(
+				f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: f.ledger.status().authorityEpoch,
+						commandId: "tool-ground",
+						workflow: "workflow:2",
+						expected: { document: null },
+						command: {
+							type: "saveDocument",
+							document: "ground",
+							mediaType: "text/markdown",
+							content: Buffer.from("Design a service with explicit ownership.").toString("base64"),
+						},
 					},
-				},
-				admin,
+					admin,
+				),
 			),
 		).revision as string;
 		result(
@@ -647,10 +656,10 @@ test("C02/C06/C07/C09 saves preserve complete edits and race basis; notes approv
 		);
 		const approval = result(await t.f.command({ type: "approveCheckpoint", ...t.basis(r), nonbinding: [one.concern, two.concern] }, admin));
 		assert.equal(approval.emission, d.emission, "approve with notes accepts original emission only");
-		const original = await t.f.ledger.artifact(admin, { read: d.emission as string });
+		const original = await Effect.runPromise(t.f.ledger.artifact(admin, { read: d.emission as string }));
 		assert.ok("content" in original);
 		assert.equal(original.content.toString(), markdown);
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of [d.emission, d.manifest, one.revision, two.revision, approval.decision])
 			assert.ok(exported.content[ref as string], `retained ${ref}`);
@@ -660,7 +669,7 @@ test("C02/C06/C07/C09 saves preserve complete edits and race basis; notes approv
 		assert.equal(t.pending().concerns.length, 2, "every acknowledged concern must survive");
 		assert.equal(t.pending().requests[0]!.approved, d.emission);
 		assert.deepEqual(t.pending().requests[0]!.nonbinding, [one.concern, two.concern]);
-		const edit = await t.f.ledger.artifact(admin, { read: two.revision as string });
+		const edit = await Effect.runPromise(t.f.ledger.artifact(admin, { read: two.revision as string }));
 		assert.ok("content" in edit);
 		assert.equal(edit.content.toString(), "A second client's complete edit\r\n");
 	} finally {
@@ -677,7 +686,7 @@ test("C08 approval-first retains later edit as change request without changing a
 		const devices = await t.devices();
 		result(await devices.a({ type: "approveCheckpoint", ...t.basis(r), nonbinding: [] }));
 		const saved = result(await devices.b({ type: "saveCheckpointConcern", request: r, base: d.emission, text: "" }));
-		const empty = await t.f.ledger.artifact(admin, { read: saved.revision as string });
+		const empty = await Effect.runPromise(t.f.ledger.artifact(admin, { read: saved.revision as string }));
 		assert.ok("content" in empty);
 		assert.equal(empty.content.length, 0, "complete empty edit bytes are valid concerns");
 		assert.equal(saved.changeRequest, "true");
@@ -755,21 +764,23 @@ test("C11 unrelated save does not stale approval", async () => {
 		await t.emit(r);
 		const basis = t.basis(r);
 		result(
-			await t.f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: t.f.ledger.status().authorityEpoch,
-					commandId: "unrelated",
-					workflow: "workflow:2",
-					expected: { document: null },
-					command: {
-						type: "saveDocument",
-						document: "unrelated",
-						mediaType: "text/plain",
-						content: Buffer.from("new unrelated evidence").toString("base64"),
+			await Effect.runPromise(
+				t.f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: t.f.ledger.status().authorityEpoch,
+						commandId: "unrelated",
+						workflow: "workflow:2",
+						expected: { document: null },
+						command: {
+							type: "saveDocument",
+							document: "unrelated",
+							mediaType: "text/plain",
+							content: Buffer.from("new unrelated evidence").toString("base64"),
+						},
 					},
-				},
-				admin,
+					admin,
+				),
 			),
 		);
 		result(await t.f.command({ type: "approveCheckpoint", ...basis, nonbinding: [] }, admin));
@@ -790,18 +801,20 @@ test("C11 policy adoption stales pending approval; C12 missing exact manifest ev
 		const basis = t.basis(r);
 		const policy = (t.f.ledger.snapshot(admin) as Frame).policy as { defaultRevision: string };
 		const changed = result(
-			await t.f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: t.f.ledger.status().authorityEpoch,
-					commandId: "policy-change",
-					command: {
-						type: "changePolicy",
-						expectedRevision: policy.defaultRevision,
-						policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+			await Effect.runPromise(
+				t.f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: t.f.ledger.status().authorityEpoch,
+						commandId: "policy-change",
+						command: {
+							type: "changePolicy",
+							expectedRevision: policy.defaultRevision,
+							policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+						},
 					},
-				},
-				admin,
+					admin,
+				),
 			),
 		);
 		result(await t.f.command({ type: "adoptPolicy", revision: changed.policy, expectedBinding: basis.policyBinding }, admin));
@@ -822,14 +835,16 @@ test("C16 machine principal cannot approve or submit human concerns; scoped read
 			code(await t.cmd({ type: "saveCheckpointConcern", request: r, base: d.emission, text: "Fake human note" })),
 			"forbidden_principal",
 		);
-		const enrolled = await t.f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: t.f.ledger.status().authorityEpoch,
-				commandId: "limited",
-				command: { type: "enrollDevice", label: "no workflows", scope: { workflows: [] } },
-			},
-			admin,
+		const enrolled = await Effect.runPromise(
+			t.f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: t.f.ledger.status().authorityEpoch,
+					commandId: "limited",
+					command: { type: "enrollDevice", label: "no workflows", scope: { workflows: [] } },
+				},
+				admin,
+			),
 		);
 		assert.equal(enrolled.status, "accepted");
 		if (enrolled.status !== "accepted") throw new Error("enrollment");
@@ -841,7 +856,7 @@ test("C16 machine principal cannot approve or submit human concerns; scoped read
 			workflows: [],
 		});
 		assert.equal(code(await t.f.command({ type: "approveCheckpoint", ...t.basis(r), nonbinding: [] }, limited)), "forbidden_scope");
-		const read = await t.f.ledger.artifact(limited, { read: d.emission as string });
+		const read = await Effect.runPromise(t.f.ledger.artifact(limited, { read: d.emission as string }));
 		assert.ok("status" in read);
 		assert.equal(read.code, "unauthorized");
 	} finally {

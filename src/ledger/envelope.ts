@@ -5,7 +5,7 @@ import { validCheckpointModes } from "../kernel/checkpoint-settings.ts";
 import { CHECKPOINT_COMMANDS, type CheckpointCommand } from "../kernel/checkpoints.ts";
 import { validAssessment, validDispositions } from "../kernel/implementation.ts";
 import { INTAKE_COMMANDS, type IntakeCommand, validDependencies } from "../kernel/intake.ts";
-import { type Command, isAvailableCommand, type MediaType, type Persistence } from "../kernel/kernel.ts";
+import { type Command, isAvailableCommand, type MediaType, type Persistence, unparsedCommand } from "../kernel/kernel.ts";
 import { FORGE_KINDS, type ForgeKind, PUBLICATION_COMMANDS } from "../kernel/publication.ts";
 
 import { ROLE_COMMANDS, ROLES, type RoleCommand, type RolePacket } from "../kernel/roles.ts";
@@ -77,9 +77,7 @@ export function parseEnvelope(raw: unknown): Envelope | EnvelopeRefusal {
 		if (expected !== undefined) only(expected, ["document"], "expected");
 		const c = object(e.command, "command");
 		const type = typeof c.type === "string" ? c.type : malformed("command.type must be a string");
-		const parsed = isAvailableCommand(type)
-			? available(type, c, workflow, expected)
-			: { command: { type, ...(workflow === null ? {} : { workflow }) } };
+		const parsed = isAvailableCommand(type) ? available(type, c, workflow, expected) : { command: unparsedCommand(type, workflow) };
 		const fingerprint = createHash("sha256")
 			.update(canonical({ workflow, expected: expected ?? null, command: c }))
 			.digest("hex");
