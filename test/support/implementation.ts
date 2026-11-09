@@ -270,6 +270,62 @@ export async function implementationLifecycle(
 
 /** Accepted obligations are produced by real intake/fidelity/human commands, never seeded SQL. */
 export async function acceptedImplementation(engine?: Engine, variant?: Variant) {
+	const t = await reviewedIntake(variant);
+	const { f, assignments, actor, intake, report, coordinator, review, state, second } = t;
+	const draft = state().drafts[0]!;
+	accepted(
+		await f.command(
+			{ type: "acceptIntake", intake, review: report, annotations: draft.annotations, policyBinding: draft.policyBinding, decisions: [] },
+			admin,
+		),
+	);
+	for (const id of [coordinator, review]) {
+		const a = assignments().find((a) => a.id === id)!;
+		if (id === coordinator) accepted(await f.command({ type: "submitRoleResult", text: "Intake accepted.", supports: [] }, actor));
+		accepted(
+			await f.command({
+				type: "recordQuiescence",
+				assignment: a.id,
+				generation: a.generation,
+				attempt: a.attempt,
+				providerIdle: true,
+				environment: "absent",
+				effects: "reconciled",
+			}),
+		);
+	}
+	const contract = state().slices[0]!.contract;
+	const nextContract = state().slices[1]?.contract;
+	if (engine) await f.reopen(engine);
+	const writer = (overrides: Partial<RolePacket> = {}) =>
+		packet({
+			role: "implementer",
+			execution: "linux-writer",
+			inputs: second === "record" ? [contract, report, t.source] : [contract],
+			requests: [
+				{ key: "arbitrary-left", packet: packet({ role: "audit-standards" }) },
+				{ key: "arbitrary-right", packet: packet({ role: "audit-contracts" }) },
+			],
+			...overrides,
+		});
+	return {
+		f,
+		contract,
+		nextContract,
+		source: t.source,
+		catalog: t.catalog,
+		ground: t.ground,
+		fidelity: report,
+		writer,
+		assignments,
+		start: t.start,
+		agent: t.agent,
+		close: () => f.close(),
+	};
+}
+
+/** A staged intake with a submitted fidelity report and no acceptance: the human's next action is to review it. */
+export async function reviewedIntake(variant?: Variant) {
 	const bug = variant === "bug";
 	const second = bug ? undefined : variant;
 	const f = await roleFixture(new LedgerOnlyEngine());
@@ -408,54 +464,5 @@ export async function acceptedImplementation(engine?: Engine, variant?: Variant)
 		),
 	).report as string;
 	const state = () => ((f.ledger.snapshot(admin) as Frame).workflows as { intakes: Intakes }[])[0]!.intakes;
-	const draft = state().drafts[0]!;
-	accepted(
-		await f.command(
-			{ type: "acceptIntake", intake, review: report, annotations: draft.annotations, policyBinding: draft.policyBinding, decisions: [] },
-			admin,
-		),
-	);
-	for (const id of [coordinator, review]) {
-		const a = assignments().find((a) => a.id === id)!;
-		if (id === coordinator) accepted(await f.command({ type: "submitRoleResult", text: "Intake accepted.", supports: [] }, actor));
-		accepted(
-			await f.command({
-				type: "recordQuiescence",
-				assignment: a.id,
-				generation: a.generation,
-				attempt: a.attempt,
-				providerIdle: true,
-				environment: "absent",
-				effects: "reconciled",
-			}),
-		);
-	}
-	const contract = state().slices[0]!.contract;
-	const nextContract = state().slices[1]?.contract;
-	if (engine) await f.reopen(engine);
-	const writer = (overrides: Partial<RolePacket> = {}) =>
-		packet({
-			role: "implementer",
-			execution: "linux-writer",
-			inputs: second === "record" ? [contract, report, source] : [contract],
-			requests: [
-				{ key: "arbitrary-left", packet: packet({ role: "audit-standards" }) },
-				{ key: "arbitrary-right", packet: packet({ role: "audit-contracts" }) },
-			],
-			...overrides,
-		});
-	return {
-		f,
-		contract,
-		nextContract,
-		source,
-		catalog,
-		ground,
-		fidelity: report,
-		writer,
-		assignments,
-		start,
-		agent,
-		close: () => f.close(),
-	};
+	return { f, assignments, agent, start, source, catalog, ground, coordinator, actor, intake, review, report, state, second };
 }

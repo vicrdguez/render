@@ -17,13 +17,23 @@ import {
 	CHECKPOINT_COMMANDS,
 	type CheckpointCommand,
 	type CheckpointInput,
+	type CheckpointRequest,
 	type Checkpoints,
 	type CheckpointWrite,
 	changeCheckpoint,
 	emptyCheckpoints,
 } from "./checkpoints.ts";
 import { changeEngineSettings, type EngineSettingsCommand, type EngineSettingsRevision } from "./engine-settings.ts";
-import { changeIntake, cleared, emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, type Intakes, type IntakeWrite } from "./intake.ts";
+import {
+	changeIntake,
+	cleared,
+	emptyIntakes,
+	INTAKE_COMMANDS,
+	type IntakeCommand,
+	type IntakeDraft,
+	type Intakes,
+	type IntakeWrite,
+} from "./intake.ts";
 import { confirmedGround, type Ground, groundShape, unconfirmedShape } from "./investigation.ts";
 import { changePolicy, initialPolicy, type PolicyCommand, type PolicyState } from "./policy.ts";
 import { changeProject, PROJECT_COMMANDS, type Project, type ProjectCommand } from "./projects.ts";
@@ -702,9 +712,37 @@ export type WorkflowView = {
 	readonly owner: { readonly status: "none" | "active" | "blocked" | "awaiting_capacity"; readonly assignments: readonly RoleAssignment[] };
 	readonly evidence: { readonly status: "none" | "available"; readonly items: readonly string[] };
 	readonly blocker: { readonly code: string; readonly reason: string; readonly capabilities: readonly string[] } | null;
+	/** A decision's `basis` is exactly what its command must name; null until the work under review is decidable. */
 	readonly nextHumanAction:
-		| { readonly type: "reviewIntake"; readonly intake: string; readonly annotations: number }
-		| { readonly type: "reviewCheckpoint"; readonly request: string; readonly emission: string | null; readonly annotations: number }
+		| {
+				readonly type: "reviewIntake";
+				readonly intake: string;
+				readonly annotations: number;
+				readonly basis: {
+					readonly intake: string;
+					readonly review: string;
+					readonly annotations: number;
+					readonly policyBinding: string;
+					readonly decisions: readonly string[];
+				} | null;
+		  }
+		| {
+				readonly type: "reviewCheckpoint";
+				readonly request: string;
+				readonly emission: string | null;
+				readonly annotations: number;
+				readonly basis: {
+					readonly request: string;
+					readonly emission: string;
+					readonly manifest: string;
+					readonly annotations: number;
+					readonly policyBinding: string;
+				} | null;
+				/** Each node needs one of its alternatives. */
+				readonly decisions: readonly { readonly node: string; readonly alternatives: readonly string[] }[];
+				/** The saved concerns the human may declare nonbinding. */
+				readonly concerns: readonly string[];
+		  }
 		| { readonly type: "saveGround"; readonly workflow: string; readonly document: "ground"; readonly expected: null }
 		/** Save `content`, the coordinator's proposal with its shape confirmed, as `ground` on basis `expected`. */
 		| {
@@ -732,6 +770,42 @@ export function view(
 ): { readonly workflows: readonly WorkflowView[] } {
 	const visible = state.workflows.filter((w) => scope.workflows === "all" || scope.workflows.includes(w.id));
 	return { workflows: visible.map(workflowView) };
+}
+
+/** The fresh fidelity report on exactly this intake revision and its annotations is the only review acceptance can bind. */
+function intakeReview(d: IntakeDraft, assignments: readonly RoleAssignment[]): WorkflowView["nextHumanAction"] {
+	const review = assignments.findLast(
+		(a) =>
+			a.packet.role === "challenger" &&
+			a.status === "submitted" &&
+			a.report !== null &&
+			a.intakeReview?.intake === d.id &&
+			a.intakeReview?.manifest === d.manifestRef &&
+			a.intakeReview?.annotations === d.annotations,
+	)?.report;
+	return {
+		type: "reviewIntake",
+		intake: d.id,
+		annotations: d.annotations,
+		basis: review
+			? { intake: d.id, review, annotations: d.annotations, policyBinding: d.policyBinding, decisions: d.manifest.decisions }
+			: null,
+	};
+}
+
+function checkpointReview(r: CheckpointRequest, checkpoints: Checkpoints): WorkflowView["nextHumanAction"] {
+	return {
+		type: "reviewCheckpoint",
+		request: r.id,
+		emission: r.emission,
+		annotations: r.annotations,
+		basis:
+			r.ready && r.review && r.emission && r.manifest
+				? { request: r.id, emission: r.emission, manifest: r.manifest, annotations: r.annotations, policyBinding: r.policyBinding }
+				: null,
+		decisions: (r.manifestValue?.nodes ?? []).map((n) => ({ node: n.id, alternatives: n.alternatives })),
+		concerns: checkpoints.concerns.filter((n) => n.stage === r.stage).map((n) => n.id),
+	};
 }
 
 function workflowView(w: WorkflowState): WorkflowView {
@@ -794,9 +868,9 @@ function workflowView(w: WorkflowState): WorkflowView {
 					: null,
 		nextHumanAction:
 			latestIntake && !latestIntake.acceptance
-				? { type: "reviewIntake", intake: latestIntake.id, annotations: latestIntake.annotations }
+				? intakeReview(latestIntake, w.assignments ?? [])
 				: pending
-					? { type: "reviewCheckpoint", request: pending.id, emission: pending.emission, annotations: pending.annotations }
+					? checkpointReview(pending, checkpoints)
 					: confirm
 						? {
 								type: "confirmGround",

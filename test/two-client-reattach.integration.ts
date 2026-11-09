@@ -1,6 +1,6 @@
 // V4: two stateless client processes against a real host, plus the observation rules.
 import assert from "node:assert/strict";
-import { type ChildProcess, execFile, spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { connect } from "node:net";
@@ -10,6 +10,7 @@ import { after, before, describe, test } from "node:test";
 import {
 	addProject,
 	CLIENT_CLI,
+	cli,
 	createWorkflow,
 	envelope,
 	type HostProcess,
@@ -21,23 +22,6 @@ import {
 	track,
 } from "./support/host.ts";
 import { A1, B1, G1 } from "./support/literals.ts";
-
-type CliResult = { code: number | null; stdout: string; stderr: string; json: Record<string, unknown> };
-
-function cli(args: string[], env: Record<string, string> = {}): Promise<CliResult> {
-	return new Promise((resolve) => {
-		execFile(process.execPath, [CLIENT_CLI, ...args], { env: { ...process.env, ...env } }, (error, stdout, stderr) => {
-			let json: Record<string, unknown> = {};
-			try {
-				json = JSON.parse(stdout) as Record<string, unknown>;
-			} catch {
-				json = {};
-			}
-			const code = error === null ? 0 : typeof error.code === "number" ? error.code : null;
-			resolve({ code, stdout, stderr, json });
-		});
-	});
-}
 
 function observeProcess(args: string[]): {
 	proc: ChildProcess;

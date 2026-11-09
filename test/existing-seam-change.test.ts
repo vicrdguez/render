@@ -134,7 +134,11 @@ test("ES04 a discovered seam change blocks change-shape work with visible facts 
 			assert.equal(owner.status, "blocked", `${label}: running change-shape owner stops`);
 			assert.equal(owner.blocker, "seams_decision_required", `${label}: owner names the required decision`);
 			assert.equal(v.blocker?.code, "seams_decision_required", `${label}: view blocker`);
-			assert.deepEqual(v.nextHumanAction, { type: "reviewCheckpoint", request, emission: null, annotations: 0 }, label);
+			assert.deepEqual(
+				v.nextHumanAction,
+				{ type: "reviewCheckpoint", request, emission: null, annotations: 0, basis: null, decisions: [], concerns: [] },
+				label,
+			);
 			assert.deepEqual(
 				slices(v),
 				[
