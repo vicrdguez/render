@@ -140,7 +140,7 @@ status(): HostStatus;
 
 - **T1.** Given any request the current protocol tests send, when the extracted host serves it, then the status, headers and body equal what `src/ledger/http.ts` returned.
 - **T2.** Given a file under `src/ledger`, `src/kernel`, `src/engine`, `src/effects` or `src/sandboxes`, when it imports `node:http`, `node:net` or `src/host`, then `npm run lint` fails.
-- **T3.** Given a context object that `Principals` did not mint, when a caller passes it to any Ledger method, then Ledger refuses with `untrusted_context`.
+- **T3.** Given a context object that Ledger's trusted minting did not produce, such as a plain object with the same fields, when a caller passes it to any Ledger method, then Ledger refuses with `untrusted_context`, as today. The transport obtains human contexts only through `Principals`.
 - **T4.** Given a revoked device, when its next request arrives, then the transport answers `401 unauthorized` and Ledger closes its observation streams, as today.
 
 #### Verification
