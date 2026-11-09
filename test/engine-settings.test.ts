@@ -302,7 +302,7 @@ test("S4 only a project-wide human changes or reads Engine settings", async () =
 					version: 1,
 					authorityEpoch: f.ledger.status().authorityEpoch,
 					commandId: "enroll-narrow",
-					command: { type: "enrollDevice", label: "narrow", scope: { workflows: ["workflow:2"] } },
+					command: { type: "enrollDevice", label: "narrow", scope: { workflows: ["workflow:3"] } },
 				},
 				admin,
 			),
@@ -313,7 +313,7 @@ test("S4 only a project-wide human changes or reads Engine settings", async () =
 			human: "human:owner",
 			route: "device",
 			device: String(enrolled.result.device),
-			workflows: ["workflow:2"],
+			workflows: ["workflow:3"],
 		});
 		const r = await change(f.ledger, base, 1, narrow);
 		assert.equal(r.status === "refused" && r.code, "forbidden_scope");
