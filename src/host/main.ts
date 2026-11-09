@@ -1,9 +1,10 @@
-// `render serve --data <dir> [--port <n>] [--host <addr>] [--pi-auth <auth.json>]`. Events are one JSON object per line: `ready` on stdout,
-// startup refusals and failures on stderr. Exit codes: 0 stopped, 1 host failure, 2 startup blocked, 3 store owned.
+// `render serve --data <dir> [--port <n>] [--host <addr>] [--pi-auth <auth.json>] [--github-api <url> --github-git <url>]`.
+// Events are one JSON object per line: `ready` on stdout, with the runtime's readiness, and startup refusals and failures on
+// stderr. Exit codes: 0 stopped, 1 host failure, 2 startup blocked, 3 store owned.
 import { parseArgs } from "node:util";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
-import { runPromise } from "../effect.ts";
+import { fromPromise, runPromise } from "../effect.ts";
 import { StartupFailure } from "../ledger/startup.ts";
 import { type Host, openHost } from "./host.ts";
 
@@ -15,10 +16,23 @@ function main(): Effect.Effect<void, unknown> {
 	return Effect.gen(function* () {
 		const { positionals, values } = parseArgs({
 			allowPositionals: true,
-			options: { data: { type: "string" }, port: { type: "string" }, host: { type: "string" }, "pi-auth": { type: "string" } },
+			options: {
+				data: { type: "string" },
+				port: { type: "string" },
+				host: { type: "string" },
+				"pi-auth": { type: "string" },
+				"github-api": { type: "string" },
+				"github-git": { type: "string" },
+			},
 		});
-		if (positionals[0] !== "serve" || values.data === undefined) {
-			process.stderr.write("usage: render serve --data <dir> [--port <n>] [--host <addr>] [--pi-auth <auth.json>]\n");
+		if (
+			positionals[0] !== "serve" ||
+			values.data === undefined ||
+			(values["github-api"] === undefined) !== (values["github-git"] === undefined)
+		) {
+			process.stderr.write(
+				"usage: render serve --data <dir> [--port <n>] [--host <addr>] [--pi-auth <auth.json>] [--github-api <url> --github-git <url>]\n",
+			);
 			process.exit(64);
 		}
 		const data = values.data;
@@ -39,6 +53,7 @@ function main(): Effect.Effect<void, unknown> {
 			port: values.port === undefined ? 0 : Number(values.port),
 			hostname: values.host ?? "127.0.0.1",
 			piAuth: values["pi-auth"],
+			...(values["github-api"] && values["github-git"] ? { github: { api: values["github-api"], git: values["github-git"] } } : {}),
 			onFatal,
 		}).pipe(
 			Effect.catchCause((cause) =>
@@ -60,6 +75,7 @@ function main(): Effect.Effect<void, unknown> {
 			authorityEpoch: host.authorityEpoch,
 			executorEpoch: host.executorEpoch,
 			persistence: host.persistence,
+			runtime: yield* fromPromise(host.readiness),
 		});
 		const stop = () => {
 			const h = host;

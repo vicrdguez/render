@@ -19,9 +19,26 @@ saves, immutable SQLite history, enrollment and revocation, and safe startup. Th
 node src/host/main.ts serve --data ~/.render/data --port 7420 --pi-auth ~/.pi/agent/auth.json
 ```
 
-The host prints one `ready` line on stdout with the URL, admin socket path, `authorityEpoch`, the new `executorEpoch` and
-the persistence readback. `SIGTERM` or `SIGINT` stops it cleanly. An ordinary restart keeps enrollments and
+The host prints one `ready` line on stdout with the URL, admin socket path, `authorityEpoch`, the new `executorEpoch`,
+the persistence readback and `runtime`. `SIGTERM` or `SIGINT` stops it cleanly. An ordinary restart keeps enrollments and
 `authorityEpoch`, and mints a new `executorEpoch`.
+
+The command names no repository. Projects, settings and each project's check image are Ledger records that a human adds
+with the CLI. The host keeps its project mirrors and sandboxes under `<data>/owned`, runs checks in Docker on each
+project's check image, and publishes to the GitHub repository a project's remote names, with the `github-token` secret.
+`--pi-auth` names pi's login file (see Durable role work). `--github-api` and `--github-git` replace github.com's REST and
+Git endpoints, together or not at all; only owned fixtures use them.
+
+`runtime` reports each external prerequisite as `"ready"` or `{"blocked": reason}`, and `admin status` reports it afresh:
+
+| Entry | Blocked reason | Action |
+|---|---|---|
+| `effects` | `git_unavailable`, `git_unsupported` | Install Git 2.43 or later. |
+| `sandboxes` | `docker_unavailable` | Start Docker. Check work blocks until it runs. |
+| `forge` | `github_token_missing`, `github_token_rejected` | `cli.ts secrets set github-token` with a token GitHub accepts. Fetching a GitHub project and publishing wait for it. |
+| `logins` | `native_provider_configuration_missing` | Restart with `--pi-auth` naming a readable pi login file. |
+
+The host starts with any of them blocked. A secret set while the host runs applies to the next request, with no restart.
 
 Startup takes these steps in order, before admitting any request:
 
@@ -53,12 +70,31 @@ Clients are stateless: every view comes from the host.
 
 ```sh
 export RENDER_URL=http://127.0.0.1:7420 RENDER_TOKEN_FILE=~/.render/laptop.token
-node src/client/cli.ts create-workflow --title "Keep work safe"
-node src/client/cli.ts save --workflow workflow:3 --document ground --file ground.md --expected none
+node src/client/cli.ts add-project --name Render --remote https://github.com/me/render.git --default-branch main --check-image render-check:node24
+printf %s "$GITHUB_TOKEN" | node src/client/cli.ts secrets set github-token
+node src/client/cli.ts create-workflow --title "Keep work safe" --project project:2
+node src/client/cli.ts send --workflow workflow:3 --text "Fix the flaky save test" --follow-up
+node src/client/cli.ts chat --workflow workflow:3
 node src/client/cli.ts snapshot
-node src/client/cli.ts read --revision revision:4 --out ground.md
 node src/client/cli.ts observe
 ```
+
+Project, settings and secret commands need a device enrolled for all workflows. `edit-project --project P --expected N`
+changes only the fields it names; a project's remote never changes. `settings show` prints the current Engine settings
+revision; `settings change --file F --expected N` replaces it. `secrets set NAME` reads the value from stdin, so it never
+appears in the process list, and nothing prints it back; `secrets list` shows which names are set.
+
+`send` pins `--steer` (enter the coordinator's current run) or `--follow-up` (the default: start the next run).
+`withdraw --message <command-id>` takes back a message the coordinator has not placed yet, and `interrupt` stops its
+current run while role work keeps going. `chat` prints the conversation and follows it until the host ends the stream.
+
+The decision commands answer the workflow's `nextHumanAction` and send the basis the host wrote into it:
+`confirm-ground`, `accept-intake`, `approve --decide NODE=ALTERNATIVE ... [--nonbinding CONCERN,...]` and `cancel`. If the
+basis changed before the command arrived, the CLI prints the refusal with the new `nextHumanAction` and exits `1`; review
+it and run the command again. Rerunning a command with the same `--command-id` prints its original receipt.
+To send work back instead, `intake-concern` and `checkpoint-concern` (`--text` or `--file`; `--edit` when the file is an
+edited checkpoint) save a concern on the revision under review, and `cancel-checkpoint --reason R` cancels the pending
+checkpoint.
 
 A save names the revision it was edited from. If another client saved first, the host refuses with `stale_basis` and
 names the current revision. Read that revision, merge by hand, and save again with the new basis and a new command ID.

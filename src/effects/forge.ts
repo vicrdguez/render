@@ -9,9 +9,10 @@ import type { Capabilities, ProposalItem } from "../kernel/publication.ts";
 export type ForgeConfig = {
 	api: string;
 	git: string;
-	token: string;
+	/** Read at each use, so a token the human replaces applies to the next request. Throws when no token is set. */
+	token(): string;
 	/** Login of the identity the token belongs to: the only author a reconciled create can have. */
-	actor: string;
+	actor(): Promise<string>;
 	/** Pause between publication retries while the forge is unreachable or an outcome is unknown. */
 	retryMs?: number;
 };
@@ -70,7 +71,7 @@ export function forgeAuth(config: ForgeConfig): Record<string, string> {
 	return {
 		GIT_CONFIG_COUNT: "1",
 		GIT_CONFIG_KEY_0: "http.extraHeader",
-		GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`x-access-token:${config.token}`).toString("base64")}`,
+		GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`x-access-token:${config.token()}`).toString("base64")}`,
 	};
 }
 
@@ -105,6 +106,7 @@ export class GitHubForge {
 			const head = yield* this.#head(proposal);
 			if (head === undefined) return yield* Effect.fail(new Error("Forge source ref unobservable: remote unreachable."));
 			const branch = forgeBranch(proposal);
+			const actor = yield* fromPromise(() => this.#config.actor());
 			const items: ProposalItem[] = [];
 			let url: string | null =
 				`${this.#base()}/pulls?${new URLSearchParams({ state: "all", head: `${this.#repo.owner}:${branch}`, per_page: "100" })}`;
@@ -127,7 +129,7 @@ export class GitHubForge {
 						draft: p.draft === true,
 						head: p.head.sha,
 						marker: MARKER.exec(p.body ?? "")?.[1] ?? null,
-						actor: p.user?.login === this.#config.actor,
+						actor: p.user?.login === actor,
 						merge: p.merged_at && p.merge_commit_sha ? { main: p.base.ref === this.#repo.base, commit: p.merge_commit_sha } : null,
 					});
 				}
@@ -255,7 +257,7 @@ export class GitHubForge {
 		return fetch(url, {
 			method,
 			headers: {
-				authorization: `Bearer ${this.#config.token}`,
+				authorization: `Bearer ${this.#config.token()}`,
 				accept: "application/vnd.github+json",
 				"x-github-api-version": "2022-11-28",
 				"user-agent": "render",
