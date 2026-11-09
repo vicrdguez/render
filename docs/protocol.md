@@ -176,7 +176,7 @@ after the client gave up. Retry the original ID and payload. Do not mint a new I
 | `content_corrupt`, `missing_content` | 409 | Retained bytes failed integrity checks. `refs.restore` names the exact revision to restore. No other bytes are substituted. |
 | `not_found` | 404 | Absent, or outside scope. |
 | `payload_too_large` | 413 | The request body exceeds 32 MiB. Document content above 16 MiB instead gets `400 malformed_envelope` with the byte limit. |
-| `untrusted_context` | 401 | In-process only: a caller passed a context no Ledger adapter established. |
+| `untrusted_context` | 401 | In-process only: a caller passed a context that Ledger's principal establishment did not mint. |
 | `capability_unavailable` | 501 | Known command whose capability is not delivered in this host version. |
 | `outcome_unknown` | 503 | Storage failed during the commit; the host stops. Retry the original ID after restart. |
 | `host_unavailable` | 503 | The host is not admitting commands. |

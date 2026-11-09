@@ -12,6 +12,10 @@ This amendment supersedes disaster-specific duties wherever older text or histor
 
 Development scratch is not product evidence: keep raw logs and run narratives outside source, with exact source/commands/results/limits in existing implementation/review reports. Both active source and the separately preserved pre-removal reference branch omit `evidence/`; ordinary ancestor history is unchanged. The reference branch is not a future recovery design.
 
+## Usable-host amendment
+
+The operator-settled [usable-host design](design/usable-host.md) amends this accepted design so that the operator can use Render from the desktop app in place of pi. The host transport, not Ledger, owns HTTP and the client protocol. Engine gains a read-only coordinator watch, a playbook launcher and chat delivery. Ledger gains projects and revisioned Engine settings. Models authenticate with the operator's existing pi logins. The changed text is in §1 (R2-A003), §4, §5.2, §5.2.1, §6.4 and §6.6. The design document holds the decisions, interfaces, behavior rules, verification and build order. It authorizes no implementation, deployment or live change by itself.
+
 ## 1. Outcome, scope, and decision status
 
 Render lets a human take an uncertain idea through design, explicit commitments, implementation, verification and independent review; leave or switch clients; and resume without reconstructing state or wondering what was authorized.
@@ -63,7 +67,7 @@ flowchart TD
 
 - **Checkpoint trust dial (D001, R2-A001):** persistent per-checkpoint settings, initially human review recommended. A checkpoint captures settings **when requested**; pending requests keep them. New requests, including later checkpoints of an existing workflow, use current settings without workflow adoption or scoped TechnicalGrant records. Only technical Seams/Modules approval is delegable; independent work/evidence remains. Final Proposal/Contract acceptance, out-of-scope product choices and main merge remain human. Per-request natural-language overrides are deferred.
 - **Other configuration (D004):** future-work defaults and explicit selected-revision adoption for selected active work remain unchanged, including the review cap. Default **two completed Watchdog reviews** is accepted; no history/count reset and no valid-pass rejection.
-- **Runtime (R2-A003):** keep Pi Durable / Pi AI / Chord **1.4.0**, commit **4a080252f06caf63a525d7873c5d94d3c23887e0**. Native Durable compaction, bash grep/rg and Pi's native Claude provider replace the three dropped adaptations. No FFF, better-compaction, Claude-bridge, ordinary Pi runner or extension-compatibility framework requirement.
+- **Runtime (R2-A003):** keep Pi Durable / Pi AI / Chord **1.4.0**, commit **4a080252f06caf63a525d7873c5d94d3c23887e0**. Native Durable compaction, bash grep/rg and Pi's native Claude provider replace the three dropped adaptations. No FFF, better-compaction, Claude-bridge, ordinary Pi runner or extension-compatibility framework requirement. Under the usable-host amendment, the native Claude provider authenticates with the operator's existing pi OAuth login, and Pi AI's native `openai` provider serves the ChatGPT family with the same login mechanism.
 - **Web (R3-A002/A003):** **Webfox 4.8.0 supported root library, Exa primary and Tavily fallback**, with human-provisioned API keys, are selected for useful discovery/page access. Also selected: bounded assignment-scoped expiring working data, native committed output/history, and exact relevant evidence explicitly retained in Ledger before reliance. §6.6 defines the small sequential fallback and preserves the historical comparison. No paid plan, numeric spending limit, cache lifetime/quota or privacy-deletion schedule is selected; live provider quality/integration remain unverified.
 - **Execution/network (R2-A005/R2-A011):** Linux-container workers in v1, same CPU architecture as the Macs where applicable; native macOS workers/desktop automation deferred. Best-effort normal development networking, not exhaustive private-route confinement. No bespoke gateway, endpoint-grant system or mandatory provider/web helper topology. Network reachability never confers Render authority or host credentials.
 - **Audit/integration/readiness (R2-A006–008, clarified by R3-A001):** one Audit **per implementation pass**, including each pass entered after Watchdog rework; not one across the Slice or Assignment lifetime. No same-pass Audit/fix/re-Audit loop or post-preparation exact-X Audit. Proposal integration and draft-to-ready are autonomous by default, without routine human permission. Main merge remains human.
@@ -263,14 +267,16 @@ One Workflow Run module exposes `start/signal/watch`. Task checkpoints, child li
 | Module and interface | Hidden behavior | Locality and deletion test |
 |---|---|---|
 | **Kernel**: `change(state, command, verifiedFacts) → Effect<accepted decision, refusal>`; `view(state, scope) → domainView` | Named pure transformations for designs, obligations, approvals, assignments, dependencies, evidence and integration eligibility. Returns next state, facts and concrete work/effect intents or refusal. | Domain meaning changes here. Deleting it spreads rules across clients, tools and recovery. No I/O, clock reads, IDs minted internally, Pi imports or task graph knowledge. |
-| **Ledger**: `command(envelope, authenticatedContext) → receipt`; `observe(scope, cursor?) → snapshot/updates`; `artifact(read/upload) → content/ref` | Private principal establishment; transaction-time authorization/scoping, revision checks, atomic commits, receipts, immutable facts/artifacts, annotations, projections, schema readers and recovery views. | Authority/persistence/client protocol changes here. Deleting it spreads transaction and stale-command logic. Context comes only from trusted adapters; no arbitrary caller-provided database writes. |
-| **Engine**: `reconcile(workflow) → progress/blockage`; `render(assignment) → packet` | Fixed workflow policy, bounded budgets, role instructions, provider calls, Durable definitions, explicit child configuration, task associations and recovery. Selection/rendering are pure internal seams. | Practice/scheduling/runtime changes stay here. Deleting it makes callers supervisors. |
+| **Ledger**: `command(envelope, authenticatedContext) → receipt`; `observe(scope, cursor?) → snapshot/updates`; `artifact(read/upload) → content/ref`, plus receipt, message, history and export reads. This domain API is all a client reaches, through the host transport. | Private principal establishment; transaction-time authorization/scoping, revision checks, atomic commits, receipts, immutable facts/artifacts, annotations, projections, schema readers and recovery views. | Authority and persistence changes here. Client protocol changes stay in the host transport. Deleting it spreads transaction and stale-command logic. Context comes only from trusted adapters; no arbitrary caller-provided database writes. |
+| **Engine**: `reconcile(workflow) → progress/blockage`; `render(assignment) → packet`; `watch(context, workflow) → live coordinator events` (read-only, for a scope Ledger authorizes) | Playbook launcher, the only production issuer of `assignTask`. Chat delivery to the coordinator conversation. Fixed workflow policy, bounded budgets, role instructions, provider calls, Durable definitions, explicit child configuration, task associations and recovery. Selection/rendering are pure internal seams. | Practice/scheduling/runtime changes stay here. Deleting it makes callers supervisors. |
 | **Sandboxes**: `prepare(assignment, profile, inputs) → handle`; `execute(handle, authorizedToolCall) → result`; `seal(handle) → sourceWitness`; `stop(handle) → quiescence` | Per-assignment environment, literal input materialization, tool/process execution, resource limits, frozen capture and termination. | OS/tool execution changes stay here. Four methods describe actual ownership better than hiding execution behind a cosmetic three-method interface. |
 | **Effects**: `perform(operation) → observation`; `reconcile(operation) → observation` | Host-private proposal-ref integration and credentialed source/proposal-PR publication through its provider-neutral Forge submodule, exact identities/heads, admission permits, operation reconciliation, bounded latest-view updates and refusal of unauthorized integration. | Git/provider effect semantics change here. Deleting it spreads unsafe retries. It owns private refs and credentials that Sandboxes must never receive. |
 
 Kernel `change` and every command family return synchronous Effect programs with typed refusal failures; there is no plain-decision façade. Ledger composes the decision directly inside its existing transaction. Application and I/O operations likewise expose one domain-named Effect API, interpreted only at Node/Durable and consumer boundaries. Small pure transforms and the standalone export reader remain ordinary TypeScript. See `docs/effect.md` for error, resource-lifetime and recovery rules. Effect Schema defines and decodes implementation-source/catalog evidence, but does not establish provenance, authority or linear ownership; Ledger retains the original bytes and continues those checks. A historical source with malformed nested evidence that the former partial checker admitted is no longer usable for a dependent command; its retained bytes and export are not rewritten. Full compatibility with every historical store has not been established.
 
 Initially these are five modules in one application, not separately deployed processes/packages. **Principal establishment is an internal seam of Ledger**, with three principal classes: **human**, **assignment-agent**, and **host**. Device credentials and restrictive local-OS-owner CLI/socket authentication establish human context; the server-bound Durable adapter establishes assignment-agent context. Ledger's private composition-root constructor alone supplies unforgeable in-process host context, scoped to Engine scheduling, Effects observation/admission, or recovery maintenance. No client/model/tool argument can construct or select these contexts. Ledger rechecks current scope, revocation and authorization in its transaction before dedup disclosure or mutation; Kernel independently checks the closed command-family × principal matrix below. Pure/core and transaction checks need not pass through HTTP. These internal mechanisms add no sixth module. Sandboxes stays separate from Effects to keep shell execution away from credentials.
+
+**The host transport owns the client protocol.** The composition root in `src/host` serves the device listener and the admin socket, maps wire frames and routes each request to Ledger's domain API or to Engine's `watch`. It asks Ledger's principal-establishment seam to authenticate each request and receives an unforgeable context. It holds no authority and is an adapter, not a sixth module. Ledger and Engine import no HTTP or socket code, so the client protocol and the internal modules change independently.
 
 A small method count must not conceal a generic interface. `command` is a closed union of actual Render operations, classified below. Every concrete command belongs to an explicit family; unknown variants and unlisted principal/family combinations refuse. The matrix is not blanket trust in in-process callers. Commands accept no scripts, user-defined reducers, arbitrary task types, SQL or caller-selected paths; ordinary named pure domain functions implement their legality.
 
@@ -291,6 +297,7 @@ Human cancellation and agent own-stop requests are distinct typed inputs from ho
 flowchart TB
     Client["Human clients<br/>no writable authority"]
     subgraph Host["One authoritative Render host — logical modules"]
+        T["Host transport<br/>client protocol, routing"]
         R["Ledger<br/>principal establishment, authorization, transactions"]
         C["Kernel<br/>pure domain transformations"]
         W["Engine<br/>policy, instruction rendering, supervision"]
@@ -298,6 +305,8 @@ flowchart TB
         E["Effects<br/>private refs, publication, reconciliation"]
         DB[("Ledger-owned SQLite authority/history<br/>immutable acknowledged documents + Durable tasks")]
         D["Pi Durable runtime<br/>execution facility, not domain authority"]
+        T -->|"CALL authenticate, command, observe, artifact"| R
+        T -->|"CALL watch coordinator"| W
         R -->|"CALL change with resolved values"| C
         C -.->|"DATA decision and domain intents"| R
         R -->|"CALL atomic commit"| DB
@@ -307,8 +316,8 @@ flowchart TB
         E -->|"CALL request admission; record observation"| R
         R ==>|"AUTH scoped operation permit"| E
     end
-    Client -->|"CALL command / observe / artifact"| R
-    R -.->|"DATA scoped receipts and views"| Client
+    Client -->|"CALL versioned client protocol"| T
+    T -.->|"DATA scoped receipts, views and live chat"| Client
     classDef pure fill:#eef6ff,stroke:#2764a5,color:#172b4d
     classDef authority fill:#fff3d6,stroke:#8a6200,color:#382800
     class C pure
@@ -332,7 +341,7 @@ Agent coding processes receive neither human credentials nor a general-purpose a
 
 ### 5.2 Client-facing capabilities, not client design
 
-Ledger serves enough data for any stateless client to present **accepted commitment, active owner, latest evidence, blocker and next human action**. Required views include proposal/Slice status, exact Contracts, design revisions, pending decisions, annotations/dispositions, evidence, publication lag and historical outcomes. Delivery views expose current pass/Audit status and A_i/B_i/prepared X_i lineage separately from the unchanged completed-Watchdog count; a previous pass's completed Audit is historical, not current completion. Commands support coordinator messages, complete-byte document saves, rework, exact-basis decisions, cancellation and scoped configuration changes. A client never edits authoritative storage.
+Ledger supplies, and the host transport serves, enough data for any stateless client to present **accepted commitment, active owner, latest evidence, blocker and next human action**. Required views include proposal/Slice status, exact Contracts, design revisions, pending decisions, annotations/dispositions, evidence, publication lag and historical outcomes. Delivery views expose current pass/Audit status and A_i/B_i/prepared X_i lineage separately from the unchanged completed-Watchdog count; a previous pass's completed Audit is historical, not current completion. Commands support coordinator messages, complete-byte document saves, rework, exact-basis decisions, cancellation and scoped configuration changes. A client never edits authoritative storage.
 
 The protocol distinguishes acknowledged saves from client-local unsaved bytes; only the former are recoverable elsewhere. Saved artifact bytes and provenance are retrievable without reconstructing chat. Optional notifications are pointers to next actions, never authorization, and must not block workflow progress.
 
@@ -357,6 +366,8 @@ flowchart LR
 <!-- /render-figure -->
 
 ### 5.2.1 Proposed protocol surface
+
+The host transport in `src/host`, not Ledger, owns this binding. It maps the shared envelope to routes and frames and calls Ledger's domain API, so a route or frame change edits no internal module. The live coordinator chat stream is one more authenticated NDJSON route, fed by Engine's read-only `watch` for a scope Ledger authorizes. Its frames carry the pinned runtime's agent events with hidden reasoning and opaque provider fields removed.
 
 Use one versioned command envelope (§5.3), not a separate semantic interface per client. Recommended HTTPS JSON binding: command submission; command receipt lookup by original ID; scoped snapshot/NDJSON observation with polling fallback; immutable artifact reads/uploads; paginated history and scoped coordinator-message views. Exact route names are implementation details; the semantic envelope is shared by all clients. Uploads return immutable refs, not writable paths. A stateless client may keep an outbox of unresolved command IDs/envelopes; it is not a workflow authority.
 
@@ -703,6 +714,10 @@ A delegated decision records machine actor, request/captured settings, captured 
 
 At limit 0, the initial Watchdog review still occurs but no automatic rework follows a completed non-pass. Every actual completed Watchdog review counts once, including Needs Human and completed drift re-reviews after a pass. Interruptions, duplicate recording, preparation conflicts/errors and Audit do not count. Needs Human stops immediately. Raising/adopting a limit preserves all counts/findings; a valid pass is admissible even at/above the cap. Earlier passing drift rounds can make a later non-pass reach the human sooner; show that history rather than silently exempting it.
 
+**Projects (usable-host amendment).** A host keeps any number of human-added `Project` records, each with a name, an immutable remote, a default branch, a digest-pinned check image and a principles path. A human with project-wide authority adds a project or edits it with an expected revision. `createWorkflow` names one project, which never changes. Effects keeps a private mirror per project and fetches into it before preparation. Engine passes project facts in each Effects operation, and Effects never reads Ledger. The forge target derives from the remote. A device scoped to some workflows sees only their projects, and export includes project revisions.
+
+**Engine settings (usable-host amendment).** Families, model entries and role templates are immutable revisions that a human with project-wide authority changes with `changeEngineSettings` and an expected revision, like policy and checkpoint settings. Engine reads the current revision when it builds a packet, and the packet pins the copied values, so a later revision never changes existing work. API keys and the GitHub token are not settings. They live in a host-only `0600` file outside Ledger, set through an authenticated human route and never returned.
+
 **Deferred, not rejected forever:** per-request natural-language delegation may be designed in a later iteration if useful. It is not unfinished v1 work or a release gate.
 
 ### 6.5 Durable assignment continuity, fresh independent roles
@@ -739,7 +754,7 @@ Export reads stored records at a declared consistent cutoff, not watch delivery.
 
 ### 6.6 Native runtime capabilities and focused web access
 
-**Selected R2-A003 scope:** use pinned Durable's native text compaction and SQLite-backed history, bash `rg`/`grep` inside the assignment environment for repository search, and Pi AI's native Claude provider/authentication facilities. Native compaction is not a new SQLite compaction algorithm, nor claimed quality-equivalent to opaque OpenAI compaction. No better-compaction, FFF or Claude-bridge adapter, SDK/session reconstruction, binary/index gate or feature-parity obligation remains. Ordinary native provider/tool cancellation, scoped configuration, committed-result recovery and model-family availability still need verification. There is no general ordinary-Pi extension loader or replacement Pi runner.
+**Selected R2-A003 scope:** use pinned Durable's native text compaction and SQLite-backed history, bash `rg`/`grep` inside the assignment environment for repository search, and Pi AI's native Claude provider/authentication facilities. Native compaction is not a new SQLite compaction algorithm, nor claimed quality-equivalent to opaque OpenAI compaction. No better-compaction, FFF or Claude-bridge adapter, SDK/session reconstruction, binary/index gate or feature-parity obligation remains. Ordinary native provider/tool cancellation, scoped configuration, committed-result recovery and model-family availability still need verification. There is no general ordinary-Pi extension loader or replacement Pi runner. Under the usable-host amendment, the native Claude provider authenticates with the operator's existing pi OAuth login through a Render credential store that honors pi's lock on the same file. The native `openai` provider serves the ChatGPT family the same way. No bridge is used.
 
 #### Historical bounded web comparison and selected integration
 
