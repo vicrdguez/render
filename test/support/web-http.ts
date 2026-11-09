@@ -139,7 +139,7 @@ export async function roleWebJourney(
 
 export async function retainedEvidenceRef(f: Awaited<ReturnType<typeof roleFixture>>): Promise<string | undefined> {
 	for (let n = 0; n < 200; n++) {
-		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		if ("jsonl" in exported) {
 			const ref = exported.jsonl
 				.split("\n")

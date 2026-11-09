@@ -117,7 +117,7 @@ test("RB06/RB07/RB12 only recorded qualifying integration of the Record pass rel
 		carries(own(t, r.id).packet.inputs, [t.contract, ...basis(t)], "Watchdog");
 		refused(await assignNext(t), "dependency_blocked", "Watchdog-only");
 		const planned = accepted(await stage(t, t.id, intent(t, t.id, r))).operation as string;
-		const direct = await record(t, t.id, planned, observation(planned, "integration-attempt:999"));
+		const direct = await record(t, t.id, planned, observation(planned, "integration-attempt:1000"));
 		assert.equal(direct.status, "refused", "an applied ref observation without an admitted attempt records nothing");
 		refused(await assignNext(t), "dependency_blocked", "direct ref write");
 		const attempt = accepted(await admit(t, t.id, planned)).integrationAttempt as string;

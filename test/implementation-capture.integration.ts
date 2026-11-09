@@ -15,7 +15,7 @@ function continueFrom(sandboxes: Sandboxes, f: Awaited<ReturnType<typeof sourceF
 test("implementation capture: sealed A reprovisions literal source under the same scope while old handle stays closed", async () => {
 	const f = await sourceFixture();
 	try {
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		const first = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
 		const edited = await Effect.runPromise(
 			f.sandboxes.execute(first, {
@@ -88,7 +88,7 @@ fs.writeFileSync('added','fixed\\r\\n');`,
 test("implementation capture: only the exact sealed predecessor can authorize fresh preparation", async () => {
 	const f = await sourceFixture();
 	try {
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		const first = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
 		await assert.rejects(continueFrom(f.sandboxes, f, base, first), /sealed predecessor/i);
 		await Effect.runPromise(f.sandboxes.execute(first, { scope: f.scope, argv: ["sh", "-c", "echo changed > added"], timeoutMs: 10000 }));
@@ -114,7 +114,7 @@ test("implementation capture: only the exact sealed predecessor can authorize fr
 test("implementation capture: reopening and stopping a scope contains its fresh runtime, not only the original", async () => {
 	const f = await sourceFixture();
 	try {
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		const first = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
 		const A = await Effect.runPromise(
 			f.effects.perform({ type: "retain", base, capture: await Effect.runPromise(f.sandboxes.seal(first)) }),
@@ -148,7 +148,7 @@ test("implementation capture: reopening and stopping a scope contains its fresh 
 test("implementation capture: scope stop contains successor despite missing predecessor runtime", async () => {
 	const f = await sourceFixture();
 	try {
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		const first = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
 		const A = await Effect.runPromise(
 			f.effects.perform({ type: "retain", base, capture: await Effect.runPromise(f.sandboxes.seal(first)) }),
@@ -170,7 +170,7 @@ test("implementation capture: scope stop contains successor despite missing pred
 test("implementation capture: durable scope fence refuses execution after reopen", async () => {
 	const f = await sourceFixture();
 	try {
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		const first = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
 		const A = await Effect.runPromise(
 			f.effects.perform({ type: "retain", base, capture: await Effect.runPromise(f.sandboxes.seal(first)) }),
@@ -195,7 +195,7 @@ test("implementation capture: durable scope fence refuses execution after reopen
 test("implementation capture: simultaneous fresh preparations cannot create two writers", async () => {
 	const f = await sourceFixture();
 	try {
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		const first = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
 		const A = await Effect.runPromise(
 			f.effects.perform({ type: "retain", base, capture: await Effect.runPromise(f.sandboxes.seal(first)) }),

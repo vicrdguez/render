@@ -21,6 +21,7 @@ const KINDS = [
 	"receipt",
 	"policy",
 	"checkpoint_settings",
+	"project",
 	"runtime_transcript",
 	"runtime_task",
 ];

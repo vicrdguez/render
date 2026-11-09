@@ -22,7 +22,7 @@ function manifest(stage = "seams", responses: unknown[] = []) {
 				decision: "Authority boundary",
 				rationale: "Keep legality local",
 				alternatives: ["combined", "separate"],
-				evidence: ["revision:3"],
+				evidence: ["revision:4"],
 				classification: "judgment",
 				default: "separate",
 			},
@@ -77,7 +77,7 @@ async function deviceClients(f: Awaited<ReturnType<typeof roleFixture>>) {
 						version: 1,
 						authorityEpoch: f.ledger.status().authorityEpoch,
 						commandId: `device:${label}`,
-						command: { type: "enrollDevice", label, scope: { workflows: ["workflow:2"] } },
+						command: { type: "enrollDevice", label, scope: { workflows: ["workflow:3"] } },
 					},
 					admin,
 				),
@@ -92,7 +92,7 @@ async function deviceClients(f: Awaited<ReturnType<typeof roleFixture>>) {
 						version: 1,
 						authorityEpoch: f.ledger.status().authorityEpoch,
 						commandId: `client:${label}:${++n}`,
-						workflow: "workflow:2",
+						workflow: "workflow:3",
 						command,
 					}),
 				});
@@ -166,7 +166,7 @@ async function fixture(sameFamily = true, reviewOverrides: Record<string, unknow
 				version: 1,
 				authorityEpoch: f.ledger.status().authorityEpoch,
 				commandId: "ground",
-				workflow: "workflow:2",
+				workflow: "workflow:3",
 				expected: { document: null },
 				command: {
 					type: "saveDocument",
@@ -343,7 +343,7 @@ test("S04/S07 captured human survives rework; later Modules captures delegated w
 		);
 		await t.reopen();
 		assert.equal(t.pending().requests[1]!.decision, approved.decision);
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete && exported.content[approved.decision as string]);
 	} finally {
 		await t.close();
@@ -495,7 +495,7 @@ test("C17 Engine tools complete a fresh challenge and resume the workflow-owned 
 						version: 1,
 						authorityEpoch: f.ledger.status().authorityEpoch,
 						commandId: "tool-ground",
-						workflow: "workflow:2",
+						workflow: "workflow:3",
 						expected: { document: null },
 						command: {
 							type: "saveDocument",
@@ -543,7 +543,7 @@ test("C01/C14 single pending identity, checked cancellation and successor", asyn
 			assert.equal(
 				code(
 					await t.f.command(
-						{ type: "requestCheckpoint", stage: "seams", scope: "revision:3", required: { candidates: false, experiment: false } },
+						{ type: "requestCheckpoint", stage: "seams", scope: "revision:4", required: { candidates: false, experiment: false } },
 						principal,
 					),
 				),
@@ -659,7 +659,7 @@ test("C02/C06/C07/C09 saves preserve complete edits and race basis; notes approv
 		const original = await Effect.runPromise(t.f.ledger.artifact(admin, { read: d.emission as string }));
 		assert.ok("content" in original);
 		assert.equal(original.content.toString(), markdown);
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of [d.emission, d.manifest, one.revision, two.revision, approval.decision])
 			assert.ok(exported.content[ref as string], `retained ${ref}`);
@@ -770,7 +770,7 @@ test("C11 unrelated save does not stale approval", async () => {
 						version: 1,
 						authorityEpoch: t.f.ledger.status().authorityEpoch,
 						commandId: "unrelated",
-						workflow: "workflow:2",
+						workflow: "workflow:3",
 						expected: { document: null },
 						command: {
 							type: "saveDocument",

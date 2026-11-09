@@ -18,7 +18,7 @@ test("quarantine reconciliation retries the original runtime without reopening e
 	const f = await sourceFixture();
 	const path = process.env.PATH;
 	try {
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		const handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
 		await Effect.runPromise(
 			f.sandboxes.execute(handle, { scope: f.scope, argv: ["sh", "-c", "printf diagnostic; exit 7"], timeoutMs: 10000 }),
@@ -48,10 +48,8 @@ test("failed collection retains actual command diagnostics in history without a 
 	const source = await sourceFixture();
 	const config = {
 		root: join(source.root, "owned"),
-		repositories: { owned: source.repo },
 		checks: {
-			"revision:3": {
-				repository: "owned",
+			"revision:4": {
 				commit: source.commit,
 				profile: source.profile,
 				argv: ["sh", "-c", "printf 'actual diagnostic\\r\\n'; printf 'failure detail' >&2; mkfifo pipe; exit 7"],
@@ -60,7 +58,11 @@ test("failed collection retains actual command diagnostics in history without a 
 			},
 		},
 	};
-	const f = await roleFixture(new Engine({ ownedChecks: config }));
+	const f = await roleFixture(new Engine({ ownedChecks: config }), {
+		remote: source.repo,
+		defaultBranch: "fixture",
+		checkImage: source.profile.image,
+	});
 	try {
 		assert.equal(
 			(await f.command({ type: "assignTask", slice: "failed:check", delivery: true, packet: packet({ execution: "linux-writer" }) }))
@@ -78,7 +80,7 @@ test("failed collection retains actual command diagnostics in history without a 
 			await setTimeout(20);
 		}
 		assert.equal(assignment.report, null, "unsupported source never acquires a verification report");
-		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported);
 		const diagnostics = Object.entries(exported.content).flatMap(([ref, bytes]) => {
 			try {
@@ -128,10 +130,8 @@ for (const trigger of ["absent image", "absent commit", "gitlink", "base exclusi
 		}[trigger];
 		const config = {
 			root: join(source.root, "owned"),
-			repositories: { owned: source.repo },
 			checks: {
-				"revision:3": {
-					repository: "owned",
+				"revision:4": {
 					commit,
 					profile,
 					argv: ["true"],
@@ -140,7 +140,11 @@ for (const trigger of ["absent image", "absent commit", "gitlink", "base exclusi
 				},
 			},
 		};
-		const f = await roleFixture(new Engine({ ownedChecks: config }));
+		const f = await roleFixture(new Engine({ ownedChecks: config }), {
+			remote: source.repo,
+			defaultBranch: "fixture",
+			checkImage: profile.image,
+		});
 		const snapshot = () => {
 			const value = f.ledger.snapshot(admin);
 			assert.ok("assignments" in value);
@@ -222,10 +226,8 @@ test("possibly created runtime is never recorded absent: capacity and writer own
 	process.env.PATH = `${tools}:${path}`;
 	const config = {
 		root: join(source.root, "owned"),
-		repositories: { owned: source.repo },
 		checks: {
-			"revision:3": {
-				repository: "owned",
+			"revision:4": {
 				commit: source.commit,
 				profile: source.profile,
 				argv: ["true"],
@@ -234,7 +236,11 @@ test("possibly created runtime is never recorded absent: capacity and writer own
 			},
 		},
 	};
-	const f = await roleFixture(new Engine({ ownedChecks: config }));
+	const f = await roleFixture(new Engine({ ownedChecks: config }), {
+		remote: source.repo,
+		defaultBranch: "fixture",
+		checkImage: source.profile.image,
+	});
 	const snapshot = () => {
 		const value = f.ledger.snapshot(admin);
 		assert.ok("assignments" in value);
@@ -296,10 +302,8 @@ async function slowCheck(after = "") {
 	const source = await sourceFixture();
 	const config = {
 		root: join(source.root, "owned"),
-		repositories: { owned: source.repo },
 		checks: {
-			"revision:3": {
-				repository: "owned",
+			"revision:4": {
 				commit: source.commit,
 				profile: { ...source.profile, exclusions: [".git", ".command-started"] },
 				argv: ["sh", "-c", `touch .command-started; sleep 2; ${after}`],
@@ -308,7 +312,11 @@ async function slowCheck(after = "") {
 			},
 		},
 	};
-	const f = await roleFixture(new Engine({ ownedChecks: config }));
+	const f = await roleFixture(new Engine({ ownedChecks: config }), {
+		remote: source.repo,
+		defaultBranch: "fixture",
+		checkImage: source.profile.image,
+	});
 	const assignments = () => {
 		const value = f.ledger.snapshot(admin);
 		assert.ok("assignments" in value);
@@ -362,7 +370,7 @@ test("policy adoption during an owned command holds capacity until stop and refu
 			),
 		);
 		assert.ok(published.status === "accepted", JSON.stringify(published));
-		const binding = frame.policy.bindings["workflow:2"]!.revision;
+		const binding = frame.policy.bindings["workflow:3"]!.revision;
 		assert.equal(
 			(await f.command({ type: "adoptPolicy", revision: published.result.policy, expectedBinding: binding }, admin)).status,
 			"accepted",
@@ -375,7 +383,7 @@ test("policy adoption during an owned command holds capacity until stop and refu
 		assert.equal(assignments()[0]!.status, "blocked");
 		assert.equal(assignments()[0]!.report, null, "a pass receipt must not land on the superseded policy basis");
 		assert.match(assignments()[0]!.blocker!, /policy_refresh_required.*stale_assignment/);
-		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported);
 		const collected = Object.values(exported.content).flatMap((bytes) => {
 			try {

@@ -38,7 +38,7 @@ test("BJ16 a missing tool is reported, the real failure is red-on-the-bug, and p
 		assert.equal(suite.steps[0]!.platform.os, "linux");
 		assert.match(suite.steps[0]!.stdout, /value is A/, "actual Linux output shows the reported wrong behavior");
 		assert.equal(t.assignments().filter((a) => a.parent === writer.id).length, 2, "the refused early Audit staged no reviewers");
-		const history = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const history = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in history);
 		const reproductions = Object.values(history.content)
 			.map((b) => Buffer.from(b, "base64").toString())

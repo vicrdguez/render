@@ -18,10 +18,8 @@ for (const barrier of ["after-sandbox-stop", "before-source-root", "after-source
 		const source = await sourceFixture();
 		const config = {
 			root: join(source.root, "owned"),
-			repositories: { owned: source.repo },
 			checks: {
-				"revision:3": {
-					repository: "owned",
+				"revision:4": {
 					commit: source.commit,
 					profile: source.profile,
 					argv: ["sh", "-c", "printf 'before root\\r\\n'; printf 'literal result\\r\\n' > result"],
@@ -30,14 +28,22 @@ for (const barrier of ["after-sandbox-stop", "before-source-root", "after-source
 				},
 			},
 		};
-		const child = spawn(process.execPath, [new URL("./support/owned-check-worker.ts", import.meta.url).pathname, JSON.stringify(config)], {
-			env: {
-				...process.env,
-				RENDER_FAULT_BARRIER: barrier,
-				RENDER_FAULT_COMMAND: barrier.endsWith("commit") ? "owned-check:assignment:4:1" : "owned-source",
+		const child = spawn(
+			process.execPath,
+			[
+				new URL("./support/owned-check-worker.ts", import.meta.url).pathname,
+				JSON.stringify(config),
+				JSON.stringify({ remote: source.repo, defaultBranch: "fixture", checkImage: source.profile.image }),
+			],
+			{
+				env: {
+					...process.env,
+					RENDER_FAULT_BARRIER: barrier,
+					RENDER_FAULT_COMMAND: barrier.endsWith("commit") ? "owned-check:assignment:5:1" : "owned-source",
+				},
+				stdio: ["ignore", "pipe", "pipe", "ipc"],
 			},
-			stdio: ["ignore", "pipe", "pipe", "ipc"],
-		});
+		);
 		let data: string | undefined;
 		let output = "";
 		let stderr = "";
@@ -71,7 +77,7 @@ for (const barrier of ["after-sandbox-stop", "before-source-root", "after-source
 				const assignment = (snapshot.assignments as RoleAssignment[])[0]!;
 				assert.equal(assignment.executing, false, "confirmed whole-container stop releases capacity, never a timeout alone");
 				assert.equal(assignment.status, barrier === "after-commit" ? "submitted" : "blocked");
-				const history = await Effect.runPromise(recovered.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+				const history = await Effect.runPromise(recovered.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 				assert.ok("manifest" in history);
 				assert.equal(history.manifest.complete, true);
 				const documents = Object.values(history.content).flatMap((bytes) => {

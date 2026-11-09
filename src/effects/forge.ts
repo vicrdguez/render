@@ -3,6 +3,7 @@
 // comes from trusted host configuration and is only ever placed in request headers.
 import * as Effect from "effect/Effect";
 import { fromPromise } from "../effect.ts";
+import type { ProjectFacts } from "../kernel/projects.ts";
 import type { Capabilities, ProposalItem } from "../kernel/publication.ts";
 
 export type ForgeConfig = {
@@ -13,8 +14,8 @@ export type ForgeConfig = {
 	actor: string;
 	/** Pause between publication retries while the forge is unreachable or an outcome is unknown. */
 	retryMs?: number;
-	repositories: Readonly<Record<string, { owner: string; name: string; base: string }>>;
 };
+export type ForgeTarget = { owner: string; name: string; base: string };
 export type ForgeRequest =
 	| { type: "publishSource"; proposal: string; commit: string; expected: string | null }
 	| { type: "createDraftProposal"; proposal: string; title: string; body: string }
@@ -50,19 +51,40 @@ type Pull = {
 	user: { login: string } | null;
 };
 
+/**
+ * The GitHub repository a project publishes to, from its remote: `https://github.com/<owner>/<name>(.git)`,
+ * `git@github.com:<owner>/<name>(.git)`, or the same path under the trusted forge's Git endpoint. Any other remote
+ * works for local work and has no publication target.
+ */
+export function forgeTarget(config: ForgeConfig, project: ProjectFacts): ForgeTarget | undefined {
+	const path = "([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\\.git)?";
+	const escaped = config.git.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	for (const prefix of ["https://github\\.com/", "git@github\\.com:", `${escaped}/`]) {
+		const match = new RegExp(`^${prefix}${path}$`).exec(project.remote);
+		if (match) return { owner: match[1]!, name: match[2]!, base: project.defaultBranch };
+	}
+	return undefined;
+}
+/** Git authentication for the forge: an environment-only header, never a URL, argument or configuration file. */
+export function forgeAuth(config: ForgeConfig): Record<string, string> {
+	return {
+		GIT_CONFIG_COUNT: "1",
+		GIT_CONFIG_KEY_0: "http.extraHeader",
+		GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`x-access-token:${config.token}`).toString("base64")}`,
+	};
+}
+
 export function forgeBranch(proposal: string): string {
 	return `render/${proposal.replace(/[^A-Za-z0-9._-]+/g, "-")}`;
 }
 
 export class GitHubForge {
 	readonly #config: ForgeConfig;
-	readonly #repo: { owner: string; name: string; base: string };
+	readonly #repo: ForgeTarget;
 	readonly #git: RemoteGit;
-	constructor(config: ForgeConfig, repository: string, git: RemoteGit) {
-		const repo = config.repositories[repository];
-		if (!repo) throw new Error("Repository has no trusted forge publication target.");
+	constructor(config: ForgeConfig, target: ForgeTarget, git: RemoteGit) {
 		this.#config = config;
-		this.#repo = repo;
+		this.#repo = target;
 		this.#git = git;
 	}
 	capabilities(): Capabilities {
@@ -227,11 +249,7 @@ export class GitHubForge {
 		return `${this.#config.git}/${this.#repo.owner}/${this.#repo.name}.git`;
 	}
 	#auth(): Record<string, string> {
-		return {
-			GIT_CONFIG_COUNT: "1",
-			GIT_CONFIG_KEY_0: "http.extraHeader",
-			GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`x-access-token:${this.#config.token}`).toString("base64")}`,
-		};
+		return forgeAuth(this.#config);
 	}
 	#request(method: string, url: string, body?: unknown): Promise<Response> {
 		return fetch(url, {

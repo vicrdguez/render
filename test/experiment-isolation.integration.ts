@@ -6,7 +6,7 @@ import { sourceFixture } from "./support/source.ts";
 test("E08 parent cannot repair originals but can rerun in separate scratch", async () => {
 	const f = await sourceFixture({ "measurement.txt": { text: "12\n" } });
 	try {
-		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", project: f.project, commit: f.commit }));
 		const inputs = { ...base, readOnly: { favorite: base } };
 		const parent = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, inputs));
 		const result = await Effect.runPromise(

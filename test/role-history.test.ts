@@ -53,9 +53,9 @@ test("R12 retained role packets, reports, task receipts and uncertainty export a
 		});
 		await until(() => assignments().length === 2 && assignments().every((a) => !a.executing) && assignments()[1]?.status === "submitted");
 		const [parent, child] = assignments() as [RoleAssignment, RoleAssignment];
-		const page = await Effect.runPromise(f.ledger.observe(admin, { history: { workflow: "workflow:2", limit: "1" } }));
+		const page = await Effect.runPromise(f.ledger.observe(admin, { history: { workflow: "workflow:3", limit: "1" } }));
 		assert.ok("next" in page && page.next);
-		const before = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const before = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in before);
 		assert.equal(before.manifest.complete, true, "role receipts must be found in their actual scheduling/agent namespaces");
 		assert.deepEqual(before.manifest.missing, []);
@@ -96,7 +96,7 @@ test("R12 retained role packets, reports, task receipts and uncertainty export a
 		assert.ok("manifest" in continued);
 		assert.equal(continued.manifest.cutoff, page.cutoff);
 		assert.equal(continued.jsonl, before.jsonl, "later uncertainty and restart cannot change the original history cutoff");
-		const current = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const current = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in current);
 		assert.equal(current.manifest.complete, true);
 		const ref = String(quarantine.result.quarantined);
@@ -142,7 +142,7 @@ for (const failure of ["missing_content", "content_corrupt", "unsupported_schema
 				db.close();
 			}
 			await f.reopen();
-			const bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+			const bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 			assert.ok("manifest" in bundle);
 			assert.equal(bundle.manifest.complete, false);
 			assert.ok(

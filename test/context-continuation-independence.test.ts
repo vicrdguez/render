@@ -62,7 +62,7 @@ test("context-continuation-independence: replacement requires fencing and quiesc
 		assert.equal(assignments(f)[0]?.status, "canceled");
 		await f.reopen();
 		assert.equal(assignments(f)[1]?.predecessor, old.id);
-		const bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in bundle && bundle.manifest.complete);
 		assert.ok(bundle.jsonl.includes(old.id));
 		assert.ok(bundle.jsonl.includes(fresh.id));

@@ -78,7 +78,7 @@ test("BJ06 saving bug Ground implies no implementation commitment; Ground and th
 						version: 1,
 						authorityEpoch: f.ledger.status().authorityEpoch,
 						commandId: "bug-ground",
-						workflow: "workflow:2",
+						workflow: "workflow:3",
 						expected: { document: null },
 						command: { type: "saveDocument", document: "ground", mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
 					},
@@ -357,7 +357,7 @@ test("BJ15 the reproduction is retained in history/export and survives reopen", 
 		);
 		const red = accepted(await t.reproduce({ exitCode: 1, stdout: OBSERVED }));
 		const check = async () => {
-			const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+			const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 			assert.ok("manifest" in exported && exported.manifest.complete);
 			assert.equal(
 				Buffer.from(exported.content[missing.source as string]!, "base64").toString(),

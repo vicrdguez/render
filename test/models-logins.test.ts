@@ -39,7 +39,7 @@ const submit = () =>
 
 /** The secret must be absent from every record, packet, receipt and export Render keeps. */
 async function assertAbsent(f: Fixture, secret: string) {
-	const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+	const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 	assert.ok("manifest" in exported);
 	const decoded = Object.values(exported.content).map((value) => Buffer.from(value, "base64").toString());
 	assert.ok(!`${exported.jsonl}${decoded.join("")}`.includes(secret), "the secret leaked into an export");

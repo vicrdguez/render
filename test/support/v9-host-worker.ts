@@ -11,7 +11,7 @@ import { adminServer, deviceServer } from "../../src/host/transport.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
-import { claudeFixture, packet } from "./roles.ts";
+import { addProject, claudeFixture, packet } from "./roles.ts";
 
 const data = process.argv[2]!;
 const WORKFLOWS = Number(process.env.RENDER_V9_WORKFLOWS ?? 20);
@@ -75,8 +75,9 @@ const command = async (workflow: string | undefined, command: Record<string, unk
 };
 const workflows: string[] = [];
 const inputs: Record<string, string> = {};
+const project = (await command(undefined, addProject())).project as string;
 for (let w = 0; w < WORKFLOWS; w++) {
-	const workflow = (await command(undefined, { type: "createWorkflow", title: `V9 proposal ${w}` })).workflow as string;
+	const workflow = (await command(undefined, { type: "createWorkflow", title: `V9 proposal ${w}`, project })).workflow as string;
 	workflows.push(workflow);
 	inputs[workflow] = (
 		await command(

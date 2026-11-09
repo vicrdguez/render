@@ -15,10 +15,10 @@ export function packet(overrides: Partial<RolePacket> = {}): RolePacket {
 	return {
 		role: "coordinator",
 		inputs: [],
-		principles: "revision:3",
-		instructions: "revision:3",
-		policy: "revision:3",
-		profile: "revision:3",
+		principles: "revision:4",
+		instructions: "revision:4",
+		policy: "revision:4",
+		profile: "revision:4",
 		execution: "read-only",
 		provider: "anthropic",
 		model: "claude-sonnet-4-6",
@@ -58,6 +58,19 @@ export function passOwner(contract: string, overrides: Partial<RolePacket> = {})
 		...overrides,
 	});
 }
+/** The fixture project's id: the first command after startup adds it. */
+export const PROJECT = "project:2";
+/** A project for workflows; Git-backed fixtures name a real remote. */
+export function addProject(overrides: { remote?: string; defaultBranch?: string; checkImage?: string; name?: string } = {}) {
+	return {
+		type: "addProject",
+		name: "Fixture",
+		remote: "file:///render-fixture/absent.git",
+		defaultBranch: "main",
+		checkImage: "render-check:fixture",
+		...overrides,
+	};
+}
 export const admin = mintContext({ kind: "human", human: "human:owner", route: "local-admin" });
 export const scheduler = mintContext({ kind: "host", scope: "scheduling" });
 export const recovery = mintContext({ kind: "host", scope: "recovery" });
@@ -88,8 +101,8 @@ export async function allowSameFamily(ledger: Ledger) {
 				version: 1,
 				authorityEpoch: ledger.status().authorityEpoch,
 				commandId: "fixture-family-adoption",
-				workflow: "workflow:2",
-				command: { type: "adoptPolicy", revision: changed.result.policy, expectedBinding: policy.bindings["workflow:2"]!.revision },
+				workflow: "workflow:3",
+				command: { type: "adoptPolicy", revision: changed.result.policy, expectedBinding: policy.bindings["workflow:3"]!.revision },
 			},
 			admin,
 		),
@@ -97,7 +110,7 @@ export async function allowSameFamily(ledger: Ledger) {
 	if (adopted.status !== "accepted") throw new Error(JSON.stringify(adopted));
 }
 
-export async function roleFixture(engine = new Engine()) {
+export async function roleFixture(engine = new Engine(), project: Parameters<typeof addProject>[0] = {}) {
 	const data = await mkdtemp(join(tmpdir(), "render-role-"));
 	let harness!: Harness;
 	let registry!: Registry;
@@ -117,24 +130,33 @@ export async function roleFixture(engine = new Engine()) {
 	const command = (c: Record<string, unknown>, context = scheduler, id = `role:${++n}`) =>
 		Effect.runPromise(
 			opened.ledger.command(
-				{ version: 1, authorityEpoch: opened.authorityEpoch, commandId: id, workflow: "workflow:2", command: c },
+				{ version: 1, authorityEpoch: opened.authorityEpoch, commandId: id, workflow: "workflow:3", command: c },
 				context,
 			),
 		);
+	const added = await Effect.runPromise(
+		opened.ledger.command({ version: 1, authorityEpoch: opened.authorityEpoch, commandId: "project", command: addProject(project) }, admin),
+	);
+	if (added.status !== "accepted" || added.result.project !== PROJECT) throw new Error(JSON.stringify(added));
 	const created = await Effect.runPromise(
 		opened.ledger.command(
-			{ version: 1, authorityEpoch: opened.authorityEpoch, commandId: "create", command: { type: "createWorkflow", title: "Roles" } },
+			{
+				version: 1,
+				authorityEpoch: opened.authorityEpoch,
+				commandId: "create",
+				command: { type: "createWorkflow", title: "Roles", project: PROJECT },
+			},
 			admin,
 		),
 	);
-	if (created.status !== "accepted" || created.result.workflow !== "workflow:2") throw new Error(JSON.stringify(created));
+	if (created.status !== "accepted" || created.result.workflow !== "workflow:3") throw new Error(JSON.stringify(created));
 	const input = await Effect.runPromise(
 		opened.ledger.command(
 			{
 				version: 1,
 				authorityEpoch: opened.authorityEpoch,
 				commandId: "input",
-				workflow: "workflow:2",
+				workflow: "workflow:3",
 				expected: { document: null },
 				command: {
 					type: "saveDocument",

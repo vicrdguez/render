@@ -16,7 +16,7 @@ import { accepted, capture, implementationLifecycle, implementationTasks, Ledger
 import { admin, recovery, scheduler } from "./support/roles.ts";
 
 const effects = mintContext({ kind: "host", scope: "effects" });
-const WORKFLOW = "workflow:2";
+const WORKFLOW = "workflow:3";
 const P1 = `pass:${WORKFLOW}:read-fix:1`;
 const S = "a".repeat(40);
 const T1 = "c".repeat(40);
@@ -24,7 +24,7 @@ const TREE = "d".repeat(40);
 const X = "e".repeat(40);
 const REF = `refs/render/proposals/${"0".repeat(64)}`;
 /** The fixture workflow's current policy binding, the basis a current preparation record must name. */
-const BASIS = { binding: "policy-binding:5", revision: "policy:4", minimumEvidenceRank: "tests" };
+const BASIS = { binding: "policy-binding:6", revision: "policy:5", minimumEvidenceRank: "tests" };
 
 type Lifecycle = Awaited<ReturnType<typeof implementationLifecycle>>;
 const passes = (t: Lifecycle) => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];

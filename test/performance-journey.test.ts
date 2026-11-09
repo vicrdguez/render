@@ -197,7 +197,7 @@ test("PJ14 the commitment and the comparison survive reopen and export", async (
 		const result = accepted(await r.submit("pass"));
 		await f.f.reopen(new LedgerOnlyEngine());
 		assert.equal((await read(f, contract)).performance.target, 180);
-		const exported = await Effect.runPromise(f.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(f.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete, "complete export");
 		assert.ok(exported.content[contract], "export retains the Contract");
 		const receipts = exported.jsonl

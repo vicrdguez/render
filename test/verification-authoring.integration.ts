@@ -179,7 +179,7 @@ test("VA1-VA3 verify-create authors the selected legacy asset from the actual re
 		assert.equal(pass().handoff!.integrations!.at(-1)!.status, "qualified", pass().handoff?.blocker);
 		const round = t.assignments().find((a) => a.packet.role === "watchdog")!;
 		assert.equal(round.status, "submitted", "an independent Watchdog round reviewed the authored asset");
-		const R = git(store, ["rev-parse", proposalRef("workflow:2")])
+		const R = git(store, ["rev-parse", proposalRef("workflow:3")])
 			.toString()
 			.trim();
 		assert.equal(git(store, ["rev-list", "--parents", "-n", "1", R]).toString().trim(), `${R} ${T}`, "integrated only on top of T");
@@ -240,7 +240,7 @@ test("VA4-VA5 an unproven authored asset keeps discovery, a missing prerequisite
 		assert.equal(checks.verification.status, "non-pass");
 		let canonical = "";
 		try {
-			canonical = git(store, ["rev-parse", "--verify", "-q", proposalRef("workflow:2")])
+			canonical = git(store, ["rev-parse", "--verify", "-q", proposalRef("workflow:3")])
 				.toString()
 				.trim();
 		} catch {}

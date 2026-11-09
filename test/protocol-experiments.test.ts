@@ -32,7 +32,7 @@ async function save(f: Awaited<ReturnType<typeof roleFixture>>, name: string, va
 				version: 1,
 				authorityEpoch: f.ledger.status().authorityEpoch,
 				commandId: name,
-				workflow: "workflow:2",
+				workflow: "workflow:3",
 				expected: { document: null },
 				command: {
 					type: "saveDocument",
@@ -62,7 +62,7 @@ test("E01 protocol criteria and exact retained inputs precede candidate assignme
 		const ground = await saveGround(f.ledger);
 		for (const role of ["experiment-candidate", "experiment-parent"] as const)
 			assert.equal(
-				code(await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: packet({ role }) })),
+				code(await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: packet({ role }) })),
 				"invalid_content",
 				"experiment roles cannot bypass preregistration",
 			);
@@ -81,7 +81,7 @@ test("E01 protocol criteria and exact retained inputs precede candidate assignme
 			delete value[field];
 			const ref = await save(f, `protocol-${field}`, value);
 			assert.equal(
-				code(await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: candidate(ref) })),
+				code(await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: candidate(ref) })),
 				"invalid_content",
 				`missing ${field} must not execute`,
 			);
@@ -89,7 +89,7 @@ test("E01 protocol criteria and exact retained inputs precede candidate assignme
 		assert.equal(assignments(f.ledger).length, 0);
 		const ref = await save(f, "protocol-complete", { ...protocol, ground });
 		assert.equal(
-			code(await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: candidate(ref) })),
+			code(await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: candidate(ref) })),
 			"accepted",
 			"complete preregistration must admit candidate ownership",
 		);
@@ -107,15 +107,15 @@ test("E03/E04 experiment ownership cannot adopt results or duplicate a round can
 		const ground = await saveGround(f.ledger);
 		const ref = await save(f, "protocol", { ...protocol, ground });
 		assert.equal(
-			code(await f.command({ type: "assignTask", slice: "workflow:2", delivery: true, packet: candidate(ref) })),
+			code(await f.command({ type: "assignTask", slice: "workflow:3", delivery: true, packet: candidate(ref) })),
 			"forbidden_scope",
 			"experiment must not authorize adoption",
 		);
 		assert.equal(
-			code(await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: candidate(ref, { role: "implementer" }) })),
+			code(await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: candidate(ref, { role: "implementer" }) })),
 			"forbidden_scope",
 		);
-		assert.equal(code(await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: candidate(ref) })), "accepted");
+		assert.equal(code(await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: candidate(ref) })), "accepted");
 		assert.equal(
 			code(await f.command({ type: "assignTask", slice: "other-slice", delivery: false, packet: candidate(ref) })),
 			"ownership_conflict",
@@ -141,13 +141,14 @@ test("E14 exact source refusal before allocation does not consume executing capa
 		new Engine({
 			provider: provider.provider,
 			...claudeFixture,
-			experiments: { root: `${source.root}/experiments`, repositories: { owned: source.repo } },
+			experiments: { root: `${source.root}/experiments` },
 		}),
+		{ remote: source.repo, defaultBranch: "fixture" },
 	);
 	try {
 		const ground = await saveGround(f.ledger);
 		const ref = await save(f, "protocol", { ...protocol, ground });
-		assert.equal(code(await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: candidate(ref) })), "accepted");
+		assert.equal(code(await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: candidate(ref) })), "accepted");
 		await until(() => assignments(f.ledger)[0]?.status === "blocked");
 		await until(() => !assignments(f.ledger)[0]?.executing);
 		assert.match(assignments(f.ledger)[0]!.blocker!, /experiment_prepare_blocked/);
@@ -165,7 +166,7 @@ test("E05 independent parent cannot compare unsealed or missing candidates", asy
 		const ref = await save(f, "protocol", { ...protocol, ground });
 		const parent = { ...packet({ role: "experiment-parent", execution: "linux-writer" }), experiment: { protocol: ref, candidate: null } };
 		assert.equal(
-			code(await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: parent })),
+			code(await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: parent })),
 			"missing_content",
 			"parent must not compare mutable candidates",
 		);

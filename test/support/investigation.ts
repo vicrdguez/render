@@ -3,7 +3,7 @@ import { setTimeout } from "node:timers/promises";
 import * as Effect from "effect/Effect";
 import type { RoleAssignment, RolePacket } from "../../src/kernel/roles.ts";
 import type { Ledger } from "../../src/ledger/ledger.ts";
-import { admin, packet } from "./roles.ts";
+import { admin, PROJECT, packet } from "./roles.ts";
 
 export const ground = {
 	schema: 1,
@@ -16,7 +16,7 @@ export const ground = {
 export function investigationPacket(groundRef: string, commit = "1".repeat(40), overrides: Partial<RolePacket> = {}): RolePacket {
 	return packet({
 		...overrides,
-		investigation: { ground: groundRef, repository: "owned", commit, paths: ["boundary.ts", "CONTEXT.md", "ADR.md", "verify.md"] },
+		investigation: { ground: groundRef, repository: PROJECT, commit, paths: ["boundary.ts", "CONTEXT.md", "ADR.md", "verify.md"] },
 	});
 }
 export async function saveGround(ledger: Ledger, value: unknown = ground, expected: string | null = null, id = "ground") {
@@ -26,7 +26,7 @@ export async function saveGround(ledger: Ledger, value: unknown = ground, expect
 				version: 1,
 				authorityEpoch: ledger.status().authorityEpoch,
 				commandId: id,
-				workflow: "workflow:2",
+				workflow: "workflow:3",
 				expected: { document: expected },
 				command: {
 					type: "saveDocument",

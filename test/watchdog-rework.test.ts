@@ -29,7 +29,7 @@ import {
 } from "./support/watchdog.ts";
 
 const effects = mintContext({ kind: "host", scope: "effects" });
-const W = "workflow:2";
+const W = "workflow:3";
 const P1 = `pass:${W}:read-fix:1`;
 const P2 = `pass:${W}:read-fix:2`;
 const S = "a".repeat(40);
@@ -328,8 +328,8 @@ test("WR06/WR07/WR08/WR09 a review counts only with its own exact X checks and a
 		refused(await submit(t, actor, verdictText(w(), "pass"), passing), "missing_content", "WR07 pass over source_changed checks");
 		for (const [label, over] of [
 			["another pass", { passRef: P2 }],
-			["another handoff", { handoff: "implementation-handoff:9" }],
-			["another B", { source: "revision:9" }],
+			["another handoff", { handoff: "implementation-handoff:10" }],
+			["another B", { source: "revision:10" }],
 			["another X", { prepared: X2 }],
 			["another T", { target: T1 }],
 			["another schema", { schema: 2 }],

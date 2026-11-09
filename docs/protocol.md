@@ -43,7 +43,9 @@ Ordinary restart preserves them, and revocation takes effect at once.
 
 | Command | Fields | `workflow` | `expected` | Route |
 |---|---|---|---|---|
-| `createWorkflow` | `title` (1–200 chars) | absent | absent | device with `all` scope, or local admin |
+| `addProject` | `name` (1–100 chars), `remote` (Git URL; never changes), `defaultBranch`, `checkImage` (image reference by tag; each preparation records the digest it resolves to), optional `principles` (repository path, default `AGENTS.md`) | absent | absent | device with `all` scope, or local admin |
+| `editProject` | `project`, `expectedRevision` (current revision number), `name`, `defaultBranch`, `checkImage`, `principles`; no `remote` | absent | absent | device with `all` scope, or local admin |
+| `createWorkflow` | `title` (1–200 chars), `project` (an existing project; the workflow's project never changes) | absent | absent | device with `all` scope, or local admin |
 | `saveDocument` | `document` (`[a-z0-9][a-z0-9._/-]{0,127}`; `ground` is the workflow's Ground), `mediaType` (`text/markdown` or `text/plain`), `content` (base64 of the complete UTF-8 bytes) | required | `document`: the current revision ref, or `null` for a new document | device or local admin |
 | `postCoordinatorMessage` | `text` (1–65,536 chars) | required | absent | device or local admin |
 | `requestLocalVerificationPrompt` | `source` (exact retained source-observation ref), `expectedSequence` (observed snapshot sequence) | required | absent; basis is in the command | human device in current workflow scope or local admin; see [advisory handoff](local-verification.md) |
@@ -198,7 +200,7 @@ after the client gave up. Retry the original ID and payload. Do not mint a new I
 
 ## Fixed-cutoff history and portable export
 
-`GET /v1/history` and `GET /v1/export` accept the same selectors: `workflow`, optional `kind`, optional opaque `cursor`, `limit` (integer 1–500, default 100), `version=1`. Unknown/duplicate selectors or invalid limits refuse `invalid_query`; unsupported versions refuse `unsupported_version`. `proposal`, `assignment`, `outcome` and not-yet-delivered kinds refuse `capability_unavailable`, never empty success. Delivered kinds: `workflow`, `ground`, `document`, `message`, `fact`, `receipt`.
+`GET /v1/history` and `GET /v1/export` accept the same selectors: `workflow`, optional `kind`, optional opaque `cursor`, `limit` (integer 1–500, default 100), `version=1`. Unknown/duplicate selectors or invalid limits refuse `invalid_query`; unsupported versions refuse `unsupported_version`. `proposal`, `assignment`, `outcome` and not-yet-delivered kinds refuse `capability_unavailable`, never empty success. Delivered kinds: `workflow`, `ground`, `document`, `message`, `fact`, `receipt`, `project` (each project revision, as digest/length-checked canonical JSON; a workflow-scoped device sees only its workflows' projects).
 
 Without a workflow selector, scope is the exact set of workflows currently visible to the caller; local admin and all-workflow devices also select global facts. Narrow devices never select global administration. Receipt authorization is unchanged: receipts inaccessible to the reader are explicitly redacted. Credentials, verifiers and cursor signing keys are never exported. History currently admits human readers only; future assignment/host reads require their own delivered scope semantics.
 
@@ -237,7 +239,9 @@ The bundled client reconnects by itself when a stream drops or shows a gap. If t
 reconnects, observation ends with a transport failure (CLI exit `3`). Start observing again once the host is back; the new
 stream begins with a fresh snapshot.
 
-Each workflow view carries `ground`, `documents`, `messages`, `commitment`, `owner`, `evidence`, `blocker`,
+The snapshot's `projects` lists each project's current revision (`id`, `revision`, `name`, `remote`, `defaultBranch`,
+`checkImage`, `principles`). A project-wide human sees every project; a workflow-scoped device sees only the projects of
+its workflows. Each workflow view names its `project`, and carries `ground`, `documents`, `messages`, `commitment`, `owner`, `evidence`, `blocker`,
 `nextHumanAction` and `unavailable`. `unavailable` names the capabilities this host version does not deliver yet, for
 example full coordinator replies. Accepted intake appears explicitly in `commitment.acceptedIntake`; `intakes` carries current drafts, concerns, Slice revisions, permanent consumption and explicit dependency state. Undelivered capabilities are reported as absent, never as empty successes. The snapshot also reports `hostMode`, `executorEpoch` and the persistence readback. Disaster-recovery commands, startup modes and protection fields are outside v1; ordinary runtime quarantine/continuation remains supported.
 

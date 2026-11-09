@@ -9,7 +9,7 @@ import { Engine } from "../../src/engine/runtime.ts";
 import { RoleBinding } from "../../src/ledger/records.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
 import { assignments, finding, investigationPacket, saveGround, until } from "./investigation.ts";
-import { admin, claudeFixture, scheduler } from "./roles.ts";
+import { addProject, admin, claudeFixture, PROJECT, scheduler } from "./roles.ts";
 
 const [data, mode, repo, commit] = process.argv.slice(2) as [string, string, string, string];
 const provider = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
@@ -31,7 +31,7 @@ provider.setResponses(
 const engine = new Engine({
 	provider: provider.provider,
 	...claudeFixture,
-	investigations: { root: join(data, "source"), repositories: { owned: repo } },
+	investigations: { root: join(data, "source") },
 });
 let harness!: Harness;
 const opened = await Effect.runPromise(
@@ -57,7 +57,7 @@ const opened = await Effect.runPromise(
 								process.env.RENDER_FAULT_COMMAND = `role:${createHash("sha256")
 									.update(
 										JSON.stringify([
-											"workflow:2",
+											"workflow:3",
 											api.conversationId,
 											binding.assignment,
 											binding.generation,
@@ -92,8 +92,24 @@ try {
 						{
 							version: 1,
 							authorityEpoch: opened.authorityEpoch,
+							commandId: "project",
+							command: addProject({ remote: repo, defaultBranch: "fixture" }),
+						},
+						admin,
+					),
+				)
+			).status,
+			"accepted",
+		);
+		assert.equal(
+			(
+				await Effect.runPromise(
+					opened.ledger.command(
+						{
+							version: 1,
+							authorityEpoch: opened.authorityEpoch,
 							commandId: "create",
-							command: { type: "createWorkflow", title: "Investigate" },
+							command: { type: "createWorkflow", title: "Investigate", project: PROJECT },
 						},
 						admin,
 					),
@@ -109,7 +125,7 @@ try {
 							version: 1,
 							authorityEpoch: opened.authorityEpoch,
 							commandId: "principles",
-							workflow: "workflow:2",
+							workflow: "workflow:3",
 							expected: { document: null },
 							command: {
 								type: "saveDocument",
@@ -133,8 +149,8 @@ try {
 							version: 1,
 							authorityEpoch: opened.authorityEpoch,
 							commandId: "start",
-							workflow: "workflow:2",
-							command: { type: "assignTask", slice: "workflow:2", delivery: false, packet: investigationPacket(ground, commit) },
+							workflow: "workflow:3",
+							command: { type: "assignTask", slice: "workflow:3", delivery: false, packet: investigationPacket(ground, commit) },
 						},
 						scheduler,
 					),
@@ -163,7 +179,7 @@ try {
 			.join(""),
 	);
 	assert.equal(receipt.status, "accepted");
-	const bundle = await Effect.runPromise(opened.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+	const bundle = await Effect.runPromise(opened.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 	assert.ok("manifest" in bundle && bundle.manifest.complete);
 	const reports = bundle.jsonl
 		.trim()

@@ -51,7 +51,9 @@ import {
 	serializing,
 	unresolved,
 } from "../kernel/integration.ts";
+import type { WorkflowView } from "../kernel/kernel.ts";
 import { bindingFor, initialPolicy, type PolicyBasis, type PolicyState, policyBasis } from "../kernel/policy.ts";
+import { type Project, type ProjectFacts, projectFacts } from "../kernel/projects.ts";
 import type { ForgeObservation, ForgeOperation, PublicationView } from "../kernel/publication.ts";
 import {
 	currentChildren,
@@ -113,11 +115,11 @@ export type RenderRuntimeOptions = HarnessOptions & {
 
 export type OwnedChecks = {
 	root: string;
-	repositories: Readonly<Record<string, string>>;
+	/** Per Linux profile: the base commit and limits. The project names the source and the check image. */
 	checks: Readonly<
 		Record<
 			string,
-			{ repository: string; commit: string; profile: LinuxProfile; timeoutMs: number } & (
+			{ commit: string; profile: Omit<LinuxProfile, "image">; timeoutMs: number } & (
 				| { catalog: true }
 				| { argv: string[]; verifierRevision: string }
 			)
@@ -142,7 +144,7 @@ type EngineConfig = {
 	provider?: Provider;
 	ownedChecks?: OwnedChecks;
 	experiments?: ExperimentConfig;
-	investigations?: { root: string; repositories: Readonly<Record<string, string>> };
+	investigations?: { root: string };
 	/** Trusted forge configuration, passed only to Effects; no packet, record or Sandboxes input carries it. */
 	forge?: ForgeConfig;
 	web?: WebConfig;
@@ -186,12 +188,13 @@ export class Engine {
 				config.experiments,
 				() => this.#ledger!,
 				() => this.#assignments(),
+				(workflow) => this.#project(workflow),
 			);
-		if (config.investigations) this.#investigationEffects = new Effects(config.investigations);
+		if (config.investigations)
+			this.#investigationEffects = new Effects({ root: config.investigations.root, ...(config.forge ? { forge: config.forge } : {}) });
 		if (config.ownedChecks) {
 			this.#effects = new Effects({
 				root: `${config.ownedChecks.root}/effects`,
-				repositories: config.ownedChecks.repositories,
 				...(config.forge ? { forge: config.forge } : {}),
 			});
 			this.#sandboxes = new Sandboxes({
@@ -1296,7 +1299,7 @@ export class Engine {
 				if (!this.#effects) throw new Error("Verification catalog trusted source capability unavailable.");
 				const source = yield* this.#effects!.perform({
 					type: "resolve",
-					repository: a.packet.verification!.repository,
+					project: this.#project(a.workflow),
 					commit: a.packet.verification!.commit,
 				});
 				verification = selectCatalog(source, a.packet.verification);
@@ -1555,6 +1558,21 @@ export class Engine {
 		if (this.#cached?.sequence !== sequence) this.#cached = { sequence, frame: deepFreeze(this.#ledger.snapshot(scheduling)) };
 		return this.#cached.frame;
 	}
+	/** The workflow's current project. Engine passes its facts to Effects, which never reads Ledger. */
+	#projectOf(workflow: string): Project {
+		const frame = this.#frame() as { workflows?: WorkflowView[]; projects?: Project[] } | undefined;
+		const id = frame?.workflows?.find((w) => w.workflow === workflow)?.project;
+		const project = frame?.projects?.find((p) => p.id === id);
+		if (!project) throw new Error(`project_unavailable: ${workflow} has no current project`);
+		return project;
+	}
+	#project(workflow: string): ProjectFacts {
+		return projectFacts(this.#projectOf(workflow));
+	}
+	/** A check's Linux profile on the project's check image, by tag; Sandboxes records the digest it resolves to (X10). */
+	#profile(check: OwnedChecks["checks"][string], workflow: string): LinuxProfile {
+		return { ...check.profile, image: this.#projectOf(workflow).checkImage };
+	}
 	#assignments(): RoleAssignment[] {
 		const frame = this.#frame();
 		return frame && "assignments" in frame ? (frame.assignments as RoleAssignment[]) : [];
@@ -1619,18 +1637,18 @@ export class Engine {
 				} else
 					source = yield* this.#effects!.perform({
 						type: "resolve",
-						repository: check.repository,
+						project: this.#project(a.workflow),
 						commit: pass.opening?.base ?? check.commit,
 					});
 			}
-			const readOnly = yield* this.#conflictOriginals(pass, check.repository);
+			const readOnly = yield* this.#conflictOriginals(pass, this.#project(a.workflow));
 			const inputs = readOnly ? { ...source, readOnly } : source;
 			this.#implementationAdmitted.add(a.id);
 			let handle!: SandboxHandle;
 			yield* Effect.gen({ self: this }, function* () {
 				handle = yield* this.#sandboxes!.prepare(
 					this.#scope(a),
-					check.profile,
+					this.#profile(check, a.workflow),
 					previous ? { source: inputs, after: previous.handle } : inputs,
 				);
 			}).pipe(
@@ -1808,12 +1826,12 @@ export class Engine {
 			// Debt: a cancellation landing during trusted resolve fences prepare, finds no journal and stays quarantined.
 			let environment: "absent" | "stopped" | undefined = "absent";
 			return yield* Effect.gen({ self: this }, function* () {
-				const base = yield* this.#effects!.perform({ type: "resolve", repository: check.repository, commit: check.commit });
+				const base = yield* this.#effects!.perform({ type: "resolve", project: this.#project(a.workflow), commit: check.commit });
 				if ("catalog" in check !== !!a.packet.verification)
 					throw new Error("Catalog execution must be explicitly authorized; no operator-command fallback.");
 				const catalog = a.packet.verification ? selectCatalog(base, a.packet.verification) : undefined;
 				environment = undefined;
-				const handle = yield* this.#sandboxes!.prepare(this.#scope(a), check.profile, base);
+				const handle = yield* this.#sandboxes!.prepare(this.#scope(a), this.#profile(check, a.workflow), base);
 				const run = (argv: string[]) =>
 					Effect.gen({ self: this }, function* () {
 						const execution = yield* this.#sandboxes!.execute(handle, {
@@ -1862,7 +1880,11 @@ export class Engine {
 										: "failed",
 					},
 					source: { ...source, base: compact(source.base), source: compact(source.source) },
-					limits: { network: "ordinary bridge; reachable host/LAN/tailnet are not confined", macOS: "unrun", profile: check.profile },
+					limits: {
+						network: "ordinary bridge; reachable host/LAN/tailnet are not confined",
+						macOS: "unrun",
+						profile: this.#profile(check, a.workflow),
+					},
 					reviewWarning: source.configurationChanges.length
 						? `REVIEW SOURCE CONFIGURATION CHANGES: ${source.configurationChanges.join(", ")}; never activated on host`
 						: null,
@@ -1994,11 +2016,9 @@ export class Engine {
 		return Effect.gen({ self: this }, function* () {
 			if (a.investigationSource) return; // Exact retained bytes, never refetch a damaged historical citation.
 			const input = a.packet.investigation!;
-			const source = yield* this.#investigationEffects!.perform({
-				type: "resolve",
-				repository: input.repository,
-				commit: input.commit,
-			});
+			const project = this.#project(a.workflow);
+			if (input.repository !== project.id) throw new Error(`Investigation names ${input.repository}, not its project ${project.id}.`);
+			const source = yield* this.#investigationEffects!.perform({ type: "resolve", project, commit: input.commit });
 			const entries = input.paths.map((path) => {
 				const entry = source.entries.find((e) => e.path === path);
 				if (!entry) throw new Error(`Restore exact source ${source.commit}:${path}.`);
@@ -2086,7 +2106,7 @@ export class Engine {
 					if (integrated(pass) || (pass.handoff?.canceled && !unresolved(operation))) return;
 					// An admitted or divergent operation is settled before anything else on this handoff (spec §9.3).
 					if (unresolved(operation)) {
-						const outcome = yield* this.#serialized(owner.workflow, () => this.#settleIntegration(owner, pass, operation!, check, block));
+						const outcome = yield* this.#serialized(owner.workflow, () => this.#settleIntegration(owner, pass, operation!, block));
 						if (outcome === "divergent" || outcome === "blocked") return;
 						continue;
 					}
@@ -2127,14 +2147,20 @@ export class Engine {
 						});
 						continue;
 					}
-					const observed =
-						reviewed ??
-						(yield* this.#effects!.perform({
-							type: "observe",
-							repository: check.repository,
-							proposal: owner.workflow,
-							initial: check.commit,
-						}));
+					let observed = reviewed;
+					if (!observed) {
+						// An unbound proposal ref binds to the default branch Effects fetches now; a failed fetch blocks, never a stale T.
+						const seen = yield* Effect.exit(
+							this.#effects!.perform({ type: "observe", project: this.#project(owner.workflow), proposal: owner.workflow, initial: null }),
+						);
+						if (Exit.isFailure(seen)) {
+							const error = Cause.squash(seen.cause);
+							if (Cause.hasInterrupts(seen.cause) || !(error instanceof Error) || !error.message.startsWith("project_fetch_failed: "))
+								return yield* Effect.failCause(seen.cause);
+							return yield* block(error.message);
+						}
+						observed = seen.value;
+					}
 					const basis = this.#policyBasis(owner.workflow);
 					if (!done && latest && latest.target.commit === observed.target.commit && latest.policy.binding === basis.binding) {
 						if (!pass.configuration.watchdog)
@@ -2234,7 +2260,7 @@ export class Engine {
 		return Effect.gen({ self: this }, function* () {
 			const observed = yield* this.#effects!.perform({
 				type: "observe",
-				repository: check.repository,
+				project: this.#project(owner.workflow),
 				proposal: owner.workflow,
 				initial: check.commit,
 			});
@@ -2265,7 +2291,7 @@ export class Engine {
 				const X = record.preparation!;
 				const T = observed.target;
 				const message = `Render proposal integration\n\nproposal ${owner.workflow}\npass ${pass.ref}\nprepared ${X.result}\ntarget ${T.commit}\nreview ${review.id}\n`;
-				const prepared = yield* this.#effects!.perform({ type: "read", repository: check.repository, commit: X.result });
+				const prepared = yield* this.#effects!.perform({ type: "read", project: this.#project(owner.workflow), commit: X.result });
 				const R = yield* this.#effects!.perform({
 					type: "squash",
 					prepared,
@@ -2324,7 +2350,6 @@ export class Engine {
 		owner: RoleAssignment,
 		pass: ImplementationPass,
 		operation: Integration,
-		check: OwnedChecks["checks"][string],
 		block: (reason: string) => Effect.Effect<void, unknown>,
 	): Effect.Effect<IntegrationOutcome | "blocked", unknown> {
 		return Effect.gen({ self: this }, function* () {
@@ -2341,10 +2366,11 @@ export class Engine {
 			if (operation.status === "admitted" && attempt.executorEpoch === epoch) {
 				yield* Effect.gen({ self: this }, function* () {
 					yield* faultBarrier("before-integration-cas", `integration:${pass.ref}`);
-					const result = yield* this.#effects!.perform({ type: "read", repository: check.repository, commit: intent.result.commit });
+					const project = this.#project(owner.workflow);
+					const result = yield* this.#effects!.perform({ type: "read", project, commit: intent.result.commit });
 					const dispatched = yield* this.#effects!.perform({
 						type: "integrate",
-						repository: check.repository,
+						project,
 						proposal: owner.workflow,
 						expected: intent.target,
 						result,
@@ -2366,7 +2392,7 @@ export class Engine {
 			seen ??= {
 				mode: "reconcile",
 				dispatch: null,
-				...(yield* this.#effects!.reconcile({ type: "integration", repository: check.repository, proposal: owner.workflow })),
+				...(yield* this.#effects!.reconcile({ type: "integration", project: this.#project(owner.workflow), proposal: owner.workflow })),
 			};
 			const current = this.#assignment(owner.id)!;
 			const reply = yield* this.#ledger!.command(
@@ -2435,8 +2461,8 @@ export class Engine {
 					(p) => p.workflow === workflow && p.assignment === a.id && integrated(p),
 				),
 			);
-			const repository = owner && this.#config.ownedChecks?.checks[owner.packet.profile]?.repository;
-			if (!repository) return false;
+			if (!owner || !this.#config.ownedChecks?.checks[owner.packet.profile]) return false;
+			const project = this.#project(workflow);
 			const effects = mintContext({ kind: "host", scope: "effects" });
 			const send = (command: Record<string, unknown>) =>
 				Effect.gen({ self: this }, function* () {
@@ -2458,7 +2484,7 @@ export class Engine {
 				send({ type: "recordForgeObservation", text: JSON.stringify({ schema: 1, ...o }) });
 			const observe = (operation: string | null) =>
 				Effect.gen({ self: this }, function* () {
-					const seen = yield* this.#effects!.reconcile({ type: "publication", repository, proposal: workflow });
+					const seen = yield* this.#effects!.reconcile({ type: "publication", project, proposal: workflow });
 					yield* record({ operation, attempt: null, mode: "reconcile", outcome: null, reason: null, created: null, ...seen });
 				});
 			const dispatch = (op: ForgeOperation) =>
@@ -2467,7 +2493,7 @@ export class Engine {
 					const read = yield* this.#ledger!.artifact(scheduling, { read: op.operation });
 					if (!("content" in read)) throw new Error(`Restore exact forge intent ${op.operation}`);
 					const intent = JSON.parse(read.content.toString()) as Record<string, string>;
-					const common = { repository, proposal: workflow, attempt };
+					const common = { project, proposal: workflow, attempt };
 					let result!: ForgeDispatch;
 					yield* Effect.gen({ self: this }, function* () {
 						result = yield* this.#effects!.perform(
@@ -2609,7 +2635,7 @@ export class Engine {
 					const sealed = yield* this.#handoffSource(pass);
 					const base = yield* this.#effects!.perform({
 						type: "resolve",
-						repository: sealed.source.repository,
+						project: this.#project(job.owner.workflow),
 						commit: preparationBase(pass),
 					});
 					return yield* this.#effects!.perform({ type: "prepare", base, source: sealed.source, target: observed.target });
@@ -2703,7 +2729,7 @@ export class Engine {
 			const key = JSON.stringify(scope);
 			this.#preparing.add(key);
 			return yield* Effect.gen({ self: this }, function* () {
-				const handle = yield* this.#sandboxes!.prepare(scope, check.profile, x);
+				const handle = yield* this.#sandboxes!.prepare(scope, this.#profile(check, owner.workflow), x);
 				return yield* Effect.gen({ self: this }, function* () {
 					yield* faultBarrier("before-prepared-check", `prepared-check:${pass.ref}:${attempt}`);
 					const run = (argv: string[]) =>
@@ -2874,10 +2900,10 @@ export class Engine {
 				return "watchdog_check_capability_unavailable: owned Effects/Sandboxes are not configured";
 			const scope = this.#scope(a);
 			return yield* Effect.gen({ self: this }, function* () {
-				const x = yield* this.#effects!.perform({ type: "read", repository: check.repository, commit: binding.prepared });
+				const x = yield* this.#effects!.perform({ type: "read", project: this.#project(a.workflow), commit: binding.prepared });
 				if (x.tree !== binding.tree) throw new Error("Prepared X differs from the reviewed tree");
 				const catalog = selectCatalog(x, reviewSelection(pass, binding));
-				const handle = yield* this.#sandboxes!.prepare(scope, check.profile, x);
+				const handle = yield* this.#sandboxes!.prepare(scope, this.#profile(check, a.workflow), x);
 				const evidence = yield* Effect.gen({ self: this }, function* (): Effect.gen.Return<
 					CatalogEvidence & { scope: ExecutionScope },
 					unknown
@@ -2952,10 +2978,10 @@ export class Engine {
 			if (!a.passRef || a.packet.role !== "implementer") return undefined;
 			const pass = this.#implementationPass(a);
 			if (!pass.opening || pass.workspace) return undefined;
-			const repository = this.#config.ownedChecks!.checks[a.packet.profile]!.repository;
 			return yield* Effect.gen({ self: this }, function* () {
-				yield* this.#effects!.perform({ type: "resolve", repository, commit: pass.opening!.base });
-				yield* this.#conflictOriginals(pass, repository);
+				const project = this.#project(a.workflow);
+				yield* this.#effects!.perform({ type: "resolve", project, commit: pass.opening!.base });
+				yield* this.#conflictOriginals(pass, project);
 				return undefined;
 			}).pipe(
 				Effect.catchCause((cause) => {
@@ -2969,7 +2995,7 @@ export class Engine {
 		});
 	}
 	/** A conflict pass's read-only original B, T0 and T1 (spec §9.4), mounted beside its writable T1 workspace. */
-	#conflictOriginals(pass: ImplementationPass, repository: string): Effect.Effect<Record<string, Source> | undefined, unknown> {
+	#conflictOriginals(pass: ImplementationPass, project: ProjectFacts): Effect.Effect<Record<string, Source> | undefined, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			if (pass.cause !== "preparation-conflict" || !pass.opening) return undefined;
 			const read = (ref: string) =>
@@ -2981,7 +3007,7 @@ export class Engine {
 			const observation = (yield* read(pass.opening.observation)) as { source: string; baseCommit: string; targetCommit: string };
 			const sealed = ((yield* read(observation.source)) as { source: SourceReceipt }).source;
 			yield* this.#effects!.reconcile(sealed);
-			const resolve = (commit: string) => this.#effects!.perform({ type: "resolve", repository, commit });
+			const resolve = (commit: string) => this.#effects!.perform({ type: "resolve", project, commit });
 			return {
 				implementation: sealed.source,
 				base: yield* resolve(observation.baseCommit),
@@ -2996,7 +3022,7 @@ export class Engine {
 				const check = this.#config.ownedChecks?.checks[a.packet.profile];
 				if (!check || !this.#sandboxes || !this.#effects) return "implementation_source_or_verifier_capability_unavailable";
 				const selected = this.#implementationPass(a).configuration.verification;
-				if (check.repository !== selected.repository || check.commit !== selected.commit)
+				if (this.#projectOf(a.workflow).id !== selected.repository || check.commit !== selected.commit)
 					return "implementation_source_configuration_differs";
 				// Until intended-output exclusions are explicit, capture every non-Git file. Caches may exceed bounds; never silently drop deliverables.
 				if (JSON.stringify(check.profile.exclusions) !== '[".git"]') return "implementation_exclusion_profile_conflict";

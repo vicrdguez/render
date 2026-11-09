@@ -9,7 +9,7 @@ import type { RoleAssignment } from "../src/kernel/roles.ts";
 import type { CommandReply } from "../src/ledger/ledger.ts";
 import { type AuthenticatedContext as Context, mintContext } from "../src/ledger/principals.ts";
 import { settled } from "./support/catalog.ts";
-import { admin, claudeFixture, packet, roleFixture, scheduler } from "./support/roles.ts";
+import { admin, claudeFixture, PROJECT, packet, roleFixture, scheduler } from "./support/roles.ts";
 import { git, sourceFixture } from "./support/source.ts";
 
 type Row = { run: string; expectations: string };
@@ -87,18 +87,18 @@ type Fixture = Awaited<ReturnType<typeof roleFixture>>;
 let f: Fixture;
 let source: Awaited<ReturnType<typeof sourceFixture>>;
 const provider = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
-const config = { root: "", repositories: {} as Record<string, string>, checks: {} as Record<string, unknown> };
+const config = { root: "", checks: {} as Record<string, unknown> };
 const at: Record<keyof typeof commits, { commit: string; digest: string; profile: string }> = {} as never;
 const receipts: Partial<Record<keyof typeof commits, string>> = {};
 let basis = "";
 
 function selection(c: keyof typeof commits, receiptRefs: string[], basisRef: string | null = null) {
 	return {
-		repository: "owned",
+		repository: PROJECT,
 		commit: at[c].commit,
 		path: ".render/verify.md",
 		digest: at[c].digest,
-		contract: "revision:3",
+		contract: "revision:4",
 		rows: ALL,
 		behavioralRows: [],
 		receipts: receiptRefs,
@@ -192,13 +192,12 @@ const statuses = (a: RoleAssignment) =>
 before(async () => {
 	source = await sourceFixture({ placeholder: { text: "x\n" } });
 	config.root = join(source.root, "maintenance-owned");
-	config.repositories.owned = source.repo;
 	const engine = new Engine({
 		ownedChecks: config as never,
 		provider: provider.provider,
 		...claudeFixture,
 	});
-	f = await roleFixture(engine);
+	f = await roleFixture(engine, { remote: source.repo, defaultBranch: "fixture", checkImage: source.profile.image });
 	for (const [name, files] of Object.entries(commits) as [keyof typeof commits, Record<string, string>][]) {
 		const commit = git(source.repo, ["commit-tree", writeTree(source.repo, files)], `Maintenance ${name}\n`)
 			.toString()
@@ -210,7 +209,7 @@ before(async () => {
 					version: 1,
 					authorityEpoch: f.ledger.status().authorityEpoch,
 					commandId: `profile-${name}`,
-					workflow: "workflow:2",
+					workflow: "workflow:3",
 					expected: { document: null },
 					command: {
 						type: "saveDocument",
@@ -225,7 +224,7 @@ before(async () => {
 		assert.ok(saved.status === "accepted", JSON.stringify(saved));
 		const profile = String(saved.result.revision);
 		at[name] = { commit, digest: createHash("sha256").update(files[".render/verify.md"]!).digest("hex"), profile };
-		config.checks[profile] = { repository: "owned", commit, profile: source.profile, timeoutMs: 10000, catalog: true };
+		config.checks[profile] = { commit, profile: source.profile, timeoutMs: 10000, catalog: true };
 	}
 });
 after(async () => {
@@ -428,7 +427,7 @@ test("VM12 receipts and classifications survive export and reopen exactly", asyn
 	const reports = assignments().filter((a) => a.report && a.slice.startsWith("maintenance:"));
 	const classified = reports.filter((a) => (a as { maintenance?: unknown }).maintenance);
 	assert.equal(classified.length, 3, "VM02, VM03/VM11 and VM04 classifications");
-	const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+	const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 	assert.ok("manifest" in exported);
 	const bytes = new Map<string, string>();
 	for (const a of reports) {

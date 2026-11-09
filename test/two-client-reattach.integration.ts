@@ -7,7 +7,19 @@ import { connect } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { after, before, describe, test } from "node:test";
-import { CLIENT_CLI, createWorkflow, envelope, type HostProcess, http, save, sha256, startHost, tempDir, track } from "./support/host.ts";
+import {
+	addProject,
+	CLIENT_CLI,
+	createWorkflow,
+	envelope,
+	type HostProcess,
+	http,
+	save,
+	sha256,
+	startHost,
+	tempDir,
+	track,
+} from "./support/host.ts";
 import { A1, B1, G1 } from "./support/literals.ts";
 
 type CliResult = { code: number | null; stdout: string; stderr: string; json: Record<string, unknown> };
@@ -99,7 +111,9 @@ describe("V4 two stateless clients", () => {
 	const as = (token: string) => ["--url", host.url, "--token-file", token];
 
 	test("B2-03 race, cross-device retry, revocation of reads and streams, fresh attach within 5 s", async () => {
-		const wf = await cli([...as(tokenA), "create-workflow", "--title", "Keep work safe"]);
+		const bearer = (await readFile(tokenA, "utf8")).trim();
+		const project = await addProject(host, bearer);
+		const wf = await cli([...as(tokenA), "create-workflow", "--title", "Keep work safe", "--project", project]);
 		assert.equal(wf.code, 0, wf.stderr);
 		const w = String((wf.json.result as Record<string, unknown>).workflow);
 		const g1 = join(work.path, "g1.md");
