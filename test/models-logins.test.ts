@@ -147,3 +147,34 @@ test("M6 a model the pinned catalog lacks blocks with required_model_unavailable
 		await rm(dir, { recursive: true, force: true });
 	}
 });
+
+test("a failed login refresh retains no credential bytes in history, snapshot or export", async () => {
+	const leaked = "sk-ant-oat-refreshed-access-must-not-leak-5d0e";
+	const dir = await scratch({
+		"auth.json": { anthropic: { type: "oauth", access: "old", refresh: "old-refresh", expires: Date.now() - 60_000 } },
+	});
+	const p = fauxProvider({ provider: "anthropic", api: "anthropic-messages", models: [{ id: "claude-sonnet-4-6" }] });
+	p.setResponses([submit()]);
+	const fetch = globalThis.fetch;
+	globalThis.fetch = async (input, init) =>
+		String(input).includes("/oauth/token")
+			? new Response(`{"access_token":"${leaked}","refresh_token":"r2","expires_in":36`, { status: 200 })
+			: fetch(input, init);
+	const f = await roleFixture(new Engine({ provider: p.provider, families: [claude], piAuth: join(dir, "auth.json") }));
+	try {
+		await f.command({ type: "assignTask", slice: "slice:1", delivery: true, packet: packet() });
+		for (let n = 0; n < 500; n++) {
+			const a = ((f.ledger.snapshot(admin) as unknown as { assignments: RoleAssignment[] }).assignments ?? [])[0];
+			if (a?.runtimeTaskCaptured) break;
+			await setTimeout(10);
+		}
+		const a = ((f.ledger.snapshot(admin) as unknown as { assignments: RoleAssignment[] }).assignments ?? [])[0];
+		assert.ok(a?.runtimeTaskCaptured, "the failed run's runtime history must be retained");
+		assert.equal(p.state.callCount, 0, "no request may go out without a credential");
+		await assertAbsent(f, leaked);
+	} finally {
+		globalThis.fetch = fetch;
+		await f.close();
+		await rm(dir, { recursive: true, force: true });
+	}
+});
