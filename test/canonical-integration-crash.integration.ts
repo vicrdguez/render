@@ -3,6 +3,7 @@
 // readback, and after-integration-readback the cut before SQL qualification: nothing runs between them. A fresh executor
 // epoch never adopts the old permit: it reconciles the canonical ref after a durability barrier and records exactly one
 // qualification.
+
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { access, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -10,6 +11,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine, type OwnedChecks } from "../src/engine/runtime.ts";
 import type { ImplementationPass } from "../src/kernel/roles.ts";
 import type { faultBarrier } from "../src/ledger/barrier.ts";
@@ -54,7 +56,7 @@ async function cut({ barrier, key, moved, recovery, staleLock }: Cut) {
 		stderr += b;
 	});
 	let setup: { data: string; root: string; config: OwnedChecks } | undefined;
-	let recovered: Awaited<ReturnType<typeof openLedger>> | undefined;
+	let recovered: Effect.Success<ReturnType<typeof openLedger>> | undefined;
 	try {
 		const deadline = Date.now() + 180000;
 		while (!output.includes('"event":"barrier"')) {
@@ -84,17 +86,19 @@ async function cut({ barrier, key, moved, recovery, staleLock }: Cut) {
 				return fauxAssistantMessage("paused");
 			}),
 		);
-		recovered = await openLedger({
-			data: setup!.data,
-			runtime: (report) =>
-				new Engine({
-					ownedChecks: setup!.config,
-					provider: provider.provider,
-					apiKey: "fixture",
-					families: { "claude-sonnet-4-6": "claude" },
-				}).options(report),
-			onFatal: () => {},
-		});
+		recovered = await Effect.runPromise(
+			openLedger({
+				data: setup!.data,
+				runtime: (report) =>
+					new Engine({
+						ownedChecks: setup!.config,
+						provider: provider.provider,
+						apiKey: "fixture",
+						families: { "claude-sonnet-4-6": "claude" },
+					}).options(report),
+				onFatal: () => {},
+			}),
+		);
 		const epoch = recovered.ledger.status().executorEpoch;
 		const pass = () => ((recovered!.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[])[0]!;
 		const until = Date.now() + 120000;
@@ -108,7 +112,7 @@ async function cut({ barrier, key, moved, recovery, staleLock }: Cut) {
 		const R = operation!.result;
 		assert.equal(ref(), R, "the canonical ref is exactly R");
 		const observation = async (id: string) => {
-			const read = await recovered!.ledger.artifact(admin, { read: id });
+			const read = await Effect.runPromise(recovered!.ledger.artifact(admin, { read: id }));
 			assert.ok("content" in read);
 			return JSON.parse(read.content.toString()) as { mode: string; observed: { commit: string } };
 		};
@@ -148,7 +152,7 @@ async function cut({ barrier, key, moved, recovery, staleLock }: Cut) {
 		);
 	} finally {
 		if (child.exitCode === null) child.kill("SIGKILL");
-		await recovered?.close();
+		if (recovered) await Effect.runPromise(recovered.close());
 		if (setup) {
 			const sandboxes = join(setup.config.root, "sandboxes");
 			for (const id of await readdir(sandboxes).catch(() => [])) {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import type { CommandReply } from "../src/ledger/ledger.ts";
 import { accepted, LedgerOnlyEngine } from "./support/implementation.ts";
 import { performanceFixture, ROWS, S } from "./support/performance.ts";
@@ -14,7 +15,7 @@ function refused(reply: CommandReply, code: string, label: string) {
 	return reply;
 }
 async function read(f: Fixture, ref: string) {
-	const value = await f.f.ledger.artifact(admin, { read: ref });
+	const value = await Effect.runPromise(f.f.ledger.artifact(admin, { read: ref }));
 	assert.ok("content" in value, `read ${ref}`);
 	return JSON.parse(value.content.toString());
 }
@@ -196,7 +197,7 @@ test("PJ14 the commitment and the comparison survive reopen and export", async (
 		const result = accepted(await r.submit("pass"));
 		await f.f.reopen(new LedgerOnlyEngine());
 		assert.equal((await read(f, contract)).performance.target, 180);
-		const exported = await f.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(f.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete, "complete export");
 		assert.ok(exported.content[contract], "export retains the Contract");
 		const receipts = exported.jsonl

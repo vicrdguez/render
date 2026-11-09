@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
@@ -39,7 +40,7 @@ test("R04 missing provider, family, sandbox and overflowing constraints block wi
 			assert.equal(a.executing, false);
 			if (providerInstalled) assert.equal(p.state.callCount, 0, "a blocked role must not reach its installed provider");
 			const own = mintContext({ kind: "assignment-agent", assignment: a.id, generation: 1, attempt: a.attempt, role: a.packet.role });
-			const foreign = await f.ledger.artifact(own, { read: "revision:999" });
+			const foreign = await Effect.runPromise(f.ledger.artifact(own, { read: "revision:999" }));
 			assert.equal("code" in foreign ? foreign.code : "disclosed", "not_found");
 		} finally {
 			await f.close();

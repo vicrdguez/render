@@ -1,7 +1,9 @@
 // Real SQLite/Durable handoff cuts. Source/check observations are Ledger fixtures, not container execution evidence.
+
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import * as Effect from "effect/Effect";
 import type { ImplementationPass, RoleAssignment } from "../../src/kernel/roles.ts";
 import type { Frame } from "../../src/ledger/ledger.ts";
 import { mintContext } from "../../src/ledger/principals.ts";
@@ -37,13 +39,15 @@ if (mode === "crash") {
 } else {
 	const saved = JSON.parse(await readFile(join(argument, "handoff-cut.json"), "utf8")) as Saved;
 	const engine = new LedgerOnlyEngine();
-	const opened = await openLedger({
-		data: argument,
-		runtime: (report) => engine.options(report),
-		onFatal: (error) => {
-			throw error;
-		},
-	});
+	const opened = await Effect.runPromise(
+		openLedger({
+			data: argument,
+			runtime: (report) => engine.options(report),
+			onFatal: (error) => {
+				throw error;
+			},
+		}),
+	);
 	try {
 		const actor = mintContext({
 			kind: "assignment-agent",
@@ -53,22 +57,24 @@ if (mode === "crash") {
 			role: "implementer",
 		});
 		const command = (value: Record<string, unknown>, id: string, context = scheduler) =>
-			opened.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: opened.authorityEpoch,
-					workflow: saved.owner.workflow,
-					commandId: id,
-					command: value,
-				},
-				context,
+			Effect.runPromise(
+				opened.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: opened.authorityEpoch,
+						workflow: saved.owner.workflow,
+						commandId: id,
+						command: value,
+					},
+					context,
+				),
 			);
 		const frame = () => opened.ledger.snapshot(admin) as Frame;
 		const passes = () => frame().implementationPasses as ImplementationPass[];
 		const owner = () => (frame().assignments as RoleAssignment[]).find((a) => a.id === saved.owner.id)!;
 		const beforeHandoffs = passes().filter((p) => p.handoff).length;
 		const beforeTasks = (await implementationTasks(engine.harness)).length - saved.tasks;
-		const original = await opened.ledger.receipt(actor, commandId);
+		const original = await Effect.runPromise(opened.ledger.receipt(actor, commandId));
 		const hadReceipt = !("code" in original);
 		const stale = mintContext({
 			kind: "assignment-agent",
@@ -138,7 +144,7 @@ if (mode === "crash") {
 		assert.equal(passes().filter((p) => p.handoff).length, 1);
 		assert.equal((await implementationTasks(engine.harness)).length, saved.tasks + 1);
 		assert.equal(passes()[0]!.handoff!.preparationTask, result.preparationTask);
-		const exported = await opened.ledger.artifact(admin, { export: { workflow: saved.owner.workflow } });
+		const exported = await Effect.runPromise(opened.ledger.artifact(admin, { export: { workflow: saved.owner.workflow } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		const handoffs = exported.jsonl
 			.trim()
@@ -157,6 +163,6 @@ if (mode === "crash") {
 			}),
 		);
 	} finally {
-		await opened.close();
+		await Effect.runPromise(opened.close());
 	}
 }

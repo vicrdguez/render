@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import type { CommandReply } from "../src/ledger/ledger.ts";
@@ -119,7 +120,7 @@ async function run(c: keyof typeof commits) {
 	assert.ok(reply.status === "accepted", JSON.stringify(reply));
 	const a = await settled(f as never, String(reply.result.assignment));
 	assert.equal(a.status, "submitted", a.blocker ?? "maintenance runner should retain a receipt");
-	const read = await f.ledger.artifact(admin, { read: a.report! });
+	const read = await Effect.runPromise(f.ledger.artifact(admin, { read: a.report! }));
 	assert.ok("content" in read);
 	receipts[c] = a.report!;
 	return JSON.parse(read.content.toString());
@@ -204,21 +205,23 @@ before(async () => {
 			.toString()
 			.trim();
 		git(source.repo, ["update-ref", `refs/heads/${name}`, commit]);
-		const saved = await f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: f.ledger.status().authorityEpoch,
-				commandId: `profile-${name}`,
-				workflow: "workflow:2",
-				expected: { document: null },
-				command: {
-					type: "saveDocument",
-					document: `profile-${name}`,
-					mediaType: "text/plain",
-					content: Buffer.from(name).toString("base64"),
+		const saved = await Effect.runPromise(
+			f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: f.ledger.status().authorityEpoch,
+					commandId: `profile-${name}`,
+					workflow: "workflow:2",
+					expected: { document: null },
+					command: {
+						type: "saveDocument",
+						document: `profile-${name}`,
+						mediaType: "text/plain",
+						content: Buffer.from(name).toString("base64"),
+					},
 				},
-			},
-			admin,
+				admin,
+			),
 		);
 		assert.ok(saved.status === "accepted", JSON.stringify(saved));
 		const profile = String(saved.result.revision);
@@ -426,11 +429,11 @@ test("VM12 receipts and classifications survive export and reopen exactly", asyn
 	const reports = assignments().filter((a) => a.report && a.slice.startsWith("maintenance:"));
 	const classified = reports.filter((a) => (a as { maintenance?: unknown }).maintenance);
 	assert.equal(classified.length, 3, "VM02, VM03/VM11 and VM04 classifications");
-	const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+	const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 	assert.ok("manifest" in exported);
 	const bytes = new Map<string, string>();
 	for (const a of reports) {
-		const read = await f.ledger.artifact(admin, { read: a.report! });
+		const read = await Effect.runPromise(f.ledger.artifact(admin, { read: a.report! }));
 		assert.ok("content" in read);
 		bytes.set(a.report!, read.content.toString());
 		assert.equal(Buffer.from(exported.content[a.report!]!, "base64").toString(), read.content.toString());
@@ -438,7 +441,7 @@ test("VM12 receipts and classifications survive export and reopen exactly", asyn
 	const before = Object.fromEntries(classified.map((a) => [a.id, statuses(a)]));
 	await f.reopen(new Engine({ ownedChecks: config as never }));
 	for (const [ref, text] of bytes) {
-		const read = await f.ledger.artifact(admin, { read: ref });
+		const read = await Effect.runPromise(f.ledger.artifact(admin, { read: ref }));
 		assert.ok("content" in read);
 		assert.equal(read.content.toString(), text);
 	}

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { IntakeManifest, Intakes } from "../src/kernel/intake.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
@@ -101,16 +102,18 @@ async function fixture(shape: "bug" | "design" = "bug", investigations?: { root:
 	let n = 0;
 	const save = async (document: string, text: string) =>
 		accepted(
-			await f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: f.ledger.status().authorityEpoch,
-					commandId: `save:${++n}`,
-					workflow: "workflow:2",
-					expected: { document: null },
-					command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
-				},
-				admin,
+			await Effect.runPromise(
+				f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: f.ledger.status().authorityEpoch,
+						commandId: `save:${++n}`,
+						workflow: "workflow:2",
+						expected: { document: null },
+						command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
+					},
+					admin,
+				),
 			),
 		).revision as string;
 	const source = await save("existing-seam", "Approved existing read interface: return saved bytes without normalization.");
@@ -247,10 +250,10 @@ test("I07/I14 V8 real Engine fidelity and exact human intake survive ordinary re
 		const contract = t.state().slices[0]!.contract;
 		assert.equal(t.reviews.length, 1);
 		assert.match(JSON.stringify(t.reviews[0]), /omitted.*weakened.*strengthened.*contradictory.*invented/);
-		const original = await t.f.ledger.artifact(admin, { read: draft });
+		const original = await Effect.runPromise(t.f.ledger.artifact(admin, { read: draft }));
 		assert.ok("content" in original);
 		assert.equal(original.content.toString(), "# Contract\r\nReturn exact saved bytes.\n");
-		const exportBefore = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exportBefore = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exportBefore && exportBefore.manifest.complete);
 		for (const ref of [draft, t.state().drafts[0]!.manifestRef, review, contract, result.acceptance])
 			assert.ok(exportBefore.content[ref as string], `export retains ${ref}`);
@@ -258,7 +261,7 @@ test("I07/I14 V8 real Engine fidelity and exact human intake survive ordinary re
 		await t.reopen();
 		assert.ok(performance.now() - start < 5000, "intake reattachment <=5s");
 		assert.equal(t.state().slices[0]!.contract, contract);
-		const restored = await t.f.ledger.artifact(admin, { read: draft });
+		const restored = await Effect.runPromise(t.f.ledger.artifact(admin, { read: draft }));
 		assert.ok("content" in restored);
 		assert.equal(restored.content.toString(), "# Contract\r\nReturn exact saved bytes.\n");
 		const frame = t.f.ledger.snapshot(admin) as Frame;
@@ -285,7 +288,7 @@ test("implementation pass opening is atomic with ownership, scoped, exported and
 		const opening = accepted(first);
 		assert.equal(opening.passOrdinal, 1);
 		assert.equal(opening.passRef, "pass:workflow:2:read-fix:1");
-		const record = await t.f.ledger.artifact(admin, { read: opening.passRecord as string });
+		const record = await Effect.runPromise(t.f.ledger.artifact(admin, { read: opening.passRecord as string }));
 		assert.ok("content" in record, "opening record must commit alongside its assignment");
 		const body = JSON.parse(record.content.toString());
 		assert.equal(body.schema, 1);
@@ -303,9 +306,9 @@ test("implementation pass opening is atomic with ownership, scoped, exported and
 			attempt: owner.attempt,
 			role: "implementer",
 		});
-		assert.ok("content" in (await t.f.ledger.artifact(principal, { read: opening.passRecord as string })));
+		assert.ok("content" in (await Effect.runPromise(t.f.ledger.artifact(principal, { read: opening.passRecord as string }))));
 		assert.ok(
-			"code" in (await t.f.ledger.artifact(t.actor, { read: opening.passRecord as string })),
+			"code" in (await Effect.runPromise(t.f.ledger.artifact(t.actor, { read: opening.passRecord as string }))),
 			"unrelated coordinator has no pass-private read grant",
 		);
 		await until(() => assignments().find((a) => a.id === opening.assignment)?.status === "blocked");
@@ -313,7 +316,7 @@ test("implementation pass opening is atomic with ownership, scoped, exported and
 			assignments().find((a) => a.id === opening.assignment)?.blocker,
 			"implementation_source_or_verifier_capability_unavailable",
 		);
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		assert.equal(Buffer.from(exported.content[opening.passRecord as string]!, "base64").toString(), record.content.toString());
 		await t.reopen();
@@ -324,10 +327,10 @@ test("implementation pass opening is atomic with ownership, scoped, exported and
 		assert.equal(replay.receipt, first.receipt);
 		assert.deepEqual(replay.result, first.result);
 		assert.equal(assignments().filter((a) => a.slice === "read-fix").length, 1);
-		const restored = await t.f.ledger.artifact(admin, { read: opening.passRecord as string });
+		const restored = await Effect.runPromise(t.f.ledger.artifact(admin, { read: opening.passRecord as string }));
 		assert.ok("content" in restored);
 		assert.equal(restored.content.toString(), record.content.toString());
-		assert.ok("content" in (await t.f.ledger.artifact(principal, { read: opening.passRecord as string })));
+		assert.ok("content" in (await Effect.runPromise(t.f.ledger.artifact(principal, { read: opening.passRecord as string }))));
 	} finally {
 		await t.close();
 	}
@@ -444,7 +447,7 @@ test("F4 one coordinator continues approved Seams and Modules into exact fresh i
 			);
 			assert.equal(response.status, "accepted", "accepted design prose must not be treated as an artifact reference");
 			const artifact = String(accepted(response).textArtifact);
-			const read = await t.f.ledger.artifact(admin, { read: artifact });
+			const read = await Effect.runPromise(t.f.ledger.artifact(admin, { read: artifact }));
 			assert.ok("content" in read);
 			const text = read.content.toString();
 			for (const literal of [
@@ -470,7 +473,7 @@ test("F4 one coordinator continues approved Seams and Modules into exact fresh i
 			),
 		);
 		assert.notEqual(older.textArtifact, prompts[0]!.artifact, "fresh request may explicitly select older retained source");
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const p of prompts) assert.equal(Buffer.from(exported.content[p.artifact]!, "base64").toString(), p.text);
 	} finally {
@@ -484,33 +487,35 @@ test("F5 a coordinator cannot read or propagate a concern outside its Ground inp
 	try {
 		await t.stage();
 		const otherGround = accepted(
-			await t.f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: t.f.ledger.status().authorityEpoch,
-					commandId: "other-ground",
-					workflow: "workflow:2",
-					expected: { document: t.ground },
-					command: {
-						type: "saveDocument",
-						document: "ground",
-						mediaType: "text/plain",
-						content: Buffer.from(
-							JSON.stringify({
-								schema: 1,
-								goal: "Other scope",
-								constraints: [],
-								facts: [],
-								donePredicate: "Other literal bytes",
-								shape: { value: "bug", origin: "human", confirmed: true },
-								approvedSources: [t.source],
-								reproduction: { trigger: "node read.js", observed: "read returned partial bytes" },
-								expected: "read returns exact bytes",
-							}),
-						).toString("base64"),
+			await Effect.runPromise(
+				t.f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: t.f.ledger.status().authorityEpoch,
+						commandId: "other-ground",
+						workflow: "workflow:2",
+						expected: { document: t.ground },
+						command: {
+							type: "saveDocument",
+							document: "ground",
+							mediaType: "text/plain",
+							content: Buffer.from(
+								JSON.stringify({
+									schema: 1,
+									goal: "Other scope",
+									constraints: [],
+									facts: [],
+									donePredicate: "Other literal bytes",
+									shape: { value: "bug", origin: "human", confirmed: true },
+									approvedSources: [t.source],
+									reproduction: { trigger: "node read.js", observed: "read returned partial bytes" },
+									expected: "read returns exact bytes",
+								}),
+							).toString("base64"),
+						},
 					},
-				},
-				admin,
+					admin,
+				),
 			),
 		).revision as string;
 		const aId = accepted(
@@ -541,7 +546,7 @@ test("F5 a coordinator cannot read or propagate a concern outside its Ground inp
 			await t.f.command({ type: "stageIntake", expected: t.state().drafts.at(-1)!.id, text: "Other private scope", manifest: m }, actor),
 		).intake as string;
 		const saved = accepted(await t.f.command({ type: "saveIntakeConcern", intake: other, text: "PRIVATE OTHER GROUND CONCERN" }, admin));
-		const read = await t.f.ledger.artifact(t.actor, { read: saved.revision as string });
+		const read = await Effect.runPromise(t.f.ledger.artifact(t.actor, { read: saved.revision as string }));
 		assert.ok("status" in read && read.status === "refused", "coordinator must not read another Ground concern");
 		assert.equal(
 			code(await t.command({ type: "stageIntake", expected: other, text: "Own scope", manifest: t.manifest })),
@@ -562,14 +567,16 @@ test("I05 V4 two authenticated clients race intake acceptance and complete saved
 		assert.ok(addr && typeof addr !== "string");
 		const clients = await Promise.all(
 			["a", "b"].map(async (label) => {
-				const reply = await t.f.ledger.command(
-					{
-						version: 1,
-						authorityEpoch: t.f.ledger.status().authorityEpoch,
-						commandId: `enroll:${label}`,
-						command: { type: "enrollDevice", label, scope: { workflows: ["workflow:2"] } },
-					},
-					admin,
+				const reply = await Effect.runPromise(
+					t.f.ledger.command(
+						{
+							version: 1,
+							authorityEpoch: t.f.ledger.status().authorityEpoch,
+							commandId: `enroll:${label}`,
+							command: { type: "enrollDevice", label, scope: { workflows: ["workflow:2"] } },
+						},
+						admin,
+					),
 				);
 				assert.ok(reply.status === "accepted" && reply.credential);
 				const bearer = reply.credential.bearer;
@@ -605,7 +612,7 @@ test("I05 V4 two authenticated clients race intake acceptance and complete saved
 			assert.equal(saved.changeRequest, "false");
 			assert.equal(t.state().slices.length, 0);
 		}
-		const edit = await t.f.ledger.artifact(admin, { read: saved.revision as string });
+		const edit = await Effect.runPromise(t.f.ledger.artifact(admin, { read: saved.revision as string }));
 		assert.ok("content" in edit);
 		assert.equal(edit.content.toString(), "Complete edited Contract\r\n");
 	} finally {
@@ -628,10 +635,10 @@ for (const failure of ["missing_content", "content_corrupt", "unsupported_schema
 			const reply = await t.f.command({ type: "acceptIntake", ...basis }, admin);
 			assert.equal(code(reply), failure);
 			assert.equal(t.state().slices.length, 0);
-			const read = await t.f.ledger.artifact(admin, { read: ref });
+			const read = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 			assert.ok("code" in read);
 			assert.equal(read.code, failure);
-			const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 			assert.ok("manifest" in exported);
 			assert.equal(exported.manifest.complete, false);
 			assert.equal(ref in exported.content, false);
@@ -665,7 +672,7 @@ for (const failure of ["missing_content", "content_corrupt", "unsupported_schema
 				packet: writer,
 			});
 			assert.equal(code(reply), failure, "replacement must not reconstruct missing or corrupt opening evidence from current state");
-			const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 			assert.ok("manifest" in exported);
 			assert.equal(exported.manifest.complete, false);
 			assert.equal((first.passRecord as string) in exported.content, false);

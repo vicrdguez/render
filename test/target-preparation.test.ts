@@ -20,7 +20,7 @@ function commit(repo: string, files: Record<string, string>, parents: string[] =
 }
 async function fixture() {
 	const f = await gitSourceFixture({ common: { text: "base\n" } });
-	const resolve = (oid: string) => f.effects.perform({ type: "resolve", repository: "owned", commit: oid });
+	const resolve = (oid: string) => Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: oid }));
 	const base = await resolve(f.commit);
 	const source = await resolve(commit(f.repo, { common: "base\n", implementation: "B\n" }, [f.commit]));
 	const target = await resolve(commit(f.repo, { common: "base\n", target: "T1\n" }, [f.commit]));
@@ -31,7 +31,7 @@ test("preparation roots deterministic combined source and preserves exact B/T0/T
 	const f = await fixture();
 	try {
 		const operation = { type: "prepare" as const, base: f.base, source: f.source, target: f.target };
-		const result = await f.effects.perform(operation);
+		const result = await Effect.runPromise(f.effects.perform(operation));
 		assert.equal(result.kind, "clean");
 		assert.deepEqual(result.base, f.base);
 		assert.deepEqual(result.source, f.source);
@@ -48,8 +48,8 @@ test("preparation roots deterministic combined source and preserves exact B/T0/T
 		assert.match(result.git, /^git version /);
 		assert.equal(result.exitCode, 0);
 		const reopened = new Effects({ root: join(f.root, "effects"), repositories: { owned: f.repo } });
-		assert.deepEqual(await reopened.perform(operation), result);
-		assert.deepEqual(await reopened.reconcile(result), result, "reconcile verifies rooted output, not only input refs");
+		assert.deepEqual(await Effect.runPromise(reopened.perform(operation)), result);
+		assert.deepEqual(await Effect.runPromise(reopened.reconcile(result)), result, "reconcile verifies rooted output, not only input refs");
 	} finally {
 		await f.close();
 	}
@@ -60,12 +60,15 @@ test("ancestry fast path still rejects forged base, rewritten target and changed
 	try {
 		const source = await f.resolve(commit(f.repo, { common: "base\n", target: "T1\n", implementation: "B\n" }, [f.target.commit]));
 		const operation = { type: "prepare" as const, base: f.base, source, target: f.target };
-		assert.equal((await f.effects.perform(operation)).result.commit, source.commit);
+		assert.equal((await Effect.runPromise(f.effects.perform(operation))).result.commit, source.commit);
 		const unrelated = await f.resolve(commit(f.repo, { other: "unrelated\n" }));
-		await assert.rejects(f.effects.perform({ ...operation, base: unrelated }), /base.*ancestor/i);
-		await assert.rejects(f.effects.perform({ ...operation, target: unrelated }), /base.*ancestor/i);
-		await assert.rejects(f.effects.perform({ ...operation, source: { ...source, entries: [] } }), /mismatch/i);
-		await assert.rejects(f.effects.perform({ ...operation, target: { ...f.target, objectFormat: "sha256" } }), /mismatch/i);
+		await assert.rejects(Effect.runPromise(f.effects.perform({ ...operation, base: unrelated })), /base.*ancestor/i);
+		await assert.rejects(Effect.runPromise(f.effects.perform({ ...operation, target: unrelated })), /base.*ancestor/i);
+		await assert.rejects(Effect.runPromise(f.effects.perform({ ...operation, source: { ...source, entries: [] } })), /mismatch/i);
+		await assert.rejects(
+			Effect.runPromise(f.effects.perform({ ...operation, target: { ...f.target, objectFormat: "sha256" } })),
+			/mismatch/i,
+		);
 	} finally {
 		await f.close();
 	}
@@ -77,13 +80,13 @@ test("validated real conflicts retain originals and a rooted conflict tree, neve
 		const source = await f.resolve(commit(f.repo, { common: "implementation\n" }, [f.commit]));
 		const target = await f.resolve(commit(f.repo, { common: "target\n" }, [f.commit]));
 		const before = JSON.stringify({ source, target });
-		const result = await f.effects.perform({ type: "prepare", base: f.base, source, target });
+		const result = await Effect.runPromise(f.effects.perform({ type: "prepare", base: f.base, source, target }));
 		assert.equal(result.kind, "conflict");
 		assert.equal(result.exitCode, 1);
 		assert.deepEqual(result.conflicts, ["common"]);
 		assert.equal(JSON.stringify({ source, target }), before);
 		assert.ok(Buffer.from(result.stdout, "base64").includes(Buffer.from("CONFLICT")));
-		assert.deepEqual(await f.effects.reconcile(result), result);
+		assert.deepEqual(await Effect.runPromise(f.effects.reconcile(result)), result);
 	} finally {
 		await f.close();
 	}
@@ -97,7 +100,7 @@ test("blob or missing inputs are operational errors, not conflict returns", asyn
 		for (const hash of [blob, "f".repeat(40)]) {
 			const result = await Effect.runPromise(
 				Effect.result(
-					f.effects.performEffect({
+					f.effects.perform({
 						...operation,
 						source: { ...f.source, commit: hash, root: `refs/render/sources/${hash}` },
 					}),
@@ -135,7 +138,11 @@ test("empty exit 1, truncated output, false-clean output and SIGABRT remain diag
 				{ mode: 0o700 },
 			);
 			process.env.PATH = `${bin}:${path}`;
-			await assert.rejects(f.effects.perform({ type: "prepare", base: f.base, source: f.source, target: f.target }), diagnostic, label);
+			await assert.rejects(
+				Effect.runPromise(f.effects.perform({ type: "prepare", base: f.base, source: f.source, target: f.target })),
+				diagnostic,
+				label,
+			);
 		}
 	} finally {
 		process.env.PATH = path;
@@ -150,23 +157,23 @@ test("canonical observation binds the host-private proposal ref once and follows
 	const f = await fixture();
 	try {
 		const observe = { type: "observe" as const, repository: "owned", proposal: "workflow:2", initial: f.commit };
-		const first = await f.effects.perform(observe);
+		const first = await Effect.runPromise(f.effects.perform(observe));
 		assert.equal(first.proposal, "workflow:2");
 		assert.equal(first.ref, proposalRef("workflow:2"));
 		assert.deepEqual(first.target, f.base, "initial binding is the exact rooted host-configured base");
 		const store = storeOf(f.root);
 		assert.equal(git(store, ["rev-parse", first.ref]).toString().trim(), f.commit);
-		assert.deepEqual((await f.effects.perform({ ...observe, initial: f.target.commit })).target, f.base, "no rebinding");
+		assert.deepEqual((await Effect.runPromise(f.effects.perform({ ...observe, initial: f.target.commit }))).target, f.base, "no rebinding");
 		git(f.repo, ["update-ref", "refs/heads/proposal/render", f.source.commit]);
-		assert.deepEqual((await f.effects.perform(observe)).target, f.base, "an upstream/forge branch never becomes T");
+		assert.deepEqual((await Effect.runPromise(f.effects.perform(observe))).target, f.base, "an upstream/forge branch never becomes T");
 		git(store, ["update-ref", first.ref, f.target.commit, f.commit]);
-		assert.deepEqual((await f.effects.perform(observe)).target, f.target, "a host canonical update is observed");
-		const other = await f.effects.perform({ ...observe, proposal: "workflow:3", initial: f.source.commit });
+		assert.deepEqual((await Effect.runPromise(f.effects.perform(observe))).target, f.target, "a host canonical update is observed");
+		const other = await Effect.runPromise(f.effects.perform({ ...observe, proposal: "workflow:3", initial: f.source.commit }));
 		assert.deepEqual(other.target, f.source, "each proposal has its own binding");
 		const blob = git(store, ["hash-object", "-w", "--stdin"], "not a commit").toString().trim();
 		git(store, ["update-ref", first.ref, blob]);
-		await assert.rejects(f.effects.perform(observe), /commit/i);
-		await assert.rejects(f.effects.perform({ ...observe, proposal: "workflow:4", initial: "f".repeat(40) }));
+		await assert.rejects(Effect.runPromise(f.effects.perform(observe)), /commit/i);
+		await assert.rejects(Effect.runPromise(f.effects.perform({ ...observe, proposal: "workflow:4", initial: "f".repeat(40) })));
 		assert.equal(git(store, ["for-each-ref", proposalRef("workflow:4")]).toString(), "", "unresolvable initial binds nothing");
 	} finally {
 		await f.close();
@@ -176,7 +183,7 @@ test("canonical observation binds the host-private proposal ref once and follows
 test("a host-rooted prepared commit resolves without upstream fetch; unknown commits still refuse", async () => {
 	const f = await fixture();
 	try {
-		const prepared = await f.effects.perform({ type: "prepare", base: f.base, source: f.source, target: f.target });
+		const prepared = await Effect.runPromise(f.effects.perform({ type: "prepare", base: f.base, source: f.source, target: f.target }));
 		assert.throws(() => git(f.repo, ["cat-file", "-e", prepared.result.commit]), "X exists only in host-private Git");
 		assert.deepEqual(await f.resolve(prepared.result.commit), prepared.result);
 		await assert.rejects(f.resolve("e".repeat(40)));
@@ -188,7 +195,7 @@ test("a host-rooted prepared commit resolves without upstream fetch; unknown com
 test("receipt identity binds the trusted Git profile and algorithm", async () => {
 	const f = await fixture();
 	try {
-		const result = await f.effects.perform({ type: "prepare", base: f.base, source: f.source, target: f.target });
+		const result = await Effect.runPromise(f.effects.perform({ type: "prepare", base: f.base, source: f.source, target: f.target }));
 		assert.match(result.profile, /^render-trusted-git\/v1/);
 		assert.equal(
 			result.identity,
@@ -223,7 +230,7 @@ async function hostileAttributes(variable: "HOME" | "XDG_CONFIG_HOME") {
 		process.env.HOME = env.HOME;
 		if (env.XDG_CONFIG_HOME) process.env.XDG_CONFIG_HOME = env.XDG_CONFIG_HOME;
 		else delete process.env.XDG_CONFIG_HOME;
-		const result = await f.effects.perform({ type: "prepare", base: f.base, source, target });
+		const result = await Effect.runPromise(f.effects.perform({ type: "prepare", base: f.base, source, target }));
 		assert.equal(result.kind, "conflict", `${variable}-only hostile default attributes changed a real conflict`);
 		assert.deepEqual(result.conflicts, ["common"]);
 	} finally {

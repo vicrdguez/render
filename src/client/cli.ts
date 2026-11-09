@@ -46,17 +46,15 @@ function need(values: Record<string, string | undefined>, name: string): string 
 
 function command(client: Client, body: Record<string, unknown>, commandId: string | undefined): Effect.Effect<never, unknown> {
 	return Effect.gen(function* () {
-		const snap = yield* fromPromise(() => client.snapshot());
+		const snap = yield* client.snapshot();
 		if (snap.status !== 200) finish(snap);
 		return finish(
-			yield* fromPromise(() =>
-				client.command({
-					version: 1,
-					authorityEpoch: snap.body.authorityEpoch,
-					commandId: commandId ?? `cli-${randomUUID()}`,
-					...body,
-				}),
-			),
+			yield* client.command({
+				version: 1,
+				authorityEpoch: snap.body.authorityEpoch,
+				commandId: commandId ?? `cli-${randomUUID()}`,
+				...body,
+			}),
 		);
 	});
 }
@@ -69,7 +67,7 @@ function admin(data: string, verb: string | undefined, values: Record<string, st
 			process.exit(3);
 		}
 		const client = new AdminClient(socket);
-		const status = yield* fromPromise(() => client.request("GET", "/v1/admin/status"));
+		const status = yield* client.request("GET", "/v1/admin/status");
 		const envelope = (command: Record<string, unknown>) => ({
 			version: 1,
 			authorityEpoch: status.body.authorityEpoch,
@@ -79,12 +77,10 @@ function admin(data: string, verb: string | undefined, values: Record<string, st
 		switch (verb) {
 			case "enroll": {
 				const workflows = values.workflows === undefined || values.workflows === "all" ? "all" : values.workflows.split(",");
-				const r = yield* fromPromise(() =>
-					client.request(
-						"POST",
-						"/v1/admin/commands",
-						envelope({ type: "enrollDevice", label: need(values, "label"), scope: { workflows } }),
-					),
+				const r = yield* client.request(
+					"POST",
+					"/v1/admin/commands",
+					envelope({ type: "enrollDevice", label: need(values, "label"), scope: { workflows } }),
 				);
 				if (r.status !== 200) finish(r);
 				const result = r.body.result as Record<string, unknown>;
@@ -98,29 +94,23 @@ function admin(data: string, verb: string | undefined, values: Record<string, st
 				const expectedRevision = need(values, "expected");
 				const file = yield* fromPromise(() => readFile(need(values, "file"), "utf8"));
 				finish(
-					yield* fromPromise(() =>
-						client.request(
-							"POST",
-							"/v1/admin/commands",
-							envelope({
-								type: "importCheckpointSettings",
-								expectedRevision,
-								modes: JSON.parse(file),
-							}),
-						),
+					yield* client.request(
+						"POST",
+						"/v1/admin/commands",
+						envelope({
+							type: "importCheckpointSettings",
+							expectedRevision,
+							modes: JSON.parse(file),
+						}),
 					),
 				);
 				break;
 			}
 			case "revoke":
-				finish(
-					yield* fromPromise(() =>
-						client.request("POST", "/v1/admin/commands", envelope({ type: "revokeDevice", device: need(values, "device") })),
-					),
-				);
+				finish(yield* client.request("POST", "/v1/admin/commands", envelope({ type: "revokeDevice", device: need(values, "device") })));
 				break;
 			case "devices":
-				finish(yield* fromPromise(() => client.request("GET", "/v1/admin/devices")));
+				finish(yield* client.request("GET", "/v1/admin/devices"));
 				break;
 			case "status":
 				finish(status);
@@ -164,7 +154,7 @@ function main(): Effect.Effect<void, unknown> {
 		const client = new RenderClient(url, token.trim());
 		switch (verb) {
 			case "snapshot":
-				return finish(yield* fromPromise(() => client.snapshot()));
+				return finish(yield* client.snapshot());
 			case "create-workflow":
 				return yield* command(client, { command: { type: "createWorkflow", title: need(values, "title") } }, values["command-id"]);
 			case "save": {
@@ -186,7 +176,7 @@ function main(): Effect.Effect<void, unknown> {
 				);
 			}
 			case "read": {
-				const r = yield* fromPromise(() => client.artifact(need(values, "revision")));
+				const r = yield* client.artifact(need(values, "revision"));
 				if (r.status !== 200) finish(r);
 				const { content, ...metadata } = r.body;
 				yield* fromPromise(() => writeFile(need(values, "out"), Buffer.from(String(content), "base64")));
@@ -201,9 +191,9 @@ function main(): Effect.Effect<void, unknown> {
 					values["command-id"],
 				);
 			case "messages":
-				return finish(yield* fromPromise(() => client.messages(need(values, "workflow"))));
+				return finish(yield* client.messages(need(values, "workflow")));
 			case "receipt":
-				return finish(yield* fromPromise(() => client.receipt(need(values, "command-id"))));
+				return finish(yield* client.receipt(need(values, "command-id")));
 			case "observe": {
 				const limit = values.frames === undefined ? Number.POSITIVE_INFINITY : Number(values.frames);
 				yield* fromPromise(async () => {

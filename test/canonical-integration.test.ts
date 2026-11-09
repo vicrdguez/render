@@ -1,8 +1,10 @@
 // CI01–CI07, CI09, CI11–CI15 and CI17 at the Ledger/Kernel interface over real SQLite/Durable staging. Intents and
 // canonical-ref observations are literal host results here: they establish authority, ordering, qualification and
 // retention, not that Effects or Git produced them (see canonical-integration-effects.test.ts and the Engine journeys).
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import type { Frame } from "../src/ledger/ledger.ts";
 import { accepted, LedgerOnlyEngine, selection } from "./support/implementation.ts";
 import {
@@ -46,7 +48,7 @@ const integrations = (t: Lifecycle, slice = "read-fix") =>
 	((passOf(t, slice).handoff as { integrations?: Integration[] }).integrations ?? []) as Integration[];
 const canceled = (t: Lifecycle) => (passOf(t).handoff as { canceled?: { inFlight: string[] } }).canceled;
 async function read(t: Lifecycle, ref: string) {
-	const value = await t.f.ledger.artifact(admin, { read: ref });
+	const value = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 	assert.ok("content" in value, `read ${ref}`);
 	return value.content.toString();
 }
@@ -140,18 +142,20 @@ test("CI03 a policy adopted after the passing review stales its intent", async (
 		const frame = t.f.ledger.snapshot(admin) as Frame;
 		const policy = frame.policy as { defaultRevision: string; bindings: Record<string, { revision: string }> };
 		const changed = accepted(
-			await t.f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: t.f.ledger.status().authorityEpoch,
-					commandId: "ci03-policy",
-					command: {
-						type: "changePolicy",
-						expectedRevision: policy.defaultRevision,
-						policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+			await Effect.runPromise(
+				t.f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: t.f.ledger.status().authorityEpoch,
+						commandId: "ci03-policy",
+						command: {
+							type: "changePolicy",
+							expectedRevision: policy.defaultRevision,
+							policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+						},
 					},
-				},
-				admin,
+					admin,
+				),
 			),
 		);
 		accepted(await t.f.command({ type: "adoptPolicy", revision: changed.policy, expectedBinding: policy.bindings[W]!.revision }, admin));
@@ -188,7 +192,7 @@ test("CI05 admission first: cancellation lists the attempt in flight and its obs
 		const receipt = accepted(await cancel(t));
 		assert.deepEqual(canceled(t)?.inFlight, [attempt], "the cancellation view lists the admitted attempt");
 		assert.deepEqual([receipt.inFlight, receipt.inFlight0], [1, attempt], "the cancellation receipt names the attempt in flight");
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: W } }));
 		assert.ok("jsonl" in exported);
 		assert.ok(
 			exported.jsonl
@@ -403,12 +407,13 @@ test("CI17 intents, attempts, observations and qualification survive reopen and 
 		const before = JSON.stringify(integrations(t));
 		await t.f.reopen(new LedgerOnlyEngine());
 		assert.equal(JSON.stringify(integrations(t)), before, "state survives reopen");
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: W } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of [operation, applied]) assert.ok(exported.content[ref], `export contains ${ref}`);
 		const o = own(t, t.id);
 		const owner = t.agent(o);
-		for (const ref of [operation, applied]) assert.ok("content" in (await t.f.ledger.artifact(owner, { read: ref })), `owner reads ${ref}`);
+		for (const ref of [operation, applied])
+			assert.ok("content" in (await Effect.runPromise(t.f.ledger.artifact(owner, { read: ref }))), `owner reads ${ref}`);
 		assert.equal(JSON.parse(await read(t, applied)).observed.commit, R1);
 		assert.equal(passes(t).length, 1, "qualification opens no pass");
 	} finally {

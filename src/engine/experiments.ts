@@ -3,7 +3,6 @@
 import { createHash } from "node:crypto";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
-import { fromPromise, runPromise } from "../effect.ts";
 import { Effects, type Source, type SourceReceipt } from "../effects/source.ts";
 import { type ExperimentProtocol, experimentCandidates, readExperimentProtocol } from "../kernel/experiments.ts";
 import type { RoleAssignment } from "../kernel/roles.ts";
@@ -43,12 +42,12 @@ export class Experiments {
 	}
 	#read(ref: string) {
 		return Effect.gen({ self: this }, function* () {
-			const result = yield* this.#ledger().artifactEffect(effectsContext, { read: ref });
+			const result = yield* this.#ledger().artifact(effectsContext, { read: ref });
 			if (!("content" in result)) throw new Error(`Restore exact experiment input ${ref}: ${result.code}`);
 			return result.content.toString();
 		});
 	}
-	prepareEffect(a: RoleAssignment): Effect.Effect<void, unknown> {
+	prepare(a: RoleAssignment): Effect.Effect<void, unknown> {
 		return Effect.suspend(() => {
 			if (this.#prepared.has(a.id)) return Effect.void;
 			let allocationStarted = false;
@@ -57,7 +56,7 @@ export class Experiments {
 				const bytes = yield* this.#read(e.protocol);
 				const protocol = readExperimentProtocol(bytes);
 				if (!protocol) throw new Error(`Restore exact compatible protocol ${e.protocol}`);
-				const base = yield* this.#effects.performEffect({ type: "resolve", ...protocol.source });
+				const base = yield* this.#effects.perform({ type: "resolve", ...protocol.source });
 				const readOnly: Record<string, Source> = {};
 				if (e.candidate === null) {
 					for (const candidate of experimentCandidates(this.#assignments(), e.protocol)) {
@@ -66,13 +65,13 @@ export class Experiments {
 						yield* this.#read(candidate.report);
 						const retained = JSON.parse(yield* this.#read(candidate.experimentSource)) as { protocol: string; source: SourceReceipt };
 						if (retained.protocol !== e.protocol) throw new Error("Candidate protocol differs; new round required.");
-						yield* this.#effects.reconcileEffect(retained.source);
+						yield* this.#effects.reconcile(retained.source);
 						readOnly[candidate.packet.experiment!.candidate!] = retained.source.source;
 					}
 					if (protocol.candidates.some((id) => !Object.hasOwn(readOnly, id))) throw new Error("Required sealed candidate missing.");
 				}
 				allocationStarted = true;
-				const handle = yield* this.#sandboxes.prepareEffect(
+				const handle = yield* this.#sandboxes.prepare(
 					experimentScope(a),
 					{ ...protocol.profile, maxCommands: protocol.budget.maxCommands },
 					{ ...base, ...(e.candidate === null ? { readOnly } : {}) },
@@ -87,10 +86,8 @@ export class Experiments {
 			);
 		}).pipe(Effect.uninterruptible);
 	}
-	prepare(a: RoleAssignment): Promise<void> {
-		return runPromise(this.prepareEffect(a));
-	}
-	runEffect(a: RoleAssignment, argv: string[]): Effect.Effect<unknown, unknown> {
+
+	run(a: RoleAssignment, argv: string[]): Effect.Effect<unknown, unknown> {
 		// A fiber interrupt cannot release writer admission before the sandbox command settles.
 		return Effect.gen({ self: this }, function* () {
 			if (this.#active.has(a.id)) throw new Error("One experiment command at a time; concurrent writer admission refused.");
@@ -98,7 +95,7 @@ export class Experiments {
 			if (!prepared) throw new Error("Experiment environment unavailable; reconcile original execution, never fall back to host.");
 			this.#active.add(a.id);
 			return yield* Effect.gen({ self: this }, function* () {
-				const result = yield* this.#sandboxes.executeEffect(prepared.handle, {
+				const result = yield* this.#sandboxes.execute(prepared.handle, {
 					scope: experimentScope(a),
 					argv,
 					timeoutMs: prepared.protocol.budget.timeoutMs,
@@ -115,10 +112,8 @@ export class Experiments {
 			}).pipe(Effect.ensuring(Effect.sync(() => this.#active.delete(a.id))));
 		}).pipe(Effect.uninterruptible);
 	}
-	run(a: RoleAssignment, argv: string[]): Promise<unknown> {
-		return runPromise(this.runEffect(a, argv));
-	}
-	sealEffect(a: RoleAssignment): Effect.Effect<void, unknown> {
+
+	seal(a: RoleAssignment): Effect.Effect<void, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			if (a.experimentSource) {
 				yield* this.#read(a.experimentSource);
@@ -127,12 +122,12 @@ export class Experiments {
 			if (this.#active.has(a.id)) throw new Error("Experiment command has not settled; cannot seal concurrent execution.");
 			const prepared = this.#prepared.get(a.id);
 			if (!prepared) throw new Error("Original experiment environment must be reconciled before sealing.");
-			const capture = yield* this.#sandboxes.sealEffect(prepared.handle);
-			const stopped = yield* this.#sandboxes.stopEffect(prepared.handle);
+			const capture = yield* this.#sandboxes.seal(prepared.handle);
+			const stopped = yield* this.#sandboxes.stop(prepared.handle);
 			if (!stopped.executions.length)
 				throw new Error("Independent execution evidence required; a model report alone is not a measurement.");
-			const source = yield* this.#effects.performEffect({ type: "retain", base: prepared.base, capture });
-			yield* this.#effects.reconcileEffect(source);
+			const source = yield* this.#effects.perform({ type: "retain", base: prepared.base, capture });
+			yield* this.#effects.reconcile(source);
 			yield* this.#retain(a, "recordSourceObservation", {
 				schema: 1,
 				kind: "experiment-source",
@@ -150,10 +145,8 @@ export class Experiments {
 			});
 		}).pipe(Effect.uninterruptible);
 	}
-	seal(a: RoleAssignment): Promise<void> {
-		return runPromise(this.sealEffect(a));
-	}
-	stopEffect(a: RoleAssignment, fenced = false): Effect.Effect<void, unknown> {
+
+	stop(a: RoleAssignment, fenced = false): Effect.Effect<void, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			let scope = experimentScope(a, fenced);
 			if (a.experimentSource) {
@@ -167,7 +160,7 @@ export class Experiments {
 					throw new Error("Sealed experiment execution identity differs; reconcile the exact original runtime.");
 				scope = retained.scope;
 			}
-			const stopped = yield* this.#sandboxes.stopEffect({ scope });
+			const stopped = yield* this.#sandboxes.stop({ scope });
 			if (this.#active.has(a.id)) throw new Error("Admitted experiment execution still settling; capacity remains held.");
 			yield* this.#retain(a, "recordRunnerDiagnostic", {
 				schema: 1,
@@ -179,9 +172,7 @@ export class Experiments {
 			});
 		}).pipe(Effect.uninterruptible);
 	}
-	stop(a: RoleAssignment, fenced = false): Promise<void> {
-		return runPromise(this.stopEffect(a, fenced));
-	}
+
 	#retain(
 		a: RoleAssignment,
 		type: "recordRunnerDiagnostic" | "recordSourceObservation",
@@ -189,7 +180,7 @@ export class Experiments {
 	): Effect.Effect<void, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			const text = JSON.stringify(value);
-			const result = yield* this.#ledger().commandEffect(
+			const result = yield* this.#ledger().command(
 				{
 					version: 1,
 					authorityEpoch: this.#ledger().status().authorityEpoch,

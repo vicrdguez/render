@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import { admin, roleFixture } from "./support/roles.ts";
 
 test("ordinary Ledger restart preserves authority, rotates executor and retains exact bytes", async () => {
@@ -10,7 +11,7 @@ test("ordinary Ledger restart preserves authority, rotates executor and retains 
 		await f.reopen();
 		assert.equal(f.ledger.status().authorityEpoch, authority);
 		assert.notEqual(f.ledger.status().executorEpoch, executor);
-		const read = await f.ledger.artifact(admin, { read: "revision:3" });
+		const read = await Effect.runPromise(f.ledger.artifact(admin, { read: "revision:3" }));
 		assert.ok("content" in read);
 		assert.equal(read.content.toString(), "Keep exact constraints.\n");
 	} finally {

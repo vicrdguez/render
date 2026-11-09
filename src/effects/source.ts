@@ -153,27 +153,17 @@ export class Effects {
 		this.#repositories = options.repositories;
 		this.#forge = options.forge;
 	}
-	perform(operation: Resolve | Read): Promise<Source>;
-	perform(operation: Retain): Promise<SourceReceipt>;
-	perform(operation: Diff): Promise<string>;
-	perform(operation: Prepare): Promise<PreparationReceipt>;
-	perform(operation: Observe): Promise<TargetObservation>;
-	perform(operation: Squash): Promise<Source>;
-	perform(operation: Publish | CreateProposal | UpdateSummary | MarkReady): Promise<ForgeDispatch>;
-	perform(operation: Integrate): Promise<IntegrationDispatch>;
-	perform(operation: SourceOperation): Promise<SourceResult> {
-		return runPromise(this.performEffect(operation));
-	}
-	performEffect(operation: Resolve | Read): Effect.Effect<Source, unknown>;
-	performEffect(operation: Retain): Effect.Effect<SourceReceipt, unknown>;
-	performEffect(operation: Diff): Effect.Effect<string, unknown>;
-	performEffect(operation: Prepare): Effect.Effect<PreparationReceipt, unknown>;
-	performEffect(operation: Observe): Effect.Effect<TargetObservation, unknown>;
-	performEffect(operation: Squash): Effect.Effect<Source, unknown>;
-	performEffect(operation: Publish | CreateProposal | UpdateSummary | MarkReady): Effect.Effect<ForgeDispatch, unknown>;
-	performEffect(operation: Integrate): Effect.Effect<IntegrationDispatch, unknown>;
-	performEffect(operation: SourceOperation): Effect.Effect<SourceResult, unknown>;
-	performEffect(operation: SourceOperation): Effect.Effect<SourceResult, unknown> {
+
+	perform(operation: Resolve | Read): Effect.Effect<Source, unknown>;
+	perform(operation: Retain): Effect.Effect<SourceReceipt, unknown>;
+	perform(operation: Diff): Effect.Effect<string, unknown>;
+	perform(operation: Prepare): Effect.Effect<PreparationReceipt, unknown>;
+	perform(operation: Observe): Effect.Effect<TargetObservation, unknown>;
+	perform(operation: Squash): Effect.Effect<Source, unknown>;
+	perform(operation: Publish | CreateProposal | UpdateSummary | MarkReady): Effect.Effect<ForgeDispatch, unknown>;
+	perform(operation: Integrate): Effect.Effect<IntegrationDispatch, unknown>;
+	perform(operation: SourceOperation): Effect.Effect<SourceResult, unknown>;
+	perform(operation: SourceOperation): Effect.Effect<SourceResult, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			if (
 				operation.type === "publish" ||
@@ -248,9 +238,9 @@ export class Effects {
 				.toString()
 				.trim();
 			const source = yield* this.#read(repository, commit);
-			yield* fromPromise(() => faultBarrier("before-source-root", "owned-source"));
+			yield* faultBarrier("before-source-root", "owned-source");
 			yield* this.#rootSource(source);
-			yield* fromPromise(() => faultBarrier("after-source-root", "owned-source"));
+			yield* faultBarrier("after-source-root", "owned-source");
 			return {
 				base,
 				source,
@@ -273,24 +263,18 @@ export class Effects {
 			} satisfies SourceReceipt;
 		}).pipe(Effect.uninterruptible);
 	}
-	reconcile(receipt: SourceReceipt): Promise<SourceReceipt>;
-	reconcile(receipt: PreparationReceipt): Promise<PreparationReceipt>;
-	reconcile(operation: ReconcileIntegration): Promise<CanonicalObservation>;
-	reconcile(operation: ReconcilePublication): Promise<ForgeSnapshot>;
-	reconcile(receipt: Reconciliation): Promise<Reconciled> {
-		return runPromise(this.reconcileEffect(receipt));
-	}
-	reconcileEffect(receipt: SourceReceipt): Effect.Effect<SourceReceipt, unknown>;
-	reconcileEffect(receipt: PreparationReceipt): Effect.Effect<PreparationReceipt, unknown>;
-	reconcileEffect(operation: ReconcileIntegration): Effect.Effect<CanonicalObservation, unknown>;
-	reconcileEffect(operation: ReconcilePublication): Effect.Effect<ForgeSnapshot, unknown>;
-	reconcileEffect(receipt: Reconciliation): Effect.Effect<Reconciled, unknown>;
-	reconcileEffect(
+
+	reconcile(receipt: SourceReceipt): Effect.Effect<SourceReceipt, unknown>;
+	reconcile(receipt: PreparationReceipt): Effect.Effect<PreparationReceipt, unknown>;
+	reconcile(operation: ReconcileIntegration): Effect.Effect<CanonicalObservation, unknown>;
+	reconcile(operation: ReconcilePublication): Effect.Effect<ForgeSnapshot, unknown>;
+	reconcile(receipt: Reconciliation): Effect.Effect<Reconciled, unknown>;
+	reconcile(
 		receipt: SourceReceipt | PreparationReceipt | ReconcileIntegration | ReconcilePublication,
 	): Effect.Effect<SourceReceipt | PreparationReceipt | CanonicalObservation | ForgeSnapshot, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			if ("type" in receipt && receipt.type === "publication")
-				return yield* (yield* this.#forgeFor(receipt.repository)).observeEffect(receipt.proposal);
+				return yield* (yield* this.#forgeFor(receipt.repository)).observe(receipt.proposal);
 			if ("type" in receipt) return yield* this.#canonical(receipt.repository, receipt.proposal);
 			yield* this.#verifySource(receipt.base);
 			yield* this.#verifySource(receipt.source);
@@ -328,22 +312,22 @@ export class Effects {
 			if (this.#consumed.has(operation.attempt)) throw new Error(`Forge permit ${operation.attempt} was already consumed.`);
 			this.#consumed.add(operation.attempt);
 			if (operation.type === "publish")
-				return yield* forge.applyEffect({
+				return yield* forge.apply({
 					type: "publishSource",
 					proposal: operation.proposal,
 					commit: operation.commit,
 					expected: operation.expected,
 				});
 			if (operation.type === "createProposal")
-				return yield* forge.applyEffect({
+				return yield* forge.apply({
 					type: "createDraftProposal",
 					proposal: operation.proposal,
 					title: operation.title,
 					body: operation.body,
 				});
 			if (operation.type === "markReady")
-				return yield* forge.applyEffect({ type: "markProposalReady", proposal: operation.proposal, pr: operation.pr });
-			return yield* forge.applyEffect({
+				return yield* forge.apply({ type: "markProposalReady", proposal: operation.proposal, pr: operation.pr });
+			return yield* forge.apply({
 				type: "updateProposalSummary",
 				proposal: operation.proposal,
 				pr: operation.pr,
@@ -389,9 +373,9 @@ export class Effects {
 			const dispatch = yield* fromPromise(() =>
 				this.#transaction(store.path, store.cwd, `start\nupdate ${ref} ${result.commit} ${expected}\nprepare\n`),
 			);
-			yield* fromPromise(() => faultBarrier("after-integration-cas", `integration:${proposal}`));
+			yield* faultBarrier("after-integration-cas", `integration:${proposal}`);
 			const observed = yield* this.#canonical(repository, proposal);
-			yield* fromPromise(() => faultBarrier("after-integration-readback", `integration:${proposal}`));
+			yield* faultBarrier("after-integration-readback", `integration:${proposal}`);
 			return { ...observed, dispatch };
 		});
 	}
@@ -457,7 +441,7 @@ export class Effects {
 			if (current.exitCode === 1) {
 				// First use binds the proposal to the host-configured base, expected-absent. A failed create means another
 				// binding won: the readback below decides, and nothing ever rebinds an existing ref.
-				const base = yield* this.performEffect({ type: "resolve", repository, commit: initial });
+				const base = yield* this.perform({ type: "resolve", repository, commit: initial });
 				const created = yield* fromPromise(() =>
 					this.#gitResult(store.path, store.cwd, ["update-ref", ref, base.commit, "0".repeat(base.commit.length)]),
 				);

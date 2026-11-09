@@ -1,8 +1,10 @@
 // HF01: the GitHub Forge adapter reads the actual merge mapping from an owned fake GitHub with real Git. No Ledger here;
 // human-merge-observation.test.ts classifies these observations.
+
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import { Effects } from "../src/effects/source.ts";
 import { fakeGitHub, TOKEN } from "./support/github.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
@@ -12,16 +14,20 @@ test("HF01 a human merge into main reports the merged head and the main commit; 
 	const gh = await fakeGitHub();
 	const forge = { ...gh.config, repositories: { owned: { owner: gh.owner, name: gh.name, base: "main" } } };
 	const effects = new Effects({ root: join(source.root, "effects"), repositories: { owned: source.repo }, forge });
-	const reconcile = (proposal: string) => effects.reconcile({ type: "publication", repository: "owned", proposal });
+	const reconcile = (proposal: string) => Effect.runPromise(effects.reconcile({ type: "publication", repository: "owned", proposal }));
 	const commit = (text: string) => {
 		const blob = git(source.repo, ["hash-object", "-w", "--stdin"], text).toString().trim();
 		const tree = git(source.repo, ["mktree"], `100644 blob ${blob}\tvalue\n`).toString().trim();
 		return git(source.repo, ["commit-tree", tree, "-p", source.commit], "Fixture R\n").toString().trim();
 	};
 	const open = async (proposal: string, text: string, n: number, body = "Render proposal") => {
-		const R = (await effects.perform({ type: "resolve", repository: "owned", commit: commit(text) })).commit;
-		await effects.perform({ type: "publish", repository: "owned", proposal, commit: R, expected: null, attempt: `forge-attempt:p${n}` });
-		await effects.perform({ type: "createProposal", repository: "owned", proposal, title: "Render", body, attempt: `forge-attempt:c${n}` });
+		const R = (await Effect.runPromise(effects.perform({ type: "resolve", repository: "owned", commit: commit(text) }))).commit;
+		await Effect.runPromise(
+			effects.perform({ type: "publish", repository: "owned", proposal, commit: R, expected: null, attempt: `forge-attempt:p${n}` }),
+		);
+		await Effect.runPromise(
+			effects.perform({ type: "createProposal", repository: "owned", proposal, title: "Render", body, attempt: `forge-attempt:c${n}` }),
+		);
 		return R;
 	};
 	try {

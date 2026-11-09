@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { Checkpoints, Manifest } from "../src/kernel/checkpoints.ts";
 import { change, type KernelState } from "../src/kernel/kernel.ts";
@@ -94,16 +95,18 @@ async function fixture(direction = true, change?: (packets: RolePacket[]) => voi
 	let seq = 0;
 	async function save(document: string, text: string) {
 		return accepted(
-			await f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: f.ledger.status().authorityEpoch,
-					commandId: `doc:${++seq}`,
-					workflow: "workflow:2",
-					expected: { document: null },
-					command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
-				},
-				admin,
+			await Effect.runPromise(
+				f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: f.ledger.status().authorityEpoch,
+						commandId: `doc:${++seq}`,
+						workflow: "workflow:2",
+						expected: { document: null },
+						command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
+					},
+					admin,
+				),
 			),
 		).revision as string;
 	}
@@ -174,18 +177,20 @@ for (const mode of ["human", "delegated"] as const) {
 		try {
 			if (mode === "delegated") {
 				accepted(
-					await x.f.ledger.command(
-						{
-							version: 1,
-							authorityEpoch: x.f.ledger.status().authorityEpoch,
-							commandId: "delegate",
-							command: {
-								type: "changeCheckpointSettings",
-								expectedRevision: "settings:initial",
-								modes: { seams: "delegated", modules: "human", proposal: "human" },
+					await Effect.runPromise(
+						x.f.ledger.command(
+							{
+								version: 1,
+								authorityEpoch: x.f.ledger.status().authorityEpoch,
+								commandId: "delegate",
+								command: {
+									type: "changeCheckpointSettings",
+									expectedRevision: "settings:initial",
+									modes: { seams: "delegated", modules: "human", proposal: "human" },
+								},
 							},
-						},
-						admin,
+							admin,
+						),
 					),
 				);
 			}
@@ -208,7 +213,7 @@ for (const mode of ["human", "delegated"] as const) {
 			const reviewerId = accepted(await x.cmd({ type: "requestCheckpointReview", request, key: "challenge" })).assignment;
 			await until(() => x.assignments().find((a) => a.id === reviewerId)?.status === "running");
 			const reviewer = x.assignments().find((a) => a.id === reviewerId)!;
-			const rendered = JSON.parse(await x.engine.render(reviewer));
+			const rendered = JSON.parse(await Effect.runPromise(x.engine.render(reviewer)));
 			assert.ok(rendered.inputs.some((v: { text: string }) => v.text === answer("Compact interface")));
 			const review = accepted(
 				await x.cmd(
@@ -257,7 +262,7 @@ for (const mode of ["human", "delegated"] as const) {
 					decisions: { N1: "separate" },
 					nonbinding: [],
 				};
-				const reviewBytes = await x.f.ledger.artifact(admin, { read: review as string });
+				const reviewBytes = await Effect.runPromise(x.f.ledger.artifact(admin, { read: review as string }));
 				assert.ok("content" in reviewBytes);
 				for (const status of ["submitted", "blocked", "canceled"] as const) {
 					const assignments = structuredClone(x.assignments());
@@ -310,11 +315,11 @@ for (const mode of ["human", "delegated"] as const) {
 				[ar, answer("Compact interface")],
 				[br, answer("Independent boundaries")],
 			]) {
-				const value = await x.f.ledger.artifact(admin, { read: ref! });
+				const value = await Effect.runPromise(x.f.ledger.artifact(admin, { read: ref! }));
 				assert.ok("content" in value);
 				assert.equal(value.content.toString(), expected);
 			}
-			const exported = await x.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			const exported = await Effect.runPromise(x.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 			assert.ok("manifest" in exported && exported.manifest.complete);
 			assert.ok(exported.jsonl.includes(ar) && exported.jsonl.includes(br) && exported.jsonl.includes(request));
 		} finally {
@@ -335,13 +340,13 @@ test("D1/D2 candidates receive own inputs and cannot name foreign artifacts or g
 			[a, "LEFT-INPUT", "RIGHT-INPUT"],
 			[b, "RIGHT-INPUT", "LEFT-INPUT"],
 		] as const) {
-			const rendered = await x.engine.render(own);
+			const rendered = await Effect.runPromise(x.engine.render(own));
 			assert.ok(rendered.includes(ownText));
 			assert.ok(!rendered.includes(foreignText) && !rendered.includes("COORDINATOR-FAVORED-ANSWER"));
-			const positive = await x.f.ledger.artifact(actor(own), { read: own.packet.instructions });
+			const positive = await Effect.runPromise(x.f.ledger.artifact(actor(own), { read: own.packet.instructions }));
 			assert.ok("content" in positive);
 			for (const ref of [x.favored, own.id === a.id ? x.right : x.left, x.parent.packetRef, own.id === a.id ? b.packetRef : a.packetRef]) {
-				const foreign = await x.f.ledger.artifact(actor(own), { read: ref });
+				const foreign = await Effect.runPromise(x.f.ledger.artifact(actor(own), { read: ref }));
 				assert.ok(!("content" in foreign), "foreign artifact must remain unreadable even with its exact handle");
 			}
 			assert.equal(
@@ -356,11 +361,11 @@ test("D1/D2 candidates receive own inputs and cannot name foreign artifacts or g
 		}
 		const ar = accepted(await x.cmd({ type: "submitRoleResult", text: answer("LEFT-ANSWER-CANARY"), supports: [] }, a)).report as string;
 		assert.ok(
-			!("content" in (await x.f.ledger.artifact(actor(b), { read: ar }))),
+			!("content" in (await Effect.runPromise(x.f.ledger.artifact(actor(b), { read: ar })))),
 			"foreign artifact must remain unreadable even with its exact handle",
 		);
-		assert.ok("content" in (await x.f.ledger.artifact(actor(a), { read: ar })));
-		assert.ok("content" in (await x.f.ledger.artifact(actor(x.parent), { read: ar })));
+		assert.ok("content" in (await Effect.runPromise(x.f.ledger.artifact(actor(a), { read: ar }))));
+		assert.ok("content" in (await Effect.runPromise(x.f.ledger.artifact(actor(x.parent), { read: ar }))));
 		const inherited = await x.f.command({
 			type: "assignTask",
 			slice: "contaminated",

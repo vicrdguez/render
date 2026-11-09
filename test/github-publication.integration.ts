@@ -1,10 +1,12 @@
 // GP-E1 as a real journey: Engine, SQLite, Effects Git, Docker Linux checks and the GitHub adapter against an owned fake
 // GitHub. Verdicts are fixture data; this establishes autonomous publication, one draft PR across an unknown create,
 // and that a forge outage blocks neither integration nor the same-proposal dependent (design gap G5).
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import type { ImplementationPass } from "../src/kernel/roles.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import { fakeGitHub, TOKEN } from "./support/github.ts";
@@ -176,7 +178,7 @@ test("GP-E1/AR-E1 one draft PR across a lost create reply; a forge outage blocks
 		assert.equal(t.f.ledger.status().sequence, sequence, "HM09 and record no further forge observation");
 		assert.deepEqual([publication(t).main!.source, publication(t).main!.commit], [R2, main]);
 		assert.ok(!gh.requests.some((r) => r.path.endsWith("/merge")), "Render never sends a merge");
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exported);
 		assert.ok(!JSON.stringify(exported).includes(TOKEN), "the forge token never reaches Render records");
 	} finally {

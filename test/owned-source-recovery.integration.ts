@@ -1,10 +1,12 @@
 // Failure oracles authored before recovery/diagnostic implementation.
+
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { PolicyState } from "../src/kernel/policy.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
@@ -16,19 +18,24 @@ test("quarantine reconciliation retries the original runtime without reopening e
 	const f = await sourceFixture();
 	const path = process.env.PATH;
 	try {
-		const base = await f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit });
-		const handle = await f.sandboxes.prepare(f.scope, f.profile, base);
-		await f.sandboxes.execute(handle, { scope: f.scope, argv: ["sh", "-c", "printf diagnostic; exit 7"], timeoutMs: 10000 });
+		const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+		const handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
+		await Effect.runPromise(
+			f.sandboxes.execute(handle, { scope: f.scope, argv: ["sh", "-c", "printf diagnostic; exit 7"], timeoutMs: 10000 }),
+		);
 		process.env.PATH = "/no-runtime-available";
-		await assert.rejects(f.sandboxes.stop(handle), /quarant/i);
+		await assert.rejects(Effect.runPromise(f.sandboxes.stop(handle)), /quarant/i);
 		process.env.PATH = path;
 		const reopened = new Sandboxes({ root: join(f.root, "sandboxes"), authorize: () => false });
-		const stopped = await reopened.stop(handle);
+		const stopped = await Effect.runPromise(reopened.stop(handle));
 		assert.equal(stopped.runtime, handle.runtime);
 		assert.equal(stopped.running, false);
-		await assert.rejects(reopened.execute(handle, { scope: f.scope, argv: ["true"], timeoutMs: 1000 }), /closed|seal|scope/i);
-		await assert.rejects(f.sandboxes.prepare(f.scope, f.profile, base), /reuse|exist/i);
-		const capture = await reopened.seal(handle);
+		await assert.rejects(
+			Effect.runPromise(reopened.execute(handle, { scope: f.scope, argv: ["true"], timeoutMs: 1000 })),
+			/closed|seal|scope/i,
+		);
+		await assert.rejects(Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base)), /reuse|exist/i);
+		const capture = await Effect.runPromise(reopened.seal(handle));
 		assert.equal(capture.freeze.runtime, handle.runtime);
 		assert.equal(capture.entries.find((e) => e.path === "crlf")?.content, Buffer.from("literal\r\nbytes\r\n").toString("base64"));
 	} finally {
@@ -71,7 +78,7 @@ test("failed collection retains actual command diagnostics in history without a 
 			await setTimeout(20);
 		}
 		assert.equal(assignment.report, null, "unsupported source never acquires a verification report");
-		const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exported);
 		const diagnostics = Object.entries(exported.content).flatMap(([ref, bytes]) => {
 			try {
@@ -90,7 +97,7 @@ test("failed collection retains actual command diagnostics in history without a 
 		assert.equal(diagnostic.value.verifierRevision, source.commit);
 		assert.equal(diagnostic.value.verification, "unaccepted");
 		await f.reopen(new Engine({ ownedChecks: config }));
-		const read = await f.ledger.artifact(admin, { read: diagnostic.ref });
+		const read = await Effect.runPromise(f.ledger.artifact(admin, { read: diagnostic.ref }));
 		assert.ok("content" in read);
 		assert.deepEqual(JSON.parse(read.content.toString()), diagnostic.value);
 	} finally {
@@ -339,18 +346,20 @@ test("policy adoption during an owned command holds capacity until stop and refu
 		assert.equal((await assign()).status, "accepted");
 		await commandStarted();
 		const frame = f.ledger.snapshot(admin) as unknown as { policy: PolicyState };
-		const published = await f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: f.ledger.status().authorityEpoch,
-				commandId: "owned-policy",
-				command: {
-					type: "changePolicy",
-					expectedRevision: "policy:initial",
-					policy: { completedReviewLimit: 3, reviewerDiversity: "different-family", minimumEvidenceRank: "process" },
+		const published = await Effect.runPromise(
+			f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: f.ledger.status().authorityEpoch,
+					commandId: "owned-policy",
+					command: {
+						type: "changePolicy",
+						expectedRevision: "policy:initial",
+						policy: { completedReviewLimit: 3, reviewerDiversity: "different-family", minimumEvidenceRank: "process" },
+					},
 				},
-			},
-			admin,
+				admin,
+			),
 		);
 		assert.ok(published.status === "accepted", JSON.stringify(published));
 		const binding = frame.policy.bindings["workflow:2"]!.revision;
@@ -366,7 +375,7 @@ test("policy adoption during an owned command holds capacity until stop and refu
 		assert.equal(assignments()[0]!.status, "blocked");
 		assert.equal(assignments()[0]!.report, null, "a pass receipt must not land on the superseded policy basis");
 		assert.match(assignments()[0]!.blocker!, /policy_refresh_required.*stale_assignment/);
-		const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exported);
 		const collected = Object.values(exported.content).flatMap((bytes) => {
 			try {
@@ -432,7 +441,7 @@ test("canceled owned check replacement runs in its own workspace and retains its
 		await until(() => assignments()[1]!.report !== null && !assignments()[1]!.executing);
 		const fresh = assignments()[1]!;
 		assert.equal(fresh.predecessor, predecessor.id);
-		const read = await f.ledger.artifact(admin, { read: fresh.report! });
+		const read = await Effect.runPromise(f.ledger.artifact(admin, { read: fresh.report! }));
 		assert.ok("content" in read);
 		const receipt = JSON.parse(read.content.toString());
 		assert.equal(receipt.kind, "owned-check");

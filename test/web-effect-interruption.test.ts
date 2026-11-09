@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
-import { researchEffect } from "../src/engine/web.ts";
+import { research } from "../src/engine/web.ts";
 import { webHttpFixture } from "./support/web-http.ts";
 
 for (const provider of ["exa", "tavily"] as const)
@@ -18,7 +18,7 @@ for (const provider of ["exa", "tavily"] as const)
 			return { status: 429, body: { error: "rate limit" } };
 		});
 		const fiber = Effect.runFork(
-			researchEffect(
+			research(
 				{
 					exaKey: "fixture",
 					tavilyKey: "fixture2",

@@ -22,18 +22,21 @@ async function fixture() {
 		const tree = git(source.repo, ["mktree"], `100644 blob ${blob}\tvalue\n`).toString().trim();
 		return git(source.repo, ["commit-tree", tree, "-p", parent], "Fixture R\n").toString().trim();
 	};
-	const resolve = async (oid: string) => (await effects.perform({ type: "resolve", repository: "owned", commit: oid })).commit;
+	const resolve = async (oid: string) =>
+		(await Effect.runPromise(effects.perform({ type: "resolve", repository: "owned", commit: oid }))).commit;
 	return {
 		source,
 		gh,
 		effects,
 		commit,
 		resolve,
-		reconcile: () => effects.reconcile({ type: "publication", repository: "owned", proposal: PROPOSAL }),
+		reconcile: () => Effect.runPromise(effects.reconcile({ type: "publication", repository: "owned", proposal: PROPOSAL })),
 		publish: (commit: string, expected: string | null, attempt: string) =>
-			effects.perform({ type: "publish", repository: "owned", proposal: PROPOSAL, commit, expected, attempt }),
+			Effect.runPromise(effects.perform({ type: "publish", repository: "owned", proposal: PROPOSAL, commit, expected, attempt })),
 		create: (attempt: string, body = `<!-- render:proposal-pr render-proposal:${PROPOSAL}:revision:9 -->\n${SECTION("first")}`) =>
-			effects.perform({ type: "createProposal", repository: "owned", proposal: PROPOSAL, title: "Render: fixture", body, attempt }),
+			Effect.runPromise(
+				effects.perform({ type: "createProposal", repository: "owned", proposal: PROPOSAL, title: "Render: fixture", body, attempt }),
+			),
 		async close() {
 			await gh.close();
 			await source.close();
@@ -189,7 +192,7 @@ test("GF06 the summary update replaces only the host-owned section; a lost reply
 		const pr = String((await f.create("forge-attempt:2")).created);
 		f.gh.pulls[0]!.body = `Human preface\n\n${f.gh.pulls[0]!.body}\n\nHuman notes`;
 		const update = (summary: string, attempt: string) =>
-			f.effects.perform({ type: "updateSummary", repository: "owned", proposal: PROPOSAL, pr, summary, attempt });
+			Effect.runPromise(f.effects.perform({ type: "updateSummary", repository: "owned", proposal: PROPOSAL, pr, summary, attempt }));
 		assert.deepEqual(await update(SECTION("second"), "forge-attempt:3"), { outcome: "applied", reason: null, created: null, head: null });
 		assert.equal(
 			f.gh.pulls[0]!.body,
@@ -208,7 +211,7 @@ test("GF07 a forge outage throws on observation and leaves dispatch unknown; not
 		const R1 = await f.resolve(f.commit("R1\n", f.source.commit));
 		await f.gh.down();
 		const observed = await Effect.runPromise(
-			Effect.result(f.effects.reconcileEffect({ type: "publication", repository: "owned", proposal: PROPOSAL })),
+			Effect.result(f.effects.reconcile({ type: "publication", repository: "owned", proposal: PROPOSAL })),
 		);
 		assert.equal(observed._tag, "Failure", "an unreachable forge is a recoverable observation failure");
 		if (observed._tag === "Failure") {

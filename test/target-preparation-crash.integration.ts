@@ -1,10 +1,12 @@
 // TP14 at a real process cut: the host dies while Linux checks of prepared X are running.
+
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import * as Effect from "effect/Effect";
 import { Engine, type OwnedChecks } from "../src/engine/runtime.ts";
 import type { ImplementationPass, RoleAssignment } from "../src/kernel/roles.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
@@ -33,7 +35,7 @@ test("TP14 SIGKILL while prepared X checks run: recovery stops the old runtime a
 	});
 	let setup: { data: string; root: string; config: OwnedChecks } | undefined;
 	const runtimes: string[] = [];
-	let recovered: Awaited<ReturnType<typeof openLedger>> | undefined;
+	let recovered: Effect.Success<ReturnType<typeof openLedger>> | undefined;
 	try {
 		const deadline = Date.now() + 120000;
 		while (!output.includes('"event":"barrier"')) {
@@ -56,11 +58,13 @@ test("TP14 SIGKILL while prepared X checks run: recovery stops the old runtime a
 		const died = new Promise<void>((resolve) => child.once("exit", () => resolve()));
 		child.kill("SIGKILL");
 		await died;
-		recovered = await openLedger({
-			data: setup!.data,
-			runtime: (report) => new Engine({ ownedChecks: setup!.config }).options(report),
-			onFatal: () => {},
-		});
+		recovered = await Effect.runPromise(
+			openLedger({
+				data: setup!.data,
+				runtime: (report) => new Engine({ ownedChecks: setup!.config }).options(report),
+				onFatal: () => {},
+			}),
+		);
 		const passes = () => (recovered!.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
 		const until = Date.now() + 120000;
 		while (!/^awaiting_watchdog/.test(passes()[0]?.handoff?.blocker ?? "")) {
@@ -73,7 +77,7 @@ test("TP14 SIGKILL while prepared X checks run: recovery stops the old runtime a
 		const [p1, ...others] = passes();
 		assert.equal(others.length, 0, "no successor pass");
 		assert.equal(p1!.handoff!.preparations?.length, 1, "the interrupted attempt is recorded once");
-		const read = await recovered.ledger.artifact(admin, { read: p1!.handoff!.preparations![0]! });
+		const read = await Effect.runPromise(recovered.ledger.artifact(admin, { read: p1!.handoff!.preparations![0]! }));
 		assert.ok("content" in read);
 		const record = JSON.parse(read.content.toString()) as {
 			attempt: number;
@@ -87,7 +91,7 @@ test("TP14 SIGKILL while prepared X checks run: recovery stops the old runtime a
 		assert.equal(assignments.filter((a) => a.packet.role === "watchdog").length, 0);
 	} finally {
 		if (child.exitCode === null) child.kill("SIGKILL");
-		await recovered?.close();
+		if (recovered) await Effect.runPromise(recovered.close());
 		for (const runtime of new Set(runtimes)) {
 			try {
 				execFileSync("docker", ["rm", "-f", runtime], { stdio: "ignore" });

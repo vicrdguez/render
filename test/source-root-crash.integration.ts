@@ -3,22 +3,25 @@ import { spawn } from "node:child_process";
 import { access, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import { Effects } from "../src/effects/source.ts";
 import { sourceFixture } from "./support/source.ts";
 
 for (const barrier of ["before-source-root", "after-source-root"] as const)
 	test(`source-root-crash: SIGKILL ${barrier} never accepts different source`, async () => {
 		const f = await sourceFixture();
-		let handle: Awaited<ReturnType<typeof f.sandboxes.prepare>> | undefined;
+		let handle: Effect.Success<ReturnType<typeof f.sandboxes.prepare>> | undefined;
 		try {
-			const base = await f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit });
-			handle = await f.sandboxes.prepare(f.scope, f.profile, base);
-			await f.sandboxes.execute(handle, {
-				scope: f.scope,
-				argv: ["sh", "-c", "printf 'retained exact\\r\\n' > result.txt"],
-				timeoutMs: 10000,
-			});
-			const capture = await f.sandboxes.seal(handle);
+			const base = await Effect.runPromise(f.effects.perform({ type: "resolve", repository: "owned", commit: f.commit }));
+			handle = await Effect.runPromise(f.sandboxes.prepare(f.scope, f.profile, base));
+			await Effect.runPromise(
+				f.sandboxes.execute(handle, {
+					scope: f.scope,
+					argv: ["sh", "-c", "printf 'retained exact\\r\\n' > result.txt"],
+					timeoutMs: 10000,
+				}),
+			);
+			const capture = await Effect.runPromise(f.sandboxes.seal(handle));
 			const input = join(f.root, "capture.json");
 			const output = join(f.root, "accepted.json");
 			await writeFile(input, JSON.stringify({ base, capture }));
@@ -52,18 +55,18 @@ for (const barrier of ["before-source-root", "after-source-root"] as const)
 			await died;
 			await assert.rejects(access(output));
 			const recovered = new Effects({ root: join(f.root, "effects"), repositories: { owned: f.repo } });
-			const receipt = await recovered.perform({ type: "retain", base, capture });
+			const receipt = await Effect.runPromise(recovered.perform({ type: "retain", base, capture }));
 			assert.equal(
 				receipt.source.entries.find((e) => e.path === "result.txt")?.content,
 				Buffer.from("retained exact\r\n").toString("base64"),
 			);
-			assert.equal((await recovered.reconcile(receipt)).source.tree, receipt.source.tree);
+			assert.equal((await Effect.runPromise(recovered.reconcile(receipt))).source.tree, receipt.source.tree);
 			await assert.rejects(
-				recovered.reconcile({ ...receipt, source: { ...receipt.source, commit: "0".repeat(40) } }),
+				Effect.runPromise(recovered.reconcile({ ...receipt, source: { ...receipt.source, commit: "0".repeat(40) } })),
 				/root|source|object|commit/i,
 			);
 		} finally {
-			if (handle) await f.sandboxes.stop(handle).catch(() => {});
+			if (handle) await Effect.runPromise(f.sandboxes.stop(handle)).catch(() => {});
 			await f.close();
 		}
 	});

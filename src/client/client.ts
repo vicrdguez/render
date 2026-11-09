@@ -31,34 +31,32 @@ export class RenderClient {
 		);
 	}
 
-	request(method: string, path: string, body?: unknown): Promise<Reply> {
+	request(method: string, path: string, body?: unknown): Effect.Effect<Reply, unknown> {
 		const response = this.#fetch(method, path, body);
-		return runPromise(
-			Effect.gen(function* () {
-				const res = yield* response;
-				const text = yield* fromPromise(() => res.text());
-				return { status: res.status, body: parseBody(text) };
-			}),
-		);
+		return Effect.gen(function* () {
+			const res = yield* response;
+			const text = yield* fromPromise(() => res.text());
+			return { status: res.status, body: parseBody(text) };
+		});
 	}
 
-	snapshot(): Promise<Reply> {
+	snapshot(): Effect.Effect<Reply, unknown> {
 		return this.request("GET", `/v1/snapshot?version=${SUPPORTED_VERSION}`);
 	}
 
-	command(envelope: Record<string, unknown>): Promise<Reply> {
+	command(envelope: Record<string, unknown>): Effect.Effect<Reply, unknown> {
 		return this.request("POST", "/v1/commands", envelope);
 	}
 
-	receipt(commandId: string): Promise<Reply> {
+	receipt(commandId: string): Effect.Effect<Reply, unknown> {
 		return this.request("GET", `/v1/commands/${encodeURIComponent(commandId)}`);
 	}
 
-	artifact(revision: string): Promise<Reply> {
+	artifact(revision: string): Effect.Effect<Reply, unknown> {
 		return this.request("GET", `/v1/artifacts/${encodeURIComponent(revision)}`);
 	}
 
-	messages(workflow: string, cursor?: string): Promise<Reply> {
+	messages(workflow: string, cursor?: string): Effect.Effect<Reply, unknown> {
 		const query = cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`;
 		return this.request("GET", `/v1/workflows/${encodeURIComponent(workflow)}/messages${query}`);
 	}
@@ -131,30 +129,28 @@ export class AdminClient {
 		this.#socket = socket;
 	}
 
-	request(method: string, path: string, body?: unknown): Promise<Reply> {
+	request(method: string, path: string, body?: unknown): Effect.Effect<Reply, unknown> {
 		const socketPath = this.#socket;
-		return runPromise(
-			Effect.gen(function* () {
-				const payload = body === undefined ? undefined : JSON.stringify(body);
-				const res = yield* fromPromise(
-					() =>
-						new Promise<IncomingMessage>((resolve, reject) => {
-							const req = request(
-								{ socketPath, method, path, headers: payload === undefined ? {} : { "content-type": "application/json" } },
-								resolve,
-							);
-							req.on("error", reject);
-							if (payload !== undefined) req.write(payload);
-							req.end();
-						}),
-				);
-				const text = yield* fromPromise(async () => {
-					const chunks: Buffer[] = [];
-					for await (const chunk of res) chunks.push(chunk as Buffer);
-					return Buffer.concat(chunks).toString("utf8");
-				});
-				return { status: res.statusCode ?? 0, body: parseBody(text) };
-			}),
-		);
+		return Effect.gen(function* () {
+			const payload = body === undefined ? undefined : JSON.stringify(body);
+			const res = yield* fromPromise(
+				() =>
+					new Promise<IncomingMessage>((resolve, reject) => {
+						const req = request(
+							{ socketPath, method, path, headers: payload === undefined ? {} : { "content-type": "application/json" } },
+							resolve,
+						);
+						req.on("error", reject);
+						if (payload !== undefined) req.write(payload);
+						req.end();
+					}),
+			);
+			const text = yield* fromPromise(async () => {
+				const chunks: Buffer[] = [];
+				for await (const chunk of res) chunks.push(chunk as Buffer);
+				return Buffer.concat(chunks).toString("utf8");
+			});
+			return { status: res.statusCode ?? 0, body: parseBody(text) };
+		});
 	}
 }

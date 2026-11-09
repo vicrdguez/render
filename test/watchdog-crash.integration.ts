@@ -1,6 +1,7 @@
 // WR17 at a real process cut: the host dies while a Watchdog's own Linux checks of exact X run. Recovery must stop
 // that runtime, resume the same round (no new round, no count), rerun its checks under the recovering executor and
 // record them once. The resumed verdict is scripted fixture data.
+
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { readdir, readFile, rm } from "node:fs/promises";
@@ -8,6 +9,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine, type OwnedChecks } from "../src/engine/runtime.ts";
 import type { ImplementationPass, RoleAssignment } from "../src/kernel/roles.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
@@ -36,7 +38,7 @@ test("WR17 SIGKILL while a Watchdog's own checks run: recovery stops the runtime
 	});
 	let setup: { data: string; root: string; config: OwnedChecks } | undefined;
 	const runtimes: string[] = [];
-	let recovered: Awaited<ReturnType<typeof openLedger>> | undefined;
+	let recovered: Effect.Success<ReturnType<typeof openLedger>> | undefined;
 	try {
 		const deadline = Date.now() + 180000;
 		while (!output.includes('"event":"barrier"')) {
@@ -85,17 +87,19 @@ test("WR17 SIGKILL while a Watchdog's own checks run: recovery stops the runtime
 				);
 			}),
 		);
-		recovered = await openLedger({
-			data: setup!.data,
-			runtime: (report) =>
-				new Engine({
-					ownedChecks: setup!.config,
-					provider: provider.provider,
-					apiKey: "fixture",
-					families: { "claude-sonnet-4-6": "claude" },
-				}).options(report),
-			onFatal: () => {},
-		});
+		recovered = await Effect.runPromise(
+			openLedger({
+				data: setup!.data,
+				runtime: (report) =>
+					new Engine({
+						ownedChecks: setup!.config,
+						provider: provider.provider,
+						apiKey: "fixture",
+						families: { "claude-sonnet-4-6": "claude" },
+					}).options(report),
+				onFatal: () => {},
+			}),
+		);
 		const passes = () => (recovered!.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
 		const watchdogs = () =>
 			((recovered!.ledger.snapshot(admin) as Frame).assignments as RoleAssignment[]).filter((a) => a.packet.role === "watchdog");
@@ -118,7 +122,7 @@ test("WR17 SIGKILL while a Watchdog's own checks run: recovery stops the runtime
 		assert.equal(others.length, 0, "an interruption opens no new round");
 		assert.equal(w!.id, old.assignment);
 		assert.equal(w!.status, "submitted");
-		const read = await recovered.ledger.artifact(admin, { read: w!.watchdogReview!.checks! });
+		const read = await Effect.runPromise(recovered.ledger.artifact(admin, { read: w!.watchdogReview!.checks! }));
 		assert.ok("content" in read);
 		const checks = JSON.parse(read.content.toString()) as {
 			evidence: { scope: { executorEpoch: string }; verification: { status: string } };
@@ -129,7 +133,7 @@ test("WR17 SIGKILL while a Watchdog's own checks run: recovery stops the runtime
 		assert.equal(passes().length, 1, "no successor pass");
 	} finally {
 		if (child.exitCode === null) child.kill("SIGKILL");
-		await recovered?.close();
+		if (recovered) await Effect.runPromise(recovered.close());
 		for (const runtime of new Set(runtimes)) {
 			try {
 				execFileSync("docker", ["rm", "-f", runtime], { stdio: "ignore" });

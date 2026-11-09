@@ -1,8 +1,10 @@
 // AF01–AF03: the GitHub Forge's ready promotion inside Effects against the owned fake GitHub and real private Git. No
 // Ledger here; automatic-readiness.test.ts classifies these results.
+
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import { Effects } from "../src/effects/source.ts";
 import { fakeGitHub, TOKEN } from "./support/github.ts";
 import { git, gitSourceFixture } from "./support/source.ts";
@@ -17,30 +19,36 @@ async function fixture() {
 	const blob = git(source.repo, ["hash-object", "-w", "--stdin"], "R1\n").toString().trim();
 	const tree = git(source.repo, ["mktree"], `100644 blob ${blob}\tvalue\n`).toString().trim();
 	const R1 = git(source.repo, ["commit-tree", tree, "-p", source.commit], "Fixture R\n").toString().trim();
-	await effects.perform({ type: "resolve", repository: "owned", commit: R1 });
-	await effects.perform({
-		type: "publish",
-		repository: "owned",
-		proposal: PROPOSAL,
-		commit: R1,
-		expected: null,
-		attempt: "forge-attempt:1",
-	});
-	const created = await effects.perform({
-		type: "createProposal",
-		repository: "owned",
-		proposal: PROPOSAL,
-		title: "Render: fixture",
-		body: "<!-- render:proposal-pr render-proposal:workflow:2:revision:9 -->",
-		attempt: "forge-attempt:2",
-	});
+	await Effect.runPromise(effects.perform({ type: "resolve", repository: "owned", commit: R1 }));
+	await Effect.runPromise(
+		effects.perform({
+			type: "publish",
+			repository: "owned",
+			proposal: PROPOSAL,
+			commit: R1,
+			expected: null,
+			attempt: "forge-attempt:1",
+		}),
+	);
+	const created = await Effect.runPromise(
+		effects.perform({
+			type: "createProposal",
+			repository: "owned",
+			proposal: PROPOSAL,
+			title: "Render: fixture",
+			body: "<!-- render:proposal-pr render-proposal:workflow:2:revision:9 -->",
+			attempt: "forge-attempt:2",
+		}),
+	);
 	const pr = String(created.created);
 	return {
 		gh,
 		pr,
 		effects,
-		markReady: (attempt: string) => effects.perform({ type: "markReady", repository: "owned", proposal: PROPOSAL, pr, attempt }),
-		listed: async () => (await effects.reconcile({ type: "publication", repository: "owned", proposal: PROPOSAL })).proposals.items,
+		markReady: (attempt: string) =>
+			Effect.runPromise(effects.perform({ type: "markReady", repository: "owned", proposal: PROPOSAL, pr, attempt })),
+		listed: async () =>
+			(await Effect.runPromise(effects.reconcile({ type: "publication", repository: "owned", proposal: PROPOSAL }))).proposals.items,
 		async close() {
 			await gh.close();
 			await source.close();

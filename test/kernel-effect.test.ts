@@ -64,7 +64,7 @@ test("Ledger finishes an admitted SQLite command when its Effect caller is inter
 				content: Buffer.from("Exact saved bytes\n").toString("base64"),
 			},
 		};
-		const fiber = Effect.runFork(f.ledger.commandEffect(raw, admin));
+		const fiber = Effect.runFork(f.ledger.command(raw, admin));
 		await entered.promise;
 		const interrupted = Effect.runPromise(Fiber.interrupt(fiber));
 		release.resolve();
@@ -72,14 +72,14 @@ test("Ledger finishes an admitted SQLite command when its Effect caller is inter
 		await finished.promise;
 		f.harness.commit = commit;
 		assert.equal(f.ledger.status().hostMode, "active", "caller interruption is not a storage failure");
-		const receipt = await f.ledger.receipt(admin, raw.commandId);
+		const receipt = await Effect.runPromise(f.ledger.receipt(admin, raw.commandId));
 		assert.equal(receipt.status, "accepted");
 		if (receipt.status !== "accepted") throw new Error("save receipt missing");
 		assert.equal(f.ledger.status().sequence, receipt.sequence, "the committed command must reach the read model despite interruption");
-		const artifact = await f.ledger.artifact(admin, { read: String(receipt.result.revision) });
+		const artifact = await Effect.runPromise(f.ledger.artifact(admin, { read: String(receipt.result.revision) }));
 		assert.ok("content" in artifact);
 		assert.equal(artifact.content.toString(), "Exact saved bytes\n");
-		const duplicate = await f.ledger.command(raw, admin);
+		const duplicate = await Effect.runPromise(f.ledger.command(raw, admin));
 		assert.equal(duplicate.status, "accepted");
 		if (duplicate.status === "accepted") assert.equal(duplicate.duplicate, true);
 		assert.equal(f.ledger.status().sequence, receipt.sequence, "replaying the interrupted caller cannot commit twice");

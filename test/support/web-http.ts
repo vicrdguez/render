@@ -1,10 +1,12 @@
 // Owned HTTP responses are the external variability. Engine, root Webfox, Durable and SQLite stay real.
+
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { JsonObject } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
 import { research } from "../../src/engine/web.ts";
 import { admin, packet, roleFixture } from "./roles.ts";
@@ -39,13 +41,15 @@ export async function webHttpFixture(
 
 /** The supported root behind `research`, for classification rows that do not depend on registered-tool wiring. */
 export function classify(config: Parameters<typeof research>[0], capability: "search" | "contents", inputs: string[]) {
-	return research(
-		config,
-		capability,
-		inputs,
-		{ assignment: "assignment:fixture", generation: 1, attempt: "attempt:fixture" },
-		new AbortController().signal,
-		() => true,
+	return Effect.runPromise(
+		research(
+			config,
+			capability,
+			inputs,
+			{ assignment: "assignment:fixture", generation: 1, attempt: "attempt:fixture" },
+			new AbortController().signal,
+			() => true,
+		),
 	);
 }
 
@@ -135,7 +139,7 @@ export async function roleWebJourney(
 
 export async function retainedEvidenceRef(f: Awaited<ReturnType<typeof roleFixture>>): Promise<string | undefined> {
 	for (let n = 0; n < 200; n++) {
-		const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		if ("jsonl" in exported) {
 			const ref = exported.jsonl
 				.split("\n")

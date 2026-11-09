@@ -1,4 +1,5 @@
 // Integration contract: new retained role documents use the delivered fixed-cutoff history surface.
+
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
@@ -8,6 +9,7 @@ import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
@@ -51,9 +53,9 @@ test("R12 retained role packets, reports, task receipts and uncertainty export a
 		});
 		await until(() => assignments().length === 2 && assignments().every((a) => !a.executing) && assignments()[1]?.status === "submitted");
 		const [parent, child] = assignments() as [RoleAssignment, RoleAssignment];
-		const page = await f.ledger.observe(admin, { history: { workflow: "workflow:2", limit: "1" } });
+		const page = await Effect.runPromise(f.ledger.observe(admin, { history: { workflow: "workflow:2", limit: "1" } }));
 		assert.ok("next" in page && page.next);
-		const before = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const before = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in before);
 		assert.equal(before.manifest.complete, true, "role receipts must be found in their actual scheduling/agent namespaces");
 		assert.deepEqual(before.manifest.missing, []);
@@ -73,7 +75,10 @@ test("R12 retained role packets, reports, task receipts and uncertainty export a
 			);
 		}
 		assert.equal(Buffer.from(before.content[child.report!]!, "base64").toString(), "Exact independent report.\r\n");
-		assert.equal(((await f.ledger.artifact(own(child), { export: {} })) as { code: string }).code, "forbidden_principal");
+		assert.equal(
+			((await Effect.runPromise(f.ledger.artifact(own(child), { export: {} }))) as { code: string }).code,
+			"forbidden_principal",
+		);
 		await f.command({ type: "cancelWork", assignment: parent.id, generation: parent.generation, attempt: parent.attempt }, admin);
 		const quarantine = await f.command(
 			{
@@ -87,11 +92,11 @@ test("R12 retained role packets, reports, task receipts and uncertainty export a
 		);
 		assert.ok(quarantine.status === "accepted");
 		await f.reopen();
-		const continued = await f.ledger.artifact(admin, { export: { cursor: page.next } });
+		const continued = await Effect.runPromise(f.ledger.artifact(admin, { export: { cursor: page.next } }));
 		assert.ok("manifest" in continued);
 		assert.equal(continued.manifest.cutoff, page.cutoff);
 		assert.equal(continued.jsonl, before.jsonl, "later uncertainty and restart cannot change the original history cutoff");
-		const current = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const current = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in current);
 		assert.equal(current.manifest.complete, true);
 		const ref = String(quarantine.result.quarantined);
@@ -137,7 +142,7 @@ for (const failure of ["missing_content", "content_corrupt", "unsupported_schema
 				db.close();
 			}
 			await f.reopen();
-			const bundle = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			const bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 			assert.ok("manifest" in bundle);
 			assert.equal(bundle.manifest.complete, false);
 			assert.ok(

@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import { createWebfox, type WebDocument } from "webfox";
-import { fromPromise, runPromise } from "../effect.ts";
+import { fromPromise } from "../effect.ts";
 
 export type WebConfig = {
 	exaKey?: string;
@@ -62,7 +62,7 @@ function duration(value: number | undefined, fallback: number): number {
 	return value;
 }
 
-export function researchEffect(
+export function research(
 	config: WebConfig,
 	capability: "search" | "contents",
 	inputs: string[],
@@ -209,17 +209,6 @@ export function researchEffect(
 					: "failure";
 		return result;
 	});
-}
-
-export function research(
-	config: WebConfig,
-	capability: "search" | "contents",
-	inputs: string[],
-	identity: { assignment: string; generation: number; attempt: string },
-	signal: AbortSignal,
-	current: () => boolean,
-): Promise<WebWorking> {
-	return runPromise(researchEffect(config, capability, inputs, identity, signal, current));
 }
 
 export function previewWeb(result: WebWorking): WebWorking {

@@ -1,9 +1,11 @@
 // Standalone verify-create as an ordinary accepted change (spec §8.1): Engine, SQLite, Effects Git and Docker Linux
 // with a scripted author. Authored bytes are fixture data; this establishes rendering, execution, retention and
 // delivery, not authoring quality. Cases: docs/verification/verification-authoring-failure-cases.md.
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import type { Intakes } from "../src/kernel/intake.ts";
 import type { ImplementationPass } from "../src/kernel/roles.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
@@ -114,7 +116,7 @@ function author(t: Fixture, calls: Call[]) {
 }
 const passes = (t: Fixture) => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
 async function record(t: Fixture, ref: string) {
-	const value = await t.f.ledger.artifact(admin, { read: ref });
+	const value = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 	assert.ok("content" in value, `read ${ref}`);
 	return JSON.parse(value.content.toString());
 }

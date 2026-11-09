@@ -219,11 +219,8 @@ export class Ledger {
 	}
 
 	/** Loads committed state into the read model. Called by startup after the store and runtime are validated. */
-	static load(harness: Harness, persistence: Persistence, onFatal: (error: unknown) => void, roleTasks?: RoleTaskStaging): Promise<Ledger> {
-		return runPromise(Ledger.loadEffect(harness, persistence, onFatal, roleTasks));
-	}
 
-	static loadEffect(harness: Harness, persistence: Persistence, onFatal: (error: unknown) => void, roleTasks?: RoleTaskStaging) {
+	static load(harness: Harness, persistence: Persistence, onFatal: (error: unknown) => void, roleTasks?: RoleTaskStaging) {
 		return Effect.gen(function* () {
 			const meta = yield* fromPromise(() => harness.snapshot(Meta, ctx));
 			if (meta === undefined || !meta.initialized) throw new Error("Render store is not initialized");
@@ -276,12 +273,8 @@ export class Ledger {
 		return mintContext({ kind: "human", human: device.human, route: "device", device: device.device, workflows: device.scope.workflows });
 	}
 
-	command(raw: unknown, context: AuthenticatedContext): Promise<CommandReply> {
-		return runPromise(this.commandEffect(raw, context));
-	}
-
 	/** An admitted transaction and its read-model adoption must finish even if the caller leaves. */
-	commandEffect(raw: unknown, context: AuthenticatedContext): Effect.Effect<CommandReply, unknown> {
+	command(raw: unknown, context: AuthenticatedContext): Effect.Effect<CommandReply, unknown> {
 		return Effect.gen({ self: this }, function* (): Effect.gen.Return<CommandReply, unknown> {
 			const principal = principalOf(context);
 			if (principal === undefined)
@@ -315,7 +308,7 @@ export class Ledger {
 			if (!outcome.duplicate) {
 				this.#adopt(outcome);
 			}
-			yield* fromPromise(() => faultBarrier("after-commit", env.commandId));
+			yield* faultBarrier("after-commit", env.commandId);
 			if (outcome.duplicate) return { ...outcome.body, duplicate: true };
 			const result = outcome.body.result;
 			const credential =
@@ -1635,7 +1628,7 @@ export class Ledger {
 				acceptedBy: by,
 			};
 			Object.assign(receipt, { exists: true, namespace, fingerprint: env.fingerprint, body });
-			yield* fromPromise(() => faultBarrier("before-commit", env.commandId));
+			yield* faultBarrier("before-commit", env.commandId);
 			const affected = env.workflow ?? (typeof decision.result.workflow === "string" ? decision.result.workflow : undefined);
 			const workflowDoc = affected === undefined ? undefined : yield* fromPromise(() => tx.doc(Workflow, affected, null));
 			return {
@@ -1761,36 +1754,34 @@ export class Ledger {
 	}
 
 	/** Starts an observation: a complete snapshot, then change frames delivered without ever delaying commits. */
-	observe(context: AuthenticatedContext, request: { history: HistoryQuery }): Promise<HistoryPage | LedgerRefusal>;
+	observe(context: AuthenticatedContext, request: { history: HistoryQuery }): Effect.Effect<HistoryPage | LedgerRefusal, unknown>;
 	observe(
 		context: AuthenticatedContext,
 		sink: { send(frame: Frame): void; end(frame: Frame): void },
-	): { snapshot: Frame; stop(): void } | LedgerRefusal;
+	): Effect.Effect<{ snapshot: Frame; stop(): void } | LedgerRefusal>;
 	observe(
 		context: AuthenticatedContext,
 		sink: { send(frame: Frame): void; end(frame: Frame): void } | { history: HistoryQuery },
-	): { snapshot: Frame; stop(): void } | LedgerRefusal | Promise<HistoryPage | LedgerRefusal> {
-		if ("history" in sink) return runPromise(this.historyEffect(context, sink.history, false));
-		const principal = principalOf(context);
-		if (principal === undefined || !this.#current(principal)) return UNAUTHORIZED;
-		if (this.#mode !== "active") return { status: "refused", code: "host_unavailable", reason: `The host is ${this.#mode}.` };
-		const snapshot = this.#snapshotFrame(principal);
-		const observer: Observer = {
-			principal,
-			device: principal.kind === "human" && principal.route === "device" ? principal.device : null,
-			last: snapshot.sequence,
-			send: sink.send,
-			end: sink.end,
-		};
-		this.#observers.add(observer);
-		return { snapshot, stop: () => this.#observers.delete(observer) };
+	): Effect.Effect<{ snapshot: Frame; stop(): void } | LedgerRefusal | HistoryPage, unknown> {
+		if ("history" in sink) return this.#history(context, sink.history, false);
+		return Effect.sync((): { snapshot: Frame; stop(): void } | LedgerRefusal => {
+			const principal = principalOf(context);
+			if (principal === undefined || !this.#current(principal)) return UNAUTHORIZED;
+			if (this.#mode !== "active") return { status: "refused", code: "host_unavailable", reason: `The host is ${this.#mode}.` };
+			const snapshot = this.#snapshotFrame(principal);
+			const observer: Observer = {
+				principal,
+				device: principal.kind === "human" && principal.route === "device" ? principal.device : null,
+				last: snapshot.sequence,
+				send: sink.send,
+				end: sink.end,
+			};
+			this.#observers.add(observer);
+			return { snapshot, stop: () => this.#observers.delete(observer) };
+		});
 	}
 
-	receipt(context: AuthenticatedContext, commandId: string): Promise<ReceiptBody | LedgerRefusal> {
-		return runPromise(this.receiptEffect(context, commandId));
-	}
-
-	receiptEffect(context: AuthenticatedContext, commandId: string): Effect.Effect<ReceiptBody | LedgerRefusal, unknown> {
+	receipt(context: AuthenticatedContext, commandId: string): Effect.Effect<ReceiptBody | LedgerRefusal, unknown> {
 		return this.#read(context, (principal) =>
 			Effect.gen({ self: this }, function* () {
 				const record = yield* fromPromise(() => this.#harness.snapshot(Receipt, `${namespaceOf(principal)} ${commandId}`, ctx));
@@ -1923,29 +1914,21 @@ export class Ledger {
 	}
 
 	/** Immutable artifact reads and explicitly temporary scoped working-result storage. */
-	artifact(context: AuthenticatedContext, request: { export: HistoryQuery }): Promise<HistoryExport | LedgerRefusal>;
-	artifact(context: AuthenticatedContext, request: { read: string } | { upload: unknown }): Promise<Artifact | LedgerRefusal>;
-	artifact(
-		context: AuthenticatedContext,
-		request: { read: string } | { upload: unknown } | { export: HistoryQuery },
-	): Promise<Artifact | HistoryExport | LedgerRefusal> {
-		return runPromise(this.artifactEffect(context, request));
-	}
 
-	artifactEffect(context: AuthenticatedContext, request: { export: HistoryQuery }): Effect.Effect<HistoryExport | LedgerRefusal, unknown>;
-	artifactEffect(
+	artifact(context: AuthenticatedContext, request: { export: HistoryQuery }): Effect.Effect<HistoryExport | LedgerRefusal, unknown>;
+	artifact(
 		context: AuthenticatedContext,
 		request: { read: string } | { upload: unknown },
 	): Effect.Effect<Artifact | LedgerRefusal, unknown>;
-	artifactEffect(
+	artifact(
 		context: AuthenticatedContext,
 		request: { read: string } | { upload: unknown } | { export: HistoryQuery },
 	): Effect.Effect<Artifact | HistoryExport | LedgerRefusal, unknown>;
-	artifactEffect(
+	artifact(
 		context: AuthenticatedContext,
 		request: { read: string } | { upload: unknown } | { export: HistoryQuery },
 	): Effect.Effect<Artifact | HistoryExport | LedgerRefusal, unknown> {
-		if ("export" in request) return this.historyEffect(context, request.export, true);
+		if ("export" in request) return this.#history(context, request.export, true);
 		return this.#read(context, (principal) =>
 			Effect.gen({ self: this }, function* () {
 				if ("upload" in request && principal.kind === "host" && principal.scope === "scheduling") {
@@ -2082,16 +2065,8 @@ export class Ledger {
 	}
 
 	/** Scoped coordinator messages of one workflow, oldest first. */
-	messages(
-		context: AuthenticatedContext,
-		workflow: string,
-		cursor: number | undefined,
-		limit: number,
-	): Promise<{ messages: Record<string, unknown>[]; next: string | null; complete: boolean } | LedgerRefusal> {
-		return runPromise(this.messagesEffect(context, workflow, cursor, limit));
-	}
 
-	messagesEffect(
+	messages(
 		context: AuthenticatedContext,
 		workflow: string,
 		cursor: number | undefined,
@@ -2157,9 +2132,9 @@ export class Ledger {
 		});
 	}
 
-	historyEffect(context: AuthenticatedContext, query: HistoryQuery, exporting: false): Effect.Effect<HistoryPage | LedgerRefusal, unknown>;
-	historyEffect(context: AuthenticatedContext, query: HistoryQuery, exporting: true): Effect.Effect<HistoryExport | LedgerRefusal, unknown>;
-	historyEffect(
+	#history(context: AuthenticatedContext, query: HistoryQuery, exporting: false): Effect.Effect<HistoryPage | LedgerRefusal, unknown>;
+	#history(context: AuthenticatedContext, query: HistoryQuery, exporting: true): Effect.Effect<HistoryExport | LedgerRefusal, unknown>;
+	#history(
 		context: AuthenticatedContext,
 		query: HistoryQuery,
 		exporting: boolean,
@@ -2379,7 +2354,7 @@ export class Ledger {
 				for (const ref of artifacts) {
 					const artifact = ref.startsWith("message:")
 						? (messages.get(ref) ?? refusal("missing_content", `Restore exact message ${ref}.`))
-						: yield* this.artifactEffect(context, { read: ref });
+						: yield* this.artifact(context, { read: ref });
 					if ("status" in artifact) {
 						missing.push({ ref, code: artifact.code === "unauthorized" ? "missing_content" : artifact.code });
 						continue;
@@ -2503,11 +2478,7 @@ export class Ledger {
 		this.#onFatal(error);
 	}
 
-	close(): Promise<void> {
-		return runPromise(this.closeEffect());
-	}
-
-	closeEffect(): Effect.Effect<void, unknown> {
+	close(): Effect.Effect<void, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			if (this.#mode === "active") this.#mode = "closing";
 			for (const o of [...this.#observers]) this.#endObserver(o, "host_closing");

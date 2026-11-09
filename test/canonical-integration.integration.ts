@@ -1,6 +1,7 @@
 // CI18/CI16 as a real journey: Engine, SQLite, Effects Git and Docker Linux checks with a scripted provider. Verdicts
 // are fixture data; this establishes autonomous admission, exact CAS/readback and dependency clearance, not review
 // quality. CI19 (target moving before the CAS) is the WR20/WR15/CI19 journey in watchdog-rework.integration.ts.
+
 import assert from "node:assert/strict";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -9,6 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { TaskId } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
 import type { ImplementationPass } from "../src/kernel/roles.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import {
@@ -77,7 +79,7 @@ type Fixture = Awaited<ReturnType<typeof fixture>>;
 const passes = (t: Fixture) => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
 const viewBlocker = (t: Fixture) => ((t.f.ledger.snapshot(admin) as Frame).workflows as { blocker: { code: string } | null }[])[0]!.blocker;
 async function read(t: Fixture, ref: string) {
-	const value = await t.f.ledger.artifact(admin, { read: ref });
+	const value = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 	assert.ok("content" in value, `read ${ref}`);
 	return value.content.toString();
 }
@@ -196,7 +198,7 @@ test("CI24 two passing Slices of one proposal contend for integration: the secon
 			"the second Slice completes its independent review while the first integration is unresolved",
 		);
 		const review = t.assignments().find((a) => a.watchdogReview?.passRef === second && a.status === "submitted")!;
-		const report = await t.f.ledger.artifact(admin, { read: review.report! });
+		const report = await Effect.runPromise(t.f.ledger.artifact(admin, { read: review.report! }));
 		assert.ok("content" in report);
 		assert.equal(JSON.parse(report.content.toString()).verdict, "pass");
 		assert.equal(status(first), "divergent", "the first integration is still unresolved after both reviews");

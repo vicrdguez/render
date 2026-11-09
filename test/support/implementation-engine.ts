@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import type { ForgeConfig } from "../../src/effects/forge.ts";
 import type { IntakeManifest, Intakes } from "../../src/kernel/intake.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
@@ -208,7 +209,7 @@ export async function fixture(
 							role: reviewer.packet.role,
 						});
 						assert.ok(reviewer.packet.inputs.includes(prompt.auditReview.source), "reviewer input includes exact frozen A");
-						const source = await f.ledger.artifact(principal, { read: prompt.auditReview.source });
+						const source = await Effect.runPromise(f.ledger.artifact(principal, { read: prompt.auditReview.source }));
 						assert.ok("content" in source, "reviewer can read its actual bound source before reporting");
 						assert.equal(
 							captureValue(source.content.toString()),
@@ -414,16 +415,18 @@ export async function fixture(
 	);
 	const save = async (document: string, text: string) =>
 		accepted(
-			await f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: f.ledger.status().authorityEpoch,
-					commandId: `save:${document}`,
-					workflow: "workflow:2",
-					expected: { document: null },
-					command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
-				},
-				admin,
+			await Effect.runPromise(
+				f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: f.ledger.status().authorityEpoch,
+						commandId: `save:${document}`,
+						workflow: "workflow:2",
+						expected: { document: null },
+						command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
+					},
+					admin,
+				),
 			),
 		).revision as string;
 	const source = await save("source", "Keep the existing value interface.");

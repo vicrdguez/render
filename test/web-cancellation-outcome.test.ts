@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import { research } from "../src/engine/web.ts";
 
 // Observe Engine's mapping directly: revoking a role must not depend on it committing another tool output.
@@ -31,13 +32,15 @@ for (const provider of ["exa", "tavily"] as const)
 		const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 		const abort = new AbortController();
 		try {
-			const pending = research(
-				{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${base}/exa`, tavilyBaseUrl: `${base}/tavily` },
-				"search",
-				["cancel", "later"],
-				{ assignment: "assignment:fixture", generation: 1, attempt: "attempt:fixture" },
-				abort.signal,
-				() => true,
+			const pending = Effect.runPromise(
+				research(
+					{ exaKey: "fixture", tavilyKey: "fixture2", exaBaseUrl: `${base}/exa`, tavilyBaseUrl: `${base}/tavily` },
+					"search",
+					["cancel", "later"],
+					{ assignment: "assignment:fixture", generation: 1, attempt: "attempt:fixture" },
+					abort.signal,
+					() => true,
+				),
 			);
 			await reached.promise;
 			abort.abort();

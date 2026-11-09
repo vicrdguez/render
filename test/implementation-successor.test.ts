@@ -1,7 +1,9 @@
 // Real SQLite/Durable successor transitions. Preparation and Watchdog production belong to later Slices: these observations
 // exercise the authority boundary with literal lineage, they do not claim those capabilities executed.
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import type { ImplementationPass, RoleAssignment } from "../src/kernel/roles.ts";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { mintContext } from "../src/ledger/principals.ts";
@@ -162,7 +164,7 @@ test("validated preparation conflict opens the next pass from T1 with no Watchdo
 		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0);
 		assert.equal(t.assignments().filter((a) => a.parent === next.id).length, 0, "no reviewer starts before A2");
 		const check = async () => {
-			const exported = await t.f.ledger.artifact(admin, { export: { workflow: WORKFLOW } });
+			const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: WORKFLOW } }));
 			assert.ok("manifest" in exported && exported.manifest.complete);
 			const decoded = (ref: string) => Buffer.from(exported.content[ref]!, "base64").toString();
 			assert.equal(decoded(opened.observation as string), text);
@@ -416,7 +418,7 @@ test("P1 reports cannot satisfy P2 even for identical bytes; P2 needs its own on
 		assert.notEqual(handoff.handoff, p1.handoff!.record);
 		assert.deepEqual(pass(t, P1), p1, "P1's Audit still names only what it examined");
 		assert.equal(pass(t, P2).predecessor, P1);
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: WORKFLOW } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: WORKFLOW } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		const decoded = (ref: string) => JSON.parse(Buffer.from(exported.content[ref]!, "base64").toString());
 		assert.equal(decoded(p1.handoff!.record).captureA, p1.captureA);
@@ -436,7 +438,7 @@ test("P2 owner reads predecessor lineage; its fresh reviewers stay scoped to A2"
 		const actor = await t.start(id);
 		const report = p1.audit!.results.standards!.report;
 		for (const ref of [opened.observation as string, B, p1.captureA!, p1.handoff!.record, report]) {
-			const read = await t.f.ledger.artifact(actor, { read: ref });
+			const read = await Effect.runPromise(t.f.ledger.artifact(actor, { read: ref }));
 			assert.ok("content" in read, `P2 owner reads ${ref}`);
 		}
 		const source = JSON.stringify(capture(own(t, id), t.f.ledger.status().executorEpoch, t.contract, T1));
@@ -449,9 +451,9 @@ test("P2 owner reads predecessor lineage; its fresh reviewers stay scoped to A2"
 		accepted(await t.f.command({ type: "requestImplementationAudit" }, actor));
 		const reviewer = t.assignments().find((a) => a.parent === id)!;
 		const principal = await t.start(reviewer.id);
-		assert.ok("content" in (await t.f.ledger.artifact(principal, { read: A2 })));
+		assert.ok("content" in (await Effect.runPromise(t.f.ledger.artifact(principal, { read: A2 }))));
 		for (const ref of [opened.observation as string, B, p1.captureA!, report]) {
-			const read = await t.f.ledger.artifact(principal, { read: ref });
+			const read = await Effect.runPromise(t.f.ledger.artifact(principal, { read: ref }));
 			assert.equal("content" in read, false, `P2 reviewer cannot read ${ref}`);
 		}
 	} finally {
@@ -585,18 +587,20 @@ test("Watchdog rework needs a bound retained verdict and obeys the completed-rev
 		const frame = j.t.f.ledger.snapshot(admin) as Frame;
 		const policy = frame.policy as { defaultRevision: string; bindings: Record<string, { revision: string }> };
 		const changed = accepted(
-			await j.t.f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: j.t.f.ledger.status().authorityEpoch,
-					commandId: "larger-cap",
-					command: {
-						type: "changePolicy",
-						expectedRevision: policy.defaultRevision,
-						policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+			await Effect.runPromise(
+				j.t.f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: j.t.f.ledger.status().authorityEpoch,
+						commandId: "larger-cap",
+						command: {
+							type: "changePolicy",
+							expectedRevision: policy.defaultRevision,
+							policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+						},
 					},
-				},
-				admin,
+					admin,
+				),
 			),
 		);
 		accepted(
@@ -637,7 +641,7 @@ test("scripted two-pass flow stays complete through reopen and export", async ()
 		assert.equal(pass(t, P2).handoff?.source, done.B);
 		assert.equal(pass(t, P1).handoff?.source, B);
 		await t.f.reopen(new LedgerOnlyEngine());
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: WORKFLOW } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: WORKFLOW } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of [B, done.A, done.B, done.handoff, opened.observation as string, opened.passRecord as string])
 			assert.ok(exported.content[ref], `export retains ${ref}`);

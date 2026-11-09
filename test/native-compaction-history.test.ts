@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { BACKGROUND_CONTEXT as ctx } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
 
@@ -18,9 +19,9 @@ test("native-compaction-history: Engine exports scoped committed transcript and 
 	const f = await roleFixture(new Engine({ provider: p.provider, apiKey: "owned", families: { "claude-sonnet-4-6": "claude" } }));
 	try {
 		await f.command({ type: "assignTask", slice: "runtime-history", delivery: true, packet: packet() });
-		let bundle = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		let bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		for (let n = 0; n < 300; n++) {
-			bundle = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 			if ("jsonl" in bundle && bundle.jsonl.includes("runtime_task")) break;
 			await setTimeout(10);
 		}
@@ -31,7 +32,7 @@ test("native-compaction-history: Engine exports scoped committed transcript and 
 		assert.ok(bundle.manifest.exclusions.includes("latest_only_live_partials"));
 		const before = bundle.jsonl;
 		await f.reopen();
-		const after = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const after = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("jsonl" in after);
 		assert.equal(after.jsonl, before, "reopen must not reinterpret retained runtime history");
 	} finally {
@@ -87,21 +88,23 @@ test("native-compaction-history: Engine compacts twice, refreshes exact constrai
 	const roles = () =>
 		(f.ledger.snapshot(admin) as import("../src/ledger/ledger.ts").Frame).assignments as import("../src/kernel/roles.ts").RoleAssignment[];
 	try {
-		const saved = await f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: f.ledger.status().authorityEpoch,
-				commandId: "long-evidence",
-				workflow: "workflow:2",
-				expected: { document: null },
-				command: {
-					type: "saveDocument",
-					document: "long-evidence",
-					mediaType: "text/plain",
-					content: Buffer.from(long).toString("base64"),
+		const saved = await Effect.runPromise(
+			f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: f.ledger.status().authorityEpoch,
+					commandId: "long-evidence",
+					workflow: "workflow:2",
+					expected: { document: null },
+					command: {
+						type: "saveDocument",
+						document: "long-evidence",
+						mediaType: "text/plain",
+						content: Buffer.from(long).toString("base64"),
+					},
 				},
-			},
-			admin,
+				admin,
+			),
 		);
 		assert.ok(saved.status === "accepted" && saved.result.revision === "revision:4");
 		await f.command({
@@ -140,7 +143,7 @@ test("native-compaction-history: Engine compacts twice, refreshes exact constrai
 		for (let n = 0; n < 500 && !roles()[1]?.runtimeTaskCaptured; n++) await setTimeout(10);
 		assert.equal(replacementClean, true, "replacement provider must never inherit private predecessor context");
 		assert.equal(maxActive, 1, "compaction must share the assignment execution slot without parallel provider work");
-		const bundle = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in bundle && bundle.manifest.complete);
 		const records = bundle.jsonl
 			.trim()
@@ -195,7 +198,7 @@ for (const damage of ["missing", "corrupt", "schema"] as const) {
 				db.close();
 			}
 			await f.reopen();
-			const exported = await f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+			const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 			assert.ok("manifest" in exported);
 			assert.equal(exported.manifest.complete, false, "missing/corrupt archived bytes must be declared");
 			assert.ok(

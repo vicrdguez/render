@@ -69,17 +69,13 @@ export class Sandboxes {
 		this.#authorize = options.authorize;
 	}
 	/** Admits and caches preparation immediately. The Effect observes that same preparation, rather than allocating again. */
-	prepareEffect(scope: ExecutionScope, profile: LinuxProfile, inputs: PreparationInputs): Effect.Effect<SandboxHandle, unknown> {
-		const pending = this.prepare(scope, profile, inputs);
-		return fromPromise(() => pending).pipe(Effect.uninterruptible);
-	}
-	prepare(scope: ExecutionScope, profile: LinuxProfile, inputs: PreparationInputs): Promise<SandboxHandle> {
+	prepare(scope: ExecutionScope, profile: LinuxProfile, inputs: PreparationInputs): Effect.Effect<SandboxHandle, unknown> {
 		const source = "source" in inputs ? inputs.source : inputs;
 		const after = "after" in inputs ? inputs.after : undefined;
 		const id = identity(scope, after?.id);
 		if (this.#stoppedScopes.has(identity(scope)))
-			return Promise.reject(new Error("Sandbox scope is stopped/fenced; workspace reuse is forbidden."));
-		if (this.#preparations.has(id) || this.#fenced.has(id)) return Promise.reject(new Error("Sandbox workspace reuse is forbidden."));
+			return Effect.fail(new Error("Sandbox scope is stopped/fenced; workspace reuse is forbidden."));
+		if (this.#preparations.has(id) || this.#fenced.has(id)) return Effect.fail(new Error("Sandbox workspace reuse is forbidden."));
 		const pending = runPromise(
 			this.#prepare(structuredClone(scope), structuredClone(profile), structuredClone(source), structuredClone(after)),
 		);
@@ -88,7 +84,7 @@ export class Sandboxes {
 		void pending.catch(() => {
 			if (!this.#allocated.has(id)) this.#preparations.delete(id);
 		});
-		return pending;
+		return fromPromise(() => pending).pipe(Effect.uninterruptible);
 	}
 	#prepare(scope: ExecutionScope, profile: LinuxProfile, source: Inputs, after?: SandboxHandle): Effect.Effect<SandboxHandle, unknown> {
 		return Effect.gen({ self: this }, function* () {
@@ -273,13 +269,8 @@ export class Sandboxes {
 			);
 		});
 	}
+
 	execute(
-		handle: SandboxHandle,
-		call: { scope: ExecutionScope; argv: string[]; timeoutMs: number; verifierRevision?: string },
-	): Promise<ExecutionResult> {
-		return runPromise(this.executeEffect(handle, call));
-	}
-	executeEffect(
 		handle: SandboxHandle,
 		call: { scope: ExecutionScope; argv: string[]; timeoutMs: number; verifierRevision?: string },
 	): Effect.Effect<ExecutionResult, unknown> {
@@ -354,25 +345,23 @@ export class Sandboxes {
 			yield* this.#saveJson(handle.id, `execution-${diagnostic.id}.json`, { ...diagnostic, result: execution });
 			if (result.timedOut || result.exitCode === null) {
 				// Killing docker exec's client is not proof that its process died. Stop the whole environment.
-				yield* this.stopEffect(handle);
+				yield* this.stop(handle);
 				throw new Error("Sandbox command timed out/output bound failed; whole environment stopped, no pass claimed.");
 			}
 			return execution;
 		}).pipe(Effect.uninterruptible);
 	}
 	/** Fences immediately and observes the cached seal, including when the Effect is evaluated more than once. */
-	sealEffect(handle: SandboxHandle): Effect.Effect<Capture, unknown> {
-		const pending = this.seal(handle);
-		return fromPromise(() => pending).pipe(Effect.uninterruptible);
-	}
-	seal(handle: SandboxHandle): Promise<Capture> {
+	seal(handle: SandboxHandle): Effect.Effect<Capture, unknown> {
 		this.#fenced.add(handle.id); // synchronous fence, before any await
-		const current = this.#seals.get(handle.id);
-		if (current) return current;
-		const pending = runPromise(this.#seal(handle));
-		this.#seals.set(handle.id, pending);
-		void pending.catch(() => this.#seals.delete(handle.id));
-		return pending;
+		let pending = this.#seals.get(handle.id);
+		if (!pending) {
+			pending = runPromise(this.#seal(handle));
+			this.#seals.set(handle.id, pending);
+			void pending.catch(() => this.#seals.delete(handle.id));
+		}
+		const operation = pending;
+		return fromPromise(() => operation).pipe(Effect.uninterruptible);
 	}
 	#seal(handle: SandboxHandle): Effect.Effect<Capture, unknown> {
 		return Effect.gen({ self: this }, function* () {
@@ -382,9 +371,9 @@ export class Sandboxes {
 			return yield* Effect.gen({ self: this }, function* () {
 				state.phase = "sealing";
 				yield* this.#save(state);
-				yield* this.stopEffect(handle);
+				yield* this.stop(handle);
 				state = yield* this.#load(handle);
-				yield* fromPromise(() => faultBarrier("after-sandbox-stop", "owned-source"));
+				yield* faultBarrier("after-sandbox-stop", "owned-source");
 				const before = yield* this.#inspect(state);
 				if (before.State.Running) throw new Error("Whole-container quiescence unconfirmed.");
 				const collected = yield* collect(join(this.#root, handle.id, "workspace"), state.source.objectFormat, state.profile, true);
@@ -407,11 +396,9 @@ export class Sandboxes {
 			);
 		});
 	}
-	stop(handle: SandboxHandle | { scope: ExecutionScope }): Promise<StopResult> {
-		return runPromise(this.stopEffect(handle));
-	}
+
 	/** Fences admission immediately. Evaluate the Effect to stop and confirm the journaled runtimes. */
-	stopEffect(handle: SandboxHandle | { scope: ExecutionScope }): Effect.Effect<StopResult, unknown> {
+	stop(handle: SandboxHandle | { scope: ExecutionScope }): Effect.Effect<StopResult, unknown> {
 		if (!("id" in handle)) {
 			this.#stoppedScopes.add(identity(handle.scope));
 			return this.#stopScope(handle.scope).pipe(Effect.uninterruptible);
@@ -485,7 +472,7 @@ export class Sandboxes {
 				const workspace = yield* Effect.exit(
 					Effect.gen({ self: this }, function* () {
 						const state = yield* this.#load({ id, scope });
-						return yield* this.stopEffect(state.handle);
+						return yield* this.stop(state.handle);
 					}),
 				);
 				if (Exit.isFailure(workspace)) failures.push(Cause.squash(workspace.cause));

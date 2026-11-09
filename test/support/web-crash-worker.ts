@@ -1,7 +1,9 @@
 // Owned V3 process: no network outside the parent's fixture and no live credentials.
+
 import assert from "node:assert/strict";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
 import { openLedger, StartupFailure } from "../../src/ledger/startup.ts";
 import { packet, roleFixture } from "./roles.ts";
@@ -31,8 +33,8 @@ if (mode === "crash") {
 	throw new Error("parent must interrupt this process");
 }
 try {
-	const opened = await openLedger({ data, runtime: (report) => engine.options(report), onFatal: () => {} });
-	await opened.close();
+	const opened = await Effect.runPromise(openLedger({ data, runtime: (report) => engine.options(report), onFatal: () => {} }));
+	await Effect.runPromise(opened.close());
 	throw new Error("unsafe interrupted web attempt must block startup");
 } catch (error) {
 	assert.ok(error instanceof StartupFailure);

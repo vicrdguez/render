@@ -1,7 +1,9 @@
 // BJ16: owned Linux execution proves the regression red on the reported behavior and correct on prepared X.
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
+import * as Effect from "effect/Effect";
 import type { ImplementationPass } from "../src/kernel/roles.ts";
 import type { Frame } from "../src/ledger/ledger.ts";
 import { accepted, captureFile, fixture } from "./support/implementation-engine.ts";
@@ -21,7 +23,7 @@ test("BJ16 a missing tool is reported, the real failure is red-on-the-bug, and p
 			await setTimeout(100);
 		}
 		const read = async (ref: string) => {
-			const value = await t.f.ledger.artifact(admin, { read: ref });
+			const value = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 			assert.ok("content" in value, `read ${ref}`);
 			return value.content.toString();
 		};
@@ -36,7 +38,7 @@ test("BJ16 a missing tool is reported, the real failure is red-on-the-bug, and p
 		assert.equal(suite.steps[0]!.platform.os, "linux");
 		assert.match(suite.steps[0]!.stdout, /value is A/, "actual Linux output shows the reported wrong behavior");
 		assert.equal(t.assignments().filter((a) => a.parent === writer.id).length, 2, "the refused early Audit staged no reviewers");
-		const history = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const history = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in history);
 		const reproductions = Object.values(history.content)
 			.map((b) => Buffer.from(b, "base64").toString())

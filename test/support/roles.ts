@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Harness, Registry } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
 import { Engine } from "../../src/engine/runtime.ts";
 import type { PolicyState } from "../../src/kernel/policy.ts";
 import type { RolePacket } from "../../src/kernel/roles.ts";
@@ -65,29 +66,33 @@ export async function allowSameFamily(ledger: Ledger) {
 	const frame = ledger.snapshot(admin);
 	if (!("policy" in frame)) throw new Error("Missing policy snapshot");
 	const policy = frame.policy as PolicyState;
-	const changed = await ledger.command(
-		{
-			version: 1,
-			authorityEpoch: ledger.status().authorityEpoch,
-			commandId: "fixture-family-direction",
-			command: {
-				type: "changePolicy",
-				expectedRevision: policy.defaultRevision,
-				policy: { completedReviewLimit: 2, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+	const changed = await Effect.runPromise(
+		ledger.command(
+			{
+				version: 1,
+				authorityEpoch: ledger.status().authorityEpoch,
+				commandId: "fixture-family-direction",
+				command: {
+					type: "changePolicy",
+					expectedRevision: policy.defaultRevision,
+					policy: { completedReviewLimit: 2, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+				},
 			},
-		},
-		admin,
+			admin,
+		),
 	);
 	if (changed.status !== "accepted") throw new Error(JSON.stringify(changed));
-	const adopted = await ledger.command(
-		{
-			version: 1,
-			authorityEpoch: ledger.status().authorityEpoch,
-			commandId: "fixture-family-adoption",
-			workflow: "workflow:2",
-			command: { type: "adoptPolicy", revision: changed.result.policy, expectedBinding: policy.bindings["workflow:2"]!.revision },
-		},
-		admin,
+	const adopted = await Effect.runPromise(
+		ledger.command(
+			{
+				version: 1,
+				authorityEpoch: ledger.status().authorityEpoch,
+				commandId: "fixture-family-adoption",
+				workflow: "workflow:2",
+				command: { type: "adoptPolicy", revision: changed.result.policy, expectedBinding: policy.bindings["workflow:2"]!.revision },
+			},
+			admin,
+		),
 	);
 	if (adopted.status !== "accepted") throw new Error(JSON.stringify(adopted));
 }
@@ -107,33 +112,39 @@ export async function roleFixture(engine = new Engine()) {
 			},
 		};
 	};
-	let opened = await openLedger({ data, runtime, onFatal: () => {} });
+	let opened = await Effect.runPromise(openLedger({ data, runtime, onFatal: () => {} }));
 	let n = 0;
 	const command = (c: Record<string, unknown>, context = scheduler, id = `role:${++n}`) =>
-		opened.ledger.command(
-			{ version: 1, authorityEpoch: opened.authorityEpoch, commandId: id, workflow: "workflow:2", command: c },
-			context,
+		Effect.runPromise(
+			opened.ledger.command(
+				{ version: 1, authorityEpoch: opened.authorityEpoch, commandId: id, workflow: "workflow:2", command: c },
+				context,
+			),
 		);
-	const created = await opened.ledger.command(
-		{ version: 1, authorityEpoch: opened.authorityEpoch, commandId: "create", command: { type: "createWorkflow", title: "Roles" } },
-		admin,
+	const created = await Effect.runPromise(
+		opened.ledger.command(
+			{ version: 1, authorityEpoch: opened.authorityEpoch, commandId: "create", command: { type: "createWorkflow", title: "Roles" } },
+			admin,
+		),
 	);
 	if (created.status !== "accepted" || created.result.workflow !== "workflow:2") throw new Error(JSON.stringify(created));
-	const input = await opened.ledger.command(
-		{
-			version: 1,
-			authorityEpoch: opened.authorityEpoch,
-			commandId: "input",
-			workflow: "workflow:2",
-			expected: { document: null },
-			command: {
-				type: "saveDocument",
-				document: "principles",
-				mediaType: "text/plain",
-				content: Buffer.from("Keep exact constraints.\n").toString("base64"),
+	const input = await Effect.runPromise(
+		opened.ledger.command(
+			{
+				version: 1,
+				authorityEpoch: opened.authorityEpoch,
+				commandId: "input",
+				workflow: "workflow:2",
+				expected: { document: null },
+				command: {
+					type: "saveDocument",
+					document: "principles",
+					mediaType: "text/plain",
+					content: Buffer.from("Keep exact constraints.\n").toString("base64"),
+				},
 			},
-		},
-		admin,
+			admin,
+		),
 	);
 	if (input.status !== "accepted") throw new Error(JSON.stringify(input));
 	return {
@@ -150,12 +161,12 @@ export async function roleFixture(engine = new Engine()) {
 		},
 		engine,
 		async reopen(next = new Engine()) {
-			await opened.close();
-			opened = await openLedger({ data, runtime: (report) => next.options(report), onFatal: () => {} });
+			await Effect.runPromise(opened.close());
+			opened = await Effect.runPromise(openLedger({ data, runtime: (report) => next.options(report), onFatal: () => {} }));
 			return next;
 		},
 		async close() {
-			await opened.close();
+			await Effect.runPromise(opened.close());
 			await rm(data, { recursive: true, force: true });
 		},
 	};

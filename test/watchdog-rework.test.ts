@@ -1,8 +1,10 @@
 // WR01–WR18, WR21–WR22 at the Ledger/Kernel interface over real SQLite/Durable staging. Preparation records, check
 // receipts and verdicts are literal host/scripted results here: they establish authority, binding, counting and
 // retention, not that Effects, Linux or a model produced them. The Engine journeys are in watchdog-rework.integration.ts.
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import { reviewQualification, watchdogVerdict } from "../src/kernel/implementation.ts";
 import type { PolicyState } from "../src/kernel/policy.ts";
 import type { ImplementationPass, RoleAssignment } from "../src/kernel/roles.ts";
@@ -65,18 +67,20 @@ let policies = 0;
 async function adoptLimit(t: Lifecycle, completedReviewLimit: number) {
 	const p = policy(t);
 	const changed = accepted(
-		await t.f.ledger.command(
-			{
-				version: 1,
-				authorityEpoch: t.f.ledger.status().authorityEpoch,
-				commandId: `watchdog-limit:${++policies}`,
-				command: {
-					type: "changePolicy",
-					expectedRevision: p.defaultRevision,
-					policy: { completedReviewLimit, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+		await Effect.runPromise(
+			t.f.ledger.command(
+				{
+					version: 1,
+					authorityEpoch: t.f.ledger.status().authorityEpoch,
+					commandId: `watchdog-limit:${++policies}`,
+					command: {
+						type: "changePolicy",
+						expectedRevision: p.defaultRevision,
+						policy: { completedReviewLimit, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+					},
 				},
-			},
-			admin,
+				admin,
+			),
 		),
 	);
 	accepted(await t.f.command({ type: "adoptPolicy", revision: changed.policy, expectedBinding: p.bindings[W]!.revision }, admin));
@@ -152,7 +156,7 @@ function openRework(t: Lifecycle, r: { id: string; report: string }, X: string, 
 }
 async function qualification(t: Lifecycle, r: { id: string; preparation: string; report: string }, target: string) {
 	const read = async (ref: string) => {
-		const value = await t.f.ledger.artifact(admin, { read: ref });
+		const value = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 		assert.ok("content" in value, `read ${ref}`);
 		return value.content.toString();
 	};
@@ -385,7 +389,7 @@ test("WR10/WR11 every completed round counts once across passing drift rounds; t
 		refused(await openRework(t, third, X3, T2), "human_direction_required", "default limit 2 stops automatic rework");
 		assert.deepEqual(passes(t), before);
 		for (const r of [first, second, third]) {
-			const read = await t.f.ledger.artifact(admin, { read: r.report });
+			const read = await Effect.runPromise(t.f.ledger.artifact(admin, { read: r.report }));
 			assert.ok("content" in read, "every completed review stays retained");
 		}
 	} finally {
@@ -478,8 +482,8 @@ test("WR14 after a cap stop, explicit larger-cap adoption and retry re-settle th
 		assert.equal(pass(t, P2).opening?.base, X1, "the successor starts from reviewed X");
 		assert.equal(completed(t), 1, "adoption and pass transition keep the count");
 		assert.ok(
-			(await t.f.ledger.artifact(admin, { read: rework.report })) &&
-				"content" in (await t.f.ledger.artifact(admin, { read: rework.report })),
+			(await Effect.runPromise(t.f.ledger.artifact(admin, { read: rework.report }))) &&
+				"content" in (await Effect.runPromise(t.f.ledger.artifact(admin, { read: rework.report }))),
 		);
 		const actor = await t.start(opened.assignment as string);
 		refused(await t.f.command(t.handoff, actor), "missing_content", "P1's Audit cannot satisfy P2");
@@ -523,7 +527,7 @@ test("WR17/WR18 an interrupted review resumes the same Assignment uncounted; bin
 		await quiesce(t, id);
 		await t.f.reopen(new LedgerOnlyEngine());
 		assert.equal(completed(t), 2);
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: W } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of [first.report, result.report as string, checks, own(t, id).packetRef, own(t, first.id).packetRef, preparation])
 			assert.ok(exported.content[ref], `export retains ${ref}`);
@@ -541,7 +545,7 @@ test("WR22 missing prior Watchdog material stays explicit without resetting the 
 		const preparation = await prepare(t, T1, X2);
 		const id = accepted(await launch(t, preparation, T1)).assignment as string;
 		damageImplementation(t.f.data, first.report, "missing_content");
-		const rendered = JSON.parse(await engine.render(own(t, id))) as {
+		const rendered = JSON.parse(await Effect.runPromise(engine.render(own(t, id)))) as {
 			watchdogReview?: { prior: { ref: string; unavailable?: string; text?: string }[] };
 		};
 		assert.deepEqual(rendered.watchdogReview?.prior, [{ ref: first.report, unavailable: "missing_content" }]);
@@ -624,13 +628,16 @@ test("WR25 a rework successor reads the exact Watchdog findings that returned it
 		await t.start(opened.assignment as string);
 		const successor = own(t, opened.assignment as string);
 		assert.ok(successor.packet.inputs.includes(rework.report), "the cited report is a required successor input");
-		const read = await t.f.ledger.artifact(agent(successor), { read: rework.report });
+		const read = await Effect.runPromise(t.f.ledger.artifact(agent(successor), { read: rework.report }));
 		assert.ok("content" in read, `successor reads its findings: ${JSON.stringify(read)}`);
 		assert.match(read.content.toString(), /Value must be B/);
-		const rendered = JSON.parse(await engine.render(successor)) as { inputs: { ref: string; text: string }[] };
+		const rendered = JSON.parse(await Effect.runPromise(engine.render(successor))) as { inputs: { ref: string; text: string }[] };
 		assert.match(rendered.inputs.find((i) => i.ref === rework.report)?.text ?? "", /Value must be B/);
 		damageImplementation(t.f.data, rework.report, "missing_content");
-		await assert.rejects(engine.render(own(t, successor.id)), new RegExp(`Required exact input ${rework.report}: missing_content`));
+		await assert.rejects(
+			Effect.runPromise(engine.render(own(t, successor.id))),
+			new RegExp(`Required exact input ${rework.report}: missing_content`),
+		);
 	} finally {
 		await t.close();
 	}
@@ -668,7 +675,7 @@ test("WR26 only an authenticated human direction on the exact stopped round reso
 		const directed = accepted(await direct(t, w.id, "Make value C, keeping the interface."));
 		assert.equal(directed.settles, preparation, "the stopped round settles again, nothing is re-prepared");
 		const direction = directed.direction as string;
-		const retained = await t.f.ledger.artifact(admin, { read: direction });
+		const retained = await Effect.runPromise(t.f.ledger.artifact(admin, { read: direction }));
 		assert.ok("content" in retained && retained.content.toString() === "Make value C, keeping the interface.");
 		refused(await direct(t, w.id, "Something else."), "stale_basis", "a stop takes one direction");
 		refused(await openDirected(t, r, "revision:1", X2, T1), "human_direction_required", "a direction other than the recorded one");
@@ -681,12 +688,12 @@ test("WR26 only an authenticated human direction on the exact stopped round reso
 		const successorActor = await t.start(successor.id);
 		for (const ref of [r.report, direction]) {
 			assert.ok(successor.packet.inputs.includes(ref), `successor input ${ref}`);
-			assert.ok("content" in (await t.f.ledger.artifact(successorActor, { read: ref })), `successor reads ${ref}`);
+			assert.ok("content" in (await Effect.runPromise(t.f.ledger.artifact(successorActor, { read: ref }))), `successor reads ${ref}`);
 		}
 		refused(await t.f.command(t.handoff, successorActor), "missing_content", "P1's Audit cannot satisfy P2");
 		await t.f.reopen(new LedgerOnlyEngine());
 		assert.deepEqual(pass(t).handoff?.direction, { review: w.id, revision: direction }, "the direction survives reopen");
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: W } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of [direction, r.report, pass(t, P2).opening!.observation]) assert.ok(exported.content[ref], `export retains ${ref}`);
 	} finally {

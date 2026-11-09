@@ -80,7 +80,7 @@ function command(ledger: Ledger, context: AuthenticatedContext, req: IncomingMes
 					),
 				),
 			// No request-close signal reaches admitted domain work.
-			onSuccess: (body) => ledger.commandEffect(body, context).pipe(Effect.flatMap((reply) => Effect.sync(() => send(res, reply)))),
+			onSuccess: (body) => ledger.command(body, context).pipe(Effect.flatMap((reply) => Effect.sync(() => send(res, reply)))),
 		}),
 	);
 }
@@ -105,14 +105,16 @@ function observe(ledger: Ledger, context: AuthenticatedContext, req: IncomingMes
 			res.destroy();
 		}
 	};
-	const observation = ledger.observe(context, {
-		send: write,
-		end: (frame) => {
-			write(frame);
-			open = false;
-			res.end();
-		},
-	});
+	const observation = Effect.runSync(
+		ledger.observe(context, {
+			send: write,
+			end: (frame) => {
+				write(frame);
+				open = false;
+				res.end();
+			},
+		}),
+	);
 	if ("status" in observation) {
 		send(res, observation);
 		return;
@@ -150,27 +152,22 @@ function route(ledger: Ledger, context: AuthenticatedContext, req: IncomingMessa
 			return send(
 				res,
 				path === "/v1/history"
-					? yield* ledger.historyEffect(context, query as HistoryQuery, false)
-					: yield* ledger.artifactEffect(context, { export: query as HistoryQuery }),
+					? yield* ledger.observe(context, { history: query as HistoryQuery })
+					: yield* ledger.artifact(context, { export: query as HistoryQuery }),
 			);
 		}
 		const receipt = /^\/v1\/commands\/([^/]+)$/.exec(path);
-		if (req.method === "GET" && receipt) return send(res, yield* ledger.receiptEffect(context, decodeURIComponent(receipt[1] as string)));
+		if (req.method === "GET" && receipt) return send(res, yield* ledger.receipt(context, decodeURIComponent(receipt[1] as string)));
 		const artifact = /^\/v1\/artifacts\/([^/]+)$/.exec(path);
 		if (req.method === "GET" && artifact)
-			return send(res, artifactBody(yield* ledger.artifactEffect(context, { read: decodeURIComponent(artifact[1] as string) })));
+			return send(res, artifactBody(yield* ledger.artifact(context, { read: decodeURIComponent(artifact[1] as string) })));
 		const messages = /^\/v1\/workflows\/([^/]+)\/messages$/.exec(path);
 		if (req.method === "GET" && messages) {
 			const cursor = url.searchParams.get("cursor");
 			const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") ?? 100) || 100));
 			return send(
 				res,
-				yield* ledger.messagesEffect(
-					context,
-					decodeURIComponent(messages[1] as string),
-					cursor === null ? undefined : Number(cursor),
-					limit,
-				),
+				yield* ledger.messages(context, decodeURIComponent(messages[1] as string), cursor === null ? undefined : Number(cursor), limit),
 			);
 		}
 		send(res, { status: "refused", code: "not_found", reason: "No such route." });
@@ -196,11 +193,8 @@ export function deviceServer(ledger: Ledger): Server {
 }
 
 /** Local-admin route on a Unix socket inside the 0700 data directory; reaching it is the OS owner's authentication. */
-export function adminServer(ledger: Ledger, socketPath: string): Promise<Server> {
-	return runPromise(adminServerEffect(ledger, socketPath));
-}
 
-export function adminServerEffect(ledger: Ledger, socketPath: string): Effect.Effect<Server, unknown> {
+export function adminServer(ledger: Ledger, socketPath: string): Effect.Effect<Server, unknown> {
 	return Effect.gen(function* () {
 		yield* fromPromise(() => rm(socketPath, { force: true }));
 		const server = createServer((req, res) => {

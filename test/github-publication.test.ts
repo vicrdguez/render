@@ -1,8 +1,10 @@
 // GP01–GP16 at the Ledger/Kernel interface over real SQLite. Forge observations are literal host results here: they
 // establish authority, ordering, association, risk and retention, not that the GitHub adapter produced them (see
 // github-publication-forge.test.ts and the Engine journey in github-publication.integration.ts).
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as Effect from "effect/Effect";
 import type { CommandReply, Frame } from "../src/ledger/ledger.ts";
 import { accepted, LedgerOnlyEngine } from "./support/implementation.ts";
 import {
@@ -84,7 +86,7 @@ const item = (id: string, marker: string | null, over: Partial<Item> = {}): Item
 const listing = (items: Item[], complete = true) => ({ proposals: { complete, items } });
 const marker = (operation: string) => `render-proposal:${W}:${operation}`;
 async function read(t: Lifecycle, ref: string) {
-	const value = await t.f.ledger.artifact(admin, { read: ref });
+	const value = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 	assert.ok("content" in value, `read ${ref}`);
 	return value.content.toString();
 }
@@ -385,7 +387,7 @@ test("GP15 a lost summary reply shows local facts and uncertainty; every intent 
 		const before = JSON.stringify(view(t));
 		await t.f.reopen(new LedgerOnlyEngine());
 		assert.equal(JSON.stringify(view(t)), before, "state survives reopen");
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: W } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: W } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of [create, summary, lost]) assert.ok(exported.content[ref], `export contains ${ref}`);
 	} finally {

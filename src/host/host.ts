@@ -6,12 +6,12 @@ import { join } from "node:path";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
-import { fromPromise, runPromise } from "../effect.ts";
+import { fromPromise } from "../effect.ts";
 import { Engine, type OwnedChecks, runtimeOptions } from "../engine/runtime.ts";
 import type { Persistence } from "../kernel/kernel.ts";
-import { adminServerEffect, deviceServer } from "../ledger/http.ts";
+import { adminServer, deviceServer } from "../ledger/http.ts";
 import type { Ledger } from "../ledger/ledger.ts";
-import { openLedgerEffect } from "../ledger/startup.ts";
+import { openLedger } from "../ledger/startup.ts";
 
 export type Host = {
 	readonly url: string;
@@ -20,7 +20,7 @@ export type Host = {
 	readonly authorityEpoch: string;
 	readonly executorEpoch: string;
 	readonly persistence: Persistence;
-	close(): Promise<void>;
+	close(): Effect.Effect<void, unknown>;
 };
 
 export type OpenHostOptions = {
@@ -31,23 +31,19 @@ export type OpenHostOptions = {
 	readonly onFatal?: (error: unknown) => void;
 };
 
-export function openHost(options: OpenHostOptions): Promise<Host> {
-	return runPromise(openHostEffect(options));
-}
-
-export function openHostEffect(options: OpenHostOptions): Effect.Effect<Host, unknown> {
+export function openHost(options: OpenHostOptions): Effect.Effect<Host, unknown> {
 	return Effect.gen(function* () {
 		// Acquisition must not close this scope on success; Host.close owns its lifetime.
 		const scope = yield* Scope.make();
 		return yield* Effect.gen(function* () {
-			const opened = yield* openLedgerEffect({
+			const opened = yield* openLedger({
 				data: options.data,
 				runtime: options.ownedChecks ? (report) => new Engine({ ownedChecks: options.ownedChecks }).options(report) : runtimeOptions,
 				onFatal: (error) => options.onFatal?.(error),
 			});
-			yield* Scope.addFinalizer(scope, fromPromise(() => opened.close()).pipe(Effect.orDie));
+			yield* Scope.addFinalizer(scope, opened.close().pipe(Effect.orDie));
 			const socketPath = join(options.data, "admin.sock");
-			const admin = yield* adminServerEffect(opened.ledger, socketPath);
+			const admin = yield* adminServer(opened.ledger, socketPath);
 			yield* Scope.addFinalizer(scope, closeServer(admin));
 			const listener = deviceServer(opened.ledger);
 			yield* Scope.addFinalizer(scope, closeServer(listener));
@@ -66,7 +62,7 @@ export function openHostEffect(options: OpenHostOptions): Effect.Effect<Host, un
 				authorityEpoch: opened.authorityEpoch,
 				executorEpoch: opened.executorEpoch,
 				persistence: opened.persistence,
-				close: () => runPromise(Scope.close(scope, Exit.void)),
+				close: () => Scope.close(scope, Exit.void),
 			};
 		}).pipe(Effect.catchCause((cause) => Scope.close(scope, Exit.failCause(cause)).pipe(Effect.flatMap(() => Effect.failCause(cause)))));
 	}).pipe(Effect.uninterruptible);

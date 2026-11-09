@@ -4,6 +4,7 @@ import { setTimeout } from "node:timers/promises";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import type { ConversationId } from "@earendil-works/pi-durable";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
 import { mintContext } from "../src/ledger/principals.ts";
@@ -59,12 +60,12 @@ test("R01/R07 accepted child survives submitting turn abort; own report and fixe
 		assert.ok(child.report);
 		assert.ok(child.task);
 		assert.notEqual(child.conversation, assignments(f)[0]!.conversation);
-		const report = await f.ledger.artifact(admin, { read: child.report! });
+		const report = await Effect.runPromise(f.ledger.artifact(admin, { read: child.report! }));
 		assert.ok("content" in report);
 		assert.equal(report.content.toString(), "Independent objection: retain exact bytes.\n");
 		await f.reopen();
 		assert.equal(assignments(f)[1]?.report, child.report);
-		const retained = await f.ledger.artifact(admin, { read: child.report! });
+		const retained = await Effect.runPromise(f.ledger.artifact(admin, { read: child.report! }));
 		assert.ok("content" in retained);
 		assert.equal(retained.content.toString(), "Independent objection: retain exact bytes.\n");
 	} finally {
@@ -116,17 +117,17 @@ test("R02 same scoped role submission returns one receipt; new call rechecks eli
 		);
 		assert.equal(assignments(f)[0]?.report, first.result.report);
 
-		const own = await f.ledger.receipt(scoped, "submit-once");
+		const own = await Effect.runPromise(f.ledger.receipt(scoped, "submit-once"));
 		assert.ok(own.status === "accepted");
 		assert.deepEqual(own.result, first.result);
 		const stale = mintContext({ ...identity, attempt: "attempt:stale" });
-		const learned = await f.ledger.receipt(stale, "submit-once");
+		const learned = await Effect.runPromise(f.ledger.receipt(stale, "submit-once"));
 		assert.equal(
 			"code" in learned ? learned.code : learned.status,
 			"unauthorized",
 			"a stale worker must not learn another Attempt's receipt",
 		);
-		const refused = await f.ledger.receipt(scoped, "submit-again");
+		const refused = await Effect.runPromise(f.ledger.receipt(scoped, "submit-again"));
 		assert.equal("code" in refused ? refused.code : refused.status, "not_found", "a refused call retains no receipt");
 	} finally {
 		held.resolve();

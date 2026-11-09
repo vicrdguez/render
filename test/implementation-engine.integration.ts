@@ -7,6 +7,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import type { ImplementationSource } from "../src/kernel/implementation.ts";
 import type { IntakeManifest, Intakes } from "../src/kernel/intake.ts";
@@ -95,7 +96,7 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 		const pass = (frame.implementationPasses as ImplementationPass[]).find((p) => p.ref === opening.passRef);
 		assert.ok(pass?.handoff, "handoff and its preparation are committed on the pass");
 		assert.ok(pass.handoff.preparationTask, "preparation task is staged atomically with handoff");
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of [opening.passRecord, pass.handoff.record, ...reviews.map((a) => a.report)])
 			assert.ok(exported.content[ref as string], `export retains ${ref}`);
@@ -119,7 +120,7 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 		};
 		const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
 		const read = async (ref: string) => {
-			const value = await t.f.ledger.artifact(admin, { read: ref });
+			const value = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 			assert.ok("content" in value, `read ${ref}`);
 			return value.content.toString();
 		};
@@ -251,7 +252,7 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 		assert.equal(x2.target.commit, T1);
 		assert.equal(x2.preparation?.result, b2.commit, "B2 already includes T1");
 		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0);
-		const twoPass = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const twoPass = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in twoPass && twoPass.manifest.complete);
 		for (const ref of [
 			p1.record,
@@ -296,16 +297,16 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 		assert.match(stalled.blocker ?? "", /^implementation_opening_source_unavailable/);
 		assert.equal(t.prompts.filter((p) => p.implementation?.ordinal === 3).length, 0, "no writer turn starts without its base");
 		assert.equal(passes()[2]?.workspace, undefined);
-		const settledExport = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const settledExport = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in settledExport);
-		const page = await t.f.ledger.observe(admin, { history: { workflow: "workflow:2", limit: "1" } });
+		const page = await Effect.runPromise(t.f.ledger.observe(admin, { history: { workflow: "workflow:2", limit: "1" } }));
 		assert.ok("next" in page && page.next);
 		assert.equal(page.cutoff, settledExport.manifest.cutoff);
 		t.gate.resolve();
 		await t.f.reopen();
 		assert.equal(passes().length, 3);
 		assert.equal(passes()[0]!.handoff!.record, p1.handoff!.record);
-		const after = await t.f.ledger.artifact(admin, { export: { cursor: page.next } });
+		const after = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { cursor: page.next } }));
 		assert.ok("manifest" in after && after.manifest.complete);
 		assert.equal(after.manifest.cutoff, settledExport.manifest.cutoff);
 		for (const ref of [opening.passRecord, pass.handoff.record, ...reviews.map((a) => a.report), A, pass.captureB])
@@ -318,7 +319,7 @@ test("two-pass journey: one fresh paired Audit of frozen A, same-pass B, atomic 
 async function preparedHarness(t: Awaited<ReturnType<typeof fixture>>) {
 	const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
 	const read = async (ref: string) => {
-		const value = await t.f.ledger.artifact(admin, { read: ref });
+		const value = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 		assert.ok("content" in value, `read ${ref}`);
 		return value.content.toString();
 	};
@@ -467,18 +468,20 @@ test("TP28: a policy adopted while X's checks run never leaves X qualified under
 		const old = policyOf(t).bindings["workflow:2"]!;
 		assert.equal(policyOf(t).revisions[old.policy]!.minimumEvidenceRank, "tests", "X's checks started under minimum tests");
 		const published = accepted(
-			await t.f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: t.f.ledger.status().authorityEpoch,
-					commandId: "tp28-stricter-policy",
-					command: {
-						type: "changePolicy",
-						expectedRevision: policyOf(t).defaultRevision,
-						policy: { completedReviewLimit: 2, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "live" },
+			await Effect.runPromise(
+				t.f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: t.f.ledger.status().authorityEpoch,
+						commandId: "tp28-stricter-policy",
+						command: {
+							type: "changePolicy",
+							expectedRevision: policyOf(t).defaultRevision,
+							policy: { completedReviewLimit: 2, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "live" },
+						},
 					},
-				},
-				admin,
+					admin,
+				),
 			),
 		);
 		const adopted = accepted(await t.f.command({ type: "adoptPolicy", revision: published.policy, expectedBinding: old.revision }, admin));
@@ -490,7 +493,7 @@ test("TP28: a policy adopted while X's checks run never leaves X qualified under
 		assert.ok(p1?.handoff && p2, "the stricter policy's verifier defect opens a repair pass");
 		const records = await Promise.all(
 			p1.handoff.preparations!.map(async (ref) => {
-				const value = await t.f.ledger.artifact(admin, { read: ref });
+				const value = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 				assert.ok("content" in value);
 				return JSON.parse(value.content.toString()) as Prepared;
 			}),
@@ -581,18 +584,20 @@ test("TP30: each explicit retry of a checked handoff settles visibly and stays r
 		assert.equal(current.minimumEvidenceRank, "tests");
 		// A new binding that keeps minimum tests: X and T are unchanged, so the rechecked readiness reads exactly as before.
 		const published = accepted(
-			await t.f.ledger.command(
-				{
-					version: 1,
-					authorityEpoch: t.f.ledger.status().authorityEpoch,
-					commandId: "tp30-review-limit",
-					command: {
-						type: "changePolicy",
-						expectedRevision: policyOf(t).defaultRevision,
-						policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+			await Effect.runPromise(
+				t.f.ledger.command(
+					{
+						version: 1,
+						authorityEpoch: t.f.ledger.status().authorityEpoch,
+						commandId: "tp30-review-limit",
+						command: {
+							type: "changePolicy",
+							expectedRevision: policyOf(t).defaultRevision,
+							policy: { completedReviewLimit: 3, reviewerDiversity: "human-directed-same-family", minimumEvidenceRank: "tests" },
+						},
 					},
-				},
-				admin,
+					admin,
+				),
 			),
 		);
 		const adopted = accepted(await t.f.command({ type: "adoptPolicy", revision: published.policy, expectedBinding: old.revision }, admin));
@@ -607,7 +612,7 @@ test("TP30: each explicit retry of a checked handoff settles visibly and stays r
 		assert.equal(blocker(), first, "same X on the same target: the readiness reads as before");
 		const [p1, ...others] = passes();
 		assert.equal(others.length, 0, "the retry keeps the handed-off pass");
-		const value = await t.f.ledger.artifact(admin, { read: p1!.handoff!.preparations![1]! });
+		const value = await Effect.runPromise(t.f.ledger.artifact(admin, { read: p1!.handoff!.preparations![1]! }));
 		assert.ok("content" in value);
 		const x = JSON.parse(value.content.toString()) as Prepared;
 		assert.equal(x.outcome, "checked");
@@ -674,7 +679,7 @@ test("TP08/TP12/TP14: an aborted merge stays operational across restart until an
 		assert.equal(retried.target.commit, T1);
 		assert.equal(t.assignments().filter((a) => a.auditReview).length, 2, "no new Audit");
 		assert.equal(t.assignments().filter((a) => a.packet.role === "watchdog").length, 0);
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of p1!.handoff!.preparations!) assert.ok(exported.content[ref], `export retains ${ref}`);
 	} finally {
@@ -705,7 +710,7 @@ test("absent selected verifier is bootstrapped in Linux and retained in both che
 			[pass.captureA, "A\n"],
 			[pass.captureB, "B\n"],
 		] as const) {
-			const retained = await t.f.ledger.artifact(admin, { read: ref });
+			const retained = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 			assert.ok("content" in retained);
 			const text = retained.content.toString();
 			assert.equal(captureValue(text), value);
@@ -732,7 +737,7 @@ test("raw checkpoint cannot hand off checked B after writer changes workspace to
 			const owner = t.assignments().find((a) => a.id === opening.assignment);
 			return !!owner && !owner.executing && !!owner.runtimeTaskCaptured;
 		}, "raw stale handoff outcome retained");
-		const exported = await t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } });
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete, "terminal tool results are retained");
 		const history =
 			exported.jsonl +
@@ -769,7 +774,7 @@ test("failed final catalog blocks handoff and does not initiate another Audit", 
 		const pass = (frame.implementationPasses as ImplementationPass[]).find((p) => p.ref === opening.passRef);
 		assert.ok(pass?.captureB, "final source and its check evidence are retained even when non-pass");
 		assert.equal(pass.handoff, undefined, "failed evidence never commits a handoff or preparation task");
-		const retained = await t.f.ledger.artifact(admin, { read: pass.captureB });
+		const retained = await Effect.runPromise(t.f.ledger.artifact(admin, { read: pass.captureB }));
 		assert.ok("content" in retained);
 		const capture = JSON.parse(retained.content.toString()) as ImplementationSource;
 		assert.equal(captureValue(retained.content.toString()), "B\n");
@@ -805,7 +810,7 @@ test("fixed Audit finding references prechecked exact B and handoff reuses that 
 		);
 		assert.ok(pass?.captureA && pass.captureB && pass.handoff && pass.audit);
 		assert.notEqual(pass.captureA, pass.captureB);
-		const handed = await t.f.ledger.artifact(admin, { read: pass.handoff.record });
+		const handed = await Effect.runPromise(t.f.ledger.artifact(admin, { read: pass.handoff.record }));
 		assert.ok("content" in handed);
 		const handoff = JSON.parse(handed.content.toString()) as {
 			captureB: string;
@@ -822,10 +827,10 @@ test("fixed Audit finding references prechecked exact B and handoff reuses that 
 				rechecks: ["full-suite"],
 			},
 		]);
-		const report = await t.f.ledger.artifact(admin, { read: pass.audit.results.standards!.report });
+		const report = await Effect.runPromise(t.f.ledger.artifact(admin, { read: pass.audit.results.standards!.report }));
 		assert.ok("content" in report);
 		assert.match(report.content.toString(), /Replace A with B/);
-		const source = await t.f.ledger.artifact(admin, { read: pass.captureB });
+		const source = await Effect.runPromise(t.f.ledger.artifact(admin, { read: pass.captureB }));
 		assert.ok("content" in source);
 		assert.equal(captureValue(source.content.toString()), "B\n");
 	} finally {

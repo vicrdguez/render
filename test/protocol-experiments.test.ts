@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+import * as Effect from "effect/Effect";
 import { Engine } from "../src/engine/runtime.ts";
 import { assignments, saveGround, until } from "./support/investigation.ts";
 import { admin, packet, roleFixture } from "./support/roles.ts";
@@ -25,21 +26,23 @@ function code(reply: { status: string; code?: string }) {
 	return reply.code ?? reply.status;
 }
 async function save(f: Awaited<ReturnType<typeof roleFixture>>, name: string, value: unknown) {
-	const reply = await f.ledger.command(
-		{
-			version: 1,
-			authorityEpoch: f.ledger.status().authorityEpoch,
-			commandId: name,
-			workflow: "workflow:2",
-			expected: { document: null },
-			command: {
-				type: "saveDocument",
-				document: name.toLowerCase(),
-				mediaType: "text/plain",
-				content: Buffer.from(JSON.stringify(value)).toString("base64"),
+	const reply = await Effect.runPromise(
+		f.ledger.command(
+			{
+				version: 1,
+				authorityEpoch: f.ledger.status().authorityEpoch,
+				commandId: name,
+				workflow: "workflow:2",
+				expected: { document: null },
+				command: {
+					type: "saveDocument",
+					document: name.toLowerCase(),
+					mediaType: "text/plain",
+					content: Buffer.from(JSON.stringify(value)).toString("base64"),
+				},
 			},
-		},
-		admin,
+			admin,
+		),
 	);
 	assert.equal(code(reply), "accepted", JSON.stringify(reply));
 	if (reply.status !== "accepted") throw new Error("unreachable");

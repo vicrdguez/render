@@ -3,9 +3,9 @@
 import { parseArgs } from "node:util";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
-import { fromPromise, runPromise } from "../effect.ts";
+import { runPromise } from "../effect.ts";
 import { StartupFailure } from "../ledger/startup.ts";
-import { type Host, openHostEffect } from "./host.ts";
+import { type Host, openHost } from "./host.ts";
 
 function emit(stream: NodeJS.WriteStream, event: Record<string, unknown>): void {
 	stream.write(`${JSON.stringify(event)}\n`);
@@ -34,7 +34,7 @@ function main(): Effect.Effect<void, unknown> {
 			// Let in-flight outcome_unknown replies flush, then stop.
 			setTimeout(() => process.exit(1), 250);
 		};
-		let host: Host | undefined = yield* openHostEffect({
+		let host: Host | undefined = yield* openHost({
 			data,
 			port: values.port === undefined ? 0 : Number(values.port),
 			hostname: values.host ?? "127.0.0.1",
@@ -64,13 +64,9 @@ function main(): Effect.Effect<void, unknown> {
 			const h = host;
 			host = undefined;
 			if (h === undefined) return;
-			void runPromise(
-				fromPromise(() => h.close()).pipe(
-					Effect.match({
-						onSuccess: () => process.exit(0),
-						onFailure: () => process.exit(1),
-					}),
-				),
+			void runPromise(h.close()).then(
+				() => process.exit(0),
+				() => process.exit(1),
 			);
 		};
 		process.on("SIGTERM", stop);

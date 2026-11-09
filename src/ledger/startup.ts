@@ -14,7 +14,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
-import { fromPromise, runPromise } from "../effect.ts";
+import { fromPromise } from "../effect.ts";
 import type { RenderRuntimeOptions } from "../engine/runtime.ts";
 import type { Persistence } from "../kernel/kernel.ts";
 import { Ledger } from "./ledger.ts";
@@ -49,7 +49,7 @@ export type OpenedLedger = {
 	readonly authorityEpoch: string;
 	readonly executorEpoch: string;
 	readonly dataDir: string;
-	close(): Promise<void>;
+	close(): Effect.Effect<void, unknown>;
 };
 
 export type OpenLedgerOptions = {
@@ -58,11 +58,7 @@ export type OpenLedgerOptions = {
 	readonly onFatal: (error: unknown) => void;
 };
 
-export function openLedger(options: OpenLedgerOptions): Promise<OpenedLedger> {
-	return runPromise(openLedgerEffect(options));
-}
-
-export function openLedgerEffect(options: OpenLedgerOptions): Effect.Effect<OpenedLedger, unknown> {
+export function openLedger(options: OpenLedgerOptions): Effect.Effect<OpenedLedger, unknown> {
 	return Effect.gen(function* () {
 		const scope = yield* Scope.make();
 		return yield* Effect.gen(function* () {
@@ -177,7 +173,7 @@ export function openLedgerEffect(options: OpenLedgerOptions): Effect.Effect<Open
 				);
 			}
 			const executorEpoch = `executor-${randomUUID()}`;
-			const ledger = yield* Ledger.loadEffect(harness, opened.persistence, options.onFatal, runtime.roleTasks).pipe(
+			const ledger = yield* Ledger.load(harness, opened.persistence, options.onFatal, runtime.roleTasks).pipe(
 				Effect.catchCause((cause) =>
 					Effect.fail(
 						blocked(
@@ -202,7 +198,7 @@ export function openLedgerEffect(options: OpenLedgerOptions): Effect.Effect<Open
 				);
 				const admin = mintContext({ kind: "human", human: "human:owner", route: "local-admin" });
 				const settings = (yield* fromPromise(() => harness.snapshot(CheckpointSettings, ctx))) ?? { currentRevision: "settings:initial" };
-				const seeded = yield* ledger.commandEffect(
+				const seeded = yield* ledger.command(
 					{
 						version: 1,
 						authorityEpoch: ledger.status().authorityEpoch,
@@ -217,7 +213,7 @@ export function openLedgerEffect(options: OpenLedgerOptions): Effect.Effect<Open
 					);
 			}
 			runtime.bindLedger?.(ledger, harness);
-			const fence = yield* ledger.commandEffect(
+			const fence = yield* ledger.command(
 				{
 					version: 1,
 					authorityEpoch: ledger.status().authorityEpoch,
@@ -232,14 +228,14 @@ export function openLedgerEffect(options: OpenLedgerOptions): Effect.Effect<Open
 			yield* fromPromise(async () => runtime.beforeResume?.());
 			harness.resume();
 			runtime.afterResume?.();
-			closeStore = ledger.closeEffect();
+			closeStore = ledger.close();
 			return {
 				ledger,
 				persistence: opened.persistence,
 				authorityEpoch: ledger.status().authorityEpoch,
 				executorEpoch,
 				dataDir: options.data,
-				close: () => runPromise(Scope.close(scope, Exit.void)),
+				close: () => Scope.close(scope, Exit.void),
 			};
 		}).pipe(Effect.catchCause((cause) => Scope.close(scope, Exit.failCause(cause)).pipe(Effect.flatMap(() => Effect.failCause(cause)))));
 	}).pipe(Effect.uninterruptible);

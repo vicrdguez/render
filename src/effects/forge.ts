@@ -2,7 +2,7 @@
 // adapter; Node's fetch carries REST, and Effects' trusted Git carries source with an expected-old lease. The token
 // comes from trusted host configuration and is only ever placed in request headers.
 import * as Effect from "effect/Effect";
-import { fromPromise, runPromise } from "../effect.ts";
+import { fromPromise } from "../effect.ts";
 import type { Capabilities, ProposalItem } from "../kernel/publication.ts";
 
 export type ForgeConfig = {
@@ -77,10 +77,8 @@ export class GitHubForge {
 		};
 	}
 	/** Read-only. Throws when the forge is unreachable; a later page failing is an incomplete listing, never absence. */
-	observe(proposal: string): Promise<ForgeSnapshot> {
-		return runPromise(this.observeEffect(proposal));
-	}
-	observeEffect(proposal: string): Effect.Effect<ForgeSnapshot, unknown> {
+
+	observe(proposal: string): Effect.Effect<ForgeSnapshot, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			const head = yield* this.#head(proposal);
 			if (head === undefined) return yield* Effect.fail(new Error("Forge source ref unobservable: remote unreachable."));
@@ -121,10 +119,8 @@ export class GitHubForge {
 			};
 		}).pipe(Effect.uninterruptible);
 	}
-	apply(request: ForgeRequest): Promise<ForgeDispatch> {
-		return runPromise(this.applyEffect(request));
-	}
-	applyEffect(request: ForgeRequest): Effect.Effect<ForgeDispatch, unknown> {
+
+	apply(request: ForgeRequest): Effect.Effect<ForgeDispatch, unknown> {
 		return Effect.gen({ self: this }, function* () {
 			const result = (outcome: ForgeDispatch["outcome"], reason: string | null, created: string | null = null): ForgeDispatch => ({
 				outcome,
