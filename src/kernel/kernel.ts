@@ -15,6 +15,7 @@ import {
 import { changeIntake, cleared, emptyIntakes, INTAKE_COMMANDS, type IntakeCommand, type Intakes, type IntakeWrite } from "./intake.ts";
 import type { Ground } from "./investigation.ts";
 import { changePolicy, initialPolicy, type PolicyCommand, type PolicyState } from "./policy.ts";
+import { changeProject, PROJECT_COMMANDS, type Project, type ProjectCommand } from "./projects.ts";
 import {
 	changePublication,
 	PUBLICATION_COMMANDS,
@@ -61,13 +62,15 @@ export type KnownCommand =
 	| PublicationCommand
 	| PolicyCommand
 	| SettingsCommand
+	| ProjectCommand
 	| {
 			readonly type: "requestLocalVerificationPrompt";
 			readonly workflow: string;
 			readonly source: string;
 			readonly expectedSequence: number;
 	  }
-	| { readonly type: "createWorkflow"; readonly title: string }
+	/** `project` is required; the Kernel refuses its absence as invalid content. */
+	| { readonly type: "createWorkflow"; readonly title: string; readonly project?: string }
 	| {
 			readonly type: "saveDocument";
 			readonly workflow: string;
@@ -96,6 +99,8 @@ export type KernelState = {
 	readonly roleWork?: RoleWorkState;
 	readonly policy?: PolicyState;
 	readonly publication?: Publication;
+	/** Every project's current revision, by id. */
+	readonly projects?: Readonly<Record<string, Project>>;
 	/** The envelope's workflow, when it exists. */
 	readonly workflow: { readonly id: string; readonly messageCount: number; readonly title?: string } | null;
 	/** The named document's current revision and the integrity of its retained bytes, when it exists. */
@@ -121,6 +126,7 @@ export type VerifiedFacts = {
 		readonly assignment?: string;
 		readonly attempt?: string;
 		readonly workflow?: string;
+		readonly project?: string;
 		readonly revision?: string;
 		readonly device?: string;
 		readonly message?: string;
@@ -138,7 +144,8 @@ export type DomainWrite =
 	| { readonly type: "checkpoint-settings.replace"; readonly state: CheckpointSettings }
 	| { readonly type: "policy.replace"; readonly state: PolicyState }
 	| { readonly type: "roles.replace"; readonly state: RoleWorkState; readonly intents: readonly RoleIntent[] }
-	| { readonly type: "workflow.create"; readonly workflow: string; readonly title: string }
+	| { readonly type: "workflow.create"; readonly workflow: string; readonly title: string; readonly project: string }
+	| { readonly type: "project.put"; readonly project: Project }
 	| {
 			readonly type: "revision.append";
 			readonly revision: string;
@@ -227,6 +234,8 @@ const FAMILY_ADMITS: Record<Family, (p: Principal) => boolean> = {
 /** The closed command catalogue (spec §4). Unlisted types refuse; unavailable ones are not delivered yet. */
 const CATALOGUE: Readonly<Record<string, { readonly family: Family; readonly available: boolean }>> = {
 	createWorkflow: { family: "human-decision", available: true },
+	addProject: { family: "human-decision", available: true },
+	editProject: { family: "human-decision", available: true },
 	saveDocument: { family: "human-decision", available: true },
 	postCoordinatorMessage: { family: "human-decision", available: true },
 	approveCheckpoint: { family: "human-decision", available: true },
@@ -329,7 +338,7 @@ export function commandPermission(type: string, principal: Principal): Refusal |
 		return refuse("forbidden_principal", `${type} belongs to the ${entry.family} family, which does not admit this principal.`);
 	if (!entry.available) return refuse("capability_unavailable", `${type} is not available in this host version.`);
 	if (
-		(type === "createWorkflow" || type === "changePolicy" || type === "changeCheckpointSettings") &&
+		["createWorkflow", "changePolicy", "changeCheckpointSettings", ...PROJECT_COMMANDS].includes(type) &&
 		principal.kind === "human" &&
 		principal.route === "device" &&
 		principal.workflows !== "all"
@@ -352,6 +361,7 @@ export const change = Effect.fnUntraced(function* (state: KernelState, command: 
 	if (command.type === "changeCheckpointSettings" || command.type === "importCheckpointSettings")
 		return yield* changeCheckpointSettings(state, command as SettingsCommand, facts);
 	if (command.type === "changePolicy" || command.type === "adoptPolicy") return yield* changePolicy(state, command as PolicyCommand, facts);
+	if (PROJECT_COMMANDS.includes(command.type)) return yield* changeProject(state, command as ProjectCommand, facts);
 	if (INTAKE_COMMANDS.includes(command.type)) return yield* changeIntake(state, command as IntakeCommand, facts);
 	if (CHECKPOINT_COMMANDS.includes(command.type)) return yield* changeCheckpoint(state, command as CheckpointCommand, facts);
 	if (ROLE_COMMANDS.includes(command.type)) return yield* changeRole(state, command as RoleCommand, facts);
@@ -399,12 +409,15 @@ export const change = Effect.fnUntraced(function* (state: KernelState, command: 
 			};
 		}
 		case "createWorkflow": {
+			if (c.project === undefined) return yield* fail("invalid_content", "createWorkflow names the project it works on.");
+			if (!Object.hasOwn(state.projects ?? {}, c.project))
+				return yield* fail("not_found", `${c.project} does not exist.`, { project: c.project });
 			const workflow = required(facts.ids.workflow);
 			return {
 				outcome: "accepted",
-				result: { workflow },
+				result: { workflow, project: c.project },
 				writes: [
-					{ type: "workflow.create", workflow, title: c.title },
+					{ type: "workflow.create", workflow, title: c.title, project: c.project },
 					{
 						type: "policy.replace",
 						state: (() => {
@@ -413,7 +426,7 @@ export const change = Effect.fnUntraced(function* (state: KernelState, command: 
 							return policy;
 						})(),
 					},
-					fact(facts, c.type, { workflow, binding: `policy-binding:${facts.sequence}` }),
+					fact(facts, c.type, { workflow, project: c.project, binding: `policy-binding:${facts.sequence}` }),
 				],
 				facts: [facts.ids.fact],
 			};
@@ -544,6 +557,7 @@ export type WorkflowState = {
 	readonly publication?: PublicationView;
 	readonly id: string;
 	readonly title: string;
+	readonly project: string;
 	readonly documents: readonly DocumentSummary[];
 	readonly messageCount: number;
 };
@@ -557,6 +571,7 @@ export type WorkflowView = {
 	readonly publication: PublicationView | null;
 	readonly workflow: string;
 	readonly title: string;
+	readonly project: string;
 	readonly ground: DocumentSummary | null;
 	readonly documents: readonly DocumentSummary[];
 	readonly messages: { readonly count: number; readonly coordinator: "unavailable" };
@@ -610,6 +625,7 @@ function workflowView(w: WorkflowState): WorkflowView {
 		publication: w.publication ?? null,
 		workflow: w.id,
 		title: w.title,
+		project: w.project,
 		ground,
 		documents: w.documents,
 		messages: { count: w.messageCount, coordinator: "unavailable" },

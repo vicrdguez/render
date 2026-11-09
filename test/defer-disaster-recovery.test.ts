@@ -11,7 +11,7 @@ test("ordinary Ledger restart preserves authority, rotates executor and retains 
 		await f.reopen();
 		assert.equal(f.ledger.status().authorityEpoch, authority);
 		assert.notEqual(f.ledger.status().executorEpoch, executor);
-		const read = await Effect.runPromise(f.ledger.artifact(admin, { read: "revision:3" }));
+		const read = await Effect.runPromise(f.ledger.artifact(admin, { read: "revision:4" }));
 		assert.ok("content" in read);
 		assert.equal(read.content.toString(), "Keep exact constraints.\n");
 	} finally {

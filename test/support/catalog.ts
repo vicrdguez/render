@@ -70,7 +70,7 @@ export async function catalogFixture(
 		commit,
 		path: ".skl/verify.md",
 		digest: createHash("sha256").update(text).digest("hex"),
-		contract: "revision:3",
+		contract: "revision:4",
 		rows,
 		behavioralRows: ["behavior"],
 		receipts: [] as string[],
@@ -79,7 +79,7 @@ export async function catalogFixture(
 		root: join(source.root, "catalog-owned"),
 		repositories: { owned: source.repo },
 		checks: {
-			"revision:3": {
+			"revision:4": {
 				repository: "owned",
 				commit,
 				profile:

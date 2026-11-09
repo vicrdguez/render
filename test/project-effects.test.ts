@@ -22,7 +22,9 @@ function commit(repo: string, text: string, parent?: string): string {
 function advance(repo: string, text: string, branch = "main"): string {
 	let parent: string | undefined;
 	try {
-		parent = git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]).toString().trim();
+		parent = git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])
+			.toString()
+			.trim();
 	} catch {
 		parent = undefined;
 	}
@@ -153,7 +155,10 @@ test("P7 each project publishes to its own remote's repository; another remote r
 		advance(r.repos[0]!, "local\n");
 		await run(effects.perform({ type: "fetch", project: local }));
 		const seen = await run(effects.reconcile({ type: "publication", project: local, proposal: "workflow:4" }));
-		assert.ok(Object.values(seen.capabilities).every((v) => v === false), "a non-GitHub remote supports no publication");
+		assert.ok(
+			Object.values(seen.capabilities).every((v) => v === false),
+			"a non-GitHub remote supports no publication",
+		);
 	} finally {
 		await gh.close();
 		await r.close();

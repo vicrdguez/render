@@ -37,7 +37,7 @@ const manifest: Manifest = {
 			decision: "Separate authority",
 			rationale: "Local legality",
 			alternatives: ["combined", "separate"],
-			evidence: ["revision:3"],
+			evidence: ["revision:4"],
 			classification: "judgment",
 			default: "separate",
 		},
@@ -101,7 +101,7 @@ async function fixture(direction = true, change?: (packets: RolePacket[]) => voi
 						version: 1,
 						authorityEpoch: f.ledger.status().authorityEpoch,
 						commandId: `doc:${++seq}`,
-						workflow: "workflow:2",
+						workflow: "workflow:3",
 						expected: { document: null },
 						command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
 					},
@@ -253,7 +253,7 @@ for (const mode of ["human", "delegated"] as const) {
 				const captured = checkpoints.requests.find((r) => r.id === request)!;
 				const command = {
 					type: "advanceDelegatedCheckpoint" as const,
-					workflow: "workflow:2",
+					workflow: "workflow:3",
 					request,
 					emission: captured.emission!,
 					manifest: captured.manifest!,
@@ -270,7 +270,7 @@ for (const mode of ["human", "delegated"] as const) {
 					const d = decision(
 						change(
 							{
-								workflow: { id: "workflow:2", messageCount: 0 },
+								workflow: { id: "workflow:3", messageCount: 0 },
 								document: null,
 								device: null,
 								checkpoints,
@@ -288,7 +288,7 @@ for (const mode of ["human", "delegated"] as const) {
 								},
 								executorEpoch: x.parent.executorEpoch!,
 								sequence: 1000,
-								ids: { fact: "fact:1000" },
+								ids: { fact: "fact:1001" },
 								checkpointInputs: {
 									[ar]: { text: answer("Compact interface"), human: false, document: "role-report/A" },
 									[br]: { text: answer("Independent boundaries"), human: false, document: "role-report/B" },
@@ -319,7 +319,7 @@ for (const mode of ["human", "delegated"] as const) {
 				assert.ok("content" in value);
 				assert.equal(value.content.toString(), expected);
 			}
-			const exported = await Effect.runPromise(x.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+			const exported = await Effect.runPromise(x.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 			assert.ok("manifest" in exported && exported.manifest.complete);
 			assert.ok(exported.jsonl.includes(ar) && exported.jsonl.includes(br) && exported.jsonl.includes(request));
 		} finally {
@@ -428,7 +428,7 @@ test("D3 exhaustive candidate status and request matrix requires both submitted 
 					}
 					if (foreignRequest) assignments[1]!.checkpointCandidate!.request = "checkpoint:foreign";
 					const state: KernelState = {
-						workflow: { id: "workflow:2", messageCount: 0 },
+						workflow: { id: "workflow:3", messageCount: 0 },
 						document: null,
 						device: null,
 						roleWork: { assignments },
@@ -439,7 +439,7 @@ test("D3 exhaustive candidate status and request matrix requires both submitted 
 							state,
 							{
 								type: "stageCheckpoint",
-								workflow: "workflow:2",
+								workflow: "workflow:3",
 								request,
 								text: "Synthesis",
 								manifest: {
@@ -458,7 +458,7 @@ test("D3 exhaustive candidate status and request matrix requires both submitted 
 								},
 								executorEpoch: x.parent.executorEpoch!,
 								sequence: 1000,
-								ids: { fact: "fact:1000" },
+								ids: { fact: "fact:1001" },
 								checkpointInputs: {
 									[x.ground]: { text: "Ground", human: true, document: "ground" },
 									"answer:0": { text: answer("A"), human: false, document: "role-report/A" },
@@ -527,7 +527,7 @@ test("D3 coordinator replacement preserves completed checkpoint-bound alternativ
 
 test("D1/D3 candidate assignment retains accepted Contract scope and permanent consumption", () => {
 	const state: KernelState = {
-		workflow: { id: "workflow:2", messageCount: 0 },
+		workflow: { id: "workflow:3", messageCount: 0 },
 		document: null,
 		device: null,
 		roleWork: { assignments: [] },
@@ -557,7 +557,7 @@ test("D1/D3 candidate assignment retains accepted Contract scope and permanent c
 				state,
 				{
 					type: "assignTask",
-					workflow: "workflow:2",
+					workflow: "workflow:3",
 					slice: "comparison",
 					delivery: false,
 					packet: packet({ role: "candidate", inputs }),
@@ -565,7 +565,7 @@ test("D1/D3 candidate assignment retains accepted Contract scope and permanent c
 				{
 					principal: { kind: "host", scope: "scheduling" },
 					sequence: 10,
-					ids: { fact: "fact:10", assignment: "candidate:10", attempt: "attempt:10" },
+					ids: { fact: "fact:11", assignment: "candidate:10", attempt: "attempt:11" },
 				},
 			),
 		);

@@ -280,7 +280,7 @@ test("real Ledger execution admission refuses raw obsolete-B handoff and preserv
 		assert.equal(pass().captureB, next);
 		assert.equal(pass().captureA, before.captureA);
 		assert.deepEqual(pass().audit, before.audit);
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		assert.equal(Buffer.from(exported.content[B]!, "base64").toString(), source.content.toString());
 		assert.ok(exported.content[next]);
@@ -346,7 +346,7 @@ test("accepted pass refuses an owner or Audit reviewers its lifecycle cannot use
 						version: 1,
 						authorityEpoch: t.f.ledger.status().authorityEpoch,
 						commandId: "audit-experiment-protocol",
-						workflow: "workflow:2",
+						workflow: "workflow:3",
 						expected: { document: null },
 						command: {
 							type: "saveDocument",
@@ -434,7 +434,7 @@ test("accepted pass refuses an owner or Audit reviewers its lifecycle cannot use
 					intakes: { slices: { id: string; everAssigned: boolean }[] };
 				}[]
 			)
-				.find((w) => w.workflow === "workflow:2")!
+				.find((w) => w.workflow === "workflow:3")!
 				.intakes.slices.find((s) => s.id === "read-fix")!;
 		const passes = () => (t.f.ledger.snapshot(admin) as Frame).implementationPasses as ImplementationPass[];
 		const ids = t.assignments().map((assignment) => assignment.id);
@@ -861,7 +861,7 @@ test("queued Audit exports both exact child packets before any runtime archive",
 		await t.audit();
 		const children = t.assignments().filter((a) => a.parent === t.id);
 		assert.equal(children.length, 2);
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const child of children) {
 			assert.equal(child.status, "queued");
@@ -884,7 +884,7 @@ for (const axis of ["audit-standards", "audit-contracts"])
 				assert.equal(child.runtimeHistory, undefined);
 				damageImplementation(t.f.data, child.packetRef, failure);
 				await t.f.reopen(new LedgerOnlyEngine());
-				const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+				const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 				assert.ok("manifest" in exported);
 				assert.equal(exported.manifest.complete, false);
 				assert.ok(exported.manifest.missing.some((gap) => gap.ref === child.packetRef && gap.code === failure));
@@ -924,7 +924,7 @@ test("preparation blockage retains exact immutable task/reason history independe
 		assert.deepEqual(JSON.parse(read.content.toString()), expected);
 		const reviewer = t.assignments().find((a) => a.parent === t.id)!;
 		assert.ok("code" in (await Effect.runPromise(t.f.ledger.artifact(t.agent(reviewer), { read: ref }))));
-		const cutoff = await Effect.runPromise(t.f.ledger.observe(admin, { history: { workflow: "workflow:2", limit: "1" } }));
+		const cutoff = await Effect.runPromise(t.f.ledger.observe(admin, { history: { workflow: "workflow:3", limit: "1" } }));
 		assert.ok("next" in cutoff && cutoff.next);
 		const later = accepted(await t.f.command({ ...command, reason: "A later operational retry is still blocked." }));
 		assert.notEqual(later.preparationResult, ref, "each outcome has an independent immutable identity");
@@ -949,7 +949,7 @@ test("preparation blockage retains exact immutable task/reason history independe
 		const restored = await Effect.runPromise(t.f.ledger.artifact(admin, { read: ref }));
 		assert.ok("content" in restored);
 		assert.equal(restored.content.toString(), read.content.toString());
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		assert.deepEqual(JSON.parse(Buffer.from(exported.content[ref]!, "base64").toString()), expected);
 		assert.ok(exported.content[later.preparationResult as string]);
@@ -965,7 +965,7 @@ test("second-axis Durable staging failure rolls back packets, assignments, tasks
 	const engine = new LedgerOnlyEngine();
 	const t = await implementationLifecycle(engine);
 	try {
-		const before = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const before = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in before && before.manifest.complete);
 		const tasks = await implementationTasks(engine.harness);
 		const ids = t.assignments().map((a) => a.id);
@@ -979,7 +979,7 @@ test("second-axis Durable staging failure rolls back packets, assignments, tasks
 			ids,
 		);
 		assert.deepEqual(await implementationTasks(recovered.harness), tasks);
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		assert.deepEqual(Object.keys(exported.content).sort(), Object.keys(before.content).sort(), "neither staged packet nor Audit survived");
 		const receipt = await Effect.runPromise(t.f.ledger.receipt(t.actor, "paired-audit"));
@@ -1038,7 +1038,7 @@ for (const evidence of ["A", "B", "Audit", "standards-report", "contracts-report
 				assert.equal((await implementationTasks(reopened.harness)).length, tasks, "no preparation task staged");
 				const receipt = await Effect.runPromise(t.f.ledger.receipt(t.actor, "damaged-handoff"));
 				assert.ok("code" in receipt && receipt.code === "not_found");
-				const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+				const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 				assert.ok("manifest" in exported && !exported.manifest.complete);
 				assert.ok(exported.manifest.missing.some((gap) => gap.ref === ref && gap.code === failure));
 			} finally {
@@ -1132,7 +1132,7 @@ test("real Ledger paired staging, scoped immutable sources/reports, handoff dedu
 		assert.equal(body.captureA, A);
 		assert.equal(body.captureB, B);
 		assert.ok("content" in (await Effect.runPromise(t.f.ledger.artifact(actor, { read: handoffRef }))));
-		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exported = await Effect.runPromise(t.f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		for (const ref of [
 			A,

@@ -161,6 +161,17 @@ function expectedRef(m: Model, workflow: string, document: string, choice: strin
 	return "revision:404";
 }
 
+const PROJECT = {
+	id: "project:1",
+	revision: 1,
+	name: "Model",
+	remote: "file:///model.git",
+	defaultBranch: "main",
+	checkImage: "render-check:model",
+	principles: "AGENTS.md",
+	createdAtSequence: 0,
+};
+
 function resolve(m: Model, cmd: Record<string, unknown>, corrupt: boolean): KernelState {
 	const wf = m.workflows.get(String(cmd.workflow));
 	const doc = wf?.documents.get(String(cmd.document));
@@ -172,6 +183,7 @@ function resolve(m: Model, cmd: Record<string, unknown>, corrupt: boolean): Kern
 				? null
 				: { name: String(cmd.document), current: doc.current, integrity: corrupt || doc.corrupt ? "corrupt" : "intact" },
 		device: dev === undefined ? null : { id: String(cmd.device), revoked: dev.revoked },
+		projects: { [PROJECT.id]: PROJECT },
 	};
 }
 
@@ -180,7 +192,7 @@ function toCommand(m: Model, step: Step): Record<string, unknown> {
 	const type = String(c.type);
 	switch (type) {
 		case "createWorkflow":
-			return { type, title: "A workflow" };
+			return { type, title: "A workflow", project: PROJECT.id };
 		case "saveDocument":
 			return {
 				type,

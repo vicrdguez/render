@@ -178,8 +178,41 @@ function available(type: string, c: Fields, workflow: string | null, expected: F
 				},
 			};
 		case "createWorkflow":
-			only(c, ["type", "title"], "command");
-			return { command: { type, title: text(c.title, "title", 200) } };
+			only(c, ["type", "title", "project"], "command");
+			return {
+				command: {
+					type,
+					title: text(c.title, "title", 200),
+					...(c.project === undefined ? {} : { project: text(c.project, "project", 128) }),
+				},
+			};
+		case "addProject":
+			only(c, ["type", "name", "remote", "defaultBranch", "checkImage", "principles"], "command");
+			return {
+				command: {
+					type,
+					name: text(c.name, "name", 1000),
+					remote: text(c.remote, "remote", 2048),
+					defaultBranch: text(c.defaultBranch, "defaultBranch", 255),
+					checkImage: text(c.checkImage, "checkImage", 512),
+					...(c.principles === undefined ? {} : { principles: text(c.principles, "principles", 4096) }),
+				},
+			};
+		case "editProject":
+			only(c, ["type", "project", "expectedRevision", "name", "defaultBranch", "checkImage", "principles"], "command");
+			if (!Number.isSafeInteger(c.expectedRevision) || Number(c.expectedRevision) < 1)
+				malformed("expectedRevision must be a revision number");
+			return {
+				command: {
+					type,
+					project: text(c.project, "project", 128),
+					expectedRevision: c.expectedRevision as number,
+					name: text(c.name, "name", 1000),
+					defaultBranch: text(c.defaultBranch, "defaultBranch", 255),
+					checkImage: text(c.checkImage, "checkImage", 512),
+					principles: text(c.principles, "principles", 4096),
+				},
+			};
 		case "saveDocument": {
 			only(c, ["type", "document", "mediaType", "content"], "command");
 			const document = text(c.document, "document", 128);

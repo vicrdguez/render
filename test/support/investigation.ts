@@ -26,7 +26,7 @@ export async function saveGround(ledger: Ledger, value: unknown = ground, expect
 				version: 1,
 				authorityEpoch: ledger.status().authorityEpoch,
 				commandId: id,
-				workflow: "workflow:2",
+				workflow: "workflow:3",
 				expected: { document: expected },
 				command: {
 					type: "saveDocument",

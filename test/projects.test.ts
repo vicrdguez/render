@@ -28,7 +28,9 @@ test("P1 a project-wide human adds a project; a narrow device is refused forbidd
 			envelope(String(host.ready.authorityEpoch), { type: "addProject", ...PROJECT, name: "Local" }),
 		);
 		assert.equal(local.status, 200, local.text);
-		const workflow = String(result(await command(host, wide.bearer, { type: "createWorkflow", title: "W", project: result(added).project })).workflow);
+		const workflow = String(
+			result(await command(host, wide.bearer, { type: "createWorkflow", title: "W", project: result(added).project })).workflow,
+		);
 		const narrow = await enroll(host, "narrow", [workflow]);
 		const refused = await command(host, narrow.bearer, { type: "addProject", ...PROJECT, name: "Narrow" });
 		assert.equal(refused.status, 403, refused.text);
@@ -187,7 +189,10 @@ test("P6 a device scoped to a workflow of project A sees neither project B in it
 			projects.map((r) => r.project.name),
 			["Alpha", "Beta"],
 		);
-		assert.ok(projects.every((r) => /^sha256:[0-9a-f]{64}$/.test(r.digest) && r.byteLength > 0), "revisions keep digest and length");
+		assert.ok(
+			projects.every((r) => /^sha256:[0-9a-f]{64}$/.test(r.digest) && r.byteLength > 0),
+			"revisions keep digest and length",
+		);
 	} finally {
 		await host.stop();
 		await dir.remove();

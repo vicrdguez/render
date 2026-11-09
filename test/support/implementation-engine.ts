@@ -89,7 +89,7 @@ export async function fixture(
 		.trim();
 	const commit = git(f.source.repo, ["commit-tree", tree], "Initial implementation source\n").toString().trim();
 	f.selection.commit = commit;
-	f.config.checks["revision:3"].commit = commit;
+	f.config.checks["revision:4"].commit = commit;
 	if (options.bootstrap) {
 		assert.equal(git(f.source.repo, ["ls-tree", commit, ".skl/verify.md"]).toString(), "");
 		assert.notEqual(git(f.source.repo, ["ls-tree", commit, ".skl/journey.md"]).toString(), "");
@@ -421,7 +421,7 @@ export async function fixture(
 						version: 1,
 						authorityEpoch: f.ledger.status().authorityEpoch,
 						commandId: `save:${document}`,
-						workflow: "workflow:2",
+						workflow: "workflow:3",
 						expected: { document: null },
 						command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
 					},
@@ -548,7 +548,7 @@ export async function fixture(
 	const nextContract = state().slices[1]?.contract;
 	const selection = { ...f.selection, contract, rows, behavioralRows: ["behavior"] };
 	// Engine's owned-check configuration is keyed by the accepted exact contract.
-	(f.config.checks as Record<string, (typeof f.config.checks)["revision:3"]>)[contract] = f.config.checks["revision:3"];
+	(f.config.checks as Record<string, (typeof f.config.checks)["revision:4"]>)[contract] = f.config.checks["revision:4"];
 	const reviewer = (role: "audit-standards" | "audit-contracts") =>
 		packet({
 			role,
@@ -609,7 +609,7 @@ export function advanceTarget(store: string, parent: string, files: Record<strin
 	}
 	const tree = git(store, ["mktree"], entries).toString().trim();
 	const commit = git(store, ["commit-tree", tree, "-p", parent], "Canonical integration of another Slice\n").toString().trim();
-	git(store, ["update-ref", proposalRef("workflow:2"), commit, ...(expected ? [expected] : ["0".repeat(40)])]);
+	git(store, ["update-ref", proposalRef("workflow:3"), commit, ...(expected ? [expected] : ["0".repeat(40)])]);
 	return commit;
 }
 /** Another Slice's integration that changes the selected verifier `.skl/verify.md` and the root suite script. */
@@ -624,7 +624,7 @@ export function advanceVerifier(store: string, parent: string, verifier: string,
 		.replace(/^040000 tree [0-9a-f]+\t\.skl$/m, `040000 tree ${tree}\t.skl`);
 	const root = git(store, ["mktree"], withVerifier).toString().trim();
 	const staged = git(store, ["commit-tree", root, "-p", parent], "Integrate verifier change\n").toString().trim();
-	git(store, ["update-ref", proposalRef("workflow:2"), staged, "0".repeat(40)]);
+	git(store, ["update-ref", proposalRef("workflow:3"), staged, "0".repeat(40)]);
 	return advanceTarget(store, staged, { "verify-suite": suite }, staged);
 }
 /** In-process use of the host fault barrier: wait until the host is parked there, change the world, then release it. */

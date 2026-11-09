@@ -12,7 +12,7 @@ import { AdminClient, type RenderClient as Client, RenderClient, type Reply, Uns
 
 const USAGE = `usage:
   cli.ts [--url U] [--token-file F] snapshot
-  cli.ts ... create-workflow --title T [--command-id ID]
+  cli.ts ... create-workflow --title T --project P [--command-id ID]
   cli.ts ... save --workflow W --document D --file PATH --expected REVISION|none [--media-type text/markdown|text/plain] [--command-id ID]
   cli.ts ... read --revision R --out PATH
   cli.ts ... message --workflow W --text T [--command-id ID]
@@ -130,6 +130,7 @@ function main(): Effect.Effect<void, unknown> {
 				"token-file": { type: "string" },
 				data: { type: "string" },
 				title: { type: "string" },
+				project: { type: "string" },
 				workflow: { type: "string" },
 				workflows: { type: "string" },
 				document: { type: "string" },
@@ -156,7 +157,11 @@ function main(): Effect.Effect<void, unknown> {
 			case "snapshot":
 				return finish(yield* client.snapshot());
 			case "create-workflow":
-				return yield* command(client, { command: { type: "createWorkflow", title: need(values, "title") } }, values["command-id"]);
+				return yield* command(
+					client,
+					{ command: { type: "createWorkflow", title: need(values, "title"), project: need(values, "project") } },
+					values["command-id"],
+				);
 			case "save": {
 				const expected = need(values, "expected");
 				const bytes = yield* fromPromise(() => readFile(need(values, "file")));

@@ -9,7 +9,7 @@ import { admin, packet } from "./roles.ts";
 
 type Lifecycle = Awaited<ReturnType<typeof implementationLifecycle>>;
 export type Verdict = "pass" | "rework" | "needs-human";
-export const W = "workflow:2";
+export const W = "workflow:3";
 /** Git's empty tree: literal X with no entries forms exactly this tree. */
 export const EMPTY = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 export const V = "b".repeat(64);

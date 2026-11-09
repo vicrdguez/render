@@ -11,7 +11,7 @@ import { Engine } from "../../src/engine/runtime.ts";
 import type { RoleAssignment } from "../../src/kernel/roles.ts";
 import type { Ledger } from "../../src/ledger/ledger.ts";
 import { openLedger } from "../../src/ledger/startup.ts";
-import { admin, allowSameFamily, packet, scheduler } from "./roles.ts";
+import { addProject, admin, allowSameFamily, PROJECT, packet, scheduler } from "./roles.ts";
 
 const [data, mode, action] = process.argv.slice(2);
 assert.ok(data && mode && action);
@@ -49,7 +49,8 @@ const opened = await Effect.runPromise(
 					if (action !== "seed" || mode !== "capacity") return;
 					// Real accepted scheduling intents, with demonstrably absent providers/environments.
 					// Blocked execution retains capacity until explicit quiescence, even across host death.
-					await command({ type: "createWorkflow", title: "Restart waits" }, admin);
+					await command(addProject(), admin);
+					await command({ type: "createWorkflow", title: "Restart waits", project: PROJECT }, admin);
 					await saveInput();
 					for (let i = 0; i < 5; i++) {
 						const accepted = await command({ type: "assignTask", slice: `holder:${i}`, delivery: true, packet: packet() });
@@ -87,7 +88,7 @@ async function command(c: Record<string, unknown>, principal = scheduler) {
 				version: 1,
 				authorityEpoch: ledger.status().authorityEpoch,
 				commandId: `restart:${action}:${createHash("sha256").update(JSON.stringify(c)).digest("hex")}`,
-				workflow: c.type === "createWorkflow" ? undefined : "workflow:2",
+				workflow: c.type === "createWorkflow" || c.type === "addProject" ? undefined : "workflow:3",
 				expected: c.type === "saveDocument" ? { document: null } : undefined,
 				command: c,
 			},
@@ -109,7 +110,8 @@ async function saveInput() {
 	);
 }
 if (action === "seed" && mode === "parent") {
-	await command({ type: "createWorkflow", title: "Restart waits" }, admin);
+	await command(addProject(), admin);
+	await command({ type: "createWorkflow", title: "Restart waits", project: PROJECT }, admin);
 	await saveInput();
 	await allowSameFamily(opened.ledger);
 	await command({

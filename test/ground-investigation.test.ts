@@ -29,7 +29,7 @@ function sourceRef(a: RoleAssignment) {
 
 // Literal Kernel oracles extend V1 without duplicating the existing 10,000-schedule driver.
 test("G01/G02 Kernel distinguishes human shape from unconfirmed classification", () => {
-	const state: KernelState = { workflow: { id: "workflow:2", messageCount: 0 }, document: null, device: null };
+	const state: KernelState = { workflow: { id: "workflow:3", messageCount: 0 }, document: null, device: null };
 	for (const [origin, confirmed, expected] of [
 		["human", false, "accepted"],
 		["classifier", false, "shape_confirmation_required"],
@@ -38,14 +38,14 @@ test("G01/G02 Kernel distinguishes human shape from unconfirmed classification",
 		const facts = {
 			principal: { kind: "host", scope: "scheduling" },
 			sequence: 4,
-			ids: { assignment: "assignment:4", attempt: "attempt:4", fact: "fact:4" },
+			ids: { assignment: "assignment:5", attempt: "attempt:5", fact: "fact:5" },
 			investigationGround: { ...ground, shape: { ...ground.shape, origin, confirmed } },
 		} as VerifiedFacts;
 		const before = structuredClone([state, facts]);
 		const result = decision(
 			change(
 				state,
-				{ type: "assignTask", workflow: "workflow:2", slice: "workflow:2", delivery: false, packet: investigationPacket("revision:3") },
+				{ type: "assignTask", workflow: "workflow:3", slice: "workflow:3", delivery: false, packet: investigationPacket("revision:4") },
 				facts,
 			),
 		);
@@ -62,7 +62,7 @@ test("G02 classifier suggestion requires confirmation, human shape does not", as
 	const f = await roleFixture();
 	try {
 		const proposed = await saveGround(f.ledger, { ...ground, shape: { ...ground.shape, origin: "classifier" } });
-		const refused = await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: investigationPacket(proposed) });
+		const refused = await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: investigationPacket(proposed) });
 		assert.equal(code(refused), "shape_confirmation_required", "unconfirmed classifier shape must not become consent");
 		assert.equal(assignments(f.ledger).length, 0);
 		const confirmed = await saveGround(
@@ -72,7 +72,7 @@ test("G02 classifier suggestion requires confirmation, human shape does not", as
 			"confirm",
 		);
 		assert.equal(
-			code(await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: investigationPacket(confirmed) })),
+			code(await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: investigationPacket(confirmed) })),
 			"accepted",
 		);
 		const original = await Effect.runPromise(f.ledger.artifact(admin, { read: proposed }));
@@ -95,18 +95,18 @@ test("G03/G04 Ground cannot authorize delivery, writers or child roles", async (
 		] as const) {
 			const reply = await f.command({
 				type: "assignTask",
-				slice: "workflow:2",
+				slice: "workflow:3",
 				delivery,
 				packet: investigationPacket(ref, undefined, overrides as Parameters<typeof packet>[0]),
 			});
 			assert.equal(code(reply), "forbidden_scope", "investigation must not create delivery work");
 		}
 		assert.equal(assignments(f.ledger).length, 0);
-		for (const bad of ["revision:missing", "revision:3"]) {
-			const result = await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: investigationPacket(bad) });
+		for (const bad of ["revision:missing", "revision:4"]) {
+			const result = await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: investigationPacket(bad) });
 			assert.ok(result.status === "refused", JSON.stringify(result));
 		}
-		const accepted = await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: investigationPacket(ref) });
+		const accepted = await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: investigationPacket(ref) });
 		assert.equal(code(accepted), "accepted", "explicit human shape requires no second vote");
 		await until(() => assignments(f.ledger)[0]?.status === "blocked");
 		const a = assignments(f.ledger)[0]!;
@@ -170,7 +170,7 @@ for (const escalation of [false, true])
 			const ref = await saveGround(f.ledger);
 			const accepted = await f.command({
 				type: "assignTask",
-				slice: "workflow:2",
+				slice: "workflow:3",
 				delivery: false,
 				packet: investigationPacket(ref, source.commit),
 			});
@@ -202,7 +202,7 @@ for (const escalation of [false, true])
 			const report = await Effect.runPromise(f.ledger.artifact(admin, { read: a.report! }));
 			assert.ok("content" in report);
 			assert.equal(report.content.toString(), resultText);
-			const exportBefore = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+			const exportBefore = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 			assert.ok("manifest" in exportBefore && exportBefore.manifest.complete);
 			for (const r of [ref, a.report!, sourceRef(a)]) assert.ok(exportBefore.content[r], `retain ${r} before settlement`);
 			const records = exportBefore.jsonl
@@ -259,7 +259,7 @@ test("G08 uncited, foreign and out-of-scope results cannot settle investigation"
 	try {
 		const ref = await saveGround(f.ledger);
 		assert.equal(
-			code(await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: investigationPacket(ref, source.commit) })),
+			code(await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: investigationPacket(ref, source.commit) })),
 			"accepted",
 		);
 		await until(() => assignments(f.ledger)[0]?.status === "running" && !!sourceRef(assignments(f.ledger)[0]!));
@@ -338,7 +338,7 @@ test("G09 missing selected source blocks with exact path and retains ownership",
 		const input = investigationPacket(ref, source.commit);
 		assert.ok(input.investigation);
 		input.investigation.paths.push("absent.ts");
-		assert.equal(code(await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: input })), "accepted");
+		assert.equal(code(await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: input })), "accepted");
 		await until(() => assignments(f.ledger)[0]?.status === "blocked");
 		const a = assignments(f.ledger)[0]!;
 		assert.match(a.blocker!, /absent.ts/);
@@ -368,7 +368,7 @@ for (const failure of ["missing_content", "content_corrupt"])
 			const ref = await saveGround(f.ledger);
 			assert.equal(
 				code(
-					await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: investigationPacket(ref, source.commit) }),
+					await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: investigationPacket(ref, source.commit) }),
 				),
 				"accepted",
 			);
@@ -398,7 +398,7 @@ for (const failure of ["missing_content", "content_corrupt"])
 				new RegExp(sourceRef(a)),
 				"restore exact source rather than refetching",
 			);
-			const bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+			const bundle = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 			assert.ok("manifest" in bundle);
 			assert.equal(bundle.manifest.complete, false);
 			assert.ok(bundle.manifest.missing.some((m) => m.ref === sourceRef(a) && m.code === failure));

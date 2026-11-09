@@ -43,7 +43,7 @@ async function fixture() {
 	);
 	const ground = await saveGround(f.ledger);
 	assert.equal(
-		(await f.command({ type: "assignTask", slice: "workflow:2", delivery: false, packet: investigationPacket(ground, source.commit) }))
+		(await f.command({ type: "assignTask", slice: "workflow:3", delivery: false, packet: investigationPacket(ground, source.commit) }))
 			.status,
 		"accepted",
 	);
@@ -124,7 +124,7 @@ test("LP1/LP5 two clients retain one exact advisory receipt; stale requests do n
 							version: 1,
 							authorityEpoch: f.ledger.status().authorityEpoch,
 							commandId: `enroll-${label}`,
-							command: { type: "enrollDevice", label, scope: { workflows: label === "foreign" ? [] : ["workflow:2"] } },
+							command: { type: "enrollDevice", label, scope: { workflows: label === "foreign" ? [] : ["workflow:3"] } },
 						},
 						admin,
 					),
@@ -140,7 +140,7 @@ test("LP1/LP5 two clients retain one exact advisory receipt; stale requests do n
 					version: 1,
 					authorityEpoch: f.ledger.status().authorityEpoch,
 					commandId: id,
-					workflow: "workflow:2",
+					workflow: "workflow:3",
 					command,
 				}),
 			});
@@ -219,7 +219,7 @@ test("LP2 source observations cannot be forged and non-human requests refuse", a
 			assert.ok(reply.status === "refused");
 			assert.equal(reply.code, "forbidden_principal");
 		}
-		for (const ref of ["revision:3", "revision:missing", "main"]) {
+		for (const ref of ["revision:4", "revision:missing", "main"]) {
 			const reply = await f.command({ ...f.request(), source: ref }, admin);
 			assert.ok(reply.status === "refused");
 			assert.equal(reply.code, "missing_content");
@@ -243,7 +243,7 @@ test("LP3/LP6/LP7 regeneration preserves exact history across message feedback a
 					version: 1,
 					authorityEpoch: f.ledger.status().authorityEpoch,
 					commandId: "release-offer",
-					workflow: "workflow:2",
+					workflow: "workflow:3",
 					expected: { document: null },
 					command: {
 						type: "saveDocument",
@@ -270,7 +270,7 @@ test("LP3/LP6/LP7 regeneration preserves exact history across message feedback a
 		const retry = accepted(await f.command(firstCommand, admin, "original-prompt"));
 		assert.equal(retry.duplicate, true);
 		assert.deepEqual(retry.result, first.result);
-		const exportAfter = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const exportAfter = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in exportAfter && exportAfter.manifest.complete);
 		assert.equal(Buffer.from(exportAfter.content[String(first.result.textArtifact)]!, "base64").toString(), original.content.toString());
 		assert.equal(

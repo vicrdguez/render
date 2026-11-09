@@ -281,7 +281,7 @@ for (const damage of ["missing", "corrupt"])
 						attempt: a.attempt,
 						role: a.packet.role,
 					});
-					const unrelated = await f.command({ type: "submitRoleResult", text: "Claim", supports: ["revision:3"] }, own);
+					const unrelated = await f.command({ type: "submitRoleResult", text: "Claim", supports: ["revision:4"] }, own);
 					assert.equal("code" in unrelated ? unrelated.code : unrelated.status, "missing_content");
 					// Controlled disk fault only. Assertions below use Ledger commands and exported content.
 					const db = new DatabaseSync(join(f.data, "render.db"));
@@ -347,7 +347,7 @@ for (const damage of ["missing", "corrupt"])
 				if (failure) throw failure;
 				assert.ok(checked, "required support verification must execute");
 				assert.equal(a.status, "submitted");
-				const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+				const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 				assert.ok("jsonl" in exported);
 				assert.match(exported.jsonl, /"webEvidence":"retained"/);
 				assert.match(exported.jsonl, new RegExp(`"support0":"${evidence}"`));

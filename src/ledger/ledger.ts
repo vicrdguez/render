@@ -46,6 +46,7 @@ import {
 	type WorkflowState,
 } from "../kernel/kernel.ts";
 import { bindingFor, initialPolicy, type PolicyState } from "../kernel/policy.ts";
+import type { Project } from "../kernel/projects.ts";
 import { mainCoverage, publicationView } from "../kernel/publication.ts";
 import { packetRefs, type RoleAssignment, type RolePacket, type RoleWorkState, sameAgent } from "../kernel/roles.ts";
 import type { CatalogEvidence } from "../kernel/verification.ts";
@@ -76,6 +77,8 @@ import {
 	type MetaState,
 	Policy,
 	PolicyEntry,
+	ProjectEntry,
+	Projects,
 	Receipt,
 	type ReceiptBody,
 	type RevisionData,
@@ -205,6 +208,7 @@ export class Ledger {
 	#roleWork: RoleWorkState = { assignments: [] };
 	#policy: PolicyState = initialPolicy();
 	#checkpointSettings: SettingsState = initialCheckpointSettings();
+	#projects: Record<string, Project> = {};
 	#roleTasks: RoleTaskStaging | undefined;
 	readonly #webWorking = new Map<string, WebWorking>();
 
@@ -231,6 +235,7 @@ export class Ledger {
 				(yield* fromPromise(() => harness.snapshot(CheckpointSettings, ctx))) ?? initialCheckpointSettings(),
 			);
 			ledger.#roleWork = plain((yield* fromPromise(() => harness.snapshot(RoleWork, ctx))) ?? { assignments: [] });
+			ledger.#projects = plain((yield* fromPromise(() => harness.snapshot(Projects, ctx)))?.projects ?? {});
 			for (const id of meta.workflows) {
 				const w = yield* fromPromise(() => harness.snapshot(Workflow, id, ctx));
 				if (w?.exists) ledger.#workflows.set(id, plain(w) as Present<WorkflowRecord>);
@@ -334,6 +339,7 @@ export class Ledger {
 			const roles = yield* fromPromise(() => tx.doc(RoleWork));
 			const policy = yield* fromPromise(() => tx.doc(Policy));
 			const checkpointSettings = yield* fromPromise(() => tx.doc(CheckpointSettings));
+			const projects = yield* fromPromise(() => tx.doc(Projects));
 			if (current.kind === "assignment-agent") {
 				const own = roles.assignments.find((a) => sameAgent(a as RoleAssignment, current));
 				if (!own) return yield* Effect.fail(new Abort(UNAUTHORIZED));
@@ -988,6 +994,7 @@ export class Ledger {
 					assignment: `assignment:${sequence}`,
 					attempt: `attempt:${sequence}`,
 					workflow: `workflow:${sequence}`,
+					project: `project:${sequence}`,
 					revision: `revision:${sequence}`,
 					device: `device:${sequence}`,
 					message: `message:${sequence}`,
@@ -1002,6 +1009,7 @@ export class Ledger {
 				checkpointSettings: plain(checkpointSettings),
 				roleWork: plain(roles),
 				policy: plain(policy),
+				projects: plain(projects.projects),
 				workflow: workflow?.exists ? { id: workflow.id, messageCount: workflow.messageCount, title: workflow.title } : null,
 				...(workflow?.exists && workflow.publication ? { publication: plain(workflow.publication) } : {}),
 				document,
@@ -1448,12 +1456,33 @@ export class Ledger {
 						}
 						break;
 					}
+					case "project.put": {
+						projects.projects[write.project.id] = plain(write.project);
+						const text = JSON.stringify(write.project);
+						yield* fromPromise(() =>
+							tx.appendEntry(ProjectEntry, meta.ledgerConversation as ConversationId, {
+								data: {
+									schema: 1,
+									sequence,
+									commandId: env.commandId,
+									ref: `${write.project.id}:revision:${write.project.revision}`,
+									project: write.project.id,
+									text,
+									digest: sha256(Buffer.from(text)),
+									byteLength: Buffer.byteLength(text),
+									by,
+								},
+							}),
+						);
+						break;
+					}
 					case "workflow.create": {
 						const conversation = yield* fromPromise(() => tx.createConversation({ ownership: { kind: "ownerless" } }));
 						Object.assign(workflow ?? (yield* fromPromise(() => tx.doc(Workflow, write.workflow, null))), {
 							exists: true,
 							id: write.workflow,
 							title: write.title,
+							project: write.project,
 							conversation: conversation.id,
 							createdAtSequence: sequence,
 							documents: {},
@@ -1637,6 +1666,7 @@ export class Ledger {
 				roles: plain(roles),
 				checkpointSettings: plain(checkpointSettings),
 				policy: plain(policy),
+				projects: plain(projects.projects),
 				meta: plain(meta) as MetaState,
 				workflow: workflowDoc?.exists ? (plain(workflowDoc) as Present<WorkflowRecord>) : undefined,
 				device:
@@ -1716,6 +1746,7 @@ export class Ledger {
 		roles?: RoleWorkState;
 		policy?: PolicyState;
 		checkpointSettings?: SettingsState;
+		projects?: Record<string, Project>;
 		workflow?: Present<WorkflowRecord> | undefined;
 		device?: DeviceRecord | undefined;
 	}): void {
@@ -1723,6 +1754,7 @@ export class Ledger {
 		if (outcome.roles) this.#roleWork = outcome.roles;
 		if (outcome.policy) this.#policy = outcome.policy;
 		if (outcome.checkpointSettings) this.#checkpointSettings = outcome.checkpointSettings;
+		if (outcome.projects) this.#projects = outcome.projects;
 		this.#roleTasks?.committed();
 		if (outcome.workflow !== undefined) this.#workflows.set(outcome.workflow.id, outcome.workflow);
 		if (outcome.device?.exists) {
@@ -2183,7 +2215,7 @@ export class Ledger {
 					decisionRefs: [],
 					outcomeRefs: [],
 				});
-				const conversations: { id: number; workflow: string | null }[] = [];
+				const conversations: { id: number; workflow: string | null; projects?: Set<string> }[] = [];
 				for (const id of state.scope.workflows) {
 					const w = this.#workflows.get(id);
 					if (!w || w.createdAtSequence > state.cutoff) continue;
@@ -2191,6 +2223,12 @@ export class Ledger {
 					conversations.push({ id: w.conversation, workflow: id });
 				}
 				if (state.scope.global) conversations.push({ id: this.#meta.ledgerConversation, workflow: null });
+				else
+					conversations.push({
+						id: this.#meta.ledgerConversation,
+						workflow: null,
+						projects: new Set(state.scope.workflows.flatMap((id) => this.#workflows.get(id)?.project ?? [])),
+					});
 				for (const owner of conversations) {
 					const conversation = yield* fromPromise(() => this.#harness.conversation(owner.id as ConversationId, ctx));
 					if (!conversation) {
@@ -2204,8 +2242,9 @@ export class Ledger {
 							const d = entry.data as Record<string, unknown>;
 							const sequence = Number(d.recordedAtSequence ?? d.sequence);
 							if (sequence > state.cutoff) continue;
+							if (owner.projects && (entry.kind !== ProjectEntry.kind || !owner.projects.has(String(d.project)))) continue;
 							const ref = String(
-								entry.kind === PolicyEntry.kind || entry.kind === CheckpointSettingsEntry.kind
+								entry.kind === PolicyEntry.kind || entry.kind === CheckpointSettingsEntry.kind || entry.kind === ProjectEntry.kind
 									? d.ref
 									: (d.revision ?? d.message ?? d.fact ?? `entry:${entry.id}`),
 							);
@@ -2253,6 +2292,23 @@ export class Ledger {
 								add({
 									...base(ref, "checkpoint_settings", null, sequence, String(d.commandId)),
 									settings: JSON.parse(d.text),
+									createdBy: d.by,
+									content: true,
+									mediaType: "text/plain",
+									digest: d.digest,
+									byteLength: d.byteLength,
+								});
+								content[ref] = Buffer.from(d.text).toString("base64");
+								continue;
+							}
+							if (entry.kind === ProjectEntry.kind) {
+								if (d.schema !== 1 || typeof d.text !== "string" || !intact(d.text, String(d.digest), Number(d.byteLength))) {
+									missing.push({ ref, code: d.schema !== 1 ? "unsupported_schema" : "content_corrupt" });
+									continue;
+								}
+								add({
+									...base(ref, "project", null, sequence, String(d.commandId)),
+									project: JSON.parse(d.text),
 									createdBy: d.by,
 									content: true,
 									mediaType: "text/plain",
@@ -2450,6 +2506,13 @@ export class Ledger {
 								this.#meta.workflows.filter((w) => visible(principal, w)).map((w) => [w, bindingFor(this.#policy, w)]),
 							),
 						},
+			projects: plain(
+				Object.values(this.#projects).filter(
+					(p) =>
+						scopeOf(principal, this.#roleWork).workflows === "all" ||
+						this.#meta.workflows.some((w) => this.#workflows.get(w)?.project === p.id && visible(principal, w, this.#roleWork)),
+				),
+			),
 			implementationPasses: plain(
 				(this.#roleWork.passes ?? []).filter((pass) =>
 					principal.kind === "assignment-agent"
@@ -2583,6 +2646,7 @@ function workflowState(
 		intakes: plain(w.intakes ?? emptyIntakes()),
 		checkpoints: plain(w.checkpoints ?? emptyCheckpoints()),
 		title: w.title,
+		project: w.project,
 		documents,
 		messageCount: w.messageCount,
 		assignments: plain(roles.assignments.filter((a) => a.workflow === w.id)),

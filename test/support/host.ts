@@ -221,10 +221,36 @@ export async function enroll(
 	return { device: String(result.device), bearer: String(credential.bearer), reply };
 }
 
-export async function createWorkflow(host: { url: string; ready: HostEvent }, bearer: string, title: string): Promise<string> {
+/** Adds a fixture project with the same project-wide device. */
+export async function addProject(host: { url: string; ready: HostEvent }, bearer: string, name = "Fixture"): Promise<string> {
 	const r = await http(host.url, "POST", "/v1/commands", {
 		bearer,
-		body: envelope(String(host.ready.authorityEpoch), { type: "createWorkflow", title }),
+		body: envelope(String(host.ready.authorityEpoch), {
+			type: "addProject",
+			name,
+			remote: "file:///render-fixture/absent.git",
+			defaultBranch: "main",
+			checkImage: "render-check:fixture",
+		}),
+	});
+	if (r.status !== 200) throw new Error(`addProject failed: ${r.text}`);
+	return String((r.body.result as Record<string, unknown>).project);
+}
+
+/** Creates a workflow on `project`, or on a new fixture project when none is named. */
+export async function createWorkflow(
+	host: { url: string; ready: HostEvent },
+	bearer: string,
+	title: string,
+	project?: string,
+): Promise<string> {
+	const r = await http(host.url, "POST", "/v1/commands", {
+		bearer,
+		body: envelope(String(host.ready.authorityEpoch), {
+			type: "createWorkflow",
+			title,
+			project: project ?? (await addProject(host, bearer)),
+		}),
 	});
 	if (r.status !== 200) throw new Error(`createWorkflow failed: ${r.text}`);
 	return String((r.body.result as Record<string, unknown>).workflow);

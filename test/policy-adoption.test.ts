@@ -12,7 +12,7 @@ import { Engine } from "../src/engine/runtime.ts";
 import type { WorkflowView } from "../src/kernel/kernel.ts";
 import type { PolicyState } from "../src/kernel/policy.ts";
 import type { RoleAssignment } from "../src/kernel/roles.ts";
-import { admin, packet, roleFixture, scheduler } from "./support/roles.ts";
+import { admin, PROJECT, packet, roleFixture, scheduler } from "./support/roles.ts";
 
 for (const scenario of ["without Ground", "with Ground", "already blocked"] as const) {
 	test(`policy-adoption: in-flight handover ${scenario} retains ownership until checked cancellation and replacement`, async () => {
@@ -23,7 +23,7 @@ for (const scenario of ["without Ground", "with Ground", "already blocked"] as c
 			async (transcript) => {
 				transcripts.push(JSON.stringify(transcript));
 				await gate.promise;
-				return fauxAssistantMessage(fauxToolCall("read_artifact", { ref: "revision:3" }), { stopReason: "toolUse" });
+				return fauxAssistantMessage(fauxToolCall("read_artifact", { ref: "revision:4" }), { stopReason: "toolUse" });
 			},
 			(transcript) => {
 				transcripts.push(JSON.stringify(transcript));
@@ -54,7 +54,7 @@ for (const scenario of ["without Ground", "with Ground", "already blocked"] as c
 							version: 1,
 							authorityEpoch: f.ledger.status().authorityEpoch,
 							commandId: "handover-ground",
-							workflow: "workflow:2",
+							workflow: "workflow:3",
 							expected: { document: null },
 							command: {
 								type: "saveDocument",
@@ -120,7 +120,7 @@ for (const scenario of ["without Ground", "with Ground", "already blocked"] as c
 				current.workflows[0]!.nextHumanAction,
 				{
 					type: "cancelWork",
-					workflow: "workflow:2",
+					workflow: "workflow:3",
 					assignment: old.id,
 					generation: old.generation,
 					attempt: old.attempt,
@@ -202,7 +202,7 @@ test("policy-adoption: completed Watchdog reports and counts survive adopt-away/
 		for (let n = 0; n < 300 && !frame().assignments[0]?.runtimeTaskCaptured; n++) await setTimeout(10);
 		const completed = frame().assignments[0];
 		assert.equal(completed.status, "submitted");
-		const initial = frame().policy.bindings["workflow:2"];
+		const initial = frame().policy.bindings["workflow:3"];
 		const published = await Effect.runPromise(
 			f.ledger.command(
 				{
@@ -226,7 +226,7 @@ test("policy-adoption: completed Watchdog reports and counts survive adopt-away/
 		assert.equal(
 			(
 				await f.command(
-					{ type: "adoptPolicy", revision: "policy:initial", expectedBinding: frame().policy.bindings["workflow:2"].revision },
+					{ type: "adoptPolicy", revision: "policy:initial", expectedBinding: frame().policy.bindings["workflow:3"].revision },
 					admin,
 				)
 			).status,
@@ -289,7 +289,7 @@ for (const damage of ["missing", "corrupt", "schema"] as const) {
 						version: 1,
 						authorityEpoch: f.ledger.status().authorityEpoch,
 						commandId: "scoped-policy-reader",
-						command: { type: "enrollDevice", label: "scoped", scope: { workflows: ["workflow:2"] } },
+						command: { type: "enrollDevice", label: "scoped", scope: { workflows: ["workflow:3"] } },
 					},
 					admin,
 				),
@@ -315,7 +315,7 @@ for (const damage of ["missing", "corrupt", "schema"] as const) {
 			const initial = (f.ledger.snapshot(admin) as import("../src/ledger/ledger.ts").Frame)
 				.policy as import("../src/kernel/policy.ts").PolicyState;
 			const adopted = await f.command(
-				{ type: "adoptPolicy", revision: published.result.policy, expectedBinding: initial.bindings["workflow:2"]!.revision },
+				{ type: "adoptPolicy", revision: published.result.policy, expectedBinding: initial.bindings["workflow:3"]!.revision },
 				admin,
 			);
 			assert.ok(
@@ -323,7 +323,7 @@ for (const damage of ["missing", "corrupt", "schema"] as const) {
 					adopted.code === (damage === "missing" ? "missing_content" : damage === "schema" ? "unsupported_schema" : "content_corrupt"),
 				"missing/corrupt policy meaning must not be reconstructed from the current-state cache",
 			);
-			const result = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+			const result = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 			assert.ok("manifest" in result);
 			assert.equal(result.manifest.complete, false, "damaged policy bytes must never be presented as complete history");
 			assert.ok(
@@ -340,9 +340,9 @@ for (const damage of ["missing", "corrupt", "schema"] as const) {
 test("policy-adoption: portable reader verifies actual policy payload bytes", async () => {
 	const f = await roleFixture();
 	try {
-		const result = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:2" } }));
+		const result = await Effect.runPromise(f.ledger.artifact(admin, { export: { workflow: "workflow:3" } }));
 		assert.ok("manifest" in result && result.manifest.complete);
-		assert.ok(result.content["policy-binding:2"], "portable policy bytes must be included");
+		assert.ok(result.content["policy-binding:3"], "portable policy bytes must be included");
 		const path = join(f.data, "policy-export.json");
 		await writeFile(path, JSON.stringify(result));
 		const reader = spawnSync(process.execPath, ["src/client/read-export.ts", path], {
@@ -352,7 +352,7 @@ test("policy-adoption: portable reader verifies actual policy payload bytes", as
 		assert.equal(reader.status, 0, reader.stdout + reader.stderr);
 		assert.ok(
 			JSON.parse(reader.stdout).documents.some(
-				(d: { ref: string; text: string }) => d.ref === "policy-binding:2" && JSON.parse(d.text).policy.completedReviewLimit === 2,
+				(d: { ref: string; text: string }) => d.ref === "policy-binding:3" && JSON.parse(d.text).policy.completedReviewLimit === 2,
 			),
 		);
 	} finally {
@@ -366,7 +366,7 @@ test("policy-adoption: future defaults, checked adoption away/back, old pending 
 	const f = await roleFixture();
 	const frame = () => f.ledger.snapshot(admin) as Record<string, any>;
 	try {
-		const initial = frame().policy.bindings["workflow:2"];
+		const initial = frame().policy.bindings["workflow:3"];
 		assert.equal(initial.policy, "policy:initial");
 		assert.equal(frame().policy.revisions[initial.policy].completedReviewLimit, 2);
 		const publish = await Effect.runPromise(
@@ -382,14 +382,14 @@ test("policy-adoption: future defaults, checked adoption away/back, old pending 
 		);
 		assert.ok(publish.status === "accepted");
 		const next = String(publish.result.policy);
-		assert.equal(frame().policy.bindings["workflow:2"].revision, initial.revision);
+		assert.equal(frame().policy.bindings["workflow:3"].revision, initial.revision);
 		const created = await Effect.runPromise(
 			f.ledger.command(
 				{
 					version: 1,
 					authorityEpoch: f.ledger.status().authorityEpoch,
 					commandId: "future",
-					command: { type: "createWorkflow", title: "Future defaults" },
+					command: { type: "createWorkflow", title: "Future defaults", project: PROJECT },
 				},
 				admin,
 			),
@@ -400,17 +400,17 @@ test("policy-adoption: future defaults, checked adoption away/back, old pending 
 		assert.ok(denied.status === "refused");
 		const away = await f.command({ type: "adoptPolicy", revision: next, expectedBinding: initial.revision }, admin);
 		assert.ok(away.status === "accepted");
-		const after = frame().policy.bindings["workflow:2"];
+		const after = frame().policy.bindings["workflow:3"];
 		assert.notEqual(after.revision, initial.revision);
 		const stale = await f.command({ type: "adoptPolicy", revision: "policy:initial", expectedBinding: initial.revision }, admin);
 		assert.ok(stale.status === "refused" && stale.code === "stale_basis");
 		const back = await f.command({ type: "adoptPolicy", revision: "policy:initial", expectedBinding: after.revision }, admin);
 		assert.ok(back.status === "accepted");
-		assert.equal(frame().policy.bindings["workflow:2"].policy, "policy:initial");
-		assert.notEqual(frame().policy.bindings["workflow:2"].revision, initial.revision);
+		assert.equal(frame().policy.bindings["workflow:3"].policy, "policy:initial");
+		assert.notEqual(frame().policy.bindings["workflow:3"].revision, initial.revision);
 		await f.reopen();
 		assert.equal(frame().policy.defaultRevision, next);
-		assert.equal(frame().policy.bindings["workflow:2"].policy, "policy:initial");
+		assert.equal(frame().policy.bindings["workflow:3"].policy, "policy:initial");
 		const exported = await Effect.runPromise(f.ledger.artifact(admin, { export: {} }));
 		assert.ok("manifest" in exported && exported.manifest.complete);
 		assert.ok(exported.jsonl.includes(next));
@@ -426,7 +426,7 @@ test("policy-adoption: a pending assignment gets a new packet and binding while 
 	try {
 		await f.command({ type: "assignTask", slice: "pending-policy", delivery: true, packet: packet() });
 		const a = (frame().assignments as RoleAssignment[])[0]!;
-		const binding = frame().policy.bindings["workflow:2"].revision;
+		const binding = frame().policy.bindings["workflow:3"].revision;
 		const publish = await Effect.runPromise(
 			f.ledger.command(
 				{

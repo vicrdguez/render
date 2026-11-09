@@ -132,7 +132,7 @@ export async function performanceFixture() {
 						version: 1,
 						authorityEpoch: f.ledger.status().authorityEpoch,
 						commandId: `performance-fixture:${++n}`,
-						workflow: "workflow:2",
+						workflow: "workflow:3",
 						expected: { document: current[document] ?? null },
 						command: { type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") },
 					},

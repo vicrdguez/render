@@ -23,7 +23,7 @@ import {
 	W,
 	X2,
 } from "./support/integration.ts";
-import { admin, packet, scheduler, selection } from "./support/roles.ts";
+import { admin, PROJECT, packet, scheduler, selection } from "./support/roles.ts";
 import { watched } from "./support/watchdog.ts";
 
 const PR = "github:pr:7:PR_node7";
@@ -153,7 +153,7 @@ async function consumer(t: Lifecycle) {
 				context,
 			),
 		);
-	const C = accepted(await send({ type: "createWorkflow", title: "Consumer" }, admin)).workflow as string;
+	const C = accepted(await send({ type: "createWorkflow", title: "Consumer", project: PROJECT }, admin)).workflow as string;
 	const save = async (document: string, text: string) =>
 		accepted(
 			await send({ type: "saveDocument", document, mediaType: "text/plain", content: Buffer.from(text).toString("base64") }, admin, C),
