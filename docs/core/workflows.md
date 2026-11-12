@@ -4,7 +4,7 @@ The core is proved by workflows that differ. A concept that two unlike workflows
 
 These are tests of the primitives, not products. Each one is as small as it can be while still stressing something the others do not.
 
-W1 and W2 have been walked on paper, one commit at a time. [The walk](walk.md) has every row. This file says what each workflow is, and it lists the rules for workflow authors that the walk produced.
+W1 and W2 have been walked on paper, one commit at a time. [The walk](walk.md) has every row. This file says what each workflow is, and it lists the rules for workflow authors that the walk and the [host](host.md) pass produced.
 
 ## W0, the bare agent
 
@@ -12,7 +12,9 @@ W1 and W2 have been walked on paper, one commit at a time. [The walk](walk.md) h
 
 The bare agent selects pi-durable's `coding-tools` extension, which gives it `read`, `write`, `edit`, and `bash` (measured, `src/tools/index.ts:27-36`). Codemode is an optional extension.
 
-W0 proves that the core runs alone.
+It is a chat with a coding agent, as in pi. The client sends the model when it creates the conversation, and the host sets the project's working directory. What Render adds is where the conversation lives: on the server, across a restart, and reachable from a second device. Nothing asks a decision, and the timeline stays empty.
+
+W0 proves that the core runs alone. [Host](host.md) lists the calls it needs.
 
 ## W1, design to merge
 
@@ -26,6 +28,8 @@ W0 proves that the core runs alone.
 6. A final decision gates the handover. Only you merge.
 
 Every W1 decision also offers "abort".
+
+W1 has four options per project: the model of the designer, of the implementer, and of the reviewer, and the base branch. You set them from a client before the first conversation. [Standard library](library.md) has the schema.
 
 ## W2, forecasts
 
@@ -41,6 +45,8 @@ Every W1 decision also offers "abort".
 8. A `calibration` tool reads the `w2.resolved` events and reports how your stated probabilities compare with the outcomes.
 
 The walk changed step 7. The first version left the old decision open until the next request, so you could score a forecast that had been replaced. The walk did not cover "void" or a dropped forecast.
+
+W2 has one option per project, its model.
 
 A test uses the faux model provider and passes its own clock to the harness, so it does not wait (measured, `now` in `src/harness/types.ts:729-732`). The key move has run: a task slept for a week across a closed store, woke on reopen, and wrote a decision-shaped document (measured, check 6 of `spikes/substrate.mjs`).
 
@@ -64,7 +70,7 @@ W2 has the shape of quant research without the compute job: a claim fixed before
 
 ## Rules for workflow authors
 
-**Proposed.** The walk produced these. None is in the core. Each one is a rule because the walk, or a check, showed what goes wrong without it.
+**Proposed.** The walk produced these, and the [host](host.md) pass added the last four. None is in the core. Each one is a rule because a walk, or a check, showed what goes wrong without it.
 
 | Rule | Without it | Evidence |
 | --- | --- | --- |
@@ -82,9 +88,13 @@ W2 has the shape of quant research without the compute job: a claim fixed before
 | A reviewer's tools read the published state, not the working files. | The review covers files that are not in the commit. | W1 row 13, not run |
 | A basis entry and an event carry `text`. | A client that knows no workflow shows nothing. | [Primitives](primitives.md) |
 | A run that ends is not a handoff. Check the stage when the run ends. | The work shows "building" and never moves. | W1 rows E1 to E3 |
-| A tool checks the workflow's state. Prose grants nothing, and a role's tool list is not a sandbox. | An agent with `bash` does what its role's prose forbids. | [Primitives](primitives.md) |
+| A tool checks the workflow's state. Prose grants nothing, and a role's tool list is not a sandbox. | An agent with `bash` does what its role's prose forbids. The owner can also join any agent and ask it to call any of its tools. | [Primitives](primitives.md), [Host](host.md) |
+| Read an option in the commit that uses it. Copy a value that an outside effect depends on into your own document. | A later phase, or a rerun, acts on a value that has changed since. | W1 row 8, H2 and H3 |
+| A commit that submits to a role's conversation first sets that role's model from the options. | A changed option reaches only conversations that are created later. | W1 rows 12 and 16, H7 |
+| The event of the commit that first submits to a conversation names that conversation. | A client that knows no workflow cannot find the agent to join it. | W1 rows 10 and 12 |
+| A new option ships with a default. | After an upgrade `read` throws, and the tasks that read the option fault. | [Standard library](library.md) |
 
-Two of these lean on source that was read and not run: the sequential round, and the `afterRun` hook.
+Two of these lean on source that was read and not run: the sequential round, and the `afterRun` hook. H2, H3, and H7 are checks of `spikes/host.mjs`.
 
 ## Where W2 came from
 

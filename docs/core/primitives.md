@@ -2,7 +2,7 @@
 
 pi-durable persists conversations, tasks, and documents. It has no way to ask a human, to record what the human decided on, or to show what happened in terms a client understands without knowing the workflow. The core adds two primitives for that: Decision and Event.
 
-The two primitives are **Decided**. The shapes and rules below are **Proposed**. They come from the first [arena](arena.md). The [walk](walk.md) then changed this file in six places. Each change is marked "From the walk" and carries its five checks from the admission rule in the [README](README.md).
+The two primitives are **Decided**. The shapes and rules below are **Proposed**. They come from the first [arena](arena.md). The [walk](walk.md) then changed this file in six places. Each change is marked "From the walk" and carries its five checks from the admission rule in the [README](README.md). The owner reviewed the walk and accepted its changes, so those six are **Decided**.
 
 ## Why a decision is not a waiting task
 
@@ -283,9 +283,9 @@ An extension reads the events themselves with pi-durable's entry reads. A scan h
 
 ### How a project gets its extensions
 
-A project's configuration lists extension names. The host maps each name to a module through static imports, so TypeScript checks them. The host does not scan a project directory for code to run.
+A project's `Project` document lists workflow names. The client sets them when it binds the project (see [Host](host.md)). The host maps each name to a module through static imports, so TypeScript checks them. The host does not scan a project directory for code to run.
 
-Each project has its own registry, which holds exactly its extensions.
+Each project has its own registry, which holds `coding-tools` and exactly the project's workflows.
 
 ### From the walk: the host sets what a new conversation selects
 
@@ -293,8 +293,9 @@ With no explicit selection, a conversation gets every installed extension in ins
 
 The host now writes the selection on each conversation it creates for a client.
 
-- A bare conversation selects `coding-tools` only. The owner ruled that the bare agent has it.
-- A workflow module may export `entry`, a pi-durable `AgentChange`. When the client asks for a conversation of that workflow, the host passes `entry` as `agent` to `createConversation` (measured, `src/harness/types.ts:550-555`).
+- A bare conversation selects `coding-tools` only. The owner ruled that the bare agent has it. The client sends its model.
+- A workflow module may export `entry`: a pi-durable `AgentChange`, or a function of a `tx` that returns one. When the client asks for a conversation of that workflow, the host applies it in the commit that creates the conversation (measured, `src/harness/types.ts:550-555`, H3 of `spikes/host.mjs`).
+- Either way the host adds the project's working directory as `cwd`.
 
 A workflow sets the selection itself on every conversation it creates. See `role()` in [Standard library](library.md).
 
@@ -302,7 +303,7 @@ A workflow sets the selection itself on every conversation it creates. See `role
 - **Checks 3 and 4.** The host creates the conversation, so no extension is running yet. W1, W2, and the bare agent each need a different first conversation.
 - **Check 5.** One optional value of a pi-durable type. The host never looks inside it.
 
-Two points are open. A workflow has no place for per-project options, such as the reviewer's model or the base branch. And how a client names the workflow it wants belongs to the client API.
+The walk left two points open here, and [Host](host.md) answers both. A workflow keeps its per-project options in a document of its own, and `entry` reads them, which is why it can be a function. And a client names the workflow in the call that creates the conversation.
 
 ### What a stored name means
 

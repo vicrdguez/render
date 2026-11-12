@@ -17,7 +17,9 @@ Paths below are relative to those trees. pi-durable paths start at `packages/dur
 
 Eight explorer reports and the clones were kept under `/tmp/render-ground/` during the work. That directory does not survive a reboot. The commits above are enough to fetch everything again.
 
-The arena's brief, rubric, three designs, and verdict are kept in `arena/`. The walk arena's brief, rubric, three walks, two probes, and verdict are kept in `arena-walk/`.
+The arena's brief, rubric, three designs, and verdict are kept in `arena/`. The walk arena's brief, rubric, three walks, two probes, and verdict are kept in `arena-walk/`. The host arena's brief, rubric, three designs, three probes, and verdict are kept in `arena-host/`.
+
+pi-ai and pi-schema paths start at `packages/ai/` and `packages/schema/` in the same monorepo commit.
 
 ## Target version
 
@@ -47,7 +49,22 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 - An entry is immutable and has a numeric ID that is global to the session (reported).
 - A document is typed, versioned JSON. Its scope is the session, a conversation, or a task. It commits in the same transaction as entries and tasks (reported).
 - A submission is admitted input with its own lifecycle. A host can admit one inside its own commit with `submit(tx, draft)`, together with its own checks and documents (measured, `test/examples/34-submit-in-commit.ts`).
-- A reused `requestId` returns the earlier submission. Only the submission type is compared, not the payload (measured, `src/harness/submissions.ts:232-239`).
+- A reused `requestId` returns the earlier submission. Only the submission type is compared, not the payload (measured, `src/harness/submissions.ts:232-239`, H4 of `spikes/host.mjs`).
+- A host reaches any conversation in a store by its ID, whoever created it (measured, `src/harness/types.ts:918`).
+- The harness creates a conversation, applies `agent`, and runs `init` in one commit. `init` may read and write documents, and a table read in it throws (measured, `src/harness/types.ts:544-555`, `src/harness/harness.ts:429-442`, H3).
+- `tx.scanConversations` pages the conversation records of a store. A record holds the ID, the fork parent, and the owner (measured, `src/types.ts:429-441,995-999`).
+
+### Input to a conversation
+
+- An input to a busy conversation queues. A steer is placed after the current tool round and joins the running work. A follow-up starts the next run (measured, `README.md:541`, `src/harness/types.ts:77-91`, H4).
+- An input with `whenIdle: "reject"` to an idle conversation is refused with `ConversationIdle` and writes nothing (measured, `src/harness/types.ts:85-89`, H6).
+- The model, the prompt, and the tools of a request are fixed when it is prepared. "A change applies from the next request", also inside a run (measured, `README.md:402`, H5).
+- `configure` has no check for a working run. A commit that configures and submits while a run works changes that run's model from its next request, and its submission queues (measured, H7).
+- A run that ends without an answer leaves the reason in `pi.live.runFailure`, such as `model_error` or `no_model`, until the next run starts (measured, `README.md:563`, `src/harness/live.ts:93-107`, H8).
+- A `continue` starts a run on the context as it is. It is never queued, and a busy conversation refuses it (measured, `README.md:565`, `src/harness/types.ts:100-113`, H8).
+- `Conversation.abort()` withdraws queued inputs and marks every live task of the conversation that is not `background`. It ends whatever runs when it is called, so a second call later ends a newer run (measured, `src/harness/scheduler.ts:668-691`, H9).
+- A conversation's view mounts its `pi.agent`, `pi.live`, `pi.inbox`, provider, and usage documents beside a window of entries (measured, `src/harness/view.ts:78-84`, `src/harness/types.ts:886-891`).
+- An assistant message carries its provider and its model (measured, `packages/ai/src/types.ts:593-598`).
 
 ### Tasks
 
@@ -68,6 +85,11 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 - A new task takes the name and version of the definition installed when it is created (measured, `src/session/transaction.ts:492-501`).
 - A task whose definition is not installed is blocked with `missing_task` (measured, `src/harness/types.ts:793-798`).
 - A harness reports when it next needs a running process, so a host can close it and reopen it on a timer (reported, `Harness.wake()` and `onWake`).
+- A phase that throws ends its task `faulted` at once, with the error message in the outcome. `onReport` is called after the fault is stored (measured, `src/harness/scheduler.ts:2428-2441`, H10).
+- `tx.scanTasks` filters by conversation, kind, status, abort mark, and `background`. It has no filter by outcome (measured, `src/types.ts:849-857,1005-1009`).
+- The SQLite task table has an index on `(status, id)` and one on `(kind, id)`, and none on the outcome (measured, `src/storage/sqlite/migrations.ts:51-55`). pi-durable deletes no task. The only `DELETE FROM` in its source removes document revisions, and a `Tx` has no call that removes a task (measured, `src/storage/sqlite/commit.ts:468`, and a search over `src/`).
+- Every model request and every tool call is a task of pi-durable's own and stays as a finished record. After six short runs, 11 of 14 finished tasks were of those kinds (measured, H10).
+- On a crash loop the built-in kinds end themselves and are reported as `task_interrupted`. They do not fault (measured, `README.md:216`).
 
 ### Extensions and the registry
 
@@ -79,6 +101,10 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 - A conversation stores its own model, extensions, tools, instructions, `cwd`, and turn limit (measured, `README.md`, "Per-Conversation Agent").
 - `HarnessSettings` apply to the whole harness and take no conversation argument (measured, `src/harness/types.ts:631-660`).
 - A task name is unique in a registry. A second extension that installs the same name throws (measured, `src/harness/registry.ts:24-26`).
+- `install` replaces an installed extension of the same name in place, and both `install` and `uninstall` publish at once (measured, `src/harness/types.ts:456-460`, `src/harness/registry.ts:74-91`).
+- A store that is reopened with an empty registry keeps a due task as `blocked` with `missing_task`. The task runs once its extension is installed (measured, H1).
+- An extension that is installed later does not reach a conversation that names its extensions (measured, H11).
+- A task that is running when its extension is uninstalled keeps running under its old definition, and `task_outdated` is reported (measured, `src/harness/scheduler.ts:2340-2371`, `src/types.ts:164`, H12).
 - pi-durable ships `read`, `write`, `edit`, and `bash` as the `coding-tools` extension, and "nothing installs it automatically" (measured, `src/tools/index.ts:27-36`).
 - The `bash` tool passes the process environment to the command by default, with `inheritEnv: true` (measured, `src/tools/bash.ts:84-86`).
 
@@ -107,6 +133,13 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 - A harness can open read-only "as a viewer of a session that another process drives" (measured, `src/harness/types.ts:759-765`).
 - Watches give structural snapshots and deltas. A replayable log of events with meaning is a stated non-goal (reported). Commits made while a watch's listener runs "arrive folded" (measured, `src/harness/types.ts:886-889`).
 - SQLite storage runs in WAL mode with `synchronous = NORMAL`: "commits survive process crashes; the newest may be lost on power or host failure" (measured, `README.md:869`, and the pragmas at `packages/chord/src/sqlite/node.ts:220-221`).
+
+### pi-schema and pi-ai
+
+- pi-schema's builders return plain JSON Schema. `obj()` is closed unless it is opened, and errors carry JSON Pointer paths (measured, `packages/schema/README.md:10,62`, H2).
+- A `default` is an annotation. "Validation never inserts it" (measured, `packages/schema/README.md:74`).
+- `compile(schema, { formats })` checks a named format of a string with a function that the caller passes. Without it a format is an annotation (measured, `packages/schema/src/types.ts:9-19`, H2).
+- pi-ai's `getAvailable()` returns the chat models whose providers have complete auth. `getModel(provider, id)` looks one up without a request (measured, `packages/ai/src/models.ts:280,302`).
 
 ### pi-env
 
@@ -162,6 +195,14 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 | K6. A process killed inside an answer-shaped commit leaves neither the answer nor the task. Killed right after the commit, it leaves both. | True on 1.5.2. | `spikes/crash.mjs` |
 | P1 to P5. A Stop aborts a plain sleeping task and spares a `background` one. `createConversation` and `configure` work in one commit, and `submit(tx, draft)` to the new conversation throws. A task phase submits to another conversation and waits for its run. | True on 1.5.2, with in-memory storage. | `arena-walk/candidate-1-probe.mjs` |
 | A to F. A tool commit appends an entry and then writes documents. A task creates a conversation, sets its agent, and reads its tools back. A request ID returns the first submission after a reopen. An abort handler withdraws a decision-shaped document. A `write` submission starts no run. | True on 1.5.2. | `arena-walk/candidate-3-probe.mjs` |
+| H1. A store reopened with an empty registry keeps a due timer blocked. The timer runs after the host reads the workflow list from a document and installs the extension. | True on 1.5.2. | `spikes/host.mjs` |
+| H2. A helper defines one session document named by the workflow. A host commit reads the set keys, merges a patch, checks it with pi-schema and a `model` format, and stores the set keys. | True on 1.5.2, with a stand-in for the helper and the host. | `spikes/host.mjs` |
+| H3. One commit checks the options, creates a conversation, calls `entry(tx)`, which reads the options after the table write, and configures the agent. | True on 1.5.2, with the same stand-ins. | `spikes/host.mjs` |
+| H4 to H6. A steer sent during a tool round is in the next request of the same run, and a resend returns the first submission. A model change during a run applies from the next request. A steer marked "only if running" to an idle conversation is refused. | True on 1.5.2. | `spikes/host.mjs` |
+| H7. A commit that configures and submits while an owner's run works queues its input, and the owner's run takes the new model from its next request. | True on 1.5.2. | `spikes/host.mjs` |
+| H8 and H9. A run that ends on a model error leaves `runFailure`, and a `continue` answers. A second Stop ends a newer run. | True on 1.5.2. | `spikes/host.mjs` |
+| H10. A phase that throws ends its task `faulted`. `onReport` hears it after the fault is stored. A scan by kind finds it, and a scan with no kind also reads every finished built-in task. | True on 1.5.2. | `spikes/host.mjs` |
+| H11 and H12. A later install does not reach a conversation that names its extensions. A task that is running when its extension is uninstalled goes on. | True on 1.5.2. | `spikes/host.mjs` |
 | Real agent prose is dense with backticks. | 342 backticks in 404 lines across Ultimate's 8 agent files. 616 in 527 lines across the 23 pstack playbooks. | A character count over `agents/*.md` and `.agents/skills/poteto-mode/playbooks/*.md` |
 | `skl` binds named inputs into a resource. | `--input name=value` and `--describe-inputs` exist. | `skl skill --help` |
 | Pi uses Vitest to alias workspace packages to source and to run several runtime configurations. | True. | `vitest.base.ts` and `packages/durable/package.json:128-130` |
@@ -169,7 +210,8 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 ## Not verified
 
 - The Chord and pi-ai differences between 1.5.1 and 1.5.2 were not traced beyond the three modules named under the target version.
-- `spikes/substrate.mjs` closes the store cleanly. `spikes/crash.mjs` kills the process inside a commit's callback and right after a commit. No check kills it in the middle of SQLite's own write.
+- `spikes/substrate.mjs` and `spikes/host.mjs` close the store cleanly. `spikes/crash.mjs` kills the process inside a commit's callback and right after a commit. No check kills it in the middle of SQLite's own write.
+- pi-ai's `getAvailable()` was read, not run. The spikes use a faux provider.
 - No one ran a read-only harness beside a writing one.
 - pi-env was read, not run.
 - No complete example of pi-durable hosted on a Chord host was found.

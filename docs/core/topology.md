@@ -2,7 +2,7 @@
 
 **Decided.** One server hosts all work. Each project selects its workflows. You connect to that one server from several machines. Projects can later share some knowledge.
 
-**Proposed.** Inside that server, each project has its own store, its own harness, and its own registry. All three candidates of the first arena chose this independently. The [walk](walk.md) used it and added two points: the server opens every project when it starts, and every client call names its project.
+**Proposed.** Inside that server, each project has its own store, its own harness, and its own registry. All three candidates of the first arena chose this independently. The [walk](walk.md) used it and added two points: the server opens every project when it starts, and every client call names its project. The [host](host.md) pass then settled where a project lives on disk and what the server reads at start.
 
 ## Three ways to do it
 
@@ -55,13 +55,16 @@ Local use is the same server with one project. It is not a second runtime.
 ## What the server must do
 
 - **Hold one lock per store.** pi-durable has no locking across processes. "One process writes a storage at a time" (measured, `README.md:894`). Ultimate takes a lock file per store (measured, `server/harness.ts:228`).
-- **Map project IDs to directories in its own configuration.** A client never names a file path.
-- **Record the project's identity in its store,** so a directory that is moved or copied is still recognised.
+- **Keep each project in a directory named by its ID.** The directories under `~/.render/projects/` are the catalogue. No second list exists that could disagree with the stores.
+- **Record the project in its store.** One session document, `Project`, holds the ID, the working directory, and the workflow names. A store whose document is missing, or names another project, is skipped and reported.
+- **Take one path from a client.** A client never names a store. It names the project's working directory once, when it binds the project. The first version of this file said that a client never names a file path at all. That cannot hold for the place where the agents work.
 - **Open every project when it starts.** See the next section.
+
+[Host](host.md) has the bind call, the order at start, and the open question on the working directory.
 
 ## From the walk: the server opens every project at start
 
-**Proposed.** The first version left open whether the server opens a project at start or on first use. The walk settled it.
+**Decided.** The first version left open whether the server opens a project at start or on first use. The walk settled it, and the owner accepted the walk's changes.
 
 When the server starts, it opens the store of every project in its catalogue and calls `resume()` on each harness. Task scheduling starts with `resume()`, or with a call that asks for progress (measured, `README.md:127`).
 
@@ -84,6 +87,12 @@ The cost is that every project is open all the time. Memory use and open time wi
 
 `spikes/crash.mjs` ran on SQLite files. It starts child processes and kills each one with `SIGKILL`. [The walk](walk.md) and [Primitives](primitives.md) use its six checks, K1 to K6.
 
+`spikes/host.mjs` ran on SQLite files. Three of its twelve checks bear on this file:
+
+- A store was reopened with an empty registry and resumed. A timer that had come due waited as `blocked`, and ran once the host had read the workflow list from the store and installed the extension (H1).
+- A second extension, installed while the store was open, did not reach a conversation that names its extensions (H11).
+- A task that was running when its extension was uninstalled went on through its next phase (H12). So a workflow is not removed from a project.
+
 To run them:
 
 ```sh
@@ -92,12 +101,14 @@ cd - && export PI_MODULES=/tmp/pi-latest/node_modules/@earendil-works
 node docs/core/spikes/substrate.mjs
 node docs/core/spikes/two-harnesses.mjs
 node docs/core/spikes/crash.mjs
+node docs/core/spikes/host.mjs
 ```
 
-Limits: two projects and no load. Only `crash.mjs` kills a process. The other two close cleanly. Memory use and open time with many projects are unknown.
+Limits: two projects and no load. Only `crash.mjs` kills a process. The other three close cleanly. Memory use and open time with many projects are unknown.
 
 ## Open
 
-- The layout of a project's directory. One candidate proposed `project.json` and `store.sqlite` under `~/.render/projects/<id>/`.
+- Whether `bind` takes a path on the server or the key of a workspace that the server's configuration lists. See [Host](host.md).
+- How a workflow is removed from a project. It is not offered.
 - Whether the server needs a limit on concurrent model calls across projects.
 - A harness can open a store read-only "as a viewer of a session that another process drives" (measured, `src/harness/types.ts:759-765`). Whether that is useful here was not explored.

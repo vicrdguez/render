@@ -1,10 +1,12 @@
 # The standard library
 
-**Decided.** Render has one standard library beside the core. It holds `prose()` and `role()`. The core never imports it, and a workflow may skip it. If it grows enough, it can be split later.
+**Decided.** Render has one standard library beside the core. It holds `prose()` and `role()`. The core never imports it, and a workflow may skip it. If it grows enough, it can be split later. The owner also asked for one function here that defines and reads a workflow's options, and that stores them per project by itself.
 
-**Proposed.** The shape of `role()`, and the rule for what enters the library.
+**Proposed.** The shapes of `role()` and `options()`, and the rule for what enters the library.
 
-[Prose](prose.md) covers `prose()`. This file covers `role()` and the entry rule.
+**Open.** `options()` defines a document, and the entry rule as first written forbids that. See "What enters the standard library".
+
+[Prose](prose.md) covers `prose()`. This file covers `role()`, `options()`, and the entry rule.
 
 ## `role()`
 
@@ -43,37 +45,39 @@ The second point is the only thing `role()` adds to the two calls. A plain `Agen
 ### W1's roles on paper
 
 ```ts
-const designer = {
-	model: A,
-	extensions: [CodingTools, W1],
-	tools: [read, bash, publishDesign],
-	instructions: designerProse,
-} satisfies RoleSettings;
-
-const implementer = (cwd: string) =>
+const designer = (model: ModelRef) =>
 	({
-		model: A,
+		model,
+		extensions: [CodingTools, W1],
+		tools: [read, bash, publishDesign],
+		instructions: designerProse,
+	}) satisfies RoleSettings;
+
+const implementer = (model: ModelRef, cwd: string) =>
+	({
+		model,
 		extensions: [CodingTools, W1],
 		tools: [read, write, edit, bash, publishBuild],
 		instructions: implementerProse,
 		cwd,
 	}) satisfies RoleSettings;
 
-const reviewer = {
-	model: B,
-	extensions: [W1],
-	tools: [showDiff, showFile, publishReview],
-	instructions: reviewerProse,
-} satisfies RoleSettings;
+const reviewer = (model: ModelRef) =>
+	({
+		model,
+		extensions: [W1],
+		tools: [showDiff, showFile, publishReview],
+		instructions: reviewerProse,
+	}) satisfies RoleSettings;
 
-export const entry = designer;
+export const entry = async (tx: Tx) => designer(modelRef((await W1Options.read(tx)).designer));
 ```
 
-- The host creates the designer's conversation with `entry`. See "The host sets what a new conversation selects" in [Primitives](primitives.md).
-- `w1.prepare` calls `role(tx, implementer(plan.path), { kind: "ownerless" })` (W1 row 9).
-- `publish_build` calls `role(tx, reviewer, { kind: "ownerless" })` (W1 row 11).
+- The host creates the designer's conversation with `entry`, and adds the project's working directory as `cwd`. See "Options per project" in [Host](host.md).
+- `w1.prepare` calls `role(tx, implementer(modelRef(o.implementer), plan.path), { kind: "ownerless" })` (W1 row 9).
+- `publish_build` calls `role(tx, reviewer(modelRef(o.reviewer)), { kind: "ownerless" })` (W1 row 11).
+- In both, `o` is `await W1Options.read(tx)` in the same commit. See `options()` below.
 - Each prose value comes from `prose()` when the module loads.
-- Where the models A and B come from is open. See finding 13 in [the walk](walk.md).
 
 W2 does not use `role()`. It creates no conversation, and its one agent gets its settings from `entry`.
 
@@ -99,13 +103,75 @@ The owner ruled that a way to define roles is judged by checks 1 to 4 of the adm
 | 3. An extension cannot keep the promise | Fail | A workflow can write the three lines. Nothing here guards who may act. |
 | 4. Two unlike users | Fail | Only W1 uses it. No client reads a role. |
 
+## `options()`
+
+The owner asked for this in these words: "a simple function or something like that to define configurations and to read configurations. So the workflow doesn't need to think about where to store the file."
+
+```ts
+declare function options<T extends JsonObject>(
+	workflow: string, // the extension's name
+	schema: Schema<T>, // a closed pi-schema object, one top-level key per option
+): {
+	readonly schema: Schema<T>;
+	get(tx: Tx): Promise<Partial<T>>; // the keys that are set
+	set(tx: Tx, value: Partial<T>): Promise<void>; // replaces the keys that are set
+	read(tx: Tx): Promise<T>; // the set keys over the schema's defaults, checked
+};
+
+declare function modelRef(value: string): ModelRef; // "provider/modelId", cut at the first "/"
+```
+
+The call defines one session document, named `<workflow>.options`, in the store of whichever project the `tx` belongs to. The document is the set keys and nothing else. So the values are per project, and the author names no place.
+
+- **A workflow calls `read(tx)`** in the commit that uses a value. It throws when the value does not fit the schema, for example when a key with no default is unset.
+- **The host uses `schema`, `get`, and `set`.** The workflow's module exports the returned object as its `options`, and the host shows, checks, and writes the values for a client through those three members. [Host](host.md) has that contract. The host does not import this function, and a workflow can write the three members by hand.
+- **A model is a string with the format `model`.** The host checks that the server has it, and a client can show a picker for it. pi-schema checks a format only on a string (measured, `packages/schema/src/types.ts:9-19`). `modelRef()` turns the string into the value that `configure` takes.
+
+W1 and W2 on paper:
+
+```ts
+export const W1Options = options(
+	"w1",
+	obj({
+		designer: str({ format: "model" }),
+		implementer: str({ format: "model" }),
+		reviewer: str({ format: "model" }),
+		base: str({ minLength: 1, default: "main" }),
+	}),
+);
+
+export const W2Options = options("w2", obj({ model: str({ format: "model" }) }));
+```
+
+A model has no default, because a workflow cannot know which models a server has.
+
+A stand-in with this shape ran: one call defined the document, a host commit merged and checked a patch through `get` and `set`, and a later commit read the values with their defaults (measured, H2 and H3 of `spikes/host.mjs`).
+
+### What `options()` leaves out
+
+- **The check of what a client sends.** That is the host's, at the boundary where the value enters.
+- **Telling running work about a change.** A workflow reads at use. See "When a change reaches work" in [Host](host.md).
+- **Old values after an upgrade.** If a new version adds a key with no default, `read` throws until the owner sets it, and a task that reads it faults. New options ship with a default.
+- **Nested options.** One flat object. A client can then set one key at a time.
+
+### Why `options()` is not in the core
+
+| Check | Result | Reason |
+| --- | --- | --- |
+| 1. A real failure | Pass | W1 has no source for a model or a base branch. That is finding 13 of the walk. |
+| 2. pi-durable does not provide it | Fail | It provides session documents. |
+| 3. An extension cannot keep the promise | Fail | A workflow can define the document and write the three members. What it cannot do is hear a client, and that part is the host's. |
+| 4. Two unlike users | Pass | W1 and W2. |
+
+Two of the three designs in the host arena put the stored values in the core. The judge was right that check 3 does not allow it: the third design showed that the host can call a contract on the module and store nothing.
+
 ## What enters the standard library
 
 The core's admission rule is too heavy for a helper, and no rule at all is how a shared folder fills up. This rule has four checks. A change that adds a part answers them in one paragraph and names the call sites. The owner's merge is the yes.
 
 1. **It has callers today.** Two call sites in the proving workflows. They can be in one workflow.
 2. **It adds no guarantee.** It uses only the public API of pi-durable and the core. A workflow that skips it and writes the same calls loses nothing.
-3. **It owns nothing stored.** It has no document, entry kind, task, or extension of its own, and it makes no commit and starts no timer. It may write through the `tx` that its caller holds.
+3. **It owns no stored name.** It has no document, entry kind, task, or extension under a name of its own, and it makes no commit and starts no timer. It may write through the `tx` that its caller holds. It may define a document for its caller, when the caller's name is the document's name and the document holds only the caller's data.
 4. **It names no workflow concept.** A way to define roles passes. "The designer" does not.
 
 A part goes back out when it has fewer than two call sites, or when pi-durable gains it.
@@ -114,7 +180,19 @@ A part goes back out when it has fewer than two call sites, or when pi-durable g
 | --- | --- | --- | --- | --- |
 | `prose()` | The prose files of W1 and W2 | It joins strings. | It reads files when the module loads. | It knows slots and names. |
 | `role()` | W1 rows 9 and 11 | Three lines of pi-durable | It writes `pi.agent`, which pi-durable owns, through the caller's `tx`. | It knows settings, not which role they describe. |
+| `options()` | W1's `entry` and rows 4, 8, 9, 11, 12, 14, and 16. W2's `entry`. | A document, a spread, and a check. The host's check is the guarantee. | It defines `<workflow>.options` for its caller. See below. | It knows a schema, not what a key means. |
+| `modelRef()` | The same call sites | It cuts a string. | Nothing | It knows a model, which is pi-durable's. |
 
 `role()` passes check 1 with nothing to spare: two call sites, both in W1.
 
-The three walks each wrote an entry rule. This one takes the callers test from candidate 2, because real call sites are better evidence than a second user who might come. It takes "owns nothing stored" from candidate 3. It drops candidate 1's ban on store access, which would exclude `role()` and names no failure.
+### Check 3 and `options()`
+
+**Open.** The last sentence of check 3 is new, and it is there for `options()`.
+
+As first written, check 3 said that a library part "has no document". `options()` defines one. The owner asked for a single function that stores the values by itself, and a helper cannot do that without defining the place.
+
+What check 3 guards against is a library part that becomes a subsystem: a stored name that the core or a client must know, and a stored format that the library must migrate. `options()` has neither. The document's name is the workflow's, the document holds the set keys with no wrapper, and nothing but the workflow's own module reads it.
+
+The other way out keeps the old wording. The workflow defines the document itself and hands it to the helper. One design in the host arena did that, and the judge counted it against the owner's request, because the author is back to choosing a kind, a version, and a first value. That is one statement per workflow. If the owner prefers the old wording, this is the fallback.
+
+The three walks each wrote an entry rule. This one takes the callers test from candidate 2, because real call sites are better evidence than a second user who might come. It takes "owns nothing stored" from candidate 3, which the host arena then narrowed to "owns no stored name". It drops candidate 1's ban on store access, which would exclude `role()` and names no failure.
