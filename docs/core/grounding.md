@@ -17,7 +17,7 @@ Paths below are relative to those trees. pi-durable paths start at `packages/dur
 
 Eight explorer reports and the clones were kept under `/tmp/render-ground/` during the work. That directory does not survive a reboot. The commits above are enough to fetch everything again.
 
-The arena's brief, rubric, three designs, and verdict are kept in `arena/`.
+The arena's brief, rubric, three designs, and verdict are kept in `arena/`. The walk arena's brief, rubric, three walks, two probes, and verdict are kept in `arena-walk/`.
 
 ## Target version
 
@@ -54,9 +54,15 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 - A task is a checkpointed state machine. Its statuses are `pending`, `running`, `waiting`, `sleeping`, `completing`, and `terminal` (measured, `src/types.ts`).
 - A task waits on other tasks or sleeps until a time. No status parks a task on an outside signal (measured, `src/types.ts:660-693`).
 - A phase must commit a changed checkpoint or a terminal outcome, or the task faults (measured, `src/types.ts`).
-- A hook or a phase can run again after a crash (reported).
-- A tool's intent commits before `execute()`. An interrupted tool is not run again unless it declares `replay: "safe"`. Nothing is exactly-once (reported).
-- A task that a crash cuts off five times in a row without changing state ends (reported).
+- A phase runs again after a crash (measured, K3 of `spikes/crash.mjs`). A hook can too (reported).
+- A tool's intent commits before `execute()`. An interrupted tool is not run again unless it declares `replay: "safe"`. The model gets an error result instead. Nothing is exactly-once (measured, `src/harness/tool.ts:195-226`, `README.md:277`, K1 and K2).
+- A task that a crash cuts off five times in a row ends `faulted`. A new state that the task commits starts the count over (measured, `README.md:216`, `src/harness/scheduler.ts:1944-1957`, K3 and K5).
+- A terminal task never runs again. No call that restarts one was found in `src/types.ts` or `src/harness/types.ts` (measured, a search for "retry", "restart", "revive", and "rerun").
+- A `background` task is left out of a conversation's abort and of its idle wait (measured, `src/types.ts:415-416`, `src/harness/scheduler.ts:668-691`, P1 of `arena-walk/candidate-1-probe.mjs`).
+- An `afterRun` hook runs after a final answer, and never after a failure or an abort. Its tasks are children of the run (measured, `src/harness/types.ts:1018-1025`).
+- A round's tool calls run in parallel by default. The round ends the run only when every call asks for it. One call that declares `executionMode: "sequential"` makes its whole round sequential (measured, `src/harness/agent.ts:81`, `src/harness/generation.ts:1096-1097`, `src/harness/types.ts:358-359`).
+- A reused request ID returns the earlier submission. Only the type is compared (measured, `src/harness/submissions.ts:231-239`).
+- A new ownerless conversation starts with an empty agent. A new task-owned one starts as a copy of its owner's (measured, `src/harness/agent.ts:204-215`, `README.md:402`).
 - The harness takes a `now` clock (measured, `src/harness/types.ts:729-732`). A tool reads it with `api.now()` and a task with `runtime.now()` (measured, `src/harness/types.ts:263-264`, `src/types.ts:342-343`). A `Tx` has no clock.
 - A task definition has a `version`, the "definition version persisted with live input and checkpoints". An optional `migrate` converts a record stored by an older version (measured, `src/types.ts:369-386`).
 - A new task takes the name and version of the definition installed when it is created (measured, `src/session/transaction.ts:492-501`).
@@ -148,6 +154,14 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 | 5. `submit(tx, draft)` works before a table write and throws after one. | True on 1.5.2. | `spikes/substrate.mjs` |
 | 6. A task sleeps for a week across a closed store and wakes on reopen. | True on 1.5.2, with a clock passed as `now`. | `spikes/substrate.mjs` |
 | 7. Two answer-shaped commits sent at once run one after the other, and one task is created. | True on 1.5.2. | `spikes/substrate.mjs` |
+| K1. A tool that declares `replay: "safe"` runs again after the process is killed, with the same `api.taskId`. It finds its receipt and appends nothing more. | True on 1.5.2. | `spikes/crash.mjs` |
+| K2. A tool with the default `replay` is not run again. The model gets an error result, and its next call is a new task that appends a twin entry. | True on 1.5.2. | `spikes/crash.mjs` |
+| K3. A task that waits in memory is ended `faulted` after five restarts in a row, and `onReport` hears `task_faulted`. | True on 1.5.2. | `spikes/crash.mjs` |
+| K4. A commit reads a faulted task and creates a replacement, and the replacement runs. | True on 1.5.2. | `spikes/crash.mjs` |
+| K5. A task that commits a changed checkpoint before its wait is still running after seven kills. | True on 1.5.2. | `spikes/crash.mjs` |
+| K6. A process killed inside an answer-shaped commit leaves neither the answer nor the task. Killed right after the commit, it leaves both. | True on 1.5.2. | `spikes/crash.mjs` |
+| P1 to P5. A Stop aborts a plain sleeping task and spares a `background` one. `createConversation` and `configure` work in one commit, and `submit(tx, draft)` to the new conversation throws. A task phase submits to another conversation and waits for its run. | True on 1.5.2, with in-memory storage. | `arena-walk/candidate-1-probe.mjs` |
+| A to F. A tool commit appends an entry and then writes documents. A task creates a conversation, sets its agent, and reads its tools back. A request ID returns the first submission after a reopen. An abort handler withdraws a decision-shaped document. A `write` submission starts no run. | True on 1.5.2. | `arena-walk/candidate-3-probe.mjs` |
 | Real agent prose is dense with backticks. | 342 backticks in 404 lines across Ultimate's 8 agent files. 616 in 527 lines across the 23 pstack playbooks. | A character count over `agents/*.md` and `.agents/skills/poteto-mode/playbooks/*.md` |
 | `skl` binds named inputs into a resource. | `--input name=value` and `--describe-inputs` exist. | `skl skill --help` |
 | Pi uses Vitest to alias workspace packages to source and to run several runtime configurations. | True. | `vitest.base.ts` and `packages/durable/package.json:128-130` |
@@ -155,7 +169,7 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 ## Not verified
 
 - The Chord and pi-ai differences between 1.5.1 and 1.5.2 were not traced beyond the three modules named under the target version.
-- The SQLite checks closed the store cleanly. No check killed the process in the middle of a commit.
+- `spikes/substrate.mjs` closes the store cleanly. `spikes/crash.mjs` kills the process inside a commit's callback and right after a commit. No check kills it in the middle of SQLite's own write.
 - No one ran a read-only harness beside a writing one.
 - pi-env was read, not run.
 - No complete example of pi-durable hosted on a Chord host was found.

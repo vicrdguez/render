@@ -2,7 +2,7 @@
 
 **Decided.** One server hosts all work. Each project selects its workflows. You connect to that one server from several machines. Projects can later share some knowledge.
 
-**Proposed.** Inside that server, each project has its own store, its own harness, and its own registry. All three arena candidates chose this independently.
+**Proposed.** Inside that server, each project has its own store, its own harness, and its own registry. All three candidates of the first arena chose this independently. The [walk](walk.md) used it and added two points: the server opens every project when it starts, and every client call names its project.
 
 ## Three ways to do it
 
@@ -40,12 +40,13 @@ C gives the best isolation. But you would connect to several hosts, which you ru
 - **Isolation from a crash.** One process is one crash domain. A supervisor must restart it.
 - **One commit across projects.** If you later need that, this topology is wrong.
 - **One event order across projects.** The server merges by time.
+- **IDs that mean something across projects.** A decision ID, a conversation ID, and an entry ID belong to one store. So every client call names the project as well as the ID.
 
 ## Shared knowledge, later
 
 Shared knowledge is a fixed revision, so sharing can be a copy into the receiving store, with a note of where it came from. The server holds both stores and can make the copy. A Decision can gate it.
 
-None of that is designed. It is deferred, it is not free, and it enters through the admission rule when a workflow needs it.
+None of that is designed. The owner deferred it. It is not free, and it enters through the admission rule when a workflow needs it.
 
 ## Local use
 
@@ -56,7 +57,21 @@ Local use is the same server with one project. It is not a second runtime.
 - **Hold one lock per store.** pi-durable has no locking across processes. "One process writes a storage at a time" (measured, `README.md:894`). Ultimate takes a lock file per store (measured, `server/harness.ts:228`).
 - **Map project IDs to directories in its own configuration.** A client never names a file path.
 - **Record the project's identity in its store,** so a directory that is moved or copied is still recognised.
-- **Wake sleeping projects.** A harness reports when it next needs a running process (measured, `wake()` in check 6 of `spikes/substrate.mjs`).
+- **Open every project when it starts.** See the next section.
+
+## From the walk: the server opens every project at start
+
+**Proposed.** The first version left open whether the server opens a project at start or on first use. The walk settled it.
+
+When the server starts, it opens the store of every project in its catalogue and calls `resume()` on each harness. Task scheduling starts with `resume()`, or with a call that asks for progress (measured, `README.md:127`).
+
+- **Check 1, a real failure.** In W2 row 4 the server was down for a week and a forecast came due. A store that opens on first use stays closed until you touch that project. The decision is never asked, and the inbox does not show it.
+- **Check 2, pi-durable does not provide it.** A harness reports when it next needs a running process (measured, `wake()` in check 6 of `spikes/substrate.mjs`). Nothing reads that for a store that no process has open.
+- **Check 3, an extension cannot.** An extension runs inside a harness that is already open.
+- **Check 4, two unlike users.** W2's timers are one. The other is any work that a crash cut off: W0's run and W1's `then` tasks stay pending until the store opens (measured, `README.md:127`).
+- **Check 5, a small shape.** One loop over the catalogue at start. It adds no scheduler.
+
+The cost is that every project is open all the time. Memory use and open time with many projects are unknown. If that hurts, the catalogue can keep each project's next wake time, and the server can open a project only then. That is more code, and nothing needs it yet.
 
 ## What was checked
 
@@ -67,6 +82,8 @@ Local use is the same server with one project. It is not a second runtime.
 
 `spikes/two-harnesses.mjs` ran on in-memory storage. Project B finished a run while project A was in the middle of a generation.
 
+`spikes/crash.mjs` ran on SQLite files. It starts child processes and kills each one with `SIGKILL`. [The walk](walk.md) and [Primitives](primitives.md) use its six checks, K1 to K6.
+
 To run them:
 
 ```sh
@@ -74,13 +91,13 @@ mkdir /tmp/pi-latest && cd /tmp/pi-latest && npm init -y && npm install --ignore
 cd - && export PI_MODULES=/tmp/pi-latest/node_modules/@earendil-works
 node docs/core/spikes/substrate.mjs
 node docs/core/spikes/two-harnesses.mjs
+node docs/core/spikes/crash.mjs
 ```
 
-Limits: two projects, clean closes, no load. Memory use and open time with many projects are unknown.
+Limits: two projects and no load. Only `crash.mjs` kills a process. The other two close cleanly. Memory use and open time with many projects are unknown.
 
 ## Open
 
 - The layout of a project's directory. One candidate proposed `project.json` and `store.sqlite` under `~/.render/projects/<id>/`.
-- Whether the server opens every project at start or opens each on first use.
 - Whether the server needs a limit on concurrent model calls across projects.
 - A harness can open a store read-only "as a viewer of a session that another process drives" (measured, `src/harness/types.ts:759-765`). Whether that is useful here was not explored.

@@ -2,7 +2,9 @@
 
 **Decided.** Prose belongs to the workflow that uses it.
 
-**Proposed.** Workflows share one small function, `prose()`, that binds facts into Markdown files. It lives beside the core. The core does not import it. All three arena designs reached this answer independently.
+**Proposed.** Workflows share one small function, `prose()`, that binds facts into Markdown files. All three designs of the first arena reached this answer independently.
+
+**Decided.** `prose()` lives in the [standard library](library.md) beside the core, together with `role()`. The core does not import it.
 
 ## What pi-durable already renders
 
@@ -22,7 +24,9 @@ So three delivery slots exist.
 | A section | Prose that follows live state | The section renders different text at the next request |
 | The input | Guidance for one step | Never. It is in the transcript. |
 
-Pick the slot by whether a fix to the prose should reach running work. A role description belongs in a section. A contract that must stay fixed for a run belongs in `instructions`.
+Pick the slot by whether a fix to the prose should reach running work. Prose in a section does. Prose in `instructions` does not, unless code calls `configure()` again.
+
+The [walk](walk.md) put each role's prose in `instructions`. A role is fixed when its conversation is created, and `role()` takes the same settings that hold `instructions`. The cost is that a fix to a role's prose reaches new conversations only.
 
 What is missing is narrower. A workflow has long prose with a few facts to fill in, and nothing checks that the facts and the prose match.
 
@@ -79,9 +83,9 @@ Prose also grants nothing. A tool checks the workflow's state itself, whatever t
 
 ## Why it is a library and not a core primitive
 
-`prose()` needs nothing from the store, the client API, or the device identity. No client has to understand it. It fails the second check of the admission test in the [README](README.md).
+`prose()` needs nothing from the store, the client API, or the device identity. No client has to understand it. It guards no boundary, so it fails check 3 of the admission rule in the [README](README.md).
 
-It still earns a shared home. Both proving workflows need it, and a prose file written for one workflow can be reused by another only if the slot format is the same.
+It still earns a shared home. Both proving workflows need it, and a prose file written for one workflow can be reused by another only if the slot format is the same. [Standard library](library.md) has the rule for what enters that home.
 
 ## What `prose()` cannot do
 
