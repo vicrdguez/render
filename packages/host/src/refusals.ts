@@ -42,4 +42,6 @@ export const refuse = (
 type AnswerCode = Extract<AnswerResult, { kind: "refused" }>["refusal"]["code"];
 type Listed<T extends true> = T;
 /** Fails to compile when the store's `answer` table names a code this table lacks. */
-export type AnswerCodesListed = Listed<[AnswerCode] extends [Code] ? true : false>;
+export type AnswerCodesListed = Listed<
+	[AnswerCode] extends [Code] ? true : false
+>;

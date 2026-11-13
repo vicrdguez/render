@@ -54,7 +54,11 @@ export class Devices {
 	#wrong = 0;
 	#writing: Promise<void> = Promise.resolve();
 
-	private constructor(file: string, now: () => number, records: DeviceRecord[]) {
+	private constructor(
+		file: string,
+		now: () => number,
+		records: DeviceRecord[],
+	) {
 		this.#file = file;
 		this.#now = now;
 		this.#records = records;
@@ -69,7 +73,9 @@ export class Devices {
 		if (text !== undefined) {
 			const parsed = checkStored.validate(JSON.parse(text));
 			if (!parsed.ok)
-				throw new Error(`${file} does not fit: ${JSON.stringify(parsed.errors)}`);
+				throw new Error(
+					`${file} does not fit: ${JSON.stringify(parsed.errors)}`,
+				);
 			records = parsed.value.devices;
 		}
 		return new Devices(file, now, records);
@@ -80,24 +86,31 @@ export class Devices {
 		if (match === null) return undefined;
 		const [, device = "", secret = ""] = match;
 		const record = this.#records.find((r) => r.device === device);
-		if (record === undefined || record.revokedAt !== undefined) return undefined;
+		if (record === undefined || record.revokedAt !== undefined)
+			return undefined;
 		return timingSafeEqual(Buffer.from(record.hash, "hex"), sha(secret))
 			? device
 			: undefined;
 	}
 
-	issue(device: string): { code: string; expiresAt: number } | { error: string } {
+	issue(
+		device: string,
+	): { code: string; expiresAt: number } | { error: string } {
 		if (this.#records.some((r) => r.device === device))
 			return { error: `The device name ${device} is already used.` };
 		for (const [key, pending] of this.#codes)
 			if (pending.device === device) this.#codes.delete(key);
-		const raw = Array.from({ length: 8 }, () => ALPHABET[randomInt(32)]).join("");
+		const raw = Array.from({ length: 8 }, () => ALPHABET[randomInt(32)]).join(
+			"",
+		);
 		const expiresAt = this.#now() + CODE_LIFE;
 		this.#codes.set(sha(raw).toString("hex"), { device, expiresAt });
 		return { code: `${raw.slice(0, 4)}-${raw.slice(4)}`, expiresAt };
 	}
 
-	async pair(code: string): Promise<{ device: string; token: string } | undefined> {
+	async pair(
+		code: string,
+	): Promise<{ device: string; token: string } | undefined> {
 		const key = sha(normalize(code)).toString("hex");
 		const pending = this.#codes.get(key);
 		this.#codes.delete(key);

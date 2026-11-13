@@ -1,7 +1,7 @@
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
+import type { JsonValue } from "@earendil-works/chord/json";
 import type { WatchHandle } from "@earendil-works/chord/watch";
 import type { Models } from "@earendil-works/pi-ai";
-import type { JsonValue } from "@earendil-works/chord/json";
 import {
 	arr,
 	compile,
@@ -16,6 +16,7 @@ import {
 	unknown,
 } from "@earendil-works/pi-schema";
 import type { Devices } from "./devices.js";
+import { watchInbox } from "./inbox.js";
 import type { ExtensionModule } from "./index.js";
 import type { Options } from "./options.js";
 import { type OpenProject, PROJECT, type Projects } from "./projects.js";
@@ -46,7 +47,12 @@ function checked<T, R>(schema: Schema<T>, run: Run<T, R>): Run<unknown, R> {
 	};
 }
 function inProject<T extends { project: string }, R>(
-	run: (host: Host, device: string, input: T, open: OpenProject) => Promise<Outcome<R>>,
+	run: (
+		host: Host,
+		device: string,
+		input: T,
+		open: OpenProject,
+	) => Promise<Outcome<R>>,
 ): Run<T, R> {
 	return async (host, device, input) => {
 		const open = host.projects.get(input.project);
@@ -59,7 +65,10 @@ const unary = <T, R>(schema: Schema<T>, run: Run<T, R>): Call => ({
 	stream: false,
 	dispatch: checked(schema, run),
 });
-const stream = <T>(schema: Schema<T>, run: Run<T, WatchHandle<JsonValue>>): Call => ({
+const stream = <T>(
+	schema: Schema<T>,
+	run: Run<T, WatchHandle<JsonValue>>,
+): Call => ({
 	stream: true,
 	dispatch: checked(schema, run),
 });
@@ -71,7 +80,15 @@ const project = str({ pattern: PROJECT });
 const id = int({ minimum: 1 });
 const cursor = opt(str());
 const limit = opt(int({ minimum: 1 }));
-const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const levels = [
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+] as const;
 
 // The one list of calls. HTTP routes and `unknown_call` both read its keys.
 export const calls: Readonly<Record<string, Call>> = {
@@ -80,7 +97,9 @@ export const calls: Readonly<Record<string, Call>> = {
 			items: Object.entries(host.modules).map(([name, module]) => ({
 				name,
 				workflow: module.entry !== undefined,
-				...(module.options === undefined ? {} : { schema: module.options.schema }),
+				...(module.options === undefined
+					? {}
+					: { schema: module.options.schema }),
 			})),
 		},
 	})),
@@ -102,7 +121,12 @@ export const calls: Readonly<Record<string, Call>> = {
 	addExtensions: unary(
 		obj({ project, extensions: arr(str()) }),
 		inProject(async (host, _device, input) => ({
-			result: { project: await host.projects.addExtensions(input.project, input.extensions) },
+			result: {
+				project: await host.projects.addExtensions(
+					input.project,
+					input.extensions,
+				),
+			},
 		})),
 	),
 	options: unary(
@@ -113,7 +137,11 @@ export const calls: Readonly<Record<string, Call>> = {
 				for (const name of open.record.extensions) {
 					const options = host.options.get(name);
 					if (options === undefined) continue;
-					views.push({ extension: name, schema: options.schema, ...(await options.view(tx)) });
+					views.push({
+						extension: name,
+						schema: options.schema,
+						...(await options.view(tx)),
+					});
 				}
 				return views;
 			}, context);
@@ -124,12 +152,20 @@ export const calls: Readonly<Record<string, Call>> = {
 		obj({ project, extension: str(), patch: map(unknown()) }),
 		inProject(async (host, _device, input, open) => {
 			const name = input.extension;
-			if (!open.record.extensions.includes(name) || !Object.hasOwn(host.modules, name))
-				return refuse("extension_not_loaded", `${input.project} has no extension ${name}.`);
+			if (
+				!open.record.extensions.includes(name) ||
+				!Object.hasOwn(host.modules, name)
+			)
+				return refuse(
+					"extension_not_loaded",
+					`${input.project} has no extension ${name}.`,
+				);
 			const options = host.options.get(name);
 			if (options === undefined)
 				return refuse("bad_options", `${name} has no options.`, {
-					errors: [{ path: "", keyword: "options", message: `${name} has no options` }],
+					errors: [
+						{ path: "", keyword: "options", message: `${name} has no options` },
+					],
 				});
 			const patched = await open.store.harness.commit(
 				(tx) => options.patch(tx, input.patch),
@@ -147,7 +183,10 @@ export const calls: Readonly<Record<string, Call>> = {
 		inProject(notYet),
 	),
 	conversations: unary(obj({ project, cursor, limit }), inProject(notYet)),
-	open: stream(obj({ project, conversation: id, after: opt(int({ minimum: 0 })) }), inProject(notYet)),
+	open: stream(
+		obj({ project, conversation: id, after: opt(int({ minimum: 0 })) }),
+		inProject(notYet),
+	),
 	history: unary(
 		obj({
 			project,
@@ -171,13 +210,23 @@ export const calls: Readonly<Record<string, Call>> = {
 		}),
 		inProject(notYet),
 	),
-	continue: unary(obj({ project, conversation: id, requestId: str({ minLength: 1 }) }), inProject(notYet)),
-	stop: unary(obj({ project, conversation: id }), inProject(notYet)),
-	setModel: unary(
-		obj({ project, conversation: id, model: str(), thinkingLevel: opt(oneOf(levels)) }),
+	continue: unary(
+		obj({ project, conversation: id, requestId: str({ minLength: 1 }) }),
 		inProject(notYet),
 	),
-	inbox: stream(obj({}), notYet),
+	stop: unary(obj({ project, conversation: id }), inProject(notYet)),
+	setModel: unary(
+		obj({
+			project,
+			conversation: id,
+			model: str(),
+			thinkingLevel: opt(oneOf(levels)),
+		}),
+		inProject(notYet),
+	),
+	inbox: stream(obj({}), async (host) => ({
+		result: await watchInbox(host.projects),
+	})),
 	decision: unary(obj({ project, decision: str() }), inProject(notYet)),
 	answer: unary(
 		obj({
@@ -188,12 +237,17 @@ export const calls: Readonly<Record<string, Call>> = {
 			annotations: arr(
 				obj({
 					text: str(),
-					range: opt(obj({ start: int({ minimum: 0 }), end: int({ minimum: 0 }) })),
+					range: opt(
+						obj({ start: int({ minimum: 0 }), end: int({ minimum: 0 }) }),
+					),
 				}),
 			),
 		}),
 		inProject(notYet),
 	),
-	timeline: stream(obj({ project, after: opt(int({ minimum: 0 })) }), inProject(notYet)),
+	timeline: stream(
+		obj({ project, after: opt(int({ minimum: 0 })) }),
+		inProject(notYet),
+	),
 	faults: unary(obj({ project, cursor, limit }), inProject(notYet)),
 };

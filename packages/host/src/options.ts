@@ -1,5 +1,5 @@
-import type { Models } from "@earendil-works/pi-ai";
 import type { JsonValue } from "@earendil-works/chord/json";
+import type { Models } from "@earendil-works/pi-ai";
 import type { JsonObject, Tx } from "@earendil-works/pi-durable";
 import {
 	compile,
@@ -30,7 +30,10 @@ export function modelRef(value: string) {
 
 export const hasModel = (models: () => Models, value: string) => {
 	const ref = modelRef(value);
-	return ref !== undefined && models().getModel(ref.provider, ref.modelId) !== undefined;
+	return (
+		ref !== undefined &&
+		models().getModel(ref.provider, ref.modelId) !== undefined
+	);
 };
 
 /** The host's half of the options contract: checks with defaults filled, and replies with secrets hidden. */
@@ -67,11 +70,16 @@ export class Options {
 
 	hide(value: JsonObject): JsonObject {
 		return Object.fromEntries(
-			Object.entries(value).map(([key, v]) => [key, this.#secrets.has(key) ? true : v]),
+			Object.entries(value).map(([key, v]) => [
+				key,
+				this.#secrets.has(key) ? true : v,
+			]),
 		);
 	}
 
-	async view(tx: Tx): Promise<{ value: JsonObject; errors: ValidationError[] }> {
+	async view(
+		tx: Tx,
+	): Promise<{ value: JsonObject; errors: ValidationError[] }> {
 		const value = await this.#contract.get(tx);
 		return { value: this.hide(value), errors: this.errors(value) };
 	}

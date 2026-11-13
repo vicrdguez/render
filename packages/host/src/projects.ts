@@ -75,7 +75,10 @@ export class Projects {
 	readonly skipped: { project: string; reason: string }[] = [];
 	readonly #root: string;
 	readonly #options: ServerOptions;
-	readonly #open = new Map<string, OpenProject & { selection: Opened["selection"]; lock: Opened["lock"] }>();
+	readonly #open = new Map<
+		string,
+		OpenProject & { selection: Opened["selection"]; lock: Opened["lock"] }
+	>();
 	readonly #queues = new Map<string, Promise<unknown>>();
 	readonly #joined = new Set<(project: OpenProject) => void>();
 
@@ -118,10 +121,12 @@ export class Projects {
 		return this.#open.get(name);
 	}
 
+	all(): OpenProject[] {
+		return [...this.#open.values()].sort((a, b) => (a.name < b.name ? -1 : 1));
+	}
+
 	list(): ProjectView[] {
-		return [...this.#open.values()]
-			.sort((a, b) => (a.name < b.name ? -1 : 1))
-			.map((open) => this.view(open.record));
+		return this.all().map((open) => this.view(open.record));
 	}
 
 	view(record: Project): ProjectView {
@@ -135,7 +140,9 @@ export class Projects {
 		};
 	}
 
-	bind(input: Project): Promise<Outcome<{ project: ProjectView; repeated: boolean }>> {
+	bind(
+		input: Project,
+	): Promise<Outcome<{ project: ProjectView; repeated: boolean }>> {
 		return this.#serial(input.project, async () => {
 			const known = this.#open.get(input.project);
 			if (known !== undefined) return this.#compare(known.record, input);
@@ -198,7 +205,10 @@ export class Projects {
 		for (const project of open) await shut(project);
 	}
 
-	#compare(stored: Project, input: Project): Outcome<{ project: ProjectView; repeated: boolean }> {
+	#compare(
+		stored: Project,
+		input: Project,
+	): Outcome<{ project: ProjectView; repeated: boolean }> {
 		return same(stored, input)
 			? { result: { project: this.view(stored), repeated: true } }
 			: refuse("conflict", `${input.project} is bound with other fields.`, {
@@ -223,7 +233,9 @@ export class Projects {
 			const registry = createRegistry();
 			const selection: Opened["selection"] = { defaults: [] };
 			const { models, env, now } = this.#options;
-			const storage = await openNodeSqliteStorage(path.join(directory, "store.sqlite"));
+			const storage = await openNodeSqliteStorage(
+				path.join(directory, "store.sqlite"),
+			);
 			const store = await openStore(
 				storage,
 				{
@@ -243,7 +255,10 @@ export class Projects {
 	}
 
 	async #finish(opened: Opened, record: Project) {
-		const log = await opened.store.harness.commit((tx) => eventLog(tx), context);
+		const log = await opened.store.harness.commit(
+			(tx) => eventLog(tx),
+			context,
+		);
 		const open = { ...opened, log, record };
 		opened.registry.install(CodingTools);
 		this.#install(open);
@@ -255,7 +270,9 @@ export class Projects {
 	#install(open: Opened & { record: Project }) {
 		const modules = open.record.extensions.flatMap((name) => {
 			const module = this.#options.modules[name];
-			return Object.hasOwn(this.#options.modules, name) && module !== undefined ? [module] : [];
+			return Object.hasOwn(this.#options.modules, name) && module !== undefined
+				? [module]
+				: [];
 		});
 		const installed = open.registry.snapshot();
 		for (const module of modules)

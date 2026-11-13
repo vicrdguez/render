@@ -47,7 +47,10 @@ export type ServerOptions = {
 export type Server = {
 	readonly address: { readonly host: "127.0.0.1"; readonly port: number };
 	/** Directories under `projects/` that start did not open, and why. A resent `bind` finishes one. */
-	readonly skipped: readonly { readonly project: string; readonly reason: string }[];
+	readonly skipped: readonly {
+		readonly project: string;
+		readonly reason: string;
+	}[];
 	/** Ends every stream with `stopping`, then closes each store and releases its lock. */
 	close(): Promise<void>;
 };
@@ -55,7 +58,9 @@ export type Server = {
 export async function startServer(options: ServerOptions): Promise<Server> {
 	for (const [key, module] of Object.entries(options.modules)) {
 		if (key !== module.extension.name)
-			throw new Error(`the module map has ${module.extension.name} under the key ${key}`);
+			throw new Error(
+				`the module map has ${module.extension.name} under the key ${key}`,
+			);
 	}
 	await mkdir(options.home, { recursive: true, mode: 0o700 });
 	await chmod(options.home, 0o700);
@@ -88,7 +93,8 @@ export async function startServer(options: ServerOptions): Promise<Server> {
 			http.listen(options.port ?? 6283, "127.0.0.1", () => resolve());
 		});
 		const address = http.address();
-		const port = typeof address === "object" && address !== null ? address.port : 0;
+		const port =
+			typeof address === "object" && address !== null ? address.port : 0;
 		const adminServer = admin;
 		let closing: Promise<void> | undefined;
 		return {
@@ -108,7 +114,9 @@ export async function startServer(options: ServerOptions): Promise<Server> {
 			},
 		};
 	} catch (error) {
-		await new Promise((resolve) => (admin ? admin.close(resolve) : resolve(undefined)));
+		await new Promise((resolve) =>
+			admin ? admin.close(resolve) : resolve(undefined),
+		);
 		await projects.close();
 		throw error;
 	}

@@ -63,7 +63,9 @@ export async function requestAdmin(
 		JSON.parse(await exchange(adminSocket(home), JSON.stringify(request))),
 	);
 	if (!parsed.ok)
-		throw new Error(`the server's reply does not fit: ${JSON.stringify(parsed.errors)}`);
+		throw new Error(
+			`the server's reply does not fit: ${JSON.stringify(parsed.errors)}`,
+		);
 	return parsed.value;
 }
 
@@ -92,7 +94,9 @@ async function handle(devices: Devices, line: string): Promise<AdminResult> {
 	}
 	const parsed = checkRequest.validate(body);
 	if (!parsed.ok)
-		return { error: `The request does not fit: ${JSON.stringify(parsed.errors)}` };
+		return {
+			error: `The request does not fit: ${JSON.stringify(parsed.errors)}`,
+		};
 	const request = parsed.value;
 	if (request.command === "pair") return devices.issue(request.device);
 	if (request.command === "revoke") return devices.revoke(request.device);
@@ -103,7 +107,7 @@ export async function listenAdmin(
 	file: string,
 	devices: Devices,
 ): Promise<net.Server> {
-	const server = net.createServer((socket) => {
+	const server = net.createServer({ allowHalfOpen: true }, (socket) => {
 		let line = "";
 		let answered = false;
 		const answer = async () => {

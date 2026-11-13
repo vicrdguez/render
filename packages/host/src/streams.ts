@@ -1,6 +1,6 @@
 import type { ServerResponse } from "node:http";
-import type { WatchHandle } from "@earendil-works/chord/watch";
 import type { JsonValue } from "@earendil-works/chord/json";
+import type { WatchHandle } from "@earendil-works/chord/watch";
 import type { EndReason } from "./devices.js";
 
 const HEARTBEAT = 15_000;
@@ -38,7 +38,8 @@ export function pipe(
 		new Promise<void>((resolve) => {
 			if (done) return resolve();
 			arm();
-			if (response.write(`data: ${JSON.stringify(frame)}\n\n`)) return resolve();
+			if (response.write(`data: ${JSON.stringify(frame)}\n\n`))
+				return resolve();
 			const cut = setTimeout(() => finish("cut"), DRAIN);
 			const settle = () => {
 				clearTimeout(cut);

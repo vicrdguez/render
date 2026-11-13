@@ -1,4 +1,8 @@
-import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
+import type {
+	IncomingMessage,
+	RequestListener,
+	ServerResponse,
+} from "node:http";
 import { compile, obj, str } from "@earendil-works/pi-schema";
 import { type Call, calls, type Host } from "./calls.js";
 import { type Outcome, refuse, statusOf } from "./refusals.js";
@@ -7,11 +11,17 @@ import { pipe } from "./streams.js";
 const BODY_LIMIT = 1024 * 1024;
 const LOOPBACK = ["127.0.0.1", "localhost", "[::1]"];
 const checkPair = compile(obj({ code: str() }));
-type Unknown = { readonly unknown: { code: "storage_failed"; message: string } };
+type Unknown = {
+	readonly unknown: { code: "storage_failed"; message: string };
+};
 
 function reply(response: ServerResponse, body: Outcome<unknown> | Unknown) {
 	const status =
-		"result" in body ? 200 : "refused" in body ? statusOf[body.refused.code] : 500;
+		"result" in body
+			? 200
+			: "refused" in body
+				? statusOf[body.refused.code]
+				: 500;
 	response.writeHead(status, {
 		"Content-Type": "application/json",
 		"Cache-Control": "no-store",
@@ -46,8 +56,14 @@ async function readBody(request: IncomingMessage): Promise<Outcome<unknown>> {
 }
 
 /** The HTTP side of the server: one POST per call, and an event stream for a watch. */
-export function handler(host: Host, allowedHosts: readonly string[]): RequestListener {
-	const allowed = new Set([...LOOPBACK, ...allowedHosts.map((h) => h.toLowerCase())]);
+export function handler(
+	host: Host,
+	allowedHosts: readonly string[],
+): RequestListener {
+	const allowed = new Set([
+		...LOOPBACK,
+		...allowedHosts.map((h) => h.toLowerCase()),
+	]);
 	const sameSite = (request: IncomingMessage) => {
 		const header = request.headers.host;
 		if (header === undefined || !allowed.has(hostname(header))) return false;
@@ -61,7 +77,10 @@ export function handler(host: Host, allowedHosts: readonly string[]): RequestLis
 	};
 	const route = async (request: IncomingMessage, response: ServerResponse) => {
 		if (!sameSite(request))
-			return reply(response, refuse("unauthorized", "This Host or Origin is not allowed."));
+			return reply(
+				response,
+				refuse("unauthorized", "This Host or Origin is not allowed."),
+			);
 		const name = /^\/v1\/([A-Za-z]*)$/.exec(request.url ?? "")?.[1];
 		if (name === "pair" && request.method === "POST") {
 			const body = await readBody(request);
@@ -84,9 +103,14 @@ export function handler(host: Host, allowedHosts: readonly string[]): RequestLis
 		}
 		const device = host.devices.authenticate(request.headers.authorization);
 		if (device === undefined)
-			return reply(response, refuse("unauthorized", "Send a valid device token."));
+			return reply(
+				response,
+				refuse("unauthorized", "Send a valid device token."),
+			);
 		const call: Call | undefined =
-			request.method === "POST" && name !== undefined && Object.hasOwn(calls, name)
+			request.method === "POST" &&
+			name !== undefined &&
+			Object.hasOwn(calls, name)
 				? calls[name]
 				: undefined;
 		if (call === undefined)
@@ -98,7 +122,8 @@ export function handler(host: Host, allowedHosts: readonly string[]): RequestLis
 			);
 		const body = await readBody(request);
 		if ("refused" in body) return reply(response, body);
-		if (!call.stream) return reply(response, await call.dispatch(host, device, body.result));
+		if (!call.stream)
+			return reply(response, await call.dispatch(host, device, body.result));
 		const opened = await call.dispatch(host, device, body.result);
 		if ("refused" in opened) return reply(response, opened);
 		pipe(opened.result, response, (end) => host.devices.attach(device, end));
