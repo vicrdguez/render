@@ -147,7 +147,7 @@ export const score = defineTask<
 						};
 						await emit(tx, Resolved, {
 							...event,
-							text: `Forecast resolved ${task.input.choice}. Brier score: ${brier}.`,
+							text: `Forecast resolved ${task.input.choice}. Brier score: ${brier.toFixed(3)}.`,
 							p,
 							outcome,
 							score: brier,
