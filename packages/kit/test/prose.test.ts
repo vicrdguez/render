@@ -42,11 +42,11 @@ test("missing files and differing slot sets stop a child module at import", (t) 
 	];
 	for (const item of cases) {
 		if (item.body !== undefined)
-			writeFileSync(join(directory, item.name + ".md"), item.body);
-		const module = join(directory, item.name + ".mjs");
+			writeFileSync(join(directory, `${item.name}.md`), item.body);
+		const module = join(directory, `${item.name}.mjs`);
 		writeFileSync(
 			module,
-			`import { prose } from ${JSON.stringify(kit)};\nprose(import.meta.dirname, ${JSON.stringify(item.name + ".md")}, ${JSON.stringify(item.slots)});\nconsole.log("loaded");\n`,
+			`import { prose } from ${JSON.stringify(kit)};\nprose(import.meta.dirname, ${JSON.stringify(`${item.name}.md`)}, ${JSON.stringify(item.slots)});\nconsole.log("loaded");\n`,
 		);
 		const child = spawnSync(process.execPath, [module], { encoding: "utf8" });
 		assert.equal(child.status, 1, item.name + child.stderr);
