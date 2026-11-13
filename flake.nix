@@ -81,6 +81,7 @@
               node tools/check-lock.mjs
               node tools/check-boundaries.mjs
               node node_modules/typescript/bin/tsc -b
+              node tools/assets.mjs
             '';
             test = mkCommand "test" [ ] ''
               ${commands.typecheck}/bin/typecheck

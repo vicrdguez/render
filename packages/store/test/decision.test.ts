@@ -92,30 +92,51 @@ test("an equal draft returns the open decision and writes nothing, whatever requ
 	assert.equal(s.commits(), before, "no commit reached storage");
 });
 
-test("any other difference supersedes the open decision and opens a new ID", async () => {
-	const s = await setup();
-	const draft = await s.draft();
-	await s.ask(draft);
-	const other = (
-		await s.store.harness.commit(
-			(tx) => tx.createConversation({ ownership: { kind: "ownerless" } }),
-			context,
-		)
-	).id;
-	const changes = [
-		{ title: "Review the second design" },
-		{ basis: await s.basis("The design text.") },
-		{ choices: ["approve", "abort"] as ["approve", "abort"] },
-		{ conversation: other },
-		{ then: Fails },
-	];
-	for (const [index, change] of changes.entries()) {
-		const previous: DecisionId = `test:k#${index + 1}`;
+test("a draft that differs from the open decision in one field supersedes it and opens a new ID", async () => {
+	const cases: Record<
+		string,
+		(
+			s: Awaited<ReturnType<typeof setup>>,
+		) => Promise<
+			[Partial<Awaited<ReturnType<typeof s.draft>>>, Partial<Decision>]
+		>
+	> = {
+		title: async () => [
+			{ title: "Review the second design" },
+			{ title: "Review the second design" },
+		],
+		basis: async (s) => {
+			const basis = await s.basis("The design text.");
+			return [{ basis }, { basis: basis.id }];
+		},
+		choices: async () => [
+			{ choices: ["approve", "abort"] },
+			{ choices: ["approve", "abort"] },
+		],
+		conversation: async (s) => {
+			const { id } = await s.store.harness.commit(
+				(tx) => tx.createConversation({ ownership: { kind: "ownerless" } }),
+				context,
+			);
+			return [{ conversation: id }, { conversation: id }];
+		},
+		then: async () => [{ then: Fails }, { then: { task: "test.fails" } }],
+	};
+	for (const [field, make] of Object.entries(cases)) {
+		const s = await setup();
+		const draft = await s.draft();
+		const baseline = await s.ask(draft);
+		const [change, stored] = await make(s);
 		const opened = await s.ask({ ...draft, ...change });
-		assert.equal(opened.id, `test:k#${index + 2}`, JSON.stringify(change));
-		assert.equal(opened.status, "open");
-		assert.equal((await s.read(previous))?.status, "superseded");
-		assert.equal((await openList(s.store))["test:k"]?.id, opened.id);
+		assert.equal(baseline.id, "test:k#1", field);
+		assert.deepEqual(opened, { ...baseline, ...stored, id: "test:k#2" }, field);
+		assert.deepEqual(await s.read(opened.id), opened, field);
+		assert.deepEqual(
+			await s.read(baseline.id),
+			{ ...baseline, status: "superseded" },
+			field,
+		);
+		assert.equal((await openList(s.store))["test:k"]?.id, opened.id, field);
 	}
 });
 

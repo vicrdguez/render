@@ -70,6 +70,17 @@ export async function check(root) {
 			const target = path.resolve(path.dirname(file), spec);
 			if (!target.startsWith(pkg.directory + path.sep))
 				errors.push(`${label}: cross-package relative import`);
+			const testDirectory = path.join(pkg.directory, "test");
+			if (
+				file.startsWith(path.join(pkg.directory, "src") + path.sep) &&
+				(target === testDirectory ||
+					target.startsWith(testDirectory + path.sep))
+			)
+				errors.push(`${label}: source import of tests forbidden`);
+			return;
+		}
+		if (spec === "module" || spec === "node:module") {
+			errors.push(`${label}: CommonJS escape forbidden`);
 			return;
 		}
 		if (builtins.has(spec)) return;
@@ -124,21 +135,12 @@ export async function check(root) {
 					node.moduleSpecifier
 				) {
 					inspectSpecifier(pkg, file, node.moduleSpecifier.text);
-					if (
-						ts.isImportDeclaration(node) &&
-						["node:module", "module"].includes(node.moduleSpecifier.text) &&
-						node.importClause?.namedBindings &&
-						ts.isNamedImports(node.importClause.namedBindings) &&
-						node.importClause.namedBindings.elements.some(
-							(binding) =>
-								(binding.propertyName ?? binding.name).text === "createRequire",
-						)
-					)
-						errors.push(`${file}: CommonJS escape forbidden`);
 				}
 				if (
-					ts.isPropertyAccessExpression(node) &&
-					node.name.text === "createRequire"
+					(ts.isIdentifier(node) && node.text === "getBuiltinModule") ||
+					(ts.isElementAccessExpression(node) &&
+						ts.isStringLiteral(node.argumentExpression) &&
+						node.argumentExpression.text === "getBuiltinModule")
 				)
 					errors.push(`${file}: CommonJS escape forbidden`);
 				if (ts.isImportTypeNode(node)) {
@@ -162,7 +164,7 @@ export async function check(root) {
 					}
 					if (
 						ts.isIdentifier(node.expression) &&
-						["require", "createRequire"].includes(node.expression.text)
+						node.expression.text === "require"
 					)
 						errors.push(`${file}: CommonJS escape forbidden`);
 				}

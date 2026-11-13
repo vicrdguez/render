@@ -1,4 +1,8 @@
 {
 	"files": [],
-	"references": [{ "path": "packages/store" }, { "path": "packages/host" }]
+	"references": [
+		{ "path": "packages/store" },
+		{ "path": "packages/kit" },
+		{ "path": "packages/host" }
+	]
 }
