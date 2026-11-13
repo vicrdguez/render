@@ -86,11 +86,15 @@ export function createSearchExtension(
 						});
 						if (!response.check(document))
 							throw new Error("Invalid search response");
+						const redact = (text: string) =>
+							text.includes(apiKey.slice(0, 4)) ? "[redacted]" : text;
 						const results = document.results.flatMap((result) =>
 							result.value.results.map((hit) => ({
-								...(hit.title === undefined ? {} : { title: hit.title }),
-								url: hit.url,
-								snippet: hit.snippet,
+								...(hit.title === undefined
+									? {}
+									: { title: redact(hit.title) }),
+								url: redact(hit.url),
+								snippet: redact(hit.snippet),
 							})),
 						);
 						return {
