@@ -6,6 +6,8 @@ After the [walk](walk.md), the owner answered its open questions. The answers le
 
 **Proposed.** Everything else in this file. Nothing is implemented. Each change to the core carries its five checks from the admission rule in the [README](README.md).
 
+Two later passes changed this file. [Extensions](extensions.md) made the extension the unit that a project selects, so `workflows` became `extensions`, `addWorkflows` became `addExtensions`, and `WorkflowModule` became `ExtensionModule`. [Protocol](protocol.md) says how each call travels, and it changed `open`, `timeline`, and the request ID.
+
 The moves this file leans on ran on pi-durable 1.5.2 with SQLite files, in `spikes/host.mjs`, checks H1 to H12. That file uses stand-ins shaped like the design. No Tau code exists.
 
 ## The owner's rulings
@@ -26,16 +28,16 @@ Every call carries the device's token. Every call but the first three and the in
 
 | Call | The client sends | It gets back | Built on | A resend |
 | --- | --- | --- | --- | --- |
-| `workflows` | | The name and the options schema of each workflow the server has | The host's import map | Reads again |
+| `extensions` | | For each extension the server has: its name, whether it is a workflow, and its options schema | The host's import map | Reads again |
 | `models` | | The models the server can use | pi-ai `getAvailable()` (measured, `packages/ai/src/models.ts:302`) | Reads again |
-| `projects` | | Each project: its name, its working directory, its workflows, and any workflow the server no longer has | Each store's `Project` document | Reads again |
-| `bind` | A name, a working directory, workflow names | The project | "Binding a project" below | Equal fields return it with `repeated`. Other fields give `conflict`. |
-| `addWorkflows` | Workflow names | The project | "Binding a project" below | The same names change nothing |
-| `options` | | For each workflow of the project: the schema, the keys that are set, and what is still wrong | "Options per project" below | Reads again |
-| `setOptions` | A workflow and a patch | The keys that are set, or `bad_options` with the errors | "Options per project" below | The same patch gives the same value |
-| `create` | A workflow name, or a model for a bare conversation | The conversation ID, or `options_invalid` | One commit, see "Options per project" | A second conversation |
+| `projects` | | Each project: its name, its working directory, its extensions, and any extension the server no longer has | Each store's `Project` document | Reads again |
+| `bind` | A name, a working directory, extension names | The project | "Binding a project" below | Equal fields return it with `repeated`. Other fields give `conflict`. |
+| `addExtensions` | Extension names | The project | "Binding a project" below | The same names change nothing |
+| `options` | | For each extension of the project that has options: the schema, the keys that are set, and what is still wrong | "Options per project" below | Reads again |
+| `setOptions` | An extension and a patch | The keys that are set, or `bad_options` with the errors | "Options per project" below | The same patch gives the same value |
+| `create` | A workflow's name, or a model for a bare conversation | The conversation ID, or `options_invalid`, or `not_a_workflow` | One commit, see "Options per project" | A second conversation |
 | `conversations` | A cursor | A page: each ID, its owner, and idle, running, or failed | `tx.scanConversations` (measured, `src/types.ts:995-999`), then `pi.live` | Reads again |
-| `open` | A conversation | Its newest entries, settings, queue, run, and last failure, then each change | `Conversation.watch()` (measured, `src/harness/types.ts:886-891`, `src/harness/view.ts:78-84`) | A new snapshot |
+| `open` | A conversation, and the newest entry the client holds | Its newest entries, settings, queue, run, and last failure, then each change | `Conversation.watch()` (measured, `src/harness/types.ts:886-891`, `src/harness/view.ts:78-84`) | A new snapshot |
 | `history` | A conversation, a cursor | A page of older entries | `Conversation.entries()` (measured, `src/harness/types.ts:869-874`) | Reads again |
 | `input` | A conversation, text, a request ID, steer or follow-up, and "only if running" | The submission | `Conversation.submit()` (measured, `src/harness/types.ts:77-91,838`) | The first submission |
 | `continue` | A conversation, a request ID | The submission, or `busy` | `submit({ type: "continue" })` (measured, `src/harness/types.ts:100-113`) | The first submission |
@@ -44,40 +46,40 @@ Every call carries the device's token. Every call but the first three and the in
 | `inbox` | | The open decisions of all projects, then each change | Each store's open list and `watchDoc` (measured, `src/types.ts:1145`) | A new snapshot |
 | `decision` | A decision ID | The record, the `text` of its basis, and the state of its `then` task | `decision`, `tx.entry`, `getTask` (measured, `src/harness/types.ts:921`) | Reads again |
 | `answer` | A decision ID, the basis, the choice, the annotations | The `answer` table in [Primitives](primitives.md) | `answer` | The same table |
-| `timeline` | A cursor | The project's events, then each new one | `eventLog`, then the log's entries | A new snapshot |
+| `timeline` | The newest event the client holds | The project's newest events, then each new one. Older ones come from `history`. | `eventLog`, then a watch of the log | A new snapshot |
 | `faults` | A cursor | "Faulted tasks" below | `tx.scanTasks` | Reads again |
 
 Notes on the rows:
 
 - **W0 is `models`, `projects`, `bind`, and `create` through `setModel`.** The same rows serve a conversation that a workflow created.
-- **A request ID is the client's.** pi-durable returns the earlier submission for a reused ID and compares only the type (measured, `src/harness/submissions.ts:231-239`, H4). So a client resends the same text. The host puts `client:` in front of the ID, so that it cannot equal an ID a workflow uses in the same conversation.
+- **A request ID is the client's.** pi-durable returns the earlier submission for a reused ID and compares only the type (measured, `src/harness/submissions.ts:231-239`, H4). So a client resends the same text. The host puts `client:` and the device's name in front of the ID. It then cannot equal an ID that a workflow uses in the same conversation, or one that another device sends. The first version of this file had `client:` alone, and two devices could collide.
 - **A second `stop` is not harmless.** If a new run started in between, the second call ends that one (measured, `src/harness/scheduler.ts:668-691`, H9). Two candidates of the arena got this wrong.
 - **`setModel` changes the model and the thinking level only.** The tools and the instructions belong to the role. A change applies from the next model request, also in a run that is working (measured, `README.md:402`, H5).
-- **The event log is not a conversation for a client.** `conversations` leaves it out, and `input`, `continue`, `stop`, and `setModel` refuse its ID. Nothing may run in it.
+- **A client reads the event log and never writes to it.** `timeline` and `history` read it. `conversations` leaves it out, and `input`, `continue`, `stop`, and `setModel` refuse its ID. Nothing may run in it.
 - **`conversations` says which ones failed.** A failed run opens no decision, so without this a client must open each conversation to find it.
 
-Not in the list, because no ruling asks for it: unbinding a project, removing a workflow, deleting a conversation, withdrawing a queued input, and how a device gets its token.
+Not in the list, because no ruling asks for it: unbinding a project, removing an extension, deleting a conversation, and withdrawing a queued input. How a device gets its token is in [Protocol](protocol.md).
 
 - **Checks 1 and 2.** The bare agent cannot be reached from a second machine. pi-durable is a library and exports no transport.
 - **Checks 3 and 4.** Only the host checks devices and routes a call to a store. A client that knows no workflow needs each row, and W0, W1, and W2 use them.
 - **Check 5.** Each row is one pi-durable call or one host commit. No row adds a loop or a scheduler.
 
-## Binding a project and choosing workflows
+## Binding a project and choosing extensions
 
-`bind({ project, workdir, workflows })`
+`bind({ project, workdir, extensions })`
 
 - **`project`** is a short name that the client picks, matching `^[a-z0-9][a-z0-9-]{0,62}$`. It is the project's ID in every later call and the name of its directory. Because the client picks it, a resent `bind` finds its project.
 - **`workdir`** is the directory where the project's agents work, as an absolute path on the server.
-- **`workflows`** are names from `workflows`. The list can be empty.
+- **`extensions`** are names from the `extensions` call: workflows, and extensions that are not workflows. The list can be empty.
 
 What the server stores:
 
 - `~/.tau/projects/<project>/store.sqlite` and a lock file beside it.
-- In the store, one session document, `Project`, with `{ project, workdir, workflows }`. The host layer owns it. The store layer does not read it.
+- In the store, one session document, `Project`, with `{ project, workdir, extensions }`. The host layer owns it. The store layer does not read it.
 
 The server keeps no catalogue file. The catalogue is the list of directories, so it cannot disagree with the stores.
 
-A bind runs in this order. The host checks the name and the workflow names, makes the directory, takes the lock, and opens the store with an empty registry. The store layer's first open creates the event log. One host commit writes `Project`. The host then installs `coding-tools` and the workflows, and calls `resume()`. A crash before that commit leaves a store with no `Project`. The server skips such a store at start, and the resent `bind` finishes it.
+A bind runs in this order. The host checks the name and the extension names, makes the directory, takes the lock, and opens the store with an empty registry. The store layer's first open creates the event log. One host commit writes `Project`. The host then installs `coding-tools` and the extensions, builds the project's default selection, and calls `resume()`. A crash before that commit leaves a store with no `Project`. The server skips such a store at start, and the resent `bind` finishes it.
 
 ### A project has a working directory
 
@@ -89,17 +91,17 @@ The walk gave no conversation a working directory. The designer has `read` and `
 
 ### How a conversation gets its workflow
 
-`create` names one of the project's workflows. The host uses that module's `entry` (see "Options per project"). With no workflow, the host creates the bare agent: `{ cwd, model, extensions: [codingTools] }`, with the model the client sent. Without a model the first run would end with `no_model` (measured, `src/harness/generation.ts:185-189`).
+`create` names one of the project's workflows, which is an extension whose module has `entry`. The host uses that `entry` (see "Options per project"). With no workflow, the host creates the bare agent: `{ cwd, model }`, with the model the client sent and no selection of its own. Without a model the first run would end with `no_model` (measured, `src/harness/generation.ts:185-189`).
 
-Every project's registry holds `coding-tools`, so every project can run the bare agent.
+The bare agent follows the project's default selection: `coding-tools`, then the project's extensions that are not workflows. [Extensions](extensions.md) has the reasons, and it changes a line the owner had decided.
 
-### Adding a workflow, and why none is removed
+### Adding an extension, and why none is removed
 
-`addWorkflows` writes the longer list to `Project` in one commit and then calls `registry.install()`, which publishes at once (measured, `src/harness/types.ts:458`, `src/harness/registry.ts:74-91`). A crash between the two is repaired at start.
+`addExtensions` writes the longer list to `Project` in one commit, calls `registry.install()`, which publishes at once, and rebuilds the default (measured, `src/harness/types.ts:458`, `src/harness/registry.ts:74-91`). A crash between the steps is repaired at start.
 
-No live work changes. Every conversation names its extensions, so a new workflow's tools do not appear in it (measured, H11). The new workflow's options start unset, and `create` for it refuses until they are set.
+A workflow that is added changes no live work. It is never in the default, and a conversation that names its extensions exactly sees nothing new (measured, H11). Its options start unset, and `create` for it refuses until they are set. An extension that is not a workflow reaches the conversations that follow the default, from their next model request. See [Extensions](extensions.md).
 
-**Removing a workflow is not offered.** The owner accepted that for now. Uninstalling does not park running work. A task that was running when its extension was uninstalled went on through its next phase under the old definition (measured, `src/harness/scheduler.ts:2340-2371`, H12). The judge of the arena found this with a probe of its own, against a candidate that had claimed the opposite. A safe removal would have to wait for live work or refuse while there is any, and no ruling asks for either.
+**Removing an extension is not offered.** The owner accepted that for now. Uninstalling does not park running work. A task that was running when its extension was uninstalled went on through its next phase under the old definition (measured, `src/harness/scheduler.ts:2340-2371`, H12). The judge of the arena found this with a probe of its own, against a candidate that had claimed the opposite. A safe removal would have to wait for live work or refuse while there is any, and no ruling asks for either.
 
 ### What the server reads at start
 
@@ -107,26 +109,26 @@ No live work changes. Every conversation names its extensions, so a new workflow
 2. The names under `~/.tau/projects/`.
 3. For each one: the lock, then the store, opened with an empty registry. pi-durable sets `running` tasks back to `pending` (measured, `src/harness/harness.ts:299`).
 4. `Project`. A store without one, or with another project's name in it, is skipped and reported.
-5. It installs `coding-tools` and each listed workflow that the import map has, and calls `resume()`. A listed workflow that the server no longer has is reported in `projects`. Its tasks wait.
+5. It installs `coding-tools` and each listed extension that the import map has, builds the default, and calls `resume()`. A listed extension that the server no longer has is reported in `projects`. Its tasks wait, and its tools are not offered.
 
 Nothing else is read. Options, decisions, and events are in the store, and code reads them when it uses them.
 
 A store that was reopened with an empty registry and resumed kept a due timer as `blocked` with `missing_task`. The timer ran after the install (measured, H1). So this order loses nothing.
 
-- **Checks 1 and 2.** No call binds a project or names its workflows, and [Topology](topology.md) did not say where the list comes from at start. pi-durable has no project.
+- **Checks 1 and 2.** No call binds a project or names its extensions, and [Topology](topology.md) did not say where the list comes from at start. pi-durable has no project.
 - **Checks 3 and 4.** No extension runs before its registry exists. W0, W1, and W2 each need a project.
 - **Check 5.** One document and two calls. The loop at start already exists.
 
 ## Options per project
 
-A workflow's options are one flat JSON object per project, such as the model of each role and the base branch. The workflow stores them in a document of its own in the project's store. The host shows them to a client, checks what a client sends, and writes it through a small contract that the workflow's module exports. The core stores nothing.
+An extension's options are one flat JSON object per project, such as the model of each role and the base branch of a workflow, or the provider and the key of a search extension. The extension stores them in a document of its own in the project's store. The host shows them to a client, checks what a client sends, and writes it through a small contract that the extension's module exports. The core stores nothing.
 
 ### What the host knows
 
 ```ts
-type WorkflowModule = {
-	readonly extension: Extension; // its name is the workflow's name
-	readonly entry?: AgentChange | ((tx: Tx) => Promise<AgentChange>);
+type ExtensionModule = {
+	readonly extension: Extension;
+	readonly entry?: AgentChange | ((tx: Tx) => Promise<AgentChange>); // only a workflow has it
 	readonly options?: {
 		readonly schema: JsonSchema; // a closed object, one top-level key per option
 		get(tx: Tx): Promise<JsonObject>; // the keys that are set
@@ -135,9 +137,12 @@ type WorkflowModule = {
 };
 ```
 
-The host never reads a key of the value, and it never decides which conversation an option governs. So it still knows no workflow. It does not import the standard library. `options()` in [Standard library](library.md) builds the three members in one call, and a workflow may write them by hand.
+The host never reads a key of the value, and it never decides which conversation an option governs. So it still knows no particular extension. It does not import the standard library. `options()` in [Standard library](library.md) builds the three members in one call, and an extension may write them by hand.
 
-One name in a schema means something to the host: the string format `model`. A value with that format is `"provider/modelId"`, and the host checks that the server has that model. A client can show a model picker for such a key without knowing the workflow.
+Two names in a schema mean something to the host, both string formats.
+
+- **`model`.** The value is `"provider/modelId"`, and the host checks that the server has that model. A client can show a model picker for such a key without knowing the extension.
+- **`secret`.** The host replies only that the key is set and never returns its value. [Extensions](extensions.md) says where a secret lives and what that exposes.
 
 ### What `setOptions` does
 
@@ -256,14 +261,14 @@ The three designs of the arena walked one script. This is the merged walk. W1 an
 
 | Step | The client calls | What the host commits | What pi-durable does alone | What the client shows |
 | --- | --- | --- | --- | --- |
-| 1. The owner binds P with W1. | `workflows`, `bind` | The store layer's first open creates the event log. One commit writes `Project`. Then install and `resume()`. | Nothing | P, with W1's options unset |
+| 1. The owner binds P with W1. | `extensions`, `bind` | The store layer's first open creates the event log. One commit writes `Project`. Then install and `resume()`. | Nothing | P, with W1's options unset |
 | 2. The owner sets W1's options. | `models`, `setOptions` with the three models and the base branch | One commit: `get`, merge, check, `set` | Nothing | The values, and no error left |
 | 3. The owner creates a W1 conversation. The call times out and is sent again. | `create` twice, then `input` to the ID that came back | Each `create` is one commit: check the options, create, configure. That makes D and D2. `input` is W1 row 1. | It starts the run in D2. | D2 working. D idle and empty. Nothing deletes D. |
 | 4. The implementer runs. The owner steers it from a phone. | `open` on I, then `input` with steer | None of its own. `I.submit(...)` is pi-durable's commit. | It places the steer after the tool round, in the same run. | The steer queued, then placed |
 | 5. The owner changes the reviewer's model during the first review. | `setOptions({ reviewer: C })` | One commit on W1's options. R is not touched. Later, W1 row 16 reads the options, configures R, and submits. | The running review ends on B. Round two runs on C. | Round one on B, round two on C |
 | 6. The implementer's run fails on a model error. | `conversations`, `open` on I, `continue` | None of its own | It ends the run `unanswered` and sets `runFailure`. No `afterRun` hook fires. `continue` starts a run on the same context. | I as failed, with the reason. Then I working. |
 | 7. `w1.review_start` throws and ends `faulted`. | `faults` | A commit that writes nothing | It ends the task `faulted` and keeps the error. | The task, its conversation, and its error |
-| 8. The owner binds Q with W2, sets its model, and records a forecast. Later the owner adds W1. | `bind`, `setOptions`, `create`, `input`, later `addWorkflows` | As steps 1 to 3. Then one commit on `Project`, and an install. | F keeps its selection. The timer sleeps on. | Q with both workflows. W1's options unset. |
+| 8. The owner binds Q with W2, sets its model, and records a forecast. Later the owner adds W1. | `bind`, `setOptions`, `create`, `input`, later `addExtensions` | As steps 1 to 3. Then one commit on `Project`, and an install. | F keeps its selection. The timer sleeps on. | Q with both workflows. W1's options unset. |
 | 9. The server restarts. | Each client connects again. | None | It sets `running` tasks to `pending`, wakes due timers, and resumes cut-off runs. | The current state |
 
 Notes:
@@ -296,4 +301,4 @@ Notes:
 - `getAvailable()` was read, not run. The spike used `getModel()` on a faux provider.
 - The fault scan was not timed on a large store. That SQLite uses the `(kind, id)` index is inferred.
 - No tool ran on another machine, so a `workdir` there is untested.
-- How a device gets its token is not designed.
+- [Protocol](protocol.md) says how a call travels and how a device gets its token. No part of it has run against these calls beyond its own spike.

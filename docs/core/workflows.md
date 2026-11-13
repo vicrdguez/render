@@ -2,6 +2,8 @@
 
 The core is proved by workflows that differ. A concept that two unlike workflows need is a candidate for the core. A concept that one needs stays in its extension.
 
+A workflow is one kind of extension. [Extensions](extensions.md) has the model, and a fourth proving case that is not a workflow: web search.
+
 These are tests of the primitives, not products. Each one is as small as it can be while still stressing something the others do not.
 
 W1 and W2 have been walked on paper, one commit at a time. [The walk](walk.md) has every row. This file says what each workflow is, and it lists the rules for workflow authors that the walk and the [host](host.md) pass produced.
@@ -12,7 +14,7 @@ W1 and W2 have been walked on paper, one commit at a time. [The walk](walk.md) h
 
 The bare agent selects pi-durable's `coding-tools` extension, which gives it `read`, `write`, `edit`, and `bash` (measured, `src/tools/index.ts:27-36`). Codemode is an optional extension.
 
-It is a chat with a coding agent, as in pi. The client sends the model when it creates the conversation, and the host sets the project's working directory. What Tau adds is where the conversation lives: on the server, across a restart, and reachable from a second device. Nothing asks a decision, and the timeline stays empty.
+It is a chat with a coding agent, as in pi. The client sends the model when it creates the conversation, and the host sets the project's working directory. In a project that has extensions that are not workflows, such as web search, the bare agent gets their tools too. That part is **Proposed** in [Extensions](extensions.md). What Tau adds is where the conversation lives: on the server, across a restart, and reachable from a second device. Nothing asks a decision, and the timeline stays empty.
 
 W0 proves that the core runs alone. [Host](host.md) lists the calls it needs.
 
@@ -94,7 +96,9 @@ W2 has the shape of quant research without the compute job: a claim fixed before
 | The event of the commit that first submits to a conversation names that conversation. | A client that knows no workflow cannot find the agent to join it. | W1 rows 10 and 12 |
 | A new option ships with a default. | After an upgrade `read` throws, and the tasks that read the option fault. | [Standard library](library.md) |
 
-Two of these lean on source that was read and not run: the sequential round, and the `afterRun` hook. H2, H3, and H7 are checks of `spikes/host.mjs`.
+One of these leans on source that was read and not run: the `afterRun` hook. H2, H3, and H7 are checks of `spikes/host.mjs`. The sequential round has since run, as E6 of `spikes/ext.mjs`.
+
+[Extensions](extensions.md) adds five rules for every extension author: exact lists for a closed role, an open role that removes its extension's other tools, `callers: ["model"]` on a tool that publishes, a section that checks who it is for, and a secret kept out of everything a model or a client can read.
 
 ## Where W2 came from
 

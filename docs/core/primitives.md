@@ -52,7 +52,7 @@ type Decision<C extends string = string> = {
 );
 ```
 
-Decisions live in documents. One session document family holds a decision per ID. One session document lists the open decision of each subject, and a client watches it to see what needs you.
+Decisions live in documents. One session document family holds a decision per ID. One session document lists the open decision of each subject, with its `id`, `title`, `requestedAt`, and `conversation`, and a client watches it to see what needs you.
 
 Why each field is there:
 
@@ -141,7 +141,7 @@ Only the host calls `answer`, for a client. It runs in one commit, and it reads 
 | Open | The quoted basis differs from the stored basis. | Refuses with `stale_basis`. |
 | Open | The choice is not in `choices`. | Refuses with `unknown_choice`. |
 | Open | A range does not fit the basis text. | Refuses with `bad_annotation`. |
-| Open | No installed extension provides the `then` task. | Refuses with `workflow_not_loaded`. The decision stays open. |
+| Open | No installed extension provides the `then` task. | Refuses with `extension_not_loaded`. The decision stays open. |
 | Open | None of the above. | Records the answer, the annotations, the device, and the time. Creates the `then` task. Stores the task's ID. Clears the subject's open slot. |
 
 A refusal is a returned value. A storage failure is different. The call rejects, and the outcome is unknown (measured, `src/types.ts:1333-1344`). The client sends the same fields again, and the "Answered" rows make the retry converge.
@@ -283,9 +283,9 @@ An extension reads the events themselves with pi-durable's entry reads. A scan h
 
 ### How a project gets its extensions
 
-A project's `Project` document lists workflow names. The client sets them when it binds the project (see [Host](host.md)). The host maps each name to a module through static imports, so TypeScript checks them. The host does not scan a project directory for code to run.
+A project's `Project` document lists extension names, workflows among them. The client sets them when it binds the project (see [Host](host.md)). The host maps each name to a module through static imports, so TypeScript checks them. The host does not scan a project directory for code to run.
 
-Each project has its own registry, which holds `coding-tools` and exactly the project's workflows.
+Each project has its own registry, which holds `coding-tools` and exactly the project's extensions. [Extensions](extensions.md) says what an extension is, what makes one a workflow, and how an agent gets one.
 
 ### From the walk: the host sets what a new conversation selects
 
@@ -293,7 +293,7 @@ With no explicit selection, a conversation gets every installed extension in ins
 
 The host now writes the selection on each conversation it creates for a client.
 
-- A bare conversation selects `coding-tools` only. The owner ruled that the bare agent has it. The client sends its model.
+- A bare conversation stores no selection. It follows the project's default, which the host passes to the harness: `coding-tools`, then the project's extensions that are not workflows. The owner ruled that the bare agent selects `coding-tools`. That it also gets the project's other tool extensions is **Proposed** in [Extensions](extensions.md), and it changes that ruling. The client sends its model.
 - A workflow module may export `entry`: a pi-durable `AgentChange`, or a function of a `tx` that returns one. When the client asks for a conversation of that workflow, the host applies it in the commit that creates the conversation (measured, `src/harness/types.ts:550-555`, H3 of `spikes/host.mjs`).
 - Either way the host adds the project's working directory as `cwd`.
 

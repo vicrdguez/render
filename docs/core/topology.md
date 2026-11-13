@@ -1,6 +1,6 @@
 # How one server hosts many projects
 
-**Decided.** One server hosts all work. Each project selects its workflows. You connect to that one server from several machines. Projects can later share some knowledge.
+**Decided.** One server hosts all work. Each project selects its extensions, workflows among them. You connect to that one server from several machines. Projects can later share some knowledge.
 
 **Proposed.** Inside that server, each project has its own store, its own harness, and its own registry. All three candidates of the first arena chose this independently. The [walk](walk.md) used it and added two points: the server opens every project when it starts, and every client call names its project. The [host](host.md) pass then settled where a project lives on disk and what the server reads at start.
 
@@ -56,7 +56,7 @@ Local use is the same server with one project. It is not a second runtime.
 
 - **Hold one lock per store.** pi-durable has no locking across processes. "One process writes a storage at a time" (measured, `README.md:894`). Ultimate takes a lock file per store (measured, `server/harness.ts:228`).
 - **Keep each project in a directory named by its ID.** The directories under `~/.tau/projects/` are the catalogue. No second list exists that could disagree with the stores.
-- **Record the project in its store.** One session document, `Project`, holds the ID, the working directory, and the workflow names. A store whose document is missing, or names another project, is skipped and reported.
+- **Record the project in its store.** One session document, `Project`, holds the ID, the working directory, and the extension names. A store whose document is missing, or names another project, is skipped and reported.
 - **Take one path from a client.** A client never names a store. It names the project's working directory once, when it binds the project. The first version of this file said that a client never names a file path at all. That cannot hold for the place where the agents work.
 - **Open every project when it starts.** See the next section.
 

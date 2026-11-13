@@ -15,7 +15,7 @@ A role's settings are pi-durable's `AgentChange` (measured, `src/harness/types.t
 ```ts
 type RoleSettings = AgentChange & {
 	readonly model: ModelRef;
-	readonly extensions: readonly Extension[];
+	readonly extensions: NonNullable<AgentChange["extensions"]>; // an exact list, or { add, remove } over the project default
 };
 
 declare function role(tx: Tx, settings: RoleSettings, ownership: ConversationOwnership): Promise<ConversationId>;
@@ -48,8 +48,8 @@ The second point is the only thing `role()` adds to the two calls. A plain `Agen
 const designer = (model: ModelRef) =>
 	({
 		model,
-		extensions: [CodingTools, W1],
-		tools: [read, bash, publishDesign],
+		extensions: { add: [W1] }, // an open role: the project default, and W1
+		tools: { remove: [write, edit, publishBuild, showDiff, showFile, publishReview] },
 		instructions: designerProse,
 	}) satisfies RoleSettings;
 
@@ -78,6 +78,7 @@ export const entry = async (tx: Tx) => designer(modelRef((await W1Options.read(t
 - `publish_build` calls `role(tx, reviewer(modelRef(o.reviewer)), { kind: "ownerless" })` (W1 row 11).
 - In both, `o` is `await W1Options.read(tx)` in the same commit. See `options()` below.
 - Each prose value comes from `prose()` when the module loads.
+- The designer is an open role. It follows the project's default, so it can use a tool extension that the owner added, such as web search, and it removes W1's other tools by name. The implementer and the reviewer are closed roles and name everything exactly. [Extensions](extensions.md) has the rule.
 
 W2 does not use `role()`. It creates no conversation, and its one agent gets its settings from `entry`.
 
@@ -109,7 +110,7 @@ The owner asked for this in these words: "a simple function or something like th
 
 ```ts
 declare function options<T extends JsonObject>(
-	workflow: string, // the extension's name
+	extension: string, // the extension's name
 	schema: Schema<T>, // a closed pi-schema object, one top-level key per option
 ): {
 	readonly schema: Schema<T>;
@@ -121,10 +122,11 @@ declare function options<T extends JsonObject>(
 declare function modelRef(value: string): ModelRef; // "provider/modelId", cut at the first "/"
 ```
 
-The call defines one session document, named `<workflow>.options`, in the store of whichever project the `tx` belongs to. The document is the set keys and nothing else. So the values are per project, and the author names no place.
+The call defines one session document, named `<extension>.options`, in the store of whichever project the `tx` belongs to. The document is the set keys and nothing else. So the values are per project, and the author names no place.
 
 - **A workflow calls `read(tx)`** in the commit that uses a value. It throws when the value does not fit the schema, for example when a key with no default is unset.
 - **The host uses `schema`, `get`, and `set`.** The workflow's module exports the returned object as its `options`, and the host shows, checks, and writes the values for a client through those three members. [Host](host.md) has that contract. The host does not import this function, and a workflow can write the three members by hand.
+- **Any extension can call it,** not only a workflow. `websearch` keeps its provider and its key this way, and marks the key with the format `secret`, so the host never returns it. See [Extensions](extensions.md).
 - **A model is a string with the format `model`.** The host checks that the server has it, and a client can show a picker for it. pi-schema checks a format only on a string (measured, `packages/schema/src/types.ts:9-19`). `modelRef()` turns the string into the value that `configure` takes.
 
 W1 and W2 on paper:
@@ -180,7 +182,7 @@ A part goes back out when it has fewer than two call sites, or when pi-durable g
 | --- | --- | --- | --- | --- |
 | `prose()` | The prose files of W1 and W2 | It joins strings. | It reads files when the module loads. | It knows slots and names. |
 | `role()` | W1 rows 9 and 11 | Three lines of pi-durable | It writes `pi.agent`, which pi-durable owns, through the caller's `tx`. | It knows settings, not which role they describe. |
-| `options()` | W1's `entry` and rows 4, 8, 9, 11, 12, 14, and 16. W2's `entry`. | A document, a spread, and a check. The host's check is the guarantee. | It defines `<workflow>.options` for its caller. See below. | It knows a schema, not what a key means. |
+| `options()` | W1's `entry` and rows 4, 8, 9, 11, 12, 14, and 16. W2's `entry`. The `web_search` tool. | A document, a spread, and a check. The host's check is the guarantee. | It defines `<extension>.options` for its caller. See below. | It knows a schema, not what a key means. |
 | `modelRef()` | The same call sites | It cuts a string. | Nothing | It knows a model, which is pi-durable's. |
 
 `role()` passes check 1 with nothing to spare: two call sites, both in W1.

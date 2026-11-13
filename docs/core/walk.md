@@ -8,6 +8,8 @@ The walk had one job, to find where the paper design breaks or says nothing. It 
 
 The owner reviewed the walk and accepted its changes. The [host](host.md) pass then closed three of its open findings. It gave W1's models and its working directory a source, so rows 0, 4, 8, 9, 11, 12, 14, and 16 below now read W1's options.
 
+The [extensions](extensions.md) pass then made the designer an open role. In a project that has a tool extension such as web search, D gets its tools too. I and R are closed roles and get exactly the tools in the table.
+
 ## How to read the rows
 
 No row has run as written. The moves the rows lean on have run, on pi-durable 1.5.2:
@@ -85,9 +87,9 @@ Seven notes on the rows:
 - **The events of rows 10 and 12 name I and R.** A client that knows no workflow can then find the agent and join it. See "Joining a running agent" in [Host](host.md).
 - **Rows 9 and 10 are two commits.** Creating a conversation is a table write, and `submit(tx, draft)` must come before the first table write (measured, P4).
 - **A submission's content is built from stored data only.** A reused `requestId` returns the earlier submission and compares the type, not the content (measured, `src/harness/submissions.ts:231-239`). So a rerun must build the same input.
-- **The reviewer has no `read` and no `bash`.** Its two tools read Git objects at the candidate SHA, and they take that SHA from `Work`, never from the model. A file changed after the publish cannot reach the review.
+- **The reviewer has no `read` and no `bash`.** Its two tools read Git objects at the candidate SHA, and they take that SHA from `Work`, never from the model. A file changed after the publish cannot reach the review. It names its extensions and its tools exactly, so nothing the owner adds to the project reaches it.
 - **An annotation can come with any choice.** The core stores it whatever the choice is, and W1 answers each one. With "revise" it goes to the designer (row 5). With "approve" on a design it goes to the implementer in row 10, and `publish_build` refuses until each one has a reply, as row 5 does. With "approve" on J1 nothing follows, so H lists each one in the handover event as not acted on. With "abort", X2 does the same.
-- **A publish is not the end of a run.** pi-durable runs a round's tool calls in parallel by default, and a round ends the run only when every call asks for it (measured, `src/harness/agent.ts:81`, `src/harness/generation.ts:1096-1097`). So `bash` can run beside `publish_build`. The tool declares `executionMode: "sequential"`, which makes its whole round run in call order (measured, `src/harness/types.ts:358-359`, not run). The SHA is then fixed at the tool's turn, and a later call cannot change what S1 names.
+- **A publish is not the end of a run.** pi-durable runs a round's tool calls in parallel by default, and a round ends the run only when every call asks for it (measured, `src/harness/agent.ts:81`, `src/harness/generation.ts:1096-1097`). So `bash` can run beside `publish_build`. The tool declares `executionMode: "sequential"`, which makes its whole round run in call order (measured, `src/harness/types.ts:358-359`, E6 of `spikes/ext.mjs`). The SHA is then fixed at the tool's turn, and a later call cannot change what S1 names. It also declares `callers: ["model"]`. A script tool such as codemode makes nested calls, a nested call ignores `sequential`, and a nested publish overlapped another call until the tool refused nested callers (measured, `src/harness/types.ts:324-325,372-376`, E6).
 
 ### The chain of evidence
 

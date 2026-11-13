@@ -17,7 +17,7 @@ Paths below are relative to those trees. pi-durable paths start at `packages/dur
 
 Eight explorer reports and the clones were kept under `/tmp/render-ground/` during the work. That directory does not survive a reboot. The commits above are enough to fetch everything again.
 
-The arena's brief, rubric, three designs, and verdict are kept in `arena/`. The walk arena's brief, rubric, three walks, two probes, and verdict are kept in `arena-walk/`. The host arena's brief, rubric, three designs, three probes, and verdict are kept in `arena-host/`.
+The arena's brief, rubric, three designs, and verdict are kept in `arena/`. The walk arena's brief, rubric, three walks, two probes, and verdict are kept in `arena-walk/`. The host arena's brief, rubric, three designs, three probes, and verdict are kept in `arena-host/`. The extension arena's and the protocol arena's files are kept in `arena-ext/` and `arena-wire/`.
 
 pi-ai and pi-schema paths start at `packages/ai/` and `packages/schema/` in the same monorepo commit.
 
@@ -104,6 +104,11 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 - `install` replaces an installed extension of the same name in place, and both `install` and `uninstall` publish at once (measured, `src/harness/types.ts:456-460`, `src/harness/registry.ts:74-91`).
 - A store that is reopened with an empty registry keeps a due task as `blocked` with `missing_task`. The task runs once its extension is installed (measured, H1).
 - An extension that is installed later does not reach a conversation that names its extensions (measured, H11).
+- A conversation's stored selection is an exact list, or `{ add, remove }` over the default in `settings.extensions`, or nothing, which follows that default. With no default it means every installed extension. A selected name with no code is left out with no error (measured, `src/harness/agent.ts:351-371`, E1, E3, and E5 of `spikes/ext.mjs`).
+- The settings can be a function that pi-durable reads at each use. A default that grows reaches a conversation that follows it from its next model request, also inside a run (measured, `src/harness/types.ts:630-633`, E2).
+- A tool list filters tools and not sections. A conversation with an exact tool list still got its extension's section (measured, E7).
+- A nested tool call, made with `executeTool()`, runs as soon as it is made, whatever its `executionMode`. A tool that declares `callers: ["model"]` refuses a nested call (measured, `src/harness/types.ts:324-325,372-376`, E6).
+- A call to a tool that is no longer offered ends as `tool_unavailable` (measured, `src/harness/tool.ts:148-155`).
 - A task that is running when its extension is uninstalled keeps running under its old definition, and `task_outdated` is reported (measured, `src/harness/scheduler.ts:2340-2371`, `src/types.ts:164`, H12).
 - pi-durable ships `read`, `write`, `edit`, and `bash` as the `coding-tools` extension, and "nothing installs it automatically" (measured, `src/tools/index.ts:27-36`).
 - The `bash` tool passes the process environment to the command by default, with `inheritEnv: true` (measured, `src/tools/bash.ts:84-86`).
@@ -133,6 +138,24 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 - A harness can open read-only "as a viewer of a session that another process drives" (measured, `src/harness/types.ts:759-765`).
 - Watches give structural snapshots and deltas. A replayable log of events with meaning is a stated non-goal (reported). Commits made while a watch's listener runs "arrive folded" (measured, `src/harness/types.ts:886-889`).
 - SQLite storage runs in WAL mode with `synchronous = NORMAL`: "commits survive process crashes; the newest may be lost on power or host failure" (measured, `README.md:869`, and the pragmas at `packages/chord/src/sqlite/node.ts:220-221`).
+
+### Compaction
+
+- A compaction summarizes older entries in one extra model request and appends a `pi.compaction` entry. "Older entries stay in storage" (measured, `README.md:608`, E11).
+- By default it keeps about 20,000 recent tokens verbatim, and the summary is at most 0.8 of `reserveTokens`, about 13,100 tokens (measured, `src/harness/agent.ts:29-34`, `src/harness/compaction.ts:153-156`).
+- The summarizer gets no system message and no thinking, and each tool result is cut to 2,000 characters. A later compaction folds the earlier summary into the new one (measured, `src/harness/compaction.ts:66-68,78,398-402`).
+- A `beforeCompact` hook can decline a compaction or supply the summary itself, with no model request (measured, `src/harness/compaction.ts:142-147`, E12).
+- A `write` submission with a model message is in the conversation's next context and starts no run (measured, `src/harness/types.ts:72-99`, E9).
+
+### Watches on the wire
+
+- A watch calls its listener one call at a time and folds what lands meanwhile. Past 10,000 pending ops it hands over one replacement of the whole value (measured, `README.md:525`, `packages/chord/src/delta/pending.ts:9-12`, W5 of `spikes/wire.mjs`).
+- A listener gets the new value and the ops that lead to it. There are seven ops, and they are plain JSON tuples (measured, `packages/chord/src/delta/index.ts:32-40`, W4).
+- A conversation's view holds a window of entries: the newest 50, then appends, dropping its oldest once it would pass 100. `before` names the entry just before the window, and `from` starts the first window at an entry (measured, `src/harness/view.ts:37-66`, W5 and W6).
+- A scan's cursor on SQLite is the ID of the last record and the order. It holds no server memory (measured, `src/storage/scan.ts:36-40`).
+- Partial answers and tool output are committed at most every 100 ms by default (measured, `README.md:527`).
+- pi-durable has changed the shape of `pi.live` between versions of that document (measured, `src/harness/live.ts:197-205`).
+- Node has an HTTP server and a WebSocket client in its standard library, and no WebSocket server (reported by two candidates of the protocol arena; one checked it in a probe).
 
 ### pi-schema and pi-ai
 
@@ -203,6 +226,13 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 | H8 and H9. A run that ends on a model error leaves `runFailure`, and a `continue` answers. A second Stop ends a newer run. | True on 1.5.2. | `spikes/host.mjs` |
 | H10. A phase that throws ends its task `faulted`. `onReport` hears it after the fault is stored. A scan by kind finds it, and a scan with no kind also reads every finished built-in task. | True on 1.5.2. | `spikes/host.mjs` |
 | H11 and H12. A later install does not reach a conversation that names its extensions. A task that is running when its extension is uninstalled goes on. | True on 1.5.2. | `spikes/host.mjs` |
+| E1 to E5. A project default in the settings, an `{ add }` edit, and an exact list. A default that grows during a run. A named extension with no code. A secret that the host's reply hides. | True on 1.5.2, with a stand-in for the host. | `spikes/ext.mjs` |
+| E6 and E7. A nested call ignores `sequential`, and `callers: ["model"]` refuses it. A tool list does not hide a section. | True on 1.5.2. | `spikes/ext.mjs` |
+| E8 to E12. A dispatch that ends its round is one model request, and a second input gets its own run. A `write` costs no request. Append and then submit throws. A compaction is one request and loses the first turn from the context. A hook supplies the summary from a document. | True on 1.5.2, with a faux model. | `spikes/ext.mjs` |
+| W1 to W3. A pairing code gives a token once. Only a body of one of three shapes counts as a reply. A request ID is kept under its device. | True, with a stand-in server on `node:http`. | `spikes/wire.mjs` |
+| W4 to W6. The ops of a watched run, applied by a client's own code, give the value of a new watch. A client that stops reading gets 300 commits as 6 frames, and `before` and `history` fill the gap. `after` starts a watch at what the client lacks. | True on 1.5.2, over HTTP on loopback. | `spikes/wire.mjs` |
+| W7 to W9. An inbox over two stores, and a project bound later. A revoked device's stream ends. A clean stop ends the streams with a reason. | True on 1.5.2, over HTTP on loopback. | `spikes/wire.mjs` |
+| An answer that grows to 100 KB costs about 50 MB as whole values and about 200 KB as ops. | A byte count over 1,000 updates, with no network. | `arena-wire/verdict-facts.mjs`, run by the judge |
 | Real agent prose is dense with backticks. | 342 backticks in 404 lines across Ultimate's 8 agent files. 616 in 527 lines across the 23 pstack playbooks. | A character count over `agents/*.md` and `.agents/skills/poteto-mode/playbooks/*.md` |
 | `skl` binds named inputs into a resource. | `--input name=value` and `--describe-inputs` exist. | `skl skill --help` |
 | Pi uses Vitest to alias workspace packages to source and to run several runtime configurations. | True. | `vitest.base.ts` and `packages/durable/package.json:128-130` |
@@ -210,7 +240,7 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 ## Not verified
 
 - The Chord and pi-ai differences between 1.5.1 and 1.5.2 were not traced beyond the three modules named under the target version.
-- `spikes/substrate.mjs` and `spikes/host.mjs` close the store cleanly. `spikes/crash.mjs` kills the process inside a commit's callback and right after a commit. No check kills it in the middle of SQLite's own write.
+- `spikes/substrate.mjs`, `spikes/host.mjs`, `spikes/ext.mjs`, and `spikes/wire.mjs` close the store cleanly. `spikes/crash.mjs` kills the process inside a commit's callback and right after a commit. No check kills it in the middle of SQLite's own write.
 - pi-ai's `getAvailable()` was read, not run. The spikes use a faux provider.
 - No one ran a read-only harness beside a writing one.
 - pi-env was read, not run.
