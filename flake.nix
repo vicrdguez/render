@@ -28,7 +28,8 @@
             inherit nodejs;
           };
           enterRoot = ''
-            export TAU_INVOCATION_DIR="$PWD"
+            TAU_INVOCATION_DIR="$(pwd -P)"
+            export TAU_INVOCATION_DIR
             while [ ! -f flake.nix ] || [ ! -f package.json ]; do
               if [ "$PWD" = / ]; then
                 printf '%s\n' 'Run this command inside the Tau repository.' >&2
