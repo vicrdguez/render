@@ -1,6 +1,6 @@
 import type { ServerResponse } from "node:http";
 import type { WatchHandle } from "@earendil-works/chord/watch";
-import type { JsonValue } from "@earendil-works/pi-durable";
+import type { JsonValue } from "@earendil-works/chord/json";
 import type { EndReason } from "./devices.js";
 
 const HEARTBEAT = 15_000;

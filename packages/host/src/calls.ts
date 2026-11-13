@@ -1,7 +1,7 @@
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
 import type { WatchHandle } from "@earendil-works/chord/watch";
 import type { Models } from "@earendil-works/pi-ai";
-import type { JsonValue } from "@earendil-works/pi-durable";
+import type { JsonValue } from "@earendil-works/chord/json";
 import {
 	arr,
 	compile,

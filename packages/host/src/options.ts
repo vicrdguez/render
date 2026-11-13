@@ -1,5 +1,6 @@
 import type { Models } from "@earendil-works/pi-ai";
-import type { JsonObject, JsonValue, Tx } from "@earendil-works/pi-durable";
+import type { JsonValue } from "@earendil-works/chord/json";
+import type { JsonObject, Tx } from "@earendil-works/pi-durable";
 import {
 	compile,
 	type JsonSchema,
