@@ -18,7 +18,6 @@
 | Stale workspace links | Keep a second link registry, or inspect existing managed links. | Remove absent workspace names whose symlinks target this checkout's `packages/`, including scoped names. | External links and real directories stay untouched. The existing managed-directory marker remains the ownership boundary. |
 | Inherited compiler aliases | Resolve every inherited config, or defer the verifier's follow-up. | Defer. | It is outside the required fix and needs more than a two-line change to preserve TypeScript config semantics. |
 | Regression cost | Run full Nix checks for every edit, or use direct tool commands first. | Add CLI-level fixtures before implementation, then run the full acceptance gate on the pushed candidate. | The initial run reported 15 failures and 11 passes in 3.98 seconds. The fixed run reported 26 passes in 4.28 seconds on this machine. These are observed test-run costs, not a speedup claim. |
-
 | Fix verification | Test the worktree only, or verify a pushed checkout and the original failure shape. | At `6c317ec`, a fresh clone passed `nix flake check -L` and forced rebuilds of lint, typecheck, test, and spikes. A scratch package with a type error and failing test, a current lock, and policy but no root reference failed the gate with `tau-forgotten: missing from root tsconfig.json references`. | The complete test run reported 26 passes, zero failures, and 28 existing store TODOs. All six spikes passed. The gate still reports the 20 existing scaffold warnings. Linux execution remains unverified. |
 
 ## Verification
