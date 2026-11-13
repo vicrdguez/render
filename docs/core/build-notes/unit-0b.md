@@ -1,0 +1,27 @@
+# Unit 0b
+
+| Where | Readings | Taken | Why |
+| --- | --- | --- | --- |
+| Live workspace links | Use the nixpkgs link hook, or create a local directory of links. | A managed root `node_modules` directory with external package links into Nix and workspace links into the checkout. | The link table reads workspace names from their manifests. Emitted files stay writable and visible through package exports. An old single symlink is replaced. An unmanaged real directory is refused without changes. |
+| Dependency input | Pass the entire repository to `buildNodeModules`, or pass only the root manifest and lock. | Only `package.json` and `package-lock.json` enter the dependency source. | The first live-edit probe showed that the lock's workspace paths made dependencies rebuild after a source-only edit. The filtered source passed the repeated probe without rebuilding dependencies. Workspace manifests still enter the lock check on actual source. |
+| Test selection | Select emitted files directly, or find source tests and map them to emitted files. | Map current source tests to emitted paths. Accept package names, directory names, source paths, and emitted paths. | Removed source tests cannot leave stale emitted tests in the selection. Unknown selectors fail. Paths work from the root or the physical invocation directory, including macOS's `/tmp` alias. |
+| Focused test builds | Build only selected projects, or build the workspace before selecting tests. | Build all referenced projects, then run only the selected tests. | This keeps one boundary check and one compiler command. The initial store-only test command takes about one second. Later units can revisit compilation cost with evidence. |
+| Tool tests | Keep the gate's regression tests outside the default test command, or include them. | Include `tools/**/*.test.mjs` in the default test run. | These five tests cover lock disagreement, authority boundaries, live links, unmanaged directories, and test selection. They use Node's existing test runner and take about 1.6 seconds. |
+| Lock disagreement | Trust the transformed lock consumed by Nix, or compare candidate manifests before lint and compilation. | Compare the root and workspace dependency fields and versions with their lock entries in both `lint` and `typecheck`. | `importNpmLock` rewrites dependency specs. That transformation alone did not reject a stale root dependency version. The actual gate now rejects it. |
+| Time limits | Bound only Nix derivations, or bound commands too. | Each command gets 600 seconds and a 10-second forced-kill grace period. Link setup gets 60 seconds. Check derivations get an outer 660-second bound. | A hanging test cannot hold either the edit-loop command or the acceptance gate forever. No timeout configuration interface is added. |
+| npm scripts and the command named `test` | Duplicate build logic in npm scripts, or forward to the Nix command set. | Forward scripts to commands on the dev shell PATH. The npm test script uses `env test`. | The flake remains the command owner. `env test` avoids the shell builtin with the same name. `AGENTS.md` gives the same rule for interactive shells. |
+| Store scaffold | Rewrite unused parameters and the future crash plan, or preserve the chosen scaffold. | Preserve its signatures, throwing bodies, TODO failure lists, and plan. Only the formatter compacts one type import. | Unit 1 owns implementation and the real-function recovery checks. The copied plan mentions a future `tools/spikes.mjs`; it does not replace this unit's six design spikes. Biome reports 20 unused-parameter warnings, not errors. |
+
+## Verification
+
+The fresh checkout gate ran all four checks on aarch64-darwin with Node 24.22.1 and Biome 2.4.15. All six design spike summaries reported success. The test run reported five passing tool tests, zero failures, and 28 store TODOs. The TODOs are not store behavior evidence.
+
+This Nix version rejects `nix flake check --rebuild`. The fresh source first ran `/nix/var/nix/profiles/default/bin/nix flake check -L` with uncached check derivations. Then `/nix/var/nix/profiles/default/bin/nix build --no-link --rebuild -L` rebuilt all four `checks.aarch64-darwin` attributes explicitly.
+
+A temporary extension imported a store value by package name. Two test runs printed `probe-value=before` and `probe-value=after`. The external dependency link was unchanged, and the second run built no dependency derivation. The throwaway package was not committed.
+
+Fault probes rejected a TypeScript error, a failing emitted test, an extension import of `tau-store/host`, a sibling-relative import, a store import of `tau-kit`, a stale dependency spec, and an unformatted file. Both formatters rejected badly formatted files in a nested `packages/store/docs` directory. All six commands ran from `packages/store`. Source-relative file selection and dev shell commands also ran there without creating a local `node_modules` link.
+
+Single-run wall times were 12.18 seconds for source-cold `check`, 10.99 seconds for warm `check`, 0.76 seconds for warm `typecheck`, and 0.98 seconds for `test -- tau-store`. Source-cold means no checkout links or emitted output, with Nix dependencies already cached. Each command exited zero. Both timed checks ran all six spikes. The machine had 12 CPUs and load averages of 1.79, 1.98, and 2.15. These are rough command costs, not a speedup claim.
+
+Linux execution and the full ten-minute timeout expiry were not tested. The store remains unimplemented. No server build was added.
