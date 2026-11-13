@@ -1,0 +1,34 @@
+{
+	"tau-store": {},
+	"tau-host": {
+		"tau-store": [".", "./host"]
+	},
+	"tau-kit": {},
+	"tau-websearch": {
+		"tau-store": ["."],
+		"tau-kit": ["."],
+		"testOnly": {
+			"tau-store": ["./host"]
+		}
+	},
+	"tau-w2": {
+		"tau-store": ["."],
+		"tau-kit": ["."],
+		"testOnly": {
+			"tau-store": ["./host"]
+		}
+	},
+	"tau-w1": {
+		"tau-store": ["."],
+		"tau-kit": ["."],
+		"testOnly": {
+			"tau-store": ["./host"]
+		}
+	},
+	"tau": {
+		"tau-host": ["."],
+		"tau-websearch": ["."],
+		"tau-w2": ["."],
+		"tau-w1": ["."]
+	}
+}

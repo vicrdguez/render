@@ -3,6 +3,7 @@
 		"includes": [
 			"**",
 			"!!docs",
+			"!!**/dist",
 			"!!.agents",
 			"!!node_modules",
 			"!!.direnv",

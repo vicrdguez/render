@@ -18,71 +18,102 @@
           pkgs = import nixpkgs { inherit system; };
           nodejs = pkgs.nodejs_24;
           npmDeps = pkgs.importNpmLock.buildNodeModules {
-            npmRoot = ./.;
+            npmRoot = lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions [
+                ./package.json
+                ./package-lock.json
+              ];
+            };
             inherit nodejs;
           };
+          enterRoot = ''
+            TAU_INVOCATION_DIR="$(pwd -P)"
+            export TAU_INVOCATION_DIR
+            while [ ! -f flake.nix ] || [ ! -f package.json ]; do
+              if [ "$PWD" = / ]; then
+                printf '%s\n' 'Run this command inside the Tau repository.' >&2
+                exit 1
+              fi
+              cd ..
+            done
+          '';
+          linkModules = ''
+            node tools/link-node-modules.mjs ${npmDeps}/node_modules
+          '';
           nixFiles = flags: ''
-            find . -type d \( -name .git -o -name .direnv -o -name .worktrees \
-              -o -name node_modules -o -name docs -o -name .agents \) -prune \
+            find . -type d \( -name .git -o -path ./.direnv -o -path ./.worktrees \
+              -o -name node_modules -o -path ./docs -o -path ./.agents -o -name dist \) -prune \
               -o -type f -name '*.nix' -exec nixfmt ${flags} {} +
           '';
+          mkCommand =
+            name: runtimeInputs: text:
+            let
+              action = pkgs.writeShellApplication {
+                name = "tau-${name}";
+                runtimeInputs = [ nodejs ] ++ runtimeInputs;
+                inherit text;
+              };
+            in
+            pkgs.writeShellApplication {
+              inherit name;
+              runtimeInputs = [
+                nodejs
+                pkgs.coreutils
+              ];
+              text = ''
+                ${enterRoot}
+                timeout --kill-after=10s 60s ${pkgs.bash}/bin/bash -c '${linkModules}'
+                exec timeout --kill-after=10s 600s ${action}/bin/tau-${name} "$@"
+              '';
+            };
           commands = {
-            fmt = pkgs.writeShellApplication {
-              name = "fmt";
-              runtimeInputs = [
-                pkgs.biome
-                pkgs.nixfmt
-                pkgs.findutils
-              ];
-              text = ''
-                biome format --write .
-                ${nixFiles ""}
-              '';
-            };
-            lint = pkgs.writeShellApplication {
-              name = "lint";
-              runtimeInputs = [
-                pkgs.biome
-                pkgs.nixfmt
-                pkgs.findutils
-              ];
-              text = ''
-                biome check .
-                ${nixFiles "--check"}
-              '';
-            };
-            spikes = pkgs.writeShellApplication {
-              name = "spikes";
-              runtimeInputs = [ nodejs ];
-              text = ''
-                export PI_MODULES="${npmDeps}/node_modules/@earendil-works"
-                for spike in substrate two-harnesses crash host ext wire; do
-                  node "docs/core/spikes/$spike.mjs"
-                done
-              '';
-            };
-            check = pkgs.writeShellApplication {
-              name = "check";
-              runtimeInputs = [
-                commands.lint
-                commands.spikes
-              ];
-              text = ''
-                lint
-                spikes
-              '';
-            };
+            fmt = mkCommand "fmt" [ pkgs.biome pkgs.nixfmt pkgs.findutils ] ''
+              biome format --write .
+              ${nixFiles ""}
+            '';
+            lint = mkCommand "lint" [ pkgs.biome pkgs.nixfmt pkgs.findutils ] ''
+              node tools/check-lock.mjs
+              biome check .
+              ${nixFiles "--check"}
+            '';
+            typecheck = mkCommand "typecheck" [ ] ''
+              node tools/check-lock.mjs
+              node tools/check-boundaries.mjs
+              node node_modules/typescript/bin/tsc -b
+            '';
+            test = mkCommand "test" [ ] ''
+              ${commands.typecheck}/bin/typecheck
+              node tools/tests.mjs "$@"
+            '';
+            spikes = mkCommand "spikes" [ ] ''
+              export PI_MODULES="${npmDeps}/node_modules/@earendil-works"
+              for spike in substrate two-harnesses crash host ext wire; do
+                node "docs/core/spikes/$spike.mjs"
+              done
+            '';
+            check = mkCommand "check" [ ] ''
+              ${commands.lint}/bin/lint
+              ${commands.typecheck}/bin/typecheck
+              ${commands.test}/bin/test "$@"
+              ${commands.spikes}/bin/spikes
+            '';
           };
-          checks = lib.genAttrs [ "lint" "spikes" ] (
+          checks = lib.genAttrs [ "lint" "typecheck" "test" "spikes" ] (
             name:
             pkgs.runCommand "tau-${name}"
               {
-                nativeBuildInputs = [ commands.${name} ];
-                __darwinAllowLocalNetworking = name == "spikes";
+                nativeBuildInputs = [ pkgs.coreutils ];
+                __darwinAllowLocalNetworking = builtins.elem name [
+                  "test"
+                  "spikes"
+                ];
               }
               ''
-                cd ${self}
-                ${name}
+                cp -R ${self} source
+                chmod -R u+w source
+                cd source
+                timeout --kill-after=10s 660s ${commands.${name}}/bin/${name}
                 touch "$out"
               ''
           );
@@ -100,11 +131,10 @@
             ]
             ++ builtins.attrValues commands;
             shellHook = ''
-              if [ -e node_modules ] && [ ! -L node_modules ]; then
-                printf '%s\n' 'node_modules is not a symlink. Move it aside before entering the Nix shell.' >&2
-                exit 1
-              fi
-              ln -sfn ${npmDeps}/node_modules node_modules
+              (
+                ${enterRoot}
+                ${linkModules}
+              ) || exit 1
             '';
           };
         }
