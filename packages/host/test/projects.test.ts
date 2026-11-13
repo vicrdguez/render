@@ -3,7 +3,7 @@ import { type ChildProcess, fork } from "node:child_process";
 import { once } from "node:events";
 import { access, readdir, rename } from "node:fs/promises";
 import path from "node:path";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { requestAdmin, startServer } from "../src/index.js";
 import { modules, Notes } from "./extensions.js";
@@ -16,8 +16,13 @@ const exists = (file: string) =>
 		() => false,
 	);
 
+const children: ChildProcess[] = [];
+after(async () => {
+	for (const process of children) await kill(process);
+});
 function child(script: string, args: string[]) {
 	const process = fork(path.join(here, script), args, { stdio: "ignore" });
+	children.push(process);
 	const first = once(process, "message").then(([message]) => message);
 	return { process, first };
 }
@@ -86,10 +91,10 @@ test("bind stores the project, repeats on equal fields, and refuses others with 
 			s.call("bind", { project: "q", workdir: "/q", extensions: [] }),
 			s.call("bind", { project: "q", workdir: "/q", extensions: [] }),
 		]);
-		assert.deepEqual(
-			both.map((r) => r.body.result?.repeated).sort(),
-			[false, true],
-		);
+		assert.deepEqual(both.map((r) => r.body.result?.repeated).sort(), [
+			false,
+			true,
+		]);
 		const listed = await s.call("projects", {});
 		assert.deepEqual(listed.body.result.items, [
 			{ ...body, missing: ["gone"] },
@@ -184,7 +189,9 @@ test("addExtensions appends new names once and survives a restart", async () => 
 		assert.equal(unknown.status, 404);
 		assert.equal(unknown.body.refused?.code, "unknown_project");
 		await s.close();
-		const again = await s.restart({ modules: { ...modules, gone: { extension: { ...Notes, name: "gone" } } } });
+		const again = await s.restart({
+			modules: { ...modules, gone: { extension: { ...Notes, name: "gone" } } },
+		});
 		try {
 			assert.deepEqual((await again.call("projects", {})).body.result.items, [
 				{ ...project, missing: [] },
@@ -218,7 +225,11 @@ test("a second server process is refused while the first holds the lock, and SIG
 		const issued = await requestAdmin(home, { command: "pair", device: "cli" });
 		assert.ok("code" in issued);
 		const url = `http://127.0.0.1:${ready.port}`;
-		const paired = await send(url, "/v1/pair", JSON.stringify({ code: issued.code }));
+		const paired = await send(
+			url,
+			"/v1/pair",
+			JSON.stringify({ code: issued.code }),
+		);
 		const auth = { Authorization: `Bearer ${paired.body.result.token}` };
 		const bound = await send(
 			url,

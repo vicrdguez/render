@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import http from "node:http";
 import { mkdtemp } from "node:fs/promises";
+import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { applyImmutable, type Op } from "@earendil-works/chord/delta";
@@ -155,7 +155,10 @@ export function watch(
 	body: unknown,
 	token: string,
 ): Watch {
-	const waiters = new Set<{ test: (w: Watch) => boolean; resolve: () => void }>();
+	const waiters = new Set<{
+		test: (w: Watch) => boolean;
+		resolve: () => void;
+	}>();
 	const wake = () => {
 		for (const waiter of [...waiters]) {
 			if (waiter.test(state)) {

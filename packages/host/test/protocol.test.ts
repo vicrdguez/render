@@ -107,7 +107,7 @@ test("unknown_call lists exactly the twenty calls", async () => {
 			assert.equal(reply.status, 404, pathname);
 			assert.equal(reply.body.refused?.code, "unknown_call", pathname);
 			assert.deepEqual(
-				[...reply.body.refused?.calls].sort(),
+				[...(reply.body.refused?.calls ?? [])].sort(),
 				[...TWENTY_CALLS].sort(),
 			);
 			assert.equal(reply.headers["tau-protocol"], "1");

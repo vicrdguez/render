@@ -65,13 +65,11 @@ test("five wrong codes in a row cancel every pending code", async () => {
 			return issued.code;
 		};
 		const kept = await pending("phone");
-		for (let i = 0; i < 4; i++)
-			await s.call("pair", { code: "AAAA-AAAA" }, "");
+		for (let i = 0; i < 4; i++) await s.call("pair", { code: "AAAA-AAAA" }, "");
 		assert.equal((await s.call("pair", { code: kept }, "")).status, 200);
 
 		const lost = await pending("tablet");
-		for (let i = 0; i < 4; i++)
-			await s.call("pair", { code: "AAAA-AAAA" }, "");
+		for (let i = 0; i < 4; i++) await s.call("pair", { code: "AAAA-AAAA" }, "");
 		const fifth = await s.call("pair", { code: "AAAA-AAAA" }, "");
 		assert.equal(fifth.body.refused?.code, "unauthorized");
 		assert.equal(

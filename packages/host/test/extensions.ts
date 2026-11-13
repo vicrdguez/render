@@ -67,14 +67,21 @@ export const Notes = defineExtension({
 export const notes: ExtensionModule = { extension: Notes };
 
 type Phase = { phase: string };
-const done = { status: "terminal" as const, outcome: { status: "completed" as const, result: null } };
-const abort: TaskDefinition<Record<string, never>, Phase, null, object>["abort"] = async (
-	_task,
-	runtime,
-	c,
-) => {
+const done = {
+	status: "terminal" as const,
+	outcome: { status: "completed" as const, result: null },
+};
+const abort: TaskDefinition<
+	Record<string, never>,
+	Phase,
+	null,
+	object
+>["abort"] = async (_task, runtime, c) => {
 	await runtime.commit(
-		() => ({ status: "terminal", outcome: { status: "aborted", reason: "stopped" } }),
+		() => ({
+			status: "terminal",
+			outcome: { status: "aborted", reason: "stopped" },
+		}),
 		c,
 	);
 };
@@ -131,7 +138,8 @@ export const Flow = defineExtension({
 			parameters: obj({}),
 			execute: async (_args, api, c) => {
 				await api.commit(
-					(tx) => tx.createTask(Due, {}, background(api.conversationId as never)),
+					(tx) =>
+						tx.createTask(Due, {}, background(api.conversationId as never)),
 					c,
 				);
 				return { output: text("scheduled") };

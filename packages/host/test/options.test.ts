@@ -18,7 +18,10 @@ test("extensions and models describe what the server has", async () => {
 				["flow", true],
 			],
 		);
-		assert.deepEqual(listed.body.result.items[0].schema, modules.search.options?.schema);
+		assert.deepEqual(
+			listed.body.result.items[0].schema,
+			modules.search.options?.schema,
+		);
 		assert.ok(!("schema" in listed.body.result.items[1]));
 		const models = await s.call("models", {});
 		assert.deepEqual(
@@ -116,7 +119,11 @@ test("setOptions merges a patch, stores set keys only, and refuses at JSON point
 test("a secret is replied as true and never as its value", async () => {
 	const s = await start({ modules });
 	try {
-		await s.call("bind", { project: "p", workdir: "/p", extensions: ["search"] });
+		await s.call("bind", {
+			project: "p",
+			workdir: "/p",
+			extensions: ["search"],
+		});
 		const key = "sk-secret-0123456789";
 		const set = await s.call("setOptions", {
 			project: "p",
