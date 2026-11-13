@@ -128,8 +128,8 @@ export async function setup(
 			context,
 		);
 	const draft = async (
-		change: Partial<RequestDraft<Choice, { phase: "run" }, null, object>> = {},
-	): Promise<RequestDraft<Choice, { phase: "run" }, null, object>> => ({
+		change: Partial<RequestDraft<Choice>> = {},
+	): Promise<RequestDraft<Choice>> => ({
 		subject: "test:k",
 		title: "Review the design",
 		basis: await basis("The design text."),
@@ -139,7 +139,7 @@ export async function setup(
 		requestedAt: clock.now,
 		...change,
 	});
-	const ask = (d: RequestDraft<Choice, { phase: "run" }, null, object>) =>
+	const ask = (d: RequestDraft<Choice>) =>
 		store.harness.commit((tx) => request(tx, d), context);
 	const read = (id: Decision["id"]) =>
 		store.harness.commit((tx) => decision(tx, id), context);

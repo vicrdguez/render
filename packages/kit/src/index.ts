@@ -61,7 +61,7 @@ export function options<T extends JsonObject>(
 			Object.assign(draft, value);
 		},
 		async read(tx) {
-			const value = { ...defaults, ...(await get(tx)) };
+			const value = { ...structuredClone(defaults), ...(await get(tx)) };
 			if (!validator.check(value)) {
 				throw new Error(
 					`Options of ${extension} do not fit: ${JSON.stringify(validator.errors(value))}`,
