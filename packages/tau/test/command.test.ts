@@ -44,8 +44,8 @@ function run(env: NodeJS.ProcessEnv, args: string[]) {
 		},
 	);
 }
-async function serve(env: NodeJS.ProcessEnv) {
-	const child = spawn(process.execPath, [tau], {
+async function serve(env: NodeJS.ProcessEnv, args: string[] = []) {
+	const child = spawn(process.execPath, [tau, ...args], {
 		env,
 		stdio: ["ignore", "pipe", "pipe"],
 	});
@@ -89,13 +89,31 @@ test("tau starts on ~/.tau at 127.0.0.1:6283, and the device commands reach it t
 	await mkdir(path.join(env.HOME, ".tau", "projects", "Bad"), {
 		recursive: true,
 	});
-	const server = await serve(env);
+	const server = await serve(env, ["--allow-host", "tau.example.ts.net"]);
 	try {
 		assert.match(server.output().stderr, /skipped Bad/);
 		const socket = await stat(path.join(env.HOME, ".tau", "admin.sock"));
 		assert.equal(socket.mode & 0o777, 0o600);
 		const token = await pair(env, "phone");
 		assert.equal((await post("projects", {}, token)).status, 200);
+		const proxied = (host: string) =>
+			new Promise<number>((resolve) => {
+				http
+					.request(
+						`${URL}/v1/projects`,
+						{
+							method: "POST",
+							headers: { Host: host, Authorization: `Bearer ${token}` },
+						},
+						(response) => {
+							response.resume();
+							resolve(response.statusCode ?? 0);
+						},
+					)
+					.end("{}");
+			});
+		assert.equal(await proxied("tau.example.ts.net"), 200);
+		assert.equal(await proxied("evil.example"), 401);
 		const listed = await run(env, ["device", "list"]);
 		assert.equal(listed.code, 0);
 		assert.match(listed.stdout, /phone/);
@@ -157,6 +175,7 @@ test("a device command with no server, or an unknown command, fails with a messa
 	assert.match(none.stderr, /no Tau server/i);
 	for (const args of [
 		["serve"],
+		["--allow-host"],
 		["device"],
 		["device", "pair"],
 		["device", "pair", "a", "b"],
