@@ -18,7 +18,13 @@
           pkgs = import nixpkgs { inherit system; };
           nodejs = pkgs.nodejs_24;
           npmDeps = pkgs.importNpmLock.buildNodeModules {
-            npmRoot = ./.;
+            npmRoot = lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions [
+                ./package.json
+                ./package-lock.json
+              ];
+            };
             inherit nodejs;
           };
           enterRoot = ''
