@@ -16,3 +16,20 @@
 The kit tests use real pi-durable MemoryStorage and faux model requests. They make no real model calls. The package does not own SQLite crash recovery, client patch validation, secret masking, or provider login checks. Those remain with their owning units. The existing design spikes still run unchanged in the cumulative gate.
 
 The extension callers are being built in other units. This branch checks the locked types and the structural host options contract without importing those units.
+
+## Measured checks
+
+All commands ran from the unit worktree through `/nix/var/nix/profiles/default/bin/nix develop -c`.
+
+| Command | Result |
+| --- | --- |
+| `test tau-kit`, with the behavior stubs | Exit 1. Thirteen behavior tests failed. The export contract passed. |
+| `test tau-kit`, with the implementation | Exit 0. Fourteen tests passed. No failures, skips, or TODOs. Node reported 524.684708 ms. The full command took 1.67 seconds. |
+| `check` | Exit 0. Fourteen kit tests and five workspace tests passed. The unchanged store had 28 TODOs and 20 lint warnings. All six design spikes passed. The full command took 14.03 seconds. |
+| `test packages/kit/test/model-ref.test.ts`, after replacing `indexOf` with `lastIndexOf` | Exit 1. The model ID became `claude` instead of `anthropic/claude`. |
+| `test packages/kit/test/options.test.ts`, after removing key deletion from `set` | Exit 1. Two tests failed. An omitted base stayed `release` instead of returning to `main`. |
+| `test packages/kit/test/role.test.ts`, after removing `configure` | Exit 1. Four tests failed. The ownerless agent stayed empty, and the model request could not finish. |
+
+Each mutation was applied alone and reverted before the next. The final source diff after the reversions was empty. The times are single-run test costs, not performance comparisons. Load averages were 2.59, 2.50, and 2.34 on 12 CPUs before the measured runs.
+
+A Node import of `tau-kit` printed `[ 'modelRef', 'options', 'prose', 'role' ]`. An emitted fixture imported its adjacent Markdown and rendered `You own pass 2 for C4`, with the Markdown backticks preserved. Child imports exited 1 before the module body completed for a missing file, an undeclared slot, a declared slot absent from the file, and template control syntax. The TypeScript contract test checks the locked role, options, and model signatures and rejects missing or non-string prose facts.
