@@ -18,11 +18,12 @@ Choose the least complexity that satisfies the accepted scope, repository standa
 
 ## Commands
 
-Run commands from the repository root with `/nix/var/nix/profiles/default/bin/nix develop -c <command>` or `nix run .#<command>`.
-The shell links the locked dependencies into `node_modules`. No `npm install` step is needed.
-`fmt` formats supported files with Biome and Nix files with nixfmt.
-`lint` checks Biome rules and formatting without writes. `spikes` runs the six design spikes against the locked pi-durable.
-`check` runs `lint` and `spikes`. `nix flake check` is the acceptance gate.
+From any repository directory, run `/nix/var/nix/profiles/default/bin/nix develop -c <command>` or `/nix/var/nix/profiles/default/bin/nix run .#<command>`.
+The shell creates a managed root `node_modules` directory. External dependencies link to the read-only Nix store, and workspace names link to this checkout. An existing unmanaged directory is refused. Move it aside first. No install step is needed.
+`fmt` formats with Biome and nixfmt. `lint` checks the lock, Biome, and Nix formatting. `typecheck` checks the lock and import boundaries, then emits JavaScript with `tsc -b`.
+`test` builds and runs emitted tests. Use `/nix/var/nix/profiles/default/bin/nix run .#test -- tau-store` for one package, or `/nix/var/nix/profiles/default/bin/nix run .#test -- packages/store/test/decision.test.ts` for one file. File paths may also be relative to your current directory. In an interactive shell, use `env test` to avoid the shell's `test` builtin.
+`spikes` runs the six unchanged design spikes. `check` runs `lint`, `typecheck`, `test`, and `spikes`. Each command has a ten-minute limit, with ten seconds to kill a process that does not stop.
+`/nix/var/nix/profiles/default/bin/nix flake check -L` is the acceptance gate. It runs all four checks on the candidate source in writable copies.
 
 ## Rules
 

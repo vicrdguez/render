@@ -1,0 +1,25 @@
+{
+	"tau-store": {},
+	"tau-host": {
+		"tau-store": [".", "./host"]
+	},
+	"tau-kit": {},
+	"tau-websearch": {
+		"tau-store": ["."],
+		"tau-kit": ["."]
+	},
+	"tau-w2": {
+		"tau-store": ["."],
+		"tau-kit": ["."]
+	},
+	"tau-w1": {
+		"tau-store": ["."],
+		"tau-kit": ["."]
+	},
+	"tau": {
+		"tau-host": ["."],
+		"tau-websearch": ["."],
+		"tau-w2": ["."],
+		"tau-w1": ["."]
+	}
+}
