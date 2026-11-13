@@ -1,0 +1,14 @@
+{
+	"files": {
+		"includes": [
+			"**",
+			"!!docs",
+			"!!.agents",
+			"!!node_modules",
+			"!!.direnv",
+			"!!.worktrees",
+			"!skills-lock.json",
+			"!package-lock.json"
+		]
+	}
+}
