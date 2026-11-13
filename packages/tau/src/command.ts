@@ -6,10 +6,10 @@ import { type AdminRequest, requestAdmin, startServer } from "tau-host";
 import { piLogins } from "./credentials.js";
 import { modules } from "./modules.js";
 
-const USAGE = `usage: tau                      start the server on ~/.tau and 127.0.0.1:6283
-       tau device pair NAME    print a pairing code for a new device
-       tau device revoke NAME  refuse that device from now on
-       tau device list         list the paired devices
+const USAGE = `usage: tau [--allow-host NAME]...  start the server on ~/.tau and 127.0.0.1:6283
+       tau device pair NAME             print a pairing code for a new device
+       tau device revoke NAME           refuse that device from now on
+       tau device list                  list the paired devices
 `;
 
 function parse(argv: readonly string[]): AdminRequest | undefined {
@@ -23,7 +23,18 @@ function parse(argv: readonly string[]): AdminRequest | undefined {
 
 const when = (ms: number) => new Date(ms).toISOString();
 
-async function serve(home: string): Promise<number> {
+/** The host names a proxy forwards with, or undefined when the arguments are not a serve command. */
+function hosts(argv: readonly string[]): string[] | undefined {
+	const names: string[] = [];
+	for (let i = 0; i < argv.length; i += 2) {
+		const name = argv[i + 1];
+		if (argv[i] !== "--allow-host" || name === undefined) return undefined;
+		names.push(name);
+	}
+	return names;
+}
+
+async function serve(home: string, allowedHosts: string[]): Promise<number> {
 	const agentDir =
 		process.env.PI_CODING_AGENT_DIR ?? path.join(homedir(), ".pi", "agent");
 	const server = await startServer({
@@ -33,6 +44,7 @@ async function serve(home: string): Promise<number> {
 			credentials: piLogins(path.join(agentDir, "auth.json")),
 		}),
 		env: (target) => new NodeExecutionEnv({ cwd: target.cwd ?? process.cwd() }),
+		allowedHosts,
 	});
 	for (const { project, reason } of server.skipped)
 		process.stderr.write(`tau: skipped ${project}: ${reason}\n`);
@@ -55,7 +67,8 @@ async function serve(home: string): Promise<number> {
 /** `tau` with no argument serves; `tau device …` reaches the running server through its admin socket. */
 export async function run(argv: readonly string[]): Promise<number> {
 	const home = path.join(homedir(), ".tau");
-	if (argv.length === 0) return serve(home);
+	const allowed = argv[0] === "device" ? undefined : hosts(argv);
+	if (allowed !== undefined) return serve(home, allowed);
 	const request = parse(argv);
 	if (request === undefined) {
 		process.stderr.write(USAGE);
