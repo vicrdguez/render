@@ -36,6 +36,7 @@ test("missing files and differing slot sets stop a child module at import", (t) 
 		{ name: "missing", slots: [] },
 		{ name: "undeclared", body: "{{extra}}", slots: [] },
 		{ name: "absent", body: "No slots.", slots: ["missing"] },
+		{ name: "misnamed", body: "{{a}}", slots: ["b"] },
 		{ name: "condition", body: "{{#if ready}}yes{{/if}}", slots: [] },
 		{ name: "loop", body: "{{#each items}}{{item}}{{/each}}", slots: ["item"] },
 		{ name: "include", body: "{{> other}}", slots: [] },

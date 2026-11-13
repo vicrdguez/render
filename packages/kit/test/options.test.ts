@@ -42,6 +42,7 @@ test("get returns detached explicit keys and set replaces them without storing d
 		const value = await port.get(tx);
 		value.base = "not stored";
 		assert.deepEqual(await port.get(tx), { model: "local/a", base: "release" });
+		assert.equal((await port.read(tx)).base, "release");
 		await port.set(tx, { model: "local/b" });
 		assert.deepEqual(await port.read(tx), {
 			model: "local/b",
