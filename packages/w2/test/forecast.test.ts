@@ -88,6 +88,71 @@ test("walk rows 1 to 15: record, due, not yet, revision, stale timer, yes and ca
 	assert.deepEqual(f.reports, []);
 });
 
+test("not yet asks again on the same subject and basis after seven days", async (t) => {
+	const f = await open();
+	t.after(() => f.h.close(context));
+	await f.call("record_forecast", args(START + 1_000));
+	const [timer] = await f.sleeping();
+	assert.ok(timer);
+	f.clock.advance(START + 1_000);
+	await f.finished(timer.id);
+	const id1 = `${f.subject()}#1` as const;
+	const first = await f.read(id1);
+	assert.equal(first?.status, "open");
+	f.clock.advance(START + 5_000);
+	await f.finished(await f.respond(id1, "not yet"));
+	const answered = await f.read(id1);
+	assert.equal(answered?.status, "answered");
+	if (answered?.status !== "answered") throw new Error("not answered");
+	const retry = (await f.sleeping()).find((row) => row.id !== timer.id);
+	assert.ok(retry);
+	f.clock.advance(answered.at + WEEK);
+	await f.finished(retry.id);
+	const id2 = `${f.subject()}#2` as const;
+	const second = await f.read(id2);
+	assert.equal(second?.status, "open");
+	assert.equal(second?.subject, first?.subject);
+	assert.equal(second?.basis, first?.basis);
+	await f.finished(await f.respond(id2, "yes"));
+	const resolved = (await f.events()).filter((e) => e.kind === "w2.resolved");
+	assert.equal(resolved.length, 1);
+	const data = resolved[0]?.data as {
+		forecast: number;
+		decision: string;
+		score: number;
+	};
+	assert.equal(data.forecast, first?.basis);
+	assert.equal(data.decision, id2);
+	assert.ok(Math.abs(data.score - 0.09) < 1e-12);
+});
+
+test("resolved text formats float noise without rounding the stored score", async (t) => {
+	const f = await open();
+	t.after(() => f.h.close(context));
+	await f.call("record_forecast", args(START));
+	const id = `${f.subject()}#1` as const;
+	await until(
+		() => f.read(id),
+		(d) => d?.status === "open",
+		"round",
+	);
+	await f.finished(await f.respond(id, "no"));
+	const resolved = (await f.events()).find((e) => e.kind === "w2.resolved");
+	const data = resolved?.data as { text: string; score: number };
+	assert.equal(data.text, "Forecast resolved no. Brier score: 0.490.");
+	assert.equal(data.score, 0.48999999999999994);
+});
+
+test("publishing tools declare safe replay and sequential model-only calls", () => {
+	for (const name of ["record_forecast", "revise_forecast"]) {
+		const tool = extension.tools?.find((tool) => tool.name === name);
+		assert.ok(tool, name);
+		assert.equal(tool.replay, "safe", name);
+		assert.deepEqual(tool.callers, ["model"], name);
+		assert.equal(tool.executionMode, "sequential", name);
+	}
+});
+
 test("revision withdraws an open round at once; an obsolete answer and live-timer mismatch do nothing", async (t) => {
 	const f = await open();
 	t.after(() => f.h.close(context));
