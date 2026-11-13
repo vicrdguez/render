@@ -56,7 +56,11 @@ Three mutations compiled and failed their focused test. Each was reverted before
 | Replace the snippet with an empty string | exa root Webfox content | Missing `EXA-CONTENT-END` |
 | Permit an empty provider URL | empty search succeeds | `false !== true` for the expected tool error |
 
-The cumulative check passed 89 tests and all six unchanged design spikes. It included the real store's K1 to K6 checks and this package's SIGKILL check. One measured run took 17.68 seconds wall time. That includes command setup, lint, compile, all tests and spikes. It is a runtime sample, not a comparative performance claim. Logs are `/tmp/tau-u3-check.log` and `/tmp/tau-u3-mutation-{secret,content,validation}.log` on the unit owner's machine.
+Before the upstream merge, the cumulative check passed 89 tests and all six unchanged design spikes. It included the real store's K1 to K6 checks and this package's SIGKILL check. One measured run took 17.68 seconds wall time. That includes command setup, lint, compile, all tests and spikes. It is a runtime sample, not a comparative performance claim. Logs are `/tmp/tau-u3-check.log` and `/tmp/tau-u3-mutation-{secret,content,validation}.log` on the unit owner's machine.
+
+The package-only emitted test run passed all 11 tests in 577.583 milliseconds. This is one Node test-runner sample. It includes real localhost HTTP, one killed child, SQLite reopen and MemoryStorage harnesses. It excludes compilation. The failed-run count was zero and both providers' expected content markers were present.
+
+A fresh checkout of the implementation commit passed `nix flake check -L`. This Nix version rejects `flake check --rebuild`, so all four check outputs were then forced through `nix build -L --no-link --rebuild .#checks.aarch64-darwin.lint .#checks.aarch64-darwin.typecheck .#checks.aarch64-darwin.test .#checks.aarch64-darwin.spikes`. Both commands exited zero. The coordinator then requested the verified store and kit merge. Final source-specific results after that merge are in the PR and unit report.
 
 Importing the emitted package printed `[ 'extension', 'options' ]`. The retained type assignment checks the structural `ExtensionModule` contract without importing the unfinished host.
 
