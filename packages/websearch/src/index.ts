@@ -1,0 +1,4 @@
+import { createSearchExtension } from "./web-search.js";
+
+export { options } from "./options.js";
+export const extension = createSearchExtension();
