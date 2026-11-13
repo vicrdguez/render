@@ -28,9 +28,9 @@ The first version welded one software-development workflow into its authority an
 - The core grows only by the admission rule below.
 - The language is strict TypeScript, with pi-schema at each boundary where outside data enters. Effect and Vite are out.
 - Prose belongs to the workflow that uses it.
-- One standard library sits beside the core. It holds `prose()` and `role()`. The core never imports it.
+- One kit sits beside the core, the package `tau-kit`. It holds `prose()`, `role()`, and `options()`. The core never imports it.
 - One server hosts all projects. Each project selects its extensions, workflows among them. You connect to that one server from several machines.
-- The bare agent selects pi-durable's `coding-tools`. Codemode is an optional extension.
+- The bare agent follows its project's default selection: pi-durable's `coding-tools`, then the extensions the owner added to the project that are not workflows. Codemode is an optional extension.
 - A client that reconnects gets the current state, not a replay.
 - The client API is a list of what a client must be able to do. No client is designed yet, and the list grows as a real client is used. [Protocol](protocol.md) says how a call travels.
 - A client chooses a project's extensions when it binds the project to the server.
@@ -62,11 +62,11 @@ After each arena the picker ran a spike of the moves the merged design makes: `s
 | Store layer | One store. It opens a pi-durable harness and adds Decision and Event. | Decided |
 | pi-durable | Conversations, submissions, tasks, documents, extensions, and the registry. | Decided |
 | Extensions | Workflows, and extensions that do other jobs, such as web search. Each one is a pi-durable `Extension`. | Proposed |
-| Standard library | `prose()`, `role()`, and `options()`, for workflow authors. | Decided. `options()` is Proposed. |
+| Kit | `prose()`, `role()`, and `options()`, for workflow authors. | Decided. `options()` is Proposed. |
 
 "The core" means the host layer and the store layer together. Both follow the admission rule. The first draft let the host layer escape it, and the judge was right to object.
 
-The layers keep one import rule. The store layer knows no project. The host layer knows no particular extension. Neither imports an extension or the standard library.
+The layers keep one import rule. The store layer knows no project. The host layer knows no particular extension. Neither imports an extension or the kit.
 
 With no workflow, a project can create a conversation, pick a model, send input, watch progress, abort, and reconnect. That is W0 in [Proving workflows](workflows.md). It is a chat with a coding agent, as in pi, that lives on the server.
 
@@ -77,12 +77,12 @@ With no workflow, a project can create a conversation, pick a model, send input,
 1. **A real failure.** The bare agent or a proving workflow cannot do something today. The proposal names it.
 2. **pi-durable does not provide it.** The proposal cites what was checked.
 3. **An extension cannot keep the promise.** The change guards who may act at the boundary to the human and the client. Or it is a record that every client and every extension must read the same way. The proposal includes the extension that was tried and where it fell short. Convenience fails this check.
-4. **Two unlike users.** Two workflows that differ use it with the same meaning, or a client that knows no workflow cannot work without it. A repair to the server's safety is the one exception.
+4. **Two unlike users.** Two extensions that do different jobs use it with the same meaning, or a client that knows no extension cannot work without it. A repair to the server's safety is the one exception.
 5. **A small shape that names no workflow concept.** It is a type and a few functions over a `Tx` or the host. It adds no scheduler, loop, background process, or storage engine. A particular role such as "the designer", a phase, and an artifact type are workflow concepts. A way to define roles is not one. Checks 1 to 4 judge it.
 
 The owner accepted the rule as written and asked that check 5 be reworded on roles. Its last three sentences are the new wording, and that wording is **Proposed**.
 
-Check 4 speaks of two workflows. With the extension as the main unit, its proposed wording is: "Two extensions that do different jobs use it with the same meaning, or a client that knows no extension cannot work without it." W1 and W2 still count as two, and two search providers do not. This wording is **Proposed** too.
+Check 4 first spoke of "two workflows". With the extension as the main unit, the owner agreed to the wording above. W1 and W2 still count as two, and two search providers do not.
 
 Two rules remove things:
 
@@ -101,7 +101,7 @@ How the current parts score:
 | The `secret` format on an option | Core, host layer | Only the host writes the reply to a client. It passes on the client clause alone. |
 | The list of faulted tasks | Core, host layer | A faulted task runs no code, so it cannot report itself, and only the host can show it to a client. |
 | A workflow's options | The workflow's own document, with a contract on its module for the host | A workflow can store and read its options alone, so the storage fails check 3. It cannot hear a client, so the host reaches the values through three members that the module exports. |
-| `prose()`, `role()`, and `options()` | The standard library | None guards a boundary. [Standard library](library.md) has its own, lighter rule. |
+| `prose()`, `role()`, and `options()` | The kit | None guards a boundary. [Kit](kit.md) has its own, lighter rule. |
 | The execution environment | Host wiring only | The host passes one to each harness. pi-durable and pi-env provide the environments. |
 | A factory that hands each extension its project | Out | The `tx` already names the store. |
 | Reactors | Out | No two extensions need to hear each other yet. |
@@ -109,7 +109,7 @@ How the current parts score:
 | Expiry, quorum, comment threads, replies to annotations, approval policy | Out | A workflow builds each from a sleeping task, `withdraw`, and entries. |
 | Annotations saved before the answer | Out for now | They need a second write call for clients. See "Accepted limits". |
 | Removing an extension from a project | Out | Uninstalling does not park running work, and the owner accepted the limit. See [Host](host.md). |
-| Lane | Out | It fails four checks for the core and two for the library. A workflow can build one, and notes come first. See [Lane](lane.md). |
+| Lane | Out | It fails four checks for the core and two for the kit. A workflow can build one, and notes come first. See [Lane](lane.md). |
 | A key that makes "create a conversation" safe to repeat | Out | The owner accepted the duplicate. |
 
 ## Decision log
@@ -134,12 +134,12 @@ How the current parts score:
 | Strict TypeScript, pi-schema at boundaries, no Effect, no Vite | Decided | |
 | `node --test` as the test runner | Proposed | |
 | Prose is owned by the workflow | Decided | [Prose](prose.md) |
-| One standard library beside the core holds `prose()` and `role()` | Decided | [Standard library](library.md) |
-| The shape of `role()`, and the rule for what enters the standard library | Proposed | [Standard library](library.md) |
+| One kit beside the core holds `prose()` and `role()` | Decided | [Kit](kit.md) |
+| The shape of `role()`, and the rule for what enters the kit | Proposed | [Kit](kit.md) |
 | A workflow has options per project that a client sets | Decided | [Host](host.md) |
 | Options live in the workflow's own document, and the host reaches them through a contract on the module | Proposed | [Host](host.md) |
-| `options()` and `modelRef()` in the standard library | Proposed | [Standard library](library.md) |
-| A library helper may define a document for its caller | Decided | [Standard library](library.md) |
+| `options()` and `modelRef()` in the kit | Proposed | [Kit](kit.md) |
+| A kit helper may define a document for its caller | Decided | [Kit](kit.md) |
 | `prose()` loads when the module loads | Proposed | [Prose](prose.md) |
 | One server for all projects, workflows selected per project | Decided | [Topology](topology.md) |
 | One store, harness, and registry per project inside that server | Proposed | [Topology](topology.md) |
@@ -147,11 +147,12 @@ How the current parts score:
 | A client chooses a project's extensions when it binds the project | Decided | [Host](host.md) |
 | The extension is the main unit, and a workflow is one kind | Decided | [Extensions](extensions.md) |
 | A workflow is an extension whose module exports `entry` | Proposed | [Extensions](extensions.md) |
-| The host passes each project a default selection, which a conversation follows, edits, or replaces with an exact list | Proposed | [Extensions](extensions.md) |
-| The bare agent follows the project default | Proposed. It changes a Decided line. | [Extensions](extensions.md) |
+| The host passes each project a default selection, which a conversation follows, edits, or replaces with an exact list | Decided | [Extensions](extensions.md) |
+| The bare agent follows the project default | Decided | [Extensions](extensions.md) |
 | A secret is an option with the format `secret`, stored in the project's store | Proposed | [Extensions](extensions.md) |
-| Check 4 of the admission rule speaks of two extensions | Proposed | This file |
-| Lane is not in the core and not in the library | Proposed | [Lane](lane.md) |
+| Check 4 of the admission rule speaks of two extensions | Decided | This file |
+| Lane is not in the core and not in the kit | Decided | [Lane](lane.md) |
+| The kit is the package `tau-kit` | Decided | [Kit](kit.md) |
 | `bind`, the `Project` document, and a directory per project as the catalogue | Proposed | [Host](host.md), [Topology](topology.md) |
 | `bind` takes the working directory as a path on the server | Decided | [Host](host.md) |
 | An extension is added to a project and never removed | Decided, as a limit | [Host](host.md) |
@@ -192,14 +193,7 @@ How the current parts score:
 
 ## Open questions
 
-Four decisions wait for the owner.
-
-- **The bare agent and the project default.** The owner ruled that the bare agent selects `coding-tools`. [Extensions](extensions.md) proposes that it follows the project's default, which starts with `coding-tools` and then holds the tool extensions the owner added to the project. Web search cannot reach the bare agent without this.
-- **Check 4's wording.** "Two workflows" becomes "two extensions that do different jobs". The rule is Decided, so the change is the owner's.
-- **Lane.** [Lane](lane.md) answers that it is not a core part and not yet a library helper, and that a notes document comes first. The owner was considering the idea, so the verdict is the owner's to take or leave.
-- **The name of the standard library.** The owner finds it pretentious for what it is. A new name is to be picked.
-
-Open, with no decision asked yet:
+The owner is locking the design. Every entry that is still **Proposed** in the decision log above waits for that. These points are open, with no recommendation in the notes:
 
 - **The first client.** Not designed, by the owner's ruling. [Host](host.md) and [Protocol](protocol.md) are what it will speak.
 - **Where a secret lives.** [Extensions](extensions.md) keeps an API key in the project's store, in plain text. One key for all projects would need a home in the server's configuration that no call sets today.
@@ -211,11 +205,10 @@ Open, with no decision asked yet:
 
 ## Next steps
 
-1. The four decisions under "Open questions".
-2. Still Proposed from before: the wording of check 5, the shape of `role()`, W2, and the store per project.
-3. Build the store layer: Decision and Event as designed here. The `answer` table and the failure paths of the walk are the list of ways it can fail. The tests come from that list, before the code. Then run K1 to K6 again, against the real functions.
-4. Build the host layer on it: `bind`, the start order, the project default, and the calls in [Host](host.md), carried as [Protocol](protocol.md) says. The scripts in those files and the checks of the three spikes are the list of ways it can fail.
-5. Build web search, then W2, then W1. Web search comes first because it is the smallest extension and has no decision. This order is a proposal.
+1. Lock the design: the owner decides each entry that is still Proposed, and each open point.
+2. Build the store layer: Decision and Event as designed here. The `answer` table and the failure paths of the walk are the list of ways it can fail. The tests come from that list, before the code. Then run K1 to K6 again, against the real functions.
+3. Build the host layer on it: `bind`, the start order, the project default, and the calls in [Host](host.md), carried as [Protocol](protocol.md) says. The scripts in those files and the checks of the three spikes are the list of ways it can fail.
+4. Build web search, then W2, then W1. Web search comes first because it is the smallest extension and has no decision. This order is a proposal.
 
 ## Files
 
@@ -226,7 +219,7 @@ Open, with no decision asked yet:
 - [Host](host.md) lists what a client must be able to do, and has binding, an extension's options, the faulted tasks, and joining a running agent.
 - [Protocol](protocol.md) says how a call travels: the transport, the message shapes, the streams, devices and tokens, and versions.
 - [Lane](lane.md) puts the owner's idea of a long-running role through the rules.
-- [Standard library](library.md) has `role()`, `options()`, and the rule for what enters the library.
+- [Kit](kit.md) has `role()`, `options()`, and the rule for what enters the kit.
 - [Prose](prose.md) compares four ways to bind facts into instructions.
 - [Topology](topology.md) compares three ways to host many projects.
 - [Grounding](grounding.md) lists the facts this design rests on, with sources.

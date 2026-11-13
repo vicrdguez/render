@@ -4,11 +4,11 @@ The owner is considering a new concept and asked that it be tested like any othe
 
 > A lane is basically the concept of an agentRole/conversation that is long running, keeps compacting holding history and knowledge of a particular role and hands actual work for to other agents. For example, W1 could create the implementor lane, which is basically a long running conversation that dispatches implementor agents, and keeps the history of the project as it has been built so it becomes always more accurate at handing over task to agents as it knows the project much better than a fresh-context implementor building a particular work item.
 
-**Proposed.** Three authors put Lane through the admission rule and the library's rule, and walked W1 with an implementer lane over three work items. All three reached the same verdict, and the judge agreed. [Extension arena](arena-ext.md) has the record, and `spikes/ext.mjs` ran the facts below as checks E8 to E12.
+**Decided.** The owner took the verdict below: "makes sense". Three authors had put Lane through the admission rule and the kit's rule, and walked W1 with an implementer lane over three work items. All three reached the same verdict, and the judge agreed. [Extension arena](arena-ext.md) has the record, and `spikes/ext.mjs` ran the facts below as checks E8 to E12.
 
 ## The verdict
 
-**Lane is not a core part, and not yet a library helper. A workflow can build one from pi-durable parts today. The first thing to try is cheaper than a lane: a notes document that fresh workers read.**
+**Lane is not a core part, and not yet a kit helper. A workflow can build one from pi-durable parts today. The first thing to try is cheaper than a lane: a notes document that fresh workers read.**
 
 As a core part:
 
@@ -20,7 +20,7 @@ As a core part:
 | 4. Two unlike users | Fail | Only W1's implementer. W2 creates no worker, and no client needs to tell a lane from a conversation. |
 | 5. A small shape | Mixed | The candidates split. A lane that only exists is `role()` and a document. One that dispatches is a queue and a report back. It does not matter, since checks 1 to 4 fail. |
 
-As a library helper beside `role()`:
+As a kit helper beside `role()`:
 
 | Check | Result | Evidence |
 | --- | --- | --- |
@@ -56,7 +56,7 @@ What a lane does not change: W1's chain of evidence. The worker's input carries 
 
 ## Four ways to get the benefit
 
-| | A core primitive | A library helper | A lane that W1 builds alone | No lane: fresh workers and notes |
+| | A core primitive | A kit helper | A lane that W1 builds alone | No lane: fresh workers and notes |
 | --- | --- | --- | --- | --- |
 | The rules | Fails four checks | Fails two checks | Nothing shared | Nothing shared |
 | Where knowledge lives | The transcript and its summary | The same | The same, or a document | A document |
@@ -87,7 +87,7 @@ Keep the lane only if a run of the same work items shows that its briefs do bett
 
 ## What would change the verdict
 
-- **For the library:** a second call site, in another workflow or another role. The helper would then be "find or create the role's conversation" and no more.
+- **For the kit:** a second call site, in another workflow or another role. The helper would then be "find or create the role's conversation" and no more.
 - **For the core:** nothing in sight. A lane guards no boundary to the human.
 
 ## What every design missed

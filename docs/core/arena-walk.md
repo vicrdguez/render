@@ -84,14 +84,14 @@ Its weakness is that it ran nothing. The judge found two defects in it. Its time
 | `annotations` replaces `notes`. | The other two kept both fields. One field is enough when the core only stores. |
 | A range is two offsets into `text`, and nothing more. | Candidates 1 and 2 stored a quote beside the offsets, and candidate 2 added a JSON pointer. The basis is one `text` field in an entry that never changes, so neither is needed. |
 | The server opens every project at start. | A closed store never wakes. |
-| "It owns nothing stored" as a check for the standard library | It is the line between a helper and a part of a workflow. |
+| "It owns nothing stored" as a check for the kit | It is the line between a helper and a part of a workflow. |
 
 ## Taken from the judge
 
 - Both of its findings on what every walk missed. See below.
 - Its question on annotations that come with an approval, when no revision follows. [The walk](walk.md) now says what W1 does with them.
 - Its ruling on Annotation. Checks 1, 2, 3, and 5 pass for a field that the core only stores. Check 4 rests on the client that knows no workflow, and not on W2.
-- Its view that real call sites are better evidence for a library part than a second user who might come.
+- Its view that real call sites are better evidence for a kit part than a second user who might come.
 
 ## What all three found
 
@@ -129,7 +129,7 @@ The walks were written apart, and each of them reached these. That makes them th
 | A worktree cleanup that deletes an unregistered directory | Candidate 1 | It cannot prove the directory is its own. |
 | A listed worktree path as proof of ownership | Candidate 3 | The same. The plan is stored first, and a mismatch stops the work. |
 | A settings type for roles | Candidates 1 and 3 | The owner ruled that a role's settings are `AgentChange`. |
-| "No store access" as a rule for the standard library | Candidate 1 | It excludes `role()` and names no failure. |
+| "No store access" as a rule for the kit | Candidate 1 | It excludes `role()` and names no failure. |
 | A label on a conversation | Candidate 3's finding 14 | Candidate 3 itself showed that it fails check 4. |
 
 ## What every walk missed

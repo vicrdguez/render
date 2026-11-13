@@ -155,7 +155,7 @@ Render v1 pinned 1.4.0. Nothing in this design depends on 1.4.0.
 - A scan's cursor on SQLite is the ID of the last record and the order. It holds no server memory (measured, `src/storage/scan.ts:36-40`).
 - Partial answers and tool output are committed at most every 100 ms by default (measured, `README.md:527`).
 - pi-durable has changed the shape of `pi.live` between versions of that document (measured, `src/harness/live.ts:197-205`).
-- Node has an HTTP server and a WebSocket client in its standard library, and no WebSocket server (reported by two candidates of the protocol arena; one checked it in a probe).
+- Node has an HTTP server and a WebSocket client in its kit, and no WebSocket server (reported by two candidates of the protocol arena; one checked it in a probe).
 
 ### pi-schema and pi-ai
 

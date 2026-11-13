@@ -14,7 +14,7 @@ W1 and W2 have been walked on paper, one commit at a time. [The walk](walk.md) h
 
 The bare agent selects pi-durable's `coding-tools` extension, which gives it `read`, `write`, `edit`, and `bash` (measured, `src/tools/index.ts:27-36`). Codemode is an optional extension.
 
-It is a chat with a coding agent, as in pi. The client sends the model when it creates the conversation, and the host sets the project's working directory. In a project that has extensions that are not workflows, such as web search, the bare agent gets their tools too. That part is **Proposed** in [Extensions](extensions.md). What Tau adds is where the conversation lives: on the server, across a restart, and reachable from a second device. Nothing asks a decision, and the timeline stays empty.
+It is a chat with a coding agent, as in pi. The client sends the model when it creates the conversation, and the host sets the project's working directory. In a project that has extensions that are not workflows, such as web search, the bare agent gets their tools too. The owner agreed to that in the [extensions](extensions.md) pass. What Tau adds is where the conversation lives: on the server, across a restart, and reachable from a second device. Nothing asks a decision, and the timeline stays empty.
 
 W0 proves that the core runs alone. [Host](host.md) lists the calls it needs.
 
@@ -31,7 +31,7 @@ W0 proves that the core runs alone. [Host](host.md) lists the calls it needs.
 
 Every W1 decision also offers "abort".
 
-W1 has four options per project: the model of the designer, of the implementer, and of the reviewer, and the base branch. You set them from a client before the first conversation. [Standard library](library.md) has the schema.
+W1 has four options per project: the model of the designer, of the implementer, and of the reviewer, and the base branch. You set them from a client before the first conversation. [Kit](kit.md) has the schema.
 
 ## W2, forecasts
 
@@ -94,7 +94,7 @@ W2 has the shape of quant research without the compute job: a claim fixed before
 | Read an option in the commit that uses it. Copy a value that an outside effect depends on into your own document. | A later phase, or a rerun, acts on a value that has changed since. | W1 row 8, H2 and H3 |
 | A commit that submits to a role's conversation first sets that role's model from the options. | A changed option reaches only conversations that are created later. | W1 rows 12 and 16, H7 |
 | The event of the commit that first submits to a conversation names that conversation. | A client that knows no workflow cannot find the agent to join it. | W1 rows 10 and 12 |
-| A new option ships with a default. | After an upgrade `read` throws, and the tasks that read the option fault. | [Standard library](library.md) |
+| A new option ships with a default. | After an upgrade `read` throws, and the tasks that read the option fault. | [Kit](kit.md) |
 
 One of these leans on source that was read and not run: the `afterRun` hook. H2, H3, and H7 are checks of `spikes/host.mjs`. The sequential round has since run, as E6 of `spikes/ext.mjs`.
 

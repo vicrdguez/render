@@ -4,7 +4,7 @@
 
 **Proposed.** Workflows share one small function, `prose()`, that binds facts into Markdown files. All three designs of the first arena reached this answer independently.
 
-**Decided.** `prose()` lives in the [standard library](library.md) beside the core, together with `role()`. The core does not import it.
+**Decided.** `prose()` lives in the [kit](kit.md) beside the core, together with `role()`. The core does not import it.
 
 ## What pi-durable already renders
 
@@ -81,11 +81,11 @@ This is a rule and not a preference. A section must not load or check prose whil
 
 Prose also grants nothing. A tool checks the workflow's state itself, whatever the instructions say.
 
-## Why it is a library and not a core primitive
+## Why it is in the kit and not in the core
 
 `prose()` needs nothing from the store, the client API, or the device identity. No client has to understand it. It guards no boundary, so it fails check 3 of the admission rule in the [README](README.md).
 
-It still earns a shared home. Both proving workflows need it, and a prose file written for one workflow can be reused by another only if the slot format is the same. [Standard library](library.md) has the rule for what enters that home.
+It still earns a shared home. Both proving workflows need it, and a prose file written for one workflow can be reused by another only if the slot format is the same. [Kit](kit.md) has the rule for what enters that home.
 
 ## What `prose()` cannot do
 

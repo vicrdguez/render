@@ -1,10 +1,12 @@
-# The standard library
+# The kit
 
-**Decided.** Tau has one standard library beside the core. It holds `prose()` and `role()`. The core never imports it, and a workflow may skip it. If it grows enough, it can be split later. The owner also asked for one function here that defines and reads a workflow's options, and that stores them per project by itself.
+**Decided.** Tau has one kit beside the core, the package `tau-kit`. It holds helpers for people who write extensions: `prose()`, `role()`, and `options()`. The core never imports it, and an extension may skip it. If it grows enough, it can be split later.
 
-**Proposed.** The shapes of `role()` and `options()`, and the rule for what enters the library.
+**Proposed.** The shapes of `role()` and `options()`, and the rule for what enters the kit.
 
-**Decided.** `options()` defines a document. The entry rule as first written forbade that, and the owner agreed to reword it. See "What enters the standard library". The owner also wants a plainer name for the library. Until one is picked, these notes keep "standard library".
+**Decided.** `options()` defines a document. The entry rule as first written forbade that, and the owner agreed to reword it. See "What enters the kit".
+
+**The name.** These notes called it the standard library until 2026-11-13. The owner found that name pretentious for what it is, since it does not resemble a language's standard library, and chose `tau-kit`. The raw files of the arenas keep the old name.
 
 [Prose](prose.md) covers `prose()`. This file covers `role()`, `options()`, and the entry rule.
 
@@ -167,7 +169,7 @@ A stand-in with this shape ran: one call defined the document, a host commit mer
 
 Two of the three designs in the host arena put the stored values in the core. The judge was right that check 3 does not allow it: the third design showed that the host can call a contract on the module and store nothing.
 
-## What enters the standard library
+## What enters the kit
 
 The core's admission rule is too heavy for a helper, and no rule at all is how a shared folder fills up. This rule has four checks. A change that adds a part answers them in one paragraph and names the call sites. The owner's merge is the yes.
 
@@ -191,9 +193,9 @@ A part goes back out when it has fewer than two call sites, or when pi-durable g
 
 **Decided.** The last sentence of check 3 is new, and it is there for `options()`. The owner: "the rewording is needed."
 
-As first written, check 3 said that a library part "has no document". `options()` defines one. The owner asked for a single function that stores the values by itself, and a helper cannot do that without defining the place.
+As first written, check 3 said that a kit part "has no document". `options()` defines one. The owner asked for a single function that stores the values by itself, and a helper cannot do that without defining the place.
 
-What check 3 guards against is a library part that becomes a subsystem: a stored name that the core or a client must know, and a stored format that the library must migrate. `options()` has neither. The document's name is the workflow's, the document holds the set keys with no wrapper, and nothing but the workflow's own module reads it.
+What check 3 guards against is a kit part that becomes a subsystem: a stored name that the core or a client must know, and a stored format that the kit must migrate. `options()` has neither. The document's name is the workflow's, the document holds the set keys with no wrapper, and nothing but the workflow's own module reads it.
 
 The other way out kept the old wording. The workflow defines the document itself and hands it to the helper. One design in the host arena did that, and the judge counted it against the owner's request, because the author is back to choosing a kind, a version, and a first value.
 

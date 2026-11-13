@@ -293,11 +293,11 @@ With no explicit selection, a conversation gets every installed extension in ins
 
 The host now writes the selection on each conversation it creates for a client.
 
-- A bare conversation stores no selection. It follows the project's default, which the host passes to the harness: `coding-tools`, then the project's extensions that are not workflows. The owner ruled that the bare agent selects `coding-tools`. That it also gets the project's other tool extensions is **Proposed** in [Extensions](extensions.md), and it changes that ruling. The client sends its model.
+- A bare conversation stores no selection. It follows the project's default, which the host passes to the harness: `coding-tools`, then the project's extensions that are not workflows. The owner ruled that the bare agent selects `coding-tools`. The owner then agreed that it also gets the project's other tool extensions. See [Extensions](extensions.md). The client sends its model.
 - A workflow module may export `entry`: a pi-durable `AgentChange`, or a function of a `tx` that returns one. When the client asks for a conversation of that workflow, the host applies it in the commit that creates the conversation (measured, `src/harness/types.ts:550-555`, H3 of `spikes/host.mjs`).
 - Either way the host adds the project's working directory as `cwd`.
 
-A workflow sets the selection itself on every conversation it creates. See `role()` in [Standard library](library.md).
+A workflow sets the selection itself on every conversation it creates. See `role()` in [Kit](kit.md).
 
 - **Checks 1 and 2.** W1 row 0 has no designer without it. pi-durable takes the settings and does not choose them.
 - **Checks 3 and 4.** The host creates the conversation, so no extension is running yet. W1, W2, and the bare agent each need a different first conversation.

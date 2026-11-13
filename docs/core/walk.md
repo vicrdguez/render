@@ -36,7 +36,7 @@ What a rerun does depends on what started the commit.
 
 ### Who takes part
 
-Project P's registry holds `coding-tools` and `w1`. The W1 module gives the host `entry`, which returns the designer's settings, and `options`, the contract through which a client sets W1's options for P. The options are the model of each role and the base branch. Here the designer and the implementer run on model A, and the reviewer on model B. [Host](host.md) and [Standard library](library.md) have the shapes.
+Project P's registry holds `coding-tools` and `w1`. The W1 module gives the host `entry`, which returns the designer's settings, and `options`, the contract through which a client sets W1's options for P. The options are the model of each role and the base branch. Here the designer and the implementer run on model A, and the reviewer on model B. [Host](host.md) and [Kit](kit.md) have the shapes.
 
 | Name | Created by | Role | Model | Tools |
 | --- | --- | --- | --- | --- |
@@ -219,7 +219,7 @@ A fix whose home is "Core" or "Host wiring" changes the core. Each one has its f
 | 10 | Nothing said that timers must be `background`. | W2 2 | The flag. | Workflow |
 | 11 | A store that is closed never wakes. | W2 4 | The server opens every project at start. | Host wiring |
 | 12 | The first conversation of a workflow gets every installed extension and no role. | W1 0 | The module's `entry`. | Host wiring |
-| 13 | A workflow has no place for per-project options, such as the reviewer's model or the base branch. | W1 0, 8 | Options that the workflow defines and a client sets. See [Host](host.md). | Standard library and host wiring. Proposed. |
+| 13 | A workflow has no place for per-project options, such as the reviewer's model or the base branch. | W1 0, 8 | Options that the workflow defines and a client sets. See [Host](host.md). | Kit and host wiring. Proposed. |
 | 14 | A run that ends is not a handoff. | W1 E1 to E3 | The `afterRun` check. A failed or stopped run is the owner's to continue. | Workflow |
 | 15 | A Stop is not a cancel, and aborting a conversation withdraws no decision. | W1 X1 to X6 | An "abort" choice on every decision, and a durable cancel before the stops. | Workflow |
 | 16 | An outside effect has no receipt in the store. | W1 9, G1 | Store the plan, look, act, and stop on a mismatch. | Workflow |

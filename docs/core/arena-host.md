@@ -57,7 +57,7 @@ Its weaknesses are the ones the judge named. It ran nothing. A workflow's author
 
 | Change | Why | Source |
 | --- | --- | --- |
-| One call defines the options document and returns the reads and the write. | The owner asked for a single function that stores the values by itself. The judge said to resolve this before building. | The picker. It needs the reworded check 3 in [Standard library](library.md), which the owner then accepted. |
+| One call defines the options document and returns the reads and the write. | The owner asked for a single function that stores the values by itself. The judge said to resolve this before building. | The picker. It needs the reworded check 3 in [Kit](kit.md), which the owner then accepted. |
 | The host merges a patch and stores only the keys that were set. The schema's defaults fill the rest at read. | Two devices that set different options do not undo each other. A default that changes later reaches projects that never set the key. | Candidates 1 and 3 |
 | A model is a string with the format `model`, and the host checks that the server has it. | A wrong model is refused when it is set, not at the first run. A client can show a picker. | Candidate 1, its check H7 |
 | The catalogue file is gone. The directories are the catalogue. | A second record needs its own safe write and can disagree with the stores. | Candidates 1 and 3. The judge agreed. |
@@ -113,7 +113,7 @@ The designs were written apart, and each of them reached these.
 | Question | Positions | Result |
 | --- | --- | --- |
 | Who stores the options | Candidates 1 and 3: the core. Candidate 2: the workflow. | The workflow. The judge ruled on check 3. |
-| What the author writes | Candidate 1: a library helper over a core read. Candidate 2: a document, then a library helper. Candidate 3: a core function. | One library call that defines the document. |
+| What the author writes | Candidate 1: a kit helper over a core read. Candidate 2: a document, then a kit helper. Candidate 3: a core function. | One kit call that defines the document. |
 | The catalogue | Candidate 2: a file. Candidates 1 and 3: the directories. | The directories. |
 | The working directory | Candidates 1 and 3: a path. Candidate 2: a workspace key. | A path. The owner agreed. |
 | Removing a workflow | Candidate 1: refused while in use. Candidate 2: not offered. Candidate 3: allowed, and "parks" the work. | Not offered. |

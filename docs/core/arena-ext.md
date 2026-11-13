@@ -4,7 +4,7 @@ This note records the fourth arena, run on 2026-11-13. It produced [Extensions](
 
 ## What ran
 
-The owner wrote two notes on the design. The docs treated a workflow as the only kind of extension, and the extension should be the main unit. And the owner was considering Lane, a long-running conversation for one role. The brief asked each author to design the first, to put the second through the admission rule and the library's rule, and to walk one script of twelve steps.
+The owner wrote two notes on the design. The docs treated a workflow as the only kind of extension, and the extension should be the main unit. And the owner was considering Lane, a long-running conversation for one role. The brief asked each author to design the first, to put the second through the admission rule and the kit's rule, and to walk one script of twelve steps.
 
 | Label | Author | Size | Ran code |
 | --- | --- | --- | --- |
@@ -33,7 +33,7 @@ The picker has candidates 1 and 2 level. The judge's one point is a real defect:
 
 ## The base is candidate 2
 
-- It applies the rules most carefully. "Several work items are not separate call sites" is the library's check 1 read correctly.
+- It applies the rules most carefully. "Several work items are not separate call sites" is the kit's check 1 read correctly.
 - Its lane walk is the only one that is legal throughout. The lane owns no worker, and each report back has a commit of its own.
 - It says most about what a stored key exposes: "including backups".
 
@@ -58,7 +58,7 @@ Its weaknesses: it ran nothing, it changed the owner's ruling on the bare agent 
 - A project selects extension names, and the host passes a default that a conversation follows, edits, or replaces. No candidate chose exact lists everywhere, and none chose an extension that turns itself on.
 - A role whose tools are its promise names them exactly.
 - An API key lives in the extension's options, in plain text in the project's store, and the host's reply hides it.
-- Lane is not a core part and not yet a library helper.
+- Lane is not a core part and not yet a kit helper.
 - A lane's knowledge in pi-durable is a summary and a window. Only a document keeps things exactly.
 
 ## Where the designs disagreed

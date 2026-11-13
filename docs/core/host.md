@@ -137,7 +137,7 @@ type ExtensionModule = {
 };
 ```
 
-The host never reads a key of the value, and it never decides which conversation an option governs. So it still knows no particular extension. It does not import the standard library. `options()` in [Standard library](library.md) builds the three members in one call, and an extension may write them by hand.
+The host never reads a key of the value, and it never decides which conversation an option governs. So it still knows no particular extension. It does not import the kit. `options()` in [Kit](kit.md) builds the three members in one call, and an extension may write them by hand.
 
 Two names in a schema mean something to the host, both string formats.
 
@@ -291,7 +291,7 @@ Notes:
 | 7 | A failed run shows only inside its conversation. | `conversations` carries the state. | Host wiring |
 | 8 | The event log is a conversation, and a client could submit to it. | The host refuses. | Host wiring |
 | 9 | A run the owner started can overlap a dispatch and take its model change. | None. The transcript says which model wrote what. | A limit. Proposed. |
-| 10 | The standard library's rule forbids a helper that defines a document, and the owner asked for exactly that. | A reworded check 3 in [Standard library](library.md). | Standard library. Decided. |
+| 10 | The kit's rule forbids a helper that defines a document, and the owner asked for exactly that. | A reworded check 3 in [Kit](kit.md). | Kit. Decided. |
 
 ## Not verified
 

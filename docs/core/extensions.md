@@ -4,7 +4,7 @@
 
 **Proposed.** Everything else in this file. It comes from the fourth arena, and [Extension arena](arena-ext.md) says which part came from where. The moves it leans on ran in `spikes/ext.mjs`, checks E1 to E12, with stand-ins for the host. No Tau code exists.
 
-The earlier notes were written around workflows. This file corrects that, and [Host](host.md), [Primitives](primitives.md), and [Standard library](library.md) now use its names.
+The earlier notes were written around workflows. This file corrects that, and [Host](host.md), [Primitives](primitives.md), and [Kit](kit.md) now use its names.
 
 ## What an extension is
 
@@ -63,9 +63,9 @@ The host passes each project's harness a getter for `settings.extensions`. pi-du
 - **An open role removes its own extension's other tools by name.** `{ add: [W1] }` brings every tool of W1. The judge caught one design that removed only `write` and `edit` and so handed the designer the reviewer's tools.
 - **The owner cannot open a closed role from a client.** In a project with W2 and `websearch`, a bare conversation can search and W2's agent cannot. That is the cost of this design, and the right default for a role whose tools are evidence.
 
-### This changes a Decided line
+### This changed a Decided line
 
-The owner ruled that the bare agent selects `coding-tools`. Under this design it follows the project default, which always starts with `coding-tools` and then holds what the owner added to the project. In a project with no other extension the two are the same. **The owner must agree to this change.** Steps 2 and 4 of the arena's script cannot be done without it.
+The owner had ruled that the bare agent selects `coding-tools`. Under this design it follows the project default, which always starts with `coding-tools` and then holds what the owner added to the project. In a project with no other extension the two are the same. **Decided.** The owner agreed to the change: "makes sense in order to allow things like websearch".
 
 ### When the project's list grows
 
@@ -83,7 +83,7 @@ The project still opens. A selected name with no code is left out with no error,
 
 ## Options and secrets
 
-Options work for any extension as they do for a workflow: `options(extension, schema)` in [Standard library](library.md), a document named `<extension>.options` in the project's store, and `setOptions` from a client.
+Options work for any extension as they do for a workflow: `options(extension, schema)` in [Kit](kit.md), a document named `<extension>.options` in the project's store, and `setOptions` from a client.
 
 ```ts
 export const WebsearchOptions = options(
@@ -146,7 +146,7 @@ These join the rules in [Proving workflows](workflows.md).
 - **Checks 3 and 4.** No extension runs before its registry exists. `websearch`, W1, W2, and every client need it.
 - **Check 5.** One list in a document that exists, and new names for calls that exist.
 
-**Check 4 of the admission rule** speaks of "two workflows". It becomes: "Two extensions that do different jobs use it with the same meaning, or a client that knows no extension cannot work without it." The rule is Decided, so this wording waits for the owner. W1 and W2 still count as two. Two search providers do not.
+**Check 4 of the admission rule** spoke of "two workflows". It now reads: "Two extensions that do different jobs use it with the same meaning, or a client that knows no extension cannot work without it." **Decided.** The owner agreed. W1 and W2 still count as two. Two search providers do not.
 
 ## Not verified
 
