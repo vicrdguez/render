@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { defineDoc, type JsonObject } from "@earendil-works/pi-durable";
-import { bool, int, obj, str } from "@earendil-works/pi-schema";
+import { arr, bool, int, obj, str } from "@earendil-works/pi-schema";
 import { options } from "tau-kit";
 import { context, fixture } from "./fixture.js";
 
@@ -64,6 +64,28 @@ test("get returns detached explicit keys and set replaces them without storing d
 		base: "trunk",
 	});
 	await h.commit((tx) => port.set(tx, {}), context);
+	assert.deepEqual(await h.commit((tx) => port.get(tx), context), {});
+});
+
+test("read detaches array and nested object defaults across calls", async (t) => {
+	const h = await fixture(t);
+	const port = options(
+		"mutable-defaults",
+		obj({
+			branches: arr(str(), { default: ["main"] }),
+			settings: obj(
+				{ nested: obj({ base: str() }) },
+				{ default: { nested: { base: "main" } } },
+			),
+		}),
+	);
+	const value = await h.commit((tx) => port.read(tx), context);
+	value.branches.push("release");
+	value.settings.nested.base = "release";
+	assert.deepEqual(await h.commit((tx) => port.read(tx), context), {
+		branches: ["main"],
+		settings: { nested: { base: "main" } },
+	});
 	assert.deepEqual(await h.commit((tx) => port.get(tx), context), {});
 });
 
