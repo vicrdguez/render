@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
+	lstat,
 	mkdir,
 	mkdtemp,
 	readFile,
@@ -38,6 +39,10 @@ async function fixture(t) {
 		exports: { ".": "./dist/src/index.js" },
 	};
 	await put("package.json", manifest);
+	await put("tsconfig.json", { references: [{ path: "packages/store" }] });
+	await put("tsconfig.base.json", {});
+	await put("boundaries.json", { "tau-store": {} });
+	await put("packages/store/tsconfig.json", {});
 	await put("packages/store/package.json", store);
 	await put("package-lock.json", {
 		lockfileVersion: 3,
@@ -55,6 +60,9 @@ test("boundaries reject privileged, relative, and forbidden core imports", async
 	await put("tsconfig.base.json", {});
 	await put("packages/store/tsconfig.json", {});
 	await put("packages/w2/tsconfig.json", {});
+	await put("tsconfig.json", {
+		references: [{ path: "packages/store" }, { path: "packages/w2" }],
+	});
 	await put("packages/w2/package.json", {
 		name: "tau-w2",
 		dependencies: { "tau-store": "0.0.0" },
@@ -84,6 +92,161 @@ test("boundaries reject privileged, relative, and forbidden core imports", async
 	assert.equal(result.status, 1);
 	assert.match(result.stderr, /forbidden.*(capability|dependency)/);
 });
+
+test("boundaries reject a package omitted from root project references", async (t) => {
+	const { root, put } = await fixture(t);
+	await put("packages/forgotten/package.json", { name: "tau-forgotten" });
+	await put("packages/forgotten/tsconfig.json", {});
+	await put("boundaries.json", { "tau-store": {}, "tau-forgotten": {} });
+	const result = run("check-boundaries.mjs", root);
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, /tau-forgotten.*tsconfig.json.*references/);
+});
+
+for (const file of [
+	"src/x.test.ts",
+	"test/y.spec.ts",
+	"test/z.test.mts",
+	"checks/a.test.js",
+]) {
+	test(`boundaries reject misplaced test ${file}`, async (t) => {
+		const { root, put } = await fixture(t);
+		await put(
+			`packages/store/${file}`,
+			'import assert from "node:assert/strict"; assert.equal(1, 2);',
+		);
+		const result = run("check-boundaries.mjs", root);
+		assert.equal(result.status, 1);
+		assert.match(
+			result.stderr,
+			/tests must live in <pkg>\/test\/\*\*\/\*\.test\.ts/,
+		);
+	});
+}
+
+test("boundaries accept nested test files and ignore generated tests", async (t) => {
+	const { root, put } = await fixture(t);
+	await put("packages/store/test/nested/ok.test.ts", "");
+	await put("packages/store/dist/test/nested/ok.test.js", "");
+	await put("packages/store/node_modules/dep/other.spec.js", "");
+	const result = run("check-boundaries.mjs", root);
+	assert.equal(result.status, 0, result.stderr);
+});
+
+for (const [name, directory, specifier, allowed] of [
+	["tau-websearch", "src", "tau-store/host", false],
+	["tau-w2", "src", "tau-store/host", false],
+	["tau-w1", "src", "tau-store/host", false],
+	["tau-websearch", "test", "tau-store/host", true],
+	["tau-w2", "test", "tau-store/host", true],
+	["tau-w1", "test", "tau-store/host", true],
+	["tau-kit", "test", "tau-store/host", false],
+	["tau-w2", "test", "tau-host", false],
+]) {
+	test(`${name} ${directory} import of ${specifier} is ${allowed ? "allowed" : "forbidden"}`, async (t) => {
+		const { root, put, manifest, store } = await fixture(t);
+		await put(
+			"boundaries.json",
+			await readFile(path.join(tools, "../boundaries.json"), "utf8"),
+		);
+		const hostStore = {
+			...store,
+			exports: { ...store.exports, "./host": "./dist/src/host.js" },
+		};
+		const extension = {
+			name,
+			devDependencies: {
+				"tau-store": "0.0.0",
+				...(specifier === "tau-host" ? { "tau-host": "0.0.0" } : {}),
+			},
+		};
+		const host = { name: "tau-host", exports: { ".": "./dist/src/index.js" } };
+		await put("packages/store/package.json", hostStore);
+		await put("packages/extension/package.json", extension);
+		await put("packages/extension/tsconfig.json", {});
+		await put("packages/host/package.json", host);
+		await put("packages/host/tsconfig.json", {});
+		await put("tsconfig.json", {
+			references: ["store", "extension", "host"].map((dir) => ({
+				path: `packages/${dir}`,
+			})),
+		});
+		await put("package-lock.json", {
+			lockfileVersion: 3,
+			packages: {
+				"": manifest,
+				"packages/store": hostStore,
+				"packages/extension": extension,
+				"packages/host": host,
+			},
+		});
+		await put(
+			`packages/extension/${directory}/${directory === "test" ? "access.test.ts" : "access.ts"}`,
+			`import "${specifier}";`,
+		);
+		const result = run("check-boundaries.mjs", root);
+		assert.equal(result.status, allowed ? 0 : 1, result.stderr);
+		if (!allowed) assert.match(result.stderr, /forbidden workspace capability/);
+		assert.equal(run("check-lock.mjs", root).status, 0);
+	});
+}
+
+for (const source of [
+	'import { createRequire as load } from "node:module"; load(import.meta.url)("tau-store/host");',
+	'import { createRequire as load } from "module";',
+	'import m from "node:module"; m.createRequire(import.meta.url)("tau-store/host");',
+	'import * as m from "module"; m.createRequire(import.meta.url)("tau-store/host");',
+]) {
+	test(`boundaries reject CommonJS escape ${source}`, async (t) => {
+		const { root, put } = await fixture(t);
+		await put("packages/store/src/index.ts", source);
+		const result = run("check-boundaries.mjs", root);
+		assert.equal(result.status, 1);
+		assert.match(result.stderr, /CommonJS escape forbidden/);
+	});
+}
+
+test("test selection refuses missing emitted files before running any tests", async (t) => {
+	const { root, put } = await fixture(t);
+	await put("packages/store/test/missing.test.ts", "");
+	await put("packages/store/test/present.test.ts", "");
+	await put(
+		"packages/store/dist/test/present.test.js",
+		'console.log("TEST_RAN");',
+	);
+	for (const selections of [
+		[],
+		["tau-store"],
+		["packages/store/test/missing.test.ts"],
+	]) {
+		const result = run("tests.mjs", root, ...selections);
+		assert.equal(result.status, 1);
+		assert.match(
+			result.stderr,
+			/missing emitted test.*packages\/store\/dist\/test\/missing.test.js/,
+		);
+		assert.doesNotMatch(result.stdout, /TEST_RAN/);
+	}
+});
+
+for (const name of ["tau-store", "@tau/store"]) {
+	test(`linking removes the stale managed workspace link ${name}`, async (t) => {
+		const { root, put, store } = await fixture(t);
+		await put("packages/store/package.json", { ...store, name });
+		await put("external/library/package.json", { name: "library" });
+		const external = path.join(root, "external");
+		assert.equal(run("link-node-modules.mjs", root, external).status, 0);
+		await rm(path.join(root, "packages/store"), { recursive: true });
+		assert.equal(run("link-node-modules.mjs", root, external).status, 0);
+		await assert.rejects(lstat(path.join(root, "node_modules", name)), {
+			code: "ENOENT",
+		});
+		assert.equal(
+			await realpath(path.join(root, "node_modules/library")),
+			path.join(external, "library"),
+		);
+	});
+}
 
 function run(script, root, ...args) {
 	return spawnSync(process.execPath, [path.join(tools, script), ...args], {
