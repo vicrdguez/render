@@ -83,7 +83,7 @@
               node node_modules/typescript/bin/tsc -b
               node tools/assets.mjs
             '';
-            test = mkCommand "test" [ ] ''
+            test = mkCommand "test" [ pkgs.git ] ''
               ${commands.typecheck}/bin/typecheck
               node tools/tests.mjs "$@"
             '';
