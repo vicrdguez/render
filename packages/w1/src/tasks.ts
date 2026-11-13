@@ -322,7 +322,6 @@ export const reviewStart = single<{ build: EntryId; reviewer: ConversationId }>(
 			const work = await tx.doc(Work, k);
 			const { candidate, accepted } = work;
 			if (
-				closed(work) ||
 				(work.stage !== "building" && work.stage !== "fixing") ||
 				candidate?.build !== task.input.build ||
 				candidate.review !== undefined ||
@@ -370,7 +369,6 @@ export const fixStart = single<{
 	await runtime.commit(async (tx) => {
 		const work = await tx.doc(Work, k);
 		if (
-			closed(work) ||
 			work.stage !== "reviewing" ||
 			work.candidate?.review !== task.input.review
 		)
@@ -578,7 +576,7 @@ export const ensureHandoff = single<{ answer: EntryId }>(
 		const here = runtime.conversationId;
 		await runtime.commit(async (tx) => {
 			const { k, work } = await workOf(tx, here);
-			if (closed(work) || !owesHandoff(work, k, here)) return done;
+			if (!owesHandoff(work, k, here)) return done;
 			const answer = await tx.entry(task.input.answer);
 			const said = (answer?.model ?? [])
 				.flatMap((message) =>

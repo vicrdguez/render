@@ -278,13 +278,17 @@ test("rows X3 to X6: the stop aborts a running agent, keeps the worktree, and na
 		w.script(
 			"implementer",
 			commitStep("export.js", "json", "Late"),
-			call("publish_build", { text: "Late build." }),
+			call("publish_build", {
+				text: "Late build.",
+				replies: [{ annotation: 0, text: "Kept." }],
+			}),
 		);
 		await w.submit(I, "Publish anyway.");
 		await w.settle();
 		const last = (await toolResults(w, I)).at(-1);
 		assert.equal(last?.tool, "publish_build");
 		assert.equal(last?.isError, true);
+		assert.match(last?.text ?? "", /stopped/);
 		assert.equal((await w.entries(I, "w1.build")).length, 0);
 	}));
 

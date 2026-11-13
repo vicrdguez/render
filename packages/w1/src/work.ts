@@ -155,7 +155,7 @@ export const expects = (
 	work: Draft<WorkState>,
 	name: Subject,
 	id: DecisionId,
-) => !closed(work) && work.waiting[name] === id && !work.handled[id];
+) => work.waiting[name] === id && !work.handled[id];
 
 export function settle(work: Draft<WorkState>, name: Subject, id: DecisionId) {
 	delete work.waiting[name];

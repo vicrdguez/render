@@ -31,7 +31,7 @@ const text = (value: string) => [{ type: "text" as const, text: value }];
 
 /**
  * Runs a publish in one commit under the tool's receipt: a rerun with the same `api.taskId` returns the saved result
- * and writes nothing. A cancelled work refuses before anything else.
+ * and writes nothing. Each publish checks the stage, so a cancelled work refuses.
  */
 async function publish(
 	api: ToolExecutionApi,
@@ -45,10 +45,6 @@ async function publish(
 		const found = await workOf(tx, api.conversationId);
 		const saved = found.work.receipts[api.taskId];
 		if (saved !== undefined) return { text: saved };
-		if (closed(found.work))
-			return {
-				refused: `This work was ${found.work.stage}. Nothing was published.`,
-			};
 		const result = await body(tx, found);
 		if ("text" in result) found.work.receipts[api.taskId] = result.text;
 		return result;
