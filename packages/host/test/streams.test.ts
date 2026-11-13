@@ -23,6 +23,7 @@ test("the inbox holds each project under its name, and a project bound later joi
 		assert.equal(inbox.frames, 2);
 		inbox.close();
 	} finally {
+		gate.release();
 		await s.close();
 	}
 });
@@ -43,6 +44,7 @@ test("a clean stop ends each stream with stopping, and a revoke ends only that d
 		await mine.until((w) => w.closed, "the laptop's stream to close");
 		assert.equal(mine.end, "stopping");
 	} finally {
+		gate.release();
 		await s.close();
 	}
 });
@@ -106,6 +108,7 @@ test("open sends the view, then ops that rebuild what a new watch sees first", a
 		live.close();
 		fresh.close();
 	} finally {
+		gate.release();
 		await s.close();
 	}
 });
@@ -175,6 +178,7 @@ test("a client that stopped reading gets folded frames, and history fills the ga
 		assert.ok(resumed.value.docs["pi.agent"] !== undefined);
 		resumed.close();
 	} finally {
+		gate.release();
 		await s.close();
 	}
 });
@@ -200,6 +204,7 @@ test("a client that leaves ends only its watch, and the run goes on", async () =
 			JSON.stringify(history.body.result.items).includes("Finished alone."),
 		);
 	} finally {
+		gate.release();
 		await s.close();
 	}
 });

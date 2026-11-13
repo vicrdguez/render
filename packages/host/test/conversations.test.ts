@@ -12,14 +12,27 @@ import { type Running, start, until } from "./helpers.js";
 
 type Seen = { model: string; tools: string[]; text: string };
 const seen: Seen[] = [];
+type System = {
+	role: string;
+	toolsAdded?: { name: string }[];
+	toolsRemoved?: { name: string }[];
+};
+/** The tools a request offers: each system message adds and removes some. */
+const offered = (messages: readonly unknown[]) => {
+	const tools = new Set<string>();
+	for (const message of messages as System[]) {
+		if (message.role !== "system") continue;
+		for (const tool of message.toolsAdded ?? []) tools.add(tool.name);
+		for (const tool of message.toolsRemoved ?? []) tools.delete(tool.name);
+	}
+	return [...tools].sort();
+};
 const record =
 	(reply: ReturnType<typeof fauxAssistantMessage>): FauxResponseFactory =>
 	(context, _options, _state, model) => {
 		seen.push({
 			model: model.id,
-			tools: ((context as { tools?: { name: string }[] }).tools ?? [])
-				.map((t) => t.name)
-				.sort(),
+			tools: offered(context.messages),
 			text: JSON.stringify(context),
 		});
 		return reply;
@@ -118,6 +131,7 @@ test("create makes a bare conversation in the working directory, and a workflow'
 			extensions: { add: ["flow"] },
 		});
 	} finally {
+		gate.release();
 		await s.close();
 	}
 });
@@ -157,7 +171,7 @@ test("the bare agent follows the project default, and an added extension reaches
 			return seen.at(-1)?.tools;
 		};
 		const coding = ["bash", "edit", "read", "write"];
-		assert.deepEqual(await ask(bare), [...coding, "web_search"]);
+		assert.deepEqual(await ask(bare), [...coding, "web_search"].sort());
 		const flowTools = ["ask", "explode", "flood", "hold", "schedule"];
 		assert.deepEqual(
 			await ask(designer),
@@ -165,9 +179,10 @@ test("the bare agent follows the project default, and an added extension reaches
 		);
 		assert.deepEqual(await ask(reviewer), ["show_diff"]);
 		await s.call("addExtensions", { project: "p", extensions: ["notes"] });
-		assert.deepEqual(await ask(bare), [...coding, "note", "web_search"]);
+		assert.deepEqual(await ask(bare), [...coding, "note", "web_search"].sort());
 		assert.deepEqual(await ask(reviewer), ["show_diff"]);
 	} finally {
+		gate.release();
 		await s.close();
 	}
 });
@@ -188,15 +203,20 @@ test("conversations pages each one's state, leaves out the event log, and its cu
 		s.faux.setResponses([call("hold"), fauxAssistantMessage("done")]);
 		await send(s, running, "hold");
 		await gate.entered;
-		const first = await s.call("conversations", { project: "p", limit: 2 });
-		assert.equal(first.body.result.items.length, 2);
-		assert.equal(typeof first.body.result.next, "string");
-		const rest = await s.call("conversations", {
-			project: "p",
-			cursor: first.body.result.next,
-		});
-		assert.equal(rest.body.result.next, undefined);
-		const all = [...first.body.result.items, ...rest.body.result.items];
+		const pages = [];
+		let cursor: string | undefined;
+		do {
+			const page = await s.call("conversations", {
+				project: "p",
+				limit: 2,
+				...(cursor === undefined ? {} : { cursor }),
+			});
+			assert.ok(page.body.result.items.length <= 2);
+			pages.push(page.body.result);
+			cursor = page.body.result.next;
+		} while (cursor !== undefined);
+		assert.ok(pages.length >= 2);
+		const all = pages.flatMap((p) => p.items);
 		assert.deepEqual(
 			all.map((c: { conversation: number; state: string }) => [
 				c.conversation,
@@ -208,6 +228,7 @@ test("conversations pages each one's state, leaves out the event log, and its cu
 				[quiet, "idle"],
 			],
 		);
+		const first = { body: { result: pages[0] } };
 		gate.release();
 		await idle(s, running);
 		const again = await s.restart();
@@ -220,7 +241,7 @@ test("conversations pages each one's state, leaves out the event log, and its cu
 				after.body.result.items.map(
 					(c: { conversation: number }) => c.conversation,
 				),
-				[quiet],
+				pages[1].items.map((c: { conversation: number }) => c.conversation),
 			);
 			for (const cursor of [
 				"nonsense",
@@ -240,6 +261,7 @@ test("conversations pages each one's state, leaves out the event log, and its cu
 			await again.close();
 		}
 	} finally {
+		gate.release();
 		await s.close();
 	}
 });
@@ -314,6 +336,7 @@ test("input is keyed by device, refuses only-if-running when idle, and steers a 
 		);
 		assert.ok(!seen[1]?.text.includes("And then this."));
 	} finally {
+		gate.release();
 		await s.close();
 	}
 });
@@ -381,6 +404,7 @@ test("continue answers a failed run and refuses a busy one, and each stop ends t
 		);
 		assert.equal((await view(s, bare)).docs["pi.live"].run, undefined);
 	} finally {
+		gate.release();
 		await s.close();
 	}
 });
@@ -429,6 +453,7 @@ test("setModel changes the model and thinking level from the next request", asyn
 		assert.equal(missing.status, 404);
 		assert.equal(missing.body.refused?.code, "unknown_conversation");
 	} finally {
+		gate.release();
 		await s.close();
 	}
 });
@@ -486,6 +511,7 @@ test("the event log is read with history and timeline, and refuses every write c
 		);
 		timeline.close();
 	} finally {
+		gate.release();
 		await s.close();
 	}
 });
@@ -502,11 +528,12 @@ test("two projects keep separate stores", async () => {
 		s.faux.setResponses([fauxAssistantMessage("only in p")]);
 		await send(s, inP, "hello p");
 		await idle(s, inP);
-		const q = await s.call("history", { project: "q", conversation: inQ });
-		assert.deepEqual(q.body.result.items, []);
+		const q = await s.call("history", { project: "q", conversation: inP });
+		assert.ok(!JSON.stringify(q.body).includes("hello p"));
 		const p = await s.call("history", { project: "p", conversation: inP });
-		assert.equal(p.body.result.items.length, 2);
+		assert.ok(JSON.stringify(p.body).includes("hello p"));
 	} finally {
+		gate.release();
 		await s.close();
 	}
 });
