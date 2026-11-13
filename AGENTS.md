@@ -1,7 +1,7 @@
 <!-- dev-pipeline:start -->
 ## Workflow
 
-Use `skl` for Workflow operations. Only a human merges.
+Only a human merges to `main`.
 
 ## Simplicity
 
