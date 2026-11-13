@@ -191,19 +191,66 @@ for (const [name, directory, specifier, allowed] of [
 	});
 }
 
+for (const name of ["tau-w2", "tau-store"]) {
+	for (const directory of ["src", "test"]) {
+		test(`${name} ${directory} relative import of test helper is ${directory === "test" ? "allowed" : "forbidden"}`, async (t) => {
+			const { root, put, store } = await fixture(t);
+			await put("packages/store/package.json", {
+				...store,
+				exports: { ...store.exports, "./host": "./dist/src/host.js" },
+			});
+			await put("boundaries.json", {
+				"tau-store": {},
+				"tau-w2": { testOnly: { "tau-store": ["./host"] } },
+			});
+			const pkg = name === "tau-w2" ? "w2" : "store";
+			if (pkg === "w2") {
+				await put("packages/w2/package.json", {
+					name,
+					devDependencies: { "tau-store": "0.0.0" },
+				});
+				await put("packages/w2/tsconfig.json", {});
+				await put("tsconfig.json", {
+					references: [{ path: "packages/store" }, { path: "packages/w2" }],
+				});
+			}
+			await put(
+				`packages/${pkg}/test/helper.ts`,
+				'export * from "tau-store/host";',
+			);
+			await put(
+				`packages/${pkg}/${directory}/index.ts`,
+				'export * from "../test/helper.js";',
+			);
+			const result = run("check-boundaries.mjs", root);
+			assert.equal(result.status, directory === "test" ? 0 : 1, result.stderr);
+			if (directory === "src")
+				assert.match(result.stderr, /source import of tests forbidden/);
+		});
+	}
+}
+
 for (const source of [
+	'import m from "node:module"; const { createRequire: r } = m; r(import.meta.url)("tau-store/host");',
+	'import m from "node:module"; m["createRequire"](import.meta.url)("tau-store/host");',
+	'const r = process.getBuiltinModule("module")["create" + "Require"]; r(import.meta.url)("tau-store/host");',
+	'export { createRequire } from "node:module";',
+	'const { getBuiltinModule: load } = process; load("module");',
+	'process["getBuiltinModule"]("module");',
 	'import { createRequire as load } from "node:module"; load(import.meta.url)("tau-store/host");',
 	'import { createRequire as load } from "module";',
 	'import m from "node:module"; m.createRequire(import.meta.url)("tau-store/host");',
 	'import * as m from "module"; m.createRequire(import.meta.url)("tau-store/host");',
 ]) {
-	test(`boundaries reject CommonJS escape ${source}`, async (t) => {
-		const { root, put } = await fixture(t);
-		await put("packages/store/src/index.ts", source);
-		const result = run("check-boundaries.mjs", root);
-		assert.equal(result.status, 1);
-		assert.match(result.stderr, /CommonJS escape forbidden/);
-	});
+	for (const directory of ["src", "test"]) {
+		test(`boundaries reject CommonJS escape in ${directory}: ${source}`, async (t) => {
+			const { root, put } = await fixture(t);
+			await put(`packages/store/${directory}/index.ts`, source);
+			const result = run("check-boundaries.mjs", root);
+			assert.equal(result.status, 1);
+			assert.match(result.stderr, /CommonJS escape forbidden/);
+		});
+	}
 }
 
 test("test selection refuses missing emitted files before running any tests", async (t) => {
