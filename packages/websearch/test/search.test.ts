@@ -55,6 +55,7 @@ async function provider(t: TestContext) {
 	}[] = [];
 	let status = 200;
 	let body: unknown = {
+		images: [],
 		results: [
 			{
 				title: "Tau",
@@ -428,6 +429,7 @@ test("provider errors and echoed keys never reach results, entries, events, sect
 			p.respond(
 				status === 200
 					? {
+							images: [],
 							results: [
 								{
 									title: KEY,
