@@ -145,6 +145,35 @@ test("rows E1 to E3: a designer that asks instead of publishing opens stuck on i
 		);
 	}));
 
+test("row E2 for R: a reviewer that ends without a verdict opens stuck, and retry asks it again on the current model", () =>
+	using(async (w) => {
+		w.script(
+			"implementer",
+			commitStep("export.js", "json", "Add --json"),
+			call("publish_build", { text: "Built." }),
+		);
+		w.script("reviewer", say("I need more time."));
+		const { s } = await approved(w);
+		const R = await named(w, "reviewing");
+		const stuck = await w.open(s.stuck(1));
+		const [note] = await w.entries(R, "w1.note");
+		assert.equal(stuck.basis, note?.id);
+		assert.equal(data(note).text, "I need more time.");
+
+		await w.setOptions({ reviewer: "faux/faux-a" });
+		w.script(
+			"reviewer",
+			call("publish_review", { text: "Good.", verdict: "pass", findings: [] }),
+		);
+		answered(await w.reply(s.stuck(1), "retry"));
+		await w.settle();
+		assert.equal(
+			w.requests.filter((r) => r.role === "reviewer").at(-1)?.model,
+			"faux-a",
+		);
+		await w.open(s.merge(1));
+	}));
+
 test("a run that fails opens no decision, and the owner continues it to a publish", () =>
 	using(async (w) => {
 		await w.setOptions({
