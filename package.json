@@ -1,0 +1,8 @@
+{
+	"name": "tau",
+	"private": true,
+	"type": "module",
+	"dependencies": {
+		"@earendil-works/pi-durable": "1.5.2"
+	}
+}

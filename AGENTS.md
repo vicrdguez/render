@@ -1,7 +1,7 @@
 <!-- dev-pipeline:start -->
 ## Workflow
 
-Use `skl` for Workflow operations. Only a human merges.
+Only a human merges to `main`.
 
 ## Simplicity
 
@@ -15,6 +15,14 @@ Choose the least complexity that satisfies the accepted scope, repository standa
 
 **Remember**: the best code is the code that was never written.
 <!-- dev-pipeline:end -->
+
+## Commands
+
+Run commands from the repository root with `/nix/var/nix/profiles/default/bin/nix develop -c <command>` or `nix run .#<command>`.
+The shell links the locked dependencies into `node_modules`. No `npm install` step is needed.
+`fmt` formats supported files with Biome and Nix files with nixfmt.
+`lint` checks Biome rules and formatting without writes. `spikes` runs the six design spikes against the locked pi-durable.
+`check` runs `lint` and `spikes`. `nix flake check` is the acceptance gate.
 
 ## Rules
 
