@@ -53,6 +53,32 @@ Tau makes delegated work trustworthy enough that you can leave, reconnect elsewh
 | 11, 12, 13 | walk rows 1 to 15; SQLite SIGKILL score-before and score-after | MemoryStorage and killed SQLite child |
 | 14, 15 | walk rows 1 to 15; calibration pages all project events | MemoryStorage |
 
+## Verification before handoff
+
+The tests were written before the behavior. With runtime-safe stubs, the first focused run failed on the missing forecast entry, the missing options rejection and the missing successful record. The tests compiled and reached those assertions.
+
+The verified workspace, kit and store were merged from `origin/render-core` before acceptance verification. No rebase or force push was used.
+
+Commands run from the unit worktree with `/nix/var/nix/profiles/default/bin/nix develop -c`:
+
+| Command | Observed output |
+| --- | --- |
+| `test tau-w2` | 14 tests, 14 pass, 0 fail, 0 skipped, 0 todo. Node test duration 1341.7955 ms. Whole command real time 3.30 seconds. |
+| `check` | 47 files checked. Import boundaries pass. 113 tests, 113 pass, 0 fail, 0 skipped, 0 todo. Node test duration 9215.841167 ms. All six design spikes pass. Whole command real time 21.27 seconds. |
+| Emitted `tau-w2` import and assertions | Exports are W2Options, entry, extension and options. The extension has three tools and two real task definitions. Options has schema, get and set. ExtensionModule structural check passes. |
+
+These are single-run test costs, not a performance comparison. The package run includes twelve child process launches for the six SQLite crash scenarios. It makes no real model call and waits on no real forecast deadline.
+
+Three mutations were applied separately, tested and reverted:
+
+| Mutation | Focused test command after `typecheck` | Observed output |
+| --- | --- | --- |
+| Remove revision's withdrawal | `node --test --test-name-pattern='revision withdraws' packages/w2/dist/test/forecast.test.js` | Exit 1. One test failed. Actual decision status was open. Expected withdrawn. |
+| Replace stored answer time with runtime.now | `node --test --test-name-pattern='walk rows' packages/w2/dist/test/forecast.test.js` | Exit 1. One test failed. Actual deadline 1795219209000. Expected 1795219201000. |
+| Replace Brier square with subtraction | `node --test --test-name-pattern='no settles' packages/w2/dist/test/forecast.test.js` | Exit 1. One test failed at the expected score assertion. |
+
+`git diff --exit-code -- packages/w2/src` returned exit 0 after restoring all mutations. The passing package and cumulative runs above followed that restoration.
+
 ## Limits
 
 No real model call, network provider, HTTP host journey, workflow upgrade, forked workflow, power loss or week of real time is tested. The package uses the real pi-durable harness, store, SQLite and process death. The human-answer tests call the host-only store export through the existing test-only boundary allowance. The store owns recovery of a faulted continuation on an equal answer. W2 tests recreate its score task directly and kill it before and after its scoring commit.
