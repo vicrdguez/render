@@ -26,18 +26,24 @@ export type DecisionInput<C extends string> = {
 	decision: DecisionId;
 	choice: C;
 };
-export type RequestDraft<
-	C extends string,
-	S extends { phase: string },
-	R,
-	H extends object,
-> = {
+/**
+ * A task that accepts every choice in `C`. A pi-durable `Task` whose input is `DecisionInput<A>` fits when `C` is a
+ * subset of `A`. `Task` itself is invariant in its input, through `migrate`. Here `initial` is a property, so TypeScript
+ * checks its parameter contravariantly.
+ */
+export type ThenTask<C extends string> = {
+	readonly definition: {
+		readonly name: string;
+		readonly initial: (input: DecisionInput<C>) => unknown;
+	};
+};
+export type RequestDraft<C extends string> = {
 	subject: string;
 	title: string;
 	basis: TypedEntry<{ text: string }>;
 	choices: readonly [C, ...C[]];
 	conversation: Decision["conversation"];
-	then: Task<DecisionInput<NoInfer<C>>, S, R, H>;
+	then: ThenTask<NoInfer<C>>;
 	requestedAt: number;
 };
 
@@ -98,12 +104,10 @@ export async function createDecisionDocs(tx: Tx): Promise<void> {
  * | An open decision, and every field of the draft but requestedAt is equal. | Returns it. Writes nothing. |
  * | An open decision, and any other field differs. | Marks it superseded. Opens a new one. |
  */
-export async function request<
-	const C extends string,
-	S extends { phase: string },
-	R,
-	H extends object,
->(tx: Tx, draft: RequestDraft<C, S, R, H>): Promise<Decision<C>> {
+export async function request<const C extends string>(
+	tx: Tx,
+	draft: RequestDraft<C>,
+): Promise<Decision<C>> {
 	const open = await tx.doc(Open);
 	const slot = own(open, draft.subject);
 	const current = slot && (await tx.doc(Decisions, slot.id, null));

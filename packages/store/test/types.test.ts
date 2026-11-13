@@ -37,6 +37,19 @@ export function cases() {
 		choices: ["approve", "revise", "abort"],
 		then: DesignAnswer,
 	});
+	// A task that accepts more choices than the request offers.
+	void request(tx, { ...draft, choices: ["approve"], then: DesignAnswer });
+	void request(tx, {
+		...draft,
+		choices: ["approve", "abort"],
+		then: DesignAnswer,
+	});
+	void request(tx, {
+		...draft,
+		choices: ["approve", "retry"],
+		// @ts-expect-error The then task does not accept "retry".
+		then: DesignAnswer,
+	});
 	void request(tx, {
 		...draft,
 		choices: ["retry", "abort"],
