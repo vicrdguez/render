@@ -1,7 +1,7 @@
 // Host checks for the core design, on pi-durable 1.5.2 with SQLite files. Merged from the probes of the host arena
 // (candidates 1 and 3) and the judge's uninstall check. H2, H6, H7, and H9 are new: they run moves that only the
 // merged design makes. `options()`, `setOptions()`, and `create()` below are stand-ins shaped like the design in
-// docs/core/host.md and docs/core/library.md. No Render code exists.
+// docs/core/host.md and docs/core/library.md. No Tau code exists.
 // H1.  A store is closed while a timer sleeps, and the date passes. It is reopened with an empty registry and
 //      resumed. The due task waits as blocked (missing_task). The host reads the project's workflow list from a
 //      session document, installs the extension, and the task runs.
@@ -133,7 +133,7 @@ const create = (harness, module, workdir, models) =>
 	}, ctx);
 
 const Project = defineDoc({
-	kind: "render.project",
+	kind: "tau.project",
 	version: 1,
 	scope: "session",
 	initial: () => ({ workflows: [] }),

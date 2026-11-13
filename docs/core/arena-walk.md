@@ -45,7 +45,7 @@ The judge's low scores for candidate 3 are fair, and the picker takes them as gi
 
 The judge and the picker agree.
 
-- Its rows keep four kinds of step apart: setup, Render commits, Git effects, and hook commits. An engineer can build from it.
+- Its rows keep four kinds of step apart: setup, store commits, Git effects, and hook commits. An engineer can build from it.
 - Its cancel is durable before any agent is stopped.
 - It refuses to delete a worktree that it cannot prove is its own.
 - It says "handed over" and never "merged".

@@ -56,7 +56,7 @@ The picker has the race closer than the judge does, 25 to 24 against 27 to 21. T
 Agreement between designs that could not see each other is the strongest evidence in this arena.
 
 - One server process, with one store, one harness, and one registry per project.
-- A Render extension is a pi-durable `Extension`. No second plugin interface exists.
+- A Tau extension is a pi-durable `Extension`. No second plugin interface exists.
 - The basis of a decision is the ID of an immutable entry in the same store.
 - A decision is a document, not a waiting task.
 - The event log is one conversation per store that no agent owns.

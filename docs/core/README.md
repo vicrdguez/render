@@ -1,6 +1,8 @@
-# Render core: working design
+# Tau: working design
 
-This folder tracks the redesign of Render from zero. It is a working record, not a specification. Nothing in it is implemented, and `docs/spec.md` does not bind it.
+This folder tracks Tau, a redesign of Render from zero. It is a working record, not a specification. Nothing in it is implemented, and `docs/spec.md` does not bind it.
+
+**The name.** The project was called Render until 2026-11-13. The owner renamed it: the core keeps continuity and human control, and workflows define how work happens, so "render" fits a workflow better than it fits the core. `render` may become the name of a workflow built on Tau. "Render v1" in these notes still means the first version. The repository, its branch, and the raw files of the arenas keep the old name.
 
 Every entry has a status:
 
@@ -10,7 +12,7 @@ Every entry has a status:
 
 ## The goal
 
-Render makes delegated work trustworthy enough that you can leave, reconnect elsewhere, and continue. `docs/ambition.md` holds the full statement.
+Tau makes delegated work trustworthy enough that you can leave, reconnect elsewhere, and continue. `docs/ambition.md` holds the full statement, written under the old name.
 
 The first version welded one software-development workflow into its authority and its runtime. It grew to 18,826 source lines and never ran its full journey end to end. The redesign keeps the guarantees and moves every workflow out of the core.
 
@@ -34,6 +36,8 @@ The first version welded one software-development workflow into its authority an
 - A client chooses a project's workflows when it binds the project to the server.
 - A workflow has options per project that a client can change, such as the model of a role. The core does not know what they are.
 - You can open the conversation of any running agent and steer it, in a workflow as with the bare agent.
+- The extension is the main unit, and a workflow is one kind of extension. Tau names and supports workflows, and other extensions do other jobs, such as web search. These notes were written around workflows, and the next pass corrects that.
+- A project's working directory is a path that the client names when it binds the project.
 
 ## How this version was tested
 
@@ -45,7 +49,7 @@ Three times, each time in an arena: three authors work apart from one brief, and
 
 After the second arena the picker ran a crash test, `spikes/crash.mjs`, that kills the process at the points the walks argued about. After the third, `spikes/host.mjs` ran the moves that the merged host design makes.
 
-## What Render ships
+## What Tau ships
 
 | Layer | Owns | Status |
 | --- | --- | --- |
@@ -126,14 +130,14 @@ How the current parts score:
 | A workflow has options per project that a client sets | Decided | [Host](host.md) |
 | Options live in the workflow's own document, and the host reaches them through a contract on the module | Proposed | [Host](host.md) |
 | `options()` and `modelRef()` in the standard library | Proposed | [Standard library](library.md) |
-| A library helper may define a document for its caller | Open | [Standard library](library.md) |
+| A library helper may define a document for its caller | Decided | [Standard library](library.md) |
 | `prose()` loads when the module loads | Proposed | [Prose](prose.md) |
 | One server for all projects, workflows selected per project | Decided | [Topology](topology.md) |
 | One store, harness, and registry per project inside that server | Proposed | [Topology](topology.md) |
 | The server opens every project when it starts | Decided, from the walk | [Topology](topology.md) |
 | A client chooses a project's workflows when it binds the project | Decided | [Host](host.md) |
 | `bind`, the `Project` document, and a directory per project as the catalogue | Proposed | [Host](host.md), [Topology](topology.md) |
-| `bind` takes the working directory as a path on the server | Open | [Host](host.md) |
+| `bind` takes the working directory as a path on the server | Decided | [Host](host.md) |
 | A workflow is added to a project and never removed | Proposed | [Host](host.md) |
 | Local use is the same server with one project | Proposed | [Topology](topology.md) |
 | The admission rule | Decided. The new wording of check 5 is Proposed. | This file |
@@ -163,21 +167,22 @@ How the current parts score:
 - **A review does not move between devices.** Annotations travel with the answer. Until you send it, they stay on the device you wrote them on.
 - **A retried "create a conversation" makes two.** The second is empty, with no input and no task. Nothing deletes it.
 - **A run that fails or is stopped opens no decision in W1.** A client shows the conversation as failed, and you open it and continue the run. A workflow that wants more builds it.
+- **A faulted task cannot be run again or cleaned up.** A client can read the list. [Host](host.md) says what the next step would need.
+- **A workflow cannot be removed from a project, a project cannot be unbound, and a conversation cannot be deleted.** None is offered.
 
 ## Open questions
 
-- **The working directory at `bind`.** [Host](host.md) proposes that a client names it as a path on the server. One design of the arena had the server's configuration list workspaces by key instead. The decision is yours.
-- **A library helper that defines a document.** `options()` needs it, and the library's rule as first written forbids it. [Standard library](library.md) has the reworded check and the fallback. The decision is yours.
-- **The protocol and the first client.** Not designed, by your ruling. [Host](host.md) lists what a client must be able to do. How a device gets its token is not designed either.
-- **Running a faulted task again, and cleaning up.** A client can read the faulted tasks. [Host](host.md) says what the next step would need, and stops there.
-- **Removing a workflow from a project, unbinding a project, and deleting a conversation.** None is offered.
+- **The protocol.** [Host](host.md) lists what a client must be able to do. How a call travels is the next design step: the transport, the message shapes, how a watch streams, where the device token goes and how a device gets one, and how an old client talks to a newer server.
+- **Extensions that are not workflows.** These notes treat a workflow as the only kind of extension. The owner asked that the extension be the main unit. The next pass covers what a project selects, how an agent gets the tools of an extension such as web search, and what makes a workflow a workflow.
+- **Lane.** The owner is considering a new concept: a long-running conversation for one role that keeps the history of the project and hands the work itself to other agents. It goes through the admission rule in the next pass.
+- **The name of the standard library.** The owner finds it pretentious for what it is. A new name is to be picked.
 - **Explorer reports.** Eight reports under `/tmp/render-ground/findings/` are not in the repository. [Grounding](grounding.md) says the commits are enough to fetch the sources again.
 
 [Topology](topology.md) lists its own open points.
 
 ## Next steps
 
-1. Two decisions wait for you from this pass: the working directory at `bind`, and the reworded check 3 of the library's rule. Neither blocks the store layer.
+1. The next design pass: extensions that are not workflows, Lane, and the protocol.
 2. Still Proposed from before: the wording of check 5, the shape of `role()`, W2, and the store per project.
 3. Build the store layer: Decision and Event as designed here. The `answer` table and the failure paths of the walk are the list of ways it can fail. The tests come from that list, before the code. Then run K1 to K6 again, against the real functions.
 4. Build the host layer on it: `bind`, the start order, and the calls in [Host](host.md). The script in that file and H1 to H12 are the list of ways it can fail. The transport is chosen then, as the smallest thing the first client needs.

@@ -6,7 +6,7 @@ After the [walk](walk.md), the owner answered its open questions. The answers le
 
 **Proposed.** Everything else in this file. Nothing is implemented. Each change to the core carries its five checks from the admission rule in the [README](README.md).
 
-The moves this file leans on ran on pi-durable 1.5.2 with SQLite files, in `spikes/host.mjs`, checks H1 to H12. That file uses stand-ins shaped like the design. No Render code exists.
+The moves this file leans on ran on pi-durable 1.5.2 with SQLite files, in `spikes/host.mjs`, checks H1 to H12. That file uses stand-ins shaped like the design. No Tau code exists.
 
 ## The owner's rulings
 
@@ -72,7 +72,7 @@ Not in the list, because no ruling asks for it: unbinding a project, removing a 
 
 What the server stores:
 
-- `~/.render/projects/<project>/store.sqlite` and a lock file beside it.
+- `~/.tau/projects/<project>/store.sqlite` and a lock file beside it.
 - In the store, one session document, `Project`, with `{ project, workdir, workflows }`. The host layer owns it. The store layer does not read it.
 
 The server keeps no catalogue file. The catalogue is the list of directories, so it cannot disagree with the stores.
@@ -85,7 +85,7 @@ The walk gave no conversation a working directory. The designer has `read` and `
 
 `workdir` is the one path a client names. [Topology](topology.md) said that a client never names a file path. That holds for the store. It cannot hold for the place where the agents work, because the server cannot guess it.
 
-**Open.** One candidate kept the old rule. The server's own configuration would list workspaces by key, and `bind` would take a key. That keeps a client from pointing agents at any directory, and it fits a project whose tools run on another machine. It also means editing a file on the server before each bind. The path is proposed because it needs nothing more, and because a device that holds a token is the owner. The decision is the owner's.
+**Decided.** The owner chose the path: "we should be able to specify the path where a project is". One candidate of the arena had kept the old rule. The server's own configuration would list workspaces by key, and `bind` would take a key. That keeps a client from pointing agents at any directory, and it fits a project whose tools run on another machine. It also means editing a file on the server before each bind.
 
 ### How a conversation gets its workflow
 
@@ -99,12 +99,12 @@ Every project's registry holds `coding-tools`, so every project can run the bare
 
 No live work changes. Every conversation names its extensions, so a new workflow's tools do not appear in it (measured, H11). The new workflow's options start unset, and `create` for it refuses until they are set.
 
-**Removing a workflow is not offered.** Uninstalling does not park running work. A task that was running when its extension was uninstalled went on through its next phase under the old definition (measured, `src/harness/scheduler.ts:2340-2371`, H12). The judge of the arena found this with a probe of its own, against a candidate that had claimed the opposite. A safe removal would have to wait for live work or refuse while there is any, and no ruling asks for either.
+**Removing a workflow is not offered.** The owner accepted that for now. Uninstalling does not park running work. A task that was running when its extension was uninstalled went on through its next phase under the old definition (measured, `src/harness/scheduler.ts:2340-2371`, H12). The judge of the arena found this with a probe of its own, against a candidate that had claimed the opposite. A safe removal would have to wait for live work or refuse while there is any, and no ruling asks for either.
 
 ### What the server reads at start
 
 1. Its own configuration: model logins and device tokens. The import map is code.
-2. The names under `~/.render/projects/`.
+2. The names under `~/.tau/projects/`.
 3. For each one: the lock, then the store, opened with an empty registry. pi-durable sets `running` tasks back to `pending` (measured, `src/harness/harness.ts:299`).
 4. `Project`. A store without one, or with another project's name in it, is skipped and reported.
 5. It installs `coding-tools` and each listed workflow that the import map has, and calls `resume()`. A listed workflow that the server no longer has is reported in `projects`. Its tasks wait.
@@ -219,7 +219,7 @@ How the host finds them:
 
 **What it misses.** A kind whose extension the server no longer has.
 
-**What comes later, and is not designed.**
+**What comes later, and is not designed.** The owner accepted this limit for now.
 
 - **Running one again** needs a new task with the same kind, input, conversation, and `background` flag, because no call restarts a finished task. K4 did this for a `then` task. It also needs the workflow's word that the task is safe to repeat.
 - **Cleaning up** needs a stored list of task IDs that you have seen, because a `Tx` cannot delete a task.
@@ -279,14 +279,14 @@ Notes:
 | --- | --- | --- | --- |
 | 1 | No conversation in the walk has a working directory. | `workdir` on the project, and `cwd` on every conversation the host creates. | Host wiring |
 | 2 | `entry` is a fixed value, so the first conversation cannot take its model from the project. | `entry` may be a function of a `tx`. | Host wiring |
-| 3 | "A client never names a file path" cannot hold for the place where agents work. | `bind` takes `workdir`. | Host wiring. Open. |
+| 3 | "A client never names a file path" cannot hold for the place where agents work. | `bind` takes `workdir`. | Host wiring. Decided. |
 | 4 | Nothing said where the server finds a project's workflows at start. | The `Project` document. | Host wiring |
-| 5 | Uninstalling an extension does not park its running tasks. | No removal. | A limit. Proposed. |
+| 5 | Uninstalling an extension does not park its running tasks. | No removal. | Accepted limit |
 | 6 | A second Stop can end a newer run. | Said plainly in the list. | Docs |
 | 7 | A failed run shows only inside its conversation. | `conversations` carries the state. | Host wiring |
 | 8 | The event log is a conversation, and a client could submit to it. | The host refuses. | Host wiring |
 | 9 | A run the owner started can overlap a dispatch and take its model change. | None. The transcript says which model wrote what. | A limit. Proposed. |
-| 10 | The standard library's rule forbids a helper that defines a document, and the owner asked for exactly that. | A reworded check 3 in [Standard library](library.md). | Standard library. Open. |
+| 10 | The standard library's rule forbids a helper that defines a document, and the owner asked for exactly that. | A reworded check 3 in [Standard library](library.md). | Standard library. Decided. |
 
 ## Not verified
 

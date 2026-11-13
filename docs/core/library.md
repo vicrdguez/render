@@ -1,16 +1,16 @@
 # The standard library
 
-**Decided.** Render has one standard library beside the core. It holds `prose()` and `role()`. The core never imports it, and a workflow may skip it. If it grows enough, it can be split later. The owner also asked for one function here that defines and reads a workflow's options, and that stores them per project by itself.
+**Decided.** Tau has one standard library beside the core. It holds `prose()` and `role()`. The core never imports it, and a workflow may skip it. If it grows enough, it can be split later. The owner also asked for one function here that defines and reads a workflow's options, and that stores them per project by itself.
 
 **Proposed.** The shapes of `role()` and `options()`, and the rule for what enters the library.
 
-**Open.** `options()` defines a document, and the entry rule as first written forbids that. See "What enters the standard library".
+**Decided.** `options()` defines a document. The entry rule as first written forbade that, and the owner agreed to reword it. See "What enters the standard library". The owner also wants a plainer name for the library. Until one is picked, these notes keep "standard library".
 
 [Prose](prose.md) covers `prose()`. This file covers `role()`, `options()`, and the entry rule.
 
 ## `role()`
 
-A role's settings are pi-durable's `AgentChange` (measured, `src/harness/types.ts:499-517`). Render adds no settings type of its own.
+A role's settings are pi-durable's `AgentChange` (measured, `src/harness/types.ts:499-517`). Tau adds no settings type of its own.
 
 ```ts
 type RoleSettings = AgentChange & {
@@ -187,12 +187,12 @@ A part goes back out when it has fewer than two call sites, or when pi-durable g
 
 ### Check 3 and `options()`
 
-**Open.** The last sentence of check 3 is new, and it is there for `options()`.
+**Decided.** The last sentence of check 3 is new, and it is there for `options()`. The owner: "the rewording is needed."
 
 As first written, check 3 said that a library part "has no document". `options()` defines one. The owner asked for a single function that stores the values by itself, and a helper cannot do that without defining the place.
 
 What check 3 guards against is a library part that becomes a subsystem: a stored name that the core or a client must know, and a stored format that the library must migrate. `options()` has neither. The document's name is the workflow's, the document holds the set keys with no wrapper, and nothing but the workflow's own module reads it.
 
-The other way out keeps the old wording. The workflow defines the document itself and hands it to the helper. One design in the host arena did that, and the judge counted it against the owner's request, because the author is back to choosing a kind, a version, and a first value. That is one statement per workflow. If the owner prefers the old wording, this is the fallback.
+The other way out kept the old wording. The workflow defines the document itself and hands it to the helper. One design in the host arena did that, and the judge counted it against the owner's request, because the author is back to choosing a kind, a version, and a first value.
 
 The three walks each wrote an entry rule. This one takes the callers test from candidate 2, because real call sites are better evidence than a second user who might come. It takes "owns nothing stored" from candidate 3, which the host arena then narrowed to "owns no stored name". It drops candidate 1's ban on store access, which would exclude `role()` and names no failure.

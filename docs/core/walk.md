@@ -66,7 +66,7 @@ W1 keeps one document per piece of work, `Work`. It holds the stage, the accepte
 | 8 | T2. It first reads the base branch from the options and its SHA from Git. | A2, `Work`, the options | `Work` takes the accepted design V2, the decision A2, and the plan for the worktree: path, branch `w1/${k}`, the base branch, and its SHA → `createTask` `w1.prepare` → `emit` → terminal. |
 | 9 | `w1.prepare`, phase 1. It first makes sure the worktree exists (see "An outside effect runs twice"). | `Work`, the options | `role()` creates I with the implementer's model → `Work` and I's document → checkpoint. |
 | 10 | `w1.prepare`, phase 2 | `Work`, V2 | `I.submit(input, requestId: A2)` → `Work` set to building → `emit` → terminal. |
-| G1 | The implementer's `bash` runs `git commit`. | | Git commit S1. This is not a Render commit. |
+| G1 | The implementer's `bash` runs `git commit`. | | Git commit S1. This is not a commit in the store. |
 | 11 | `publish_build`. It first checks that the worktree is clean and reads the head SHA. | `Work`, the options | Entry B1 `{ text, design: V2, sha: S1 }` in I → `role()` creates R with the reviewer's model → `Work`, the candidate, and the receipt → `createTask` `w1.review_start` → `emit`. |
 | 12 | `w1.review_start` | `Work`, B1, the options | `configure(tx, R, { model })` → `R.submit(input, requestId: B1)` → `Work` set to reviewing, with the model → `emit` → terminal. |
 | 13 | `publish_review`, after the reviewer has read S1 with `show_diff` and `show_file` | `Work` | Entry R1 `{ text, build: B1, sha: S1, verdict: "fail", findings }` in R → `Work` and the receipt → `createTask` `w1.fix_start` → `emit`. |
@@ -77,7 +77,7 @@ W1 keeps one document per piece of work, `Work`. It holds the stage, the accepte
 | 17 | `publish_review`, a pass | `Work`. It requires that B2 is still the candidate. | Entry R2 `{ text, build: B2, sha: S2, verdict: "pass" }` → entry M `{ text, design: V2, sha: S2, build: B2, review: R2, branch }` in D → `Work` and the receipt → `request` J1 on M, with choices approve and abort, and `then: w1.handoff` → `emit`. |
 | 18 | The owner answers J1: approve. | As row 3 | `createTask` H → J1 answered. |
 | 19 | H. It first reads the branch's head from Git. | J1, M, `Work` | It requires that M names the accepted design and that M's SHA, the candidate, and the head are all S2. `Work` set to handed over → `emit` "Approved. Merge with `git merge --ff-only S2`" → terminal. If the head has moved, it hands nothing over: entry `{ text }` in I that names both SHAs → `Work` set to fixing → `request` on `w1:${k}:stuck`, with choices retry and abort → `emit` → terminal. Retry is row E3, and the implementer then publishes the new head for review. |
-| G3 | The owner | | The owner merges S2. Render writes nothing, and the timeline says "handed over", not "merged". |
+| G3 | The owner | | The owner merges S2. Tau writes nothing, and the timeline says "handed over", not "merged". |
 
 Seven notes on the rows:
 

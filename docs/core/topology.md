@@ -55,12 +55,12 @@ Local use is the same server with one project. It is not a second runtime.
 ## What the server must do
 
 - **Hold one lock per store.** pi-durable has no locking across processes. "One process writes a storage at a time" (measured, `README.md:894`). Ultimate takes a lock file per store (measured, `server/harness.ts:228`).
-- **Keep each project in a directory named by its ID.** The directories under `~/.render/projects/` are the catalogue. No second list exists that could disagree with the stores.
+- **Keep each project in a directory named by its ID.** The directories under `~/.tau/projects/` are the catalogue. No second list exists that could disagree with the stores.
 - **Record the project in its store.** One session document, `Project`, holds the ID, the working directory, and the workflow names. A store whose document is missing, or names another project, is skipped and reported.
 - **Take one path from a client.** A client never names a store. It names the project's working directory once, when it binds the project. The first version of this file said that a client never names a file path at all. That cannot hold for the place where the agents work.
 - **Open every project when it starts.** See the next section.
 
-[Host](host.md) has the bind call, the order at start, and the open question on the working directory.
+[Host](host.md) has the bind call and the order at start.
 
 ## From the walk: the server opens every project at start
 
@@ -108,7 +108,6 @@ Limits: two projects and no load. Only `crash.mjs` kills a process. The other th
 
 ## Open
 
-- Whether `bind` takes a path on the server or the key of a workspace that the server's configuration lists. See [Host](host.md).
-- How a workflow is removed from a project. It is not offered.
+- How a workflow is removed from a project. It is not offered, and the owner accepted that for now.
 - Whether the server needs a limit on concurrent model calls across projects.
 - A harness can open a store read-only "as a viewer of a session that another process drives" (measured, `src/harness/types.ts:759-765`). Whether that is useful here was not explored.

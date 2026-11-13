@@ -259,7 +259,7 @@ The cost is that a workflow that emits nothing has an empty timeline. Its decisi
 
 ## How an extension reaches the core
 
-A Render extension is a pi-durable `Extension` with no wrapper. It bundles tools, prompt sections, hooks, wraps, and tasks under a name (measured, `src/harness/types.ts:424-433`).
+A Tau extension is a pi-durable `Extension` with no wrapper. It bundles tools, prompt sections, hooks, wraps, and tasks under a name (measured, `src/harness/types.ts:424-433`).
 
 It imports five functions from the core. Each takes the `tx` that the extension already holds, and the `tx` names the store. So nothing is injected, and no registration step exists.
 
@@ -309,7 +309,7 @@ The walk left two points open here, and [Host](host.md) answers both. A workflow
 
 A stored name outlives its code. A task whose definition is gone shows as blocked with `missing_task` (measured, `src/harness/types.ts:793-798`). Task names are unique in a registry, so each carries its extension's prefix (measured, `src/harness/registry.ts:24-26`).
 
-Ultimate adds lifecycle callbacks, client actions, document exposure, and typed services to its extensions (reported). Render adds none. Tasks cover lifecycle, Decision covers actions, and imports cover services. Each one enters only through the admission rule.
+Ultimate adds lifecycle callbacks, client actions, document exposure, and typed services to its extensions (reported). Tau adds none. Tasks cover lifecycle, Decision covers actions, and imports cover services. Each one enters only through the admission rule.
 
 ## Not verified
 

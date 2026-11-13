@@ -57,11 +57,11 @@ Its weaknesses are the ones the judge named. It ran nothing. A workflow's author
 
 | Change | Why | Source |
 | --- | --- | --- |
-| One call defines the options document and returns the reads and the write. | The owner asked for a single function that stores the values by itself. The judge said to resolve this before building. | The picker. It needs the reworded check 3 in [Standard library](library.md), which is open. |
+| One call defines the options document and returns the reads and the write. | The owner asked for a single function that stores the values by itself. The judge said to resolve this before building. | The picker. It needs the reworded check 3 in [Standard library](library.md), which the owner then accepted. |
 | The host merges a patch and stores only the keys that were set. The schema's defaults fill the rest at read. | Two devices that set different options do not undo each other. A default that changes later reaches projects that never set the key. | Candidates 1 and 3 |
 | A model is a string with the format `model`, and the host checks that the server has it. | A wrong model is refused when it is set, not at the first run. A client can show a picker. | Candidate 1, its check H7 |
 | The catalogue file is gone. The directories are the catalogue. | A second record needs its own safe write and can disagree with the stores. | Candidates 1 and 3. The judge agreed. |
-| `bind` takes a path, not the key of a workspace. | A key needs an edit on the server before each bind. | Candidates 1 and 3. Left open for the owner. |
+| `bind` takes a path, not the key of a workspace. | A key needs an edit on the server before each bind. | Candidates 1 and 3. The owner then chose the path. |
 | The fault scan goes by task kind. | A scan by status reads every model request and tool call a project ever made. | Candidates 1 and 3, H10 |
 | A fault carries its decision only when that decision's `continuation` is the task. | The judge found that a match by kind can hide a replaced `then` task. Candidate 2 returned no mark at all. | The picker |
 | A project still opens when the server no longer has one of its workflows. | The other workflows' timers should run. | The judge |
@@ -115,7 +115,7 @@ The designs were written apart, and each of them reached these.
 | Who stores the options | Candidates 1 and 3: the core. Candidate 2: the workflow. | The workflow. The judge ruled on check 3. |
 | What the author writes | Candidate 1: a library helper over a core read. Candidate 2: a document, then a library helper. Candidate 3: a core function. | One library call that defines the document. |
 | The catalogue | Candidate 2: a file. Candidates 1 and 3: the directories. | The directories. |
-| The working directory | Candidates 1 and 3: a path. Candidate 2: a workspace key. | A path. Open. |
+| The working directory | Candidates 1 and 3: a path. Candidate 2: a workspace key. | A path. The owner agreed. |
 | Removing a workflow | Candidate 1: refused while in use. Candidate 2: not offered. Candidate 3: allowed, and "parks" the work. | Not offered. |
 | A patch or a whole value | Candidates 1 and 3: a patch. Candidate 2: a whole value, and the last write wins. | A patch. |
 | An unknown model | Candidate 1: refused when set. Candidates 2 and 3: the run fails. | Refused when set. |

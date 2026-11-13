@@ -12,7 +12,7 @@ W1 and W2 have been walked on paper, one commit at a time. [The walk](walk.md) h
 
 The bare agent selects pi-durable's `coding-tools` extension, which gives it `read`, `write`, `edit`, and `bash` (measured, `src/tools/index.ts:27-36`). Codemode is an optional extension.
 
-It is a chat with a coding agent, as in pi. The client sends the model when it creates the conversation, and the host sets the project's working directory. What Render adds is where the conversation lives: on the server, across a restart, and reachable from a second device. Nothing asks a decision, and the timeline stays empty.
+It is a chat with a coding agent, as in pi. The client sends the model when it creates the conversation, and the host sets the project's working directory. What Tau adds is where the conversation lives: on the server, across a restart, and reachable from a second device. Nothing asks a decision, and the timeline stays empty.
 
 W0 proves that the core runs alone. [Host](host.md) lists the calls it needs.
 
@@ -108,7 +108,7 @@ The three designs of the first arena each proposed a different W2.
 
 The spaced-recall notebook shows question cards on a schedule, and you grade each one "remembered" or "again". The judge preferred it because each card recurs and because an old timer must notice a revised card. Those two stresses are now in W2 as the "not yet" choice and the check in step 4.
 
-It stays the runner-up for two reasons. No agent does any work in it, so it tests the core without the part that makes Render an agent tool. And nothing in it reads events.
+It stays the runner-up for two reasons. No agent does any work in it, so it tests the core without the part that makes Tau an agent tool. And nothing in it reads events.
 
 The walk weakened the second reason. W2's `calibration` tool reads events, but it could read W2's own document instead. So W2 does not prove that an extension must read events. See Event in [Primitives](primitives.md).
 
