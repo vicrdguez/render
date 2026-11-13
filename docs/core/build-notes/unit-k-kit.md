@@ -2,7 +2,7 @@
 
 | Where | Readings | Taken | Why |
 | --- | --- | --- | --- |
-| Kit dependency declarations | Declare test imports as development dependencies. Or use dependencies as the sketch does. | Declare Chord and pi-ai as dependencies, used only by tests. | The existing boundary checker rejects test imports from development dependencies. Production imports only pi-durable, pi-schema, and Node. No new library is added. |
+| Kit dependency declarations | Declare test imports as development dependencies. Or use dependencies as the sketch does. | Declare Chord and pi-ai as development dependencies. | The refreshed workspace base supports test-only dependencies and requires this declaration. Production imports only pi-durable, pi-schema, and Node. No new library is added. |
 | Markdown after emit | Copy source Markdown only. Or also copy test Markdown beside emitted test modules. | Copy both source and test Markdown with the same relative paths. | The emitted fixture must test module-relative loading without putting test prose in production source. |
 | Asset build entry | Change the root build script. Or extend the flake typecheck command that already emits TypeScript. | Copy assets after the flake typecheck command emits. | Build, test, check, and the gate already use that command. No second build path is needed. |
 | Prose slot names | Restrict names to an identifier grammar. Or match the exact text inside each complete double-brace slot. | Match exact names and compare sets. Repeated slots are allowed. | The design fixes the delimiters but no identifier grammar. There is no template language or recursive substitution. |
@@ -10,6 +10,7 @@
 | Invalid model strings | Add a new rejection rule to modelRef. Or keep the string cut in the sketch and spike. | Keep the string cut. | The host checks model availability. The helper receives a provider and model ID separated by a slash. Behavior outside that input contract is not promised. |
 | Options defaults and document shape | Store filled defaults. Or keep only explicit keys and fill defaults during read. | Keep a version 1 session document with no wrapper and no checkpoints. Compile the supplied closed schema once. | This matches the host spike. Changed defaults reach an unset key when the extension module is loaded again. |
 | Options read errors | Add a new error type. Or throw Error with pi-schema errors. | Throw Error with the extension name and validation errors. | The design requires a throw but names no error class. The host owns client refusal codes. |
+| Workspace base advanced after the first push | Force-push the rebased branch. Or publish the rebased head on a new branch. | Publish on `tau/k-kit-0b-refresh` and replace PR 91. | The unit rules forbid force-pushes. The new base is `6c317ecce552c7f84c90ce77519e8e0e39757433`. |
 
 ## Verification limits
 
@@ -17,7 +18,13 @@ The kit tests use real pi-durable MemoryStorage and faux model requests. They ma
 
 The extension callers are being built in other units. This branch checks the locked types and the structural host options contract without importing those units.
 
-## Measured checks
+## Measured checks after the base refresh
+
+On base `6c317ec`, `test tau-kit` passed all 14 tests with no failures, skips, or TODOs. Node reported 583.488791 ms. The full command took 1.80 seconds.
+
+The cumulative `check` exited 0 in 20.91 seconds. It reported 68 tests, 40 passes, no failures, and the unchanged store's 28 TODOs. All six design spikes passed. The store still had 20 lint warnings.
+
+## Measured checks before the base refresh
 
 All commands ran from the unit worktree through `/nix/var/nix/profiles/default/bin/nix develop -c`.
 
