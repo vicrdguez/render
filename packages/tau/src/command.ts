@@ -24,16 +24,21 @@ function parse(argv: readonly string[]): AdminRequest | undefined {
 const when = (ms: number) => new Date(ms).toISOString();
 
 async function serve(home: string): Promise<number> {
-	const agentDir = process.env.PI_CODING_AGENT_DIR ?? path.join(homedir(), ".pi", "agent");
+	const agentDir =
+		process.env.PI_CODING_AGENT_DIR ?? path.join(homedir(), ".pi", "agent");
 	const server = await startServer({
 		home,
 		modules,
-		models: builtinModels({ credentials: piLogins(path.join(agentDir, "auth.json")) }),
+		models: builtinModels({
+			credentials: piLogins(path.join(agentDir, "auth.json")),
+		}),
 		env: (target) => new NodeExecutionEnv({ cwd: target.cwd ?? process.cwd() }),
 	});
 	for (const { project, reason } of server.skipped)
 		process.stderr.write(`tau: skipped ${project}: ${reason}\n`);
-	process.stdout.write(`tau: listening on http://127.0.0.1:${server.address.port}\n`);
+	process.stdout.write(
+		`tau: listening on http://127.0.0.1:${server.address.port}\n`,
+	);
 	await new Promise<void>((resolve) => {
 		const stop = () => {
 			process.once("SIGINT", () => process.exit(1));
@@ -56,10 +61,13 @@ export async function run(argv: readonly string[]): Promise<number> {
 		process.stderr.write(USAGE);
 		return 2;
 	}
-	const result = await requestAdmin(home, request).catch((error: NodeJS.ErrnoException) => {
-		if (error.code === "ENOENT" || error.code === "ECONNREFUSED") return undefined;
-		throw error;
-	});
+	const result = await requestAdmin(home, request).catch(
+		(error: NodeJS.ErrnoException) => {
+			if (error.code === "ENOENT" || error.code === "ECONNREFUSED")
+				return undefined;
+			throw error;
+		},
+	);
 	if (result === undefined) {
 		process.stderr.write(`tau: no Tau server runs on ${home}\n`);
 		return 1;

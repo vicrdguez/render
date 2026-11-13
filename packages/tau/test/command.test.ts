@@ -8,7 +8,10 @@ import path from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-const tau = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/main.js");
+const tau = path.join(
+	path.dirname(fileURLToPath(import.meta.url)),
+	"../src/main.js",
+);
 const URL = "http://127.0.0.1:6283";
 const running: ChildProcess[] = [];
 after(() => {
@@ -17,17 +20,35 @@ after(() => {
 
 async function home() {
 	const dir = await mkdtemp(path.join(tmpdir(), "tau-command-"));
-	return { HOME: dir, PI_CODING_AGENT_DIR: path.join(dir, "pi"), PATH: process.env.PATH ?? "" };
+	return {
+		HOME: dir,
+		PI_CODING_AGENT_DIR: path.join(dir, "pi"),
+		PATH: process.env.PATH ?? "",
+	};
 }
 function run(env: NodeJS.ProcessEnv, args: string[]) {
-	return new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
-		execFile(process.execPath, [tau, ...args], { env }, (error, stdout, stderr) => {
-			resolve({ code: error === null ? 0 : Number(error.code ?? 1), stdout, stderr });
-		});
-	});
+	return new Promise<{ code: number; stdout: string; stderr: string }>(
+		(resolve) => {
+			execFile(
+				process.execPath,
+				[tau, ...args],
+				{ env },
+				(error, stdout, stderr) => {
+					resolve({
+						code: error === null ? 0 : Number(error.code ?? 1),
+						stdout,
+						stderr,
+					});
+				},
+			);
+		},
+	);
 }
 async function serve(env: NodeJS.ProcessEnv) {
-	const child = spawn(process.execPath, [tau], { env, stdio: ["ignore", "pipe", "pipe"] });
+	const child = spawn(process.execPath, [tau], {
+		env,
+		stdio: ["ignore", "pipe", "pipe"],
+	});
 	running.push(child);
 	let stdout = "";
 	let stderr = "";
@@ -65,7 +86,9 @@ async function pair(env: NodeJS.ProcessEnv, device: string) {
 
 test("tau starts on ~/.tau at 127.0.0.1:6283, and the device commands reach it through the admin socket", async () => {
 	const env = await home();
-	await mkdir(path.join(env.HOME, ".tau", "projects", "Bad"), { recursive: true });
+	await mkdir(path.join(env.HOME, ".tau", "projects", "Bad"), {
+		recursive: true,
+	});
 	const server = await serve(env);
 	try {
 		assert.match(server.output().stderr, /skipped Bad/);
@@ -79,7 +102,10 @@ test("tau starts on ~/.tau at 127.0.0.1:6283, and the device commands reach it t
 		assert.ok(!listed.stdout.includes(token.split(".")[2] ?? "-"));
 		const revoked = await run(env, ["device", "revoke", "phone"]);
 		assert.equal(revoked.code, 0, revoked.stderr);
-		assert.equal((await post("projects", {}, token)).body.refused.code, "unauthorized");
+		assert.equal(
+			(await post("projects", {}, token)).body.refused.code,
+			"unauthorized",
+		);
 		assert.match((await run(env, ["device", "list"])).stdout, /phone.*revoked/);
 		const again = await run(env, ["device", "pair", "phone"]);
 		assert.equal(again.code, 1);
@@ -101,7 +127,9 @@ test("a signal ends every stream with stopping and frees the home for the next s
 				`${URL}/v1/inbox`,
 				{ method: "POST", headers: { Authorization: `Bearer ${token}` } },
 				(response) => {
-					response.setEncoding("utf8").on("data", (chunk: string) => frames.push(chunk));
+					response
+						.setEncoding("utf8")
+						.on("data", (chunk: string) => frames.push(chunk));
 					response.on("end", () => resolve());
 				},
 			)
@@ -127,7 +155,12 @@ test("a device command with no server, or an unknown command, fails with a messa
 	const none = await run(env, ["device", "list"]);
 	assert.equal(none.code, 1);
 	assert.match(none.stderr, /no Tau server/i);
-	for (const args of [["serve"], ["device"], ["device", "pair"], ["device", "pair", "a", "b"]]) {
+	for (const args of [
+		["serve"],
+		["device"],
+		["device", "pair"],
+		["device", "pair", "a", "b"],
+	]) {
 		const wrong = await run(env, args);
 		assert.equal(wrong.code, 2, args.join(" "));
 		assert.match(wrong.stderr, /usage: tau/);

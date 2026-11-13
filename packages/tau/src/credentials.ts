@@ -14,7 +14,9 @@ export function piLogins(file: string): CredentialStore {
 	};
 	const write = async (logins: Record<string, Credential>) => {
 		const temporary = `${file}.tau.tmp`;
-		await writeFile(temporary, JSON.stringify(logins, null, 2), { mode: 0o600 });
+		await writeFile(temporary, JSON.stringify(logins, null, 2), {
+			mode: 0o600,
+		});
 		await rename(temporary, file);
 	};
 	let queue: Promise<unknown> = Promise.resolve();
