@@ -46,7 +46,9 @@ async function publish(
 		const saved = found.work.receipts[api.taskId];
 		if (saved !== undefined) return { text: saved };
 		if (closed(found.work))
-			return { refused: `This work was ${found.work.stage}. Nothing was published.` };
+			return {
+				refused: `This work was ${found.work.stage}. Nothing was published.`,
+			};
 		const result = await body(tx, found);
 		if ("text" in result) found.work.receipts[api.taskId] = result.text;
 		return result;
@@ -56,9 +58,7 @@ async function publish(
 		: { output: text(outcome.text), control: { terminate: true } };
 }
 
-const replies = opt(
-	arr(obj({ annotation: int({ minimum: 0 }), text: str() })),
-);
+const replies = opt(arr(obj({ annotation: int({ minimum: 0 }), text: str() })));
 
 /** Rows 2 and 5. */
 export const publishDesign = defineTool({
@@ -122,7 +122,9 @@ export const publishBuild = defineTool({
 				plan === undefined ||
 				accepted === undefined
 			)
-				return { refused: `Nothing is to be built now. The work is ${work.stage}.` };
+				return {
+					refused: `Nothing is to be built now. The work is ${work.stage}.`,
+				};
 			const missing = await unreplied(tx, work, args.replies);
 			if (missing !== undefined) return { refused: missing };
 			const head = await publishedHead(plan);
@@ -149,7 +151,11 @@ export const publishBuild = defineTool({
 			await tx.createTask(
 				reviewStart,
 				{ build: build.id, reviewer: work.reviewer },
-				{ ownership: { kind: "conversation" }, conversationId: k, background: true },
+				{
+					ownership: { kind: "conversation" },
+					conversationId: k,
+					background: true,
+				},
 			);
 			await emit(tx, W1Event, {
 				text: `Build ${head.sha} is published for review.`,
@@ -231,7 +237,9 @@ export const publishReview = defineTool({
 				accepted === undefined ||
 				implementer === undefined
 			)
-				return { refused: `No build waits for review. The work is ${work.stage}.` };
+				return {
+					refused: `No build waits for review. The work is ${work.stage}.`,
+				};
 			const review = await tx.appendEntry(Review, api.conversationId, {
 				data: {
 					text: args.text,
@@ -292,4 +300,3 @@ export const publishReview = defineTool({
 			return { text: `Published the review as ${review.id}. End your turn.` };
 		}),
 });
-

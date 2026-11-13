@@ -2,12 +2,7 @@ import type { ModelRef } from "@earendil-works/pi-durable";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { prose, type RoleSettings } from "tau-kit";
 import { W1 } from "./extension.js";
-import {
-	publishBuild,
-	publishReview,
-	showDiff,
-	showFile,
-} from "./tools.js";
+import { publishBuild, publishReview, showDiff, showFile } from "./tools.js";
 
 const dir = import.meta.dirname;
 const designerProse = prose(dir, "designer.md", [])({});

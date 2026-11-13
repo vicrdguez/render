@@ -117,7 +117,7 @@ async function cancel<C extends string>(
 	const k = runtime.conversationId;
 	await runtime.commit(async (tx) => {
 		const work = await tx.doc(Work, k);
-		if (closed(work)) return done;
+		if (closed(work) || work.stage === "handed_over") return done;
 		const id = task.input.decision;
 		const notPursued = [];
 		for (const owed of new Set([work.owes, id])) {
@@ -125,7 +125,11 @@ async function cancel<C extends string>(
 			for (const [index, annotation] of (
 				await annotationsOf(tx, owed)
 			).entries())
-				notPursued.push({ decision: owed, annotation: index, text: annotation.text });
+				notPursued.push({
+					decision: owed,
+					annotation: index,
+					text: annotation.text,
+				});
 		}
 		work.stage = "cancelled";
 		work.waiting = {};
@@ -166,7 +170,8 @@ export const designAnswer = single<
 		if (!expects(work, "design", id) || answered?.status !== "answered")
 			return done;
 		const design = await tx.entry(Design, answered.basis);
-		if (design === undefined) throw new Error(`No design entry ${answered.basis}`);
+		if (design === undefined)
+			throw new Error(`No design entry ${answered.basis}`);
 		const o = await W1Options.read(tx);
 		if (task.input.choice === "revise") {
 			await configure(tx, k, { model: modelRef(o.designer) });
@@ -191,7 +196,8 @@ export const designAnswer = single<
 			return done;
 		}
 		const repo = (await tx.doc(AgentDoc, k)).cwd;
-		if (repo === undefined) throw new Error("The designer has no working directory.");
+		if (repo === undefined)
+			throw new Error("The designer has no working directory.");
 		work.plan = {
 			repo,
 			path: `${repo}.w1-${k}`,
@@ -219,11 +225,7 @@ type PreparePhase =
 	| { phase: "submit"; implementer: ConversationId };
 
 /** Rows 9 and 10: two commits, since a new conversation takes its first input in the next commit. */
-export const prepare = defineTask<
-	Record<string, never>,
-	PreparePhase,
-	null
->({
+export const prepare = defineTask<Record<string, never>, PreparePhase, null>({
 	name: "w1.prepare",
 	version: 1,
 	initial: () => ({ phase: "worktree" }),
@@ -418,7 +420,8 @@ export const handoff = single<DecisionInput<"approve" | "abort">>(
 			)
 				return done;
 			const merge = await tx.entry(Merge, answered.basis);
-			if (merge === undefined) throw new Error(`No merge entry ${answered.basis}`);
+			if (merge === undefined)
+				throw new Error(`No merge entry ${answered.basis}`);
 			const head = await branchHead(plan);
 			const sha = merge.data.sha;
 			settle(work, "merge", id);
@@ -461,57 +464,57 @@ export const handoff = single<DecisionInput<"approve" | "abort">>(
 
 /** Row E3, and X2. */
 export const retry = single<DecisionInput<"retry" | "abort">>(
-		"w1.retry",
-		async (task, runtime, context) => {
-			if (task.input.choice === "abort") return cancel(task, runtime, context);
-			const k = runtime.conversationId;
-			const id = task.input.decision;
-			const target = (await runtime.snapshot(Work, k, context))?.retry;
-			const handle =
-				target === undefined || target === "prepare"
-					? undefined
-					: await runtime.conversation(target, context);
-			await runtime.commit(async (tx) => {
-				const work = await tx.doc(Work, k);
-				if (!expects(work, "stuck", id) || work.retry !== target) return done;
-				settle(work, "stuck", id);
-				if (target === "prepare") {
-					await tx.createTask(prepare, {}, inD(k));
-					await emit(tx, W1Event, {
-						text: "W1 looks at the worktree again.",
-						at: runtime.now(),
-						conversation: k,
-						stage: work.stage,
-					});
-					return done;
-				}
-				if (target === undefined) return done;
-				const o = await W1Options.read(tx);
-				const model =
-					target === k
-						? o.designer
-						: target === work.implementer
-							? o.implementer
-							: o.reviewer;
-				await configure(tx, target, { model: modelRef(model) });
-				const notes = (await annotationsOf(tx, id))
-					.map((a) => `- ${a.text}`)
-					.join("\n");
-				await handle?.submit(tx, {
-					type: "input",
-					content: retryInput({ decision: id, notes: notes || "(none)" }),
-					requestId: id,
-				});
+	"w1.retry",
+	async (task, runtime, context) => {
+		if (task.input.choice === "abort") return cancel(task, runtime, context);
+		const k = runtime.conversationId;
+		const id = task.input.decision;
+		const target = (await runtime.snapshot(Work, k, context))?.retry;
+		const handle =
+			target === undefined || target === "prepare"
+				? undefined
+				: await runtime.conversation(target, context);
+		await runtime.commit(async (tx) => {
+			const work = await tx.doc(Work, k);
+			if (!expects(work, "stuck", id) || work.retry !== target) return done;
+			settle(work, "stuck", id);
+			if (target === "prepare") {
+				await tx.createTask(prepare, {}, inD(k));
 				await emit(tx, W1Event, {
-					text: "The owner asked the agent to go on.",
+					text: "W1 looks at the worktree again.",
 					at: runtime.now(),
-					conversation: target,
+					conversation: k,
 					stage: work.stage,
 				});
 				return done;
-			}, context);
-		},
-	);
+			}
+			if (target === undefined) return done;
+			const o = await W1Options.read(tx);
+			const model =
+				target === k
+					? o.designer
+					: target === work.implementer
+						? o.implementer
+						: o.reviewer;
+			await configure(tx, target, { model: modelRef(model) });
+			const notes = (await annotationsOf(tx, id))
+				.map((a) => `- ${a.text}`)
+				.join("\n");
+			await handle?.submit(tx, {
+				type: "input",
+				content: retryInput({ decision: id, notes: notes || "(none)" }),
+				requestId: id,
+			});
+			await emit(tx, W1Event, {
+				text: "The owner asked the agent to go on.",
+				at: runtime.now(),
+				conversation: target,
+				stage: work.stage,
+			});
+			return done;
+		}, context);
+	},
+);
 
 type StopPhase = { phase: "designer" | "implementer" | "reviewer" | "done" };
 
@@ -560,7 +563,8 @@ async function stopOne(
 ) {
 	const k = runtime.conversationId;
 	const id = which(k, await runtime.snapshot(Work, k, context));
-	if (id !== undefined) await (await runtime.conversation(id, context))?.abort(context);
+	if (id !== undefined)
+		await (await runtime.conversation(id, context))?.abort(context);
 	await runtime.commit(
 		() => ({ status: "running", checkpoint: { phase: next } }),
 		context,
@@ -609,4 +613,3 @@ export const ensureHandoffHook = hook(GenerationTask, {
 		tasks: [runEndTask(ensureHandoff, { answer: run.answer })],
 	}),
 });
-

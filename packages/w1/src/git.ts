@@ -21,7 +21,13 @@ const SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 /** The commit a ref names, checked to be a SHA that Git produced. */
 export async function commitOf(cwd: string, ref: string) {
 	const sha = (
-		await git(cwd, "rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`)
+		await git(
+			cwd,
+			"rev-parse",
+			"--verify",
+			"--end-of-options",
+			`${ref}^{commit}`,
+		)
 	).trim();
 	if (!SHA.test(sha)) throw new Error(`Git named no commit for ${ref}.`);
 	return sha;

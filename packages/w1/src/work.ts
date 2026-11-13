@@ -77,7 +77,12 @@ export const Work = defineDoc<WorkState>({
 	scope: "conversation",
 	history: "latest",
 	fork: "current",
-	initial: () => ({ stage: "designing", waiting: {}, handled: {}, receipts: {} }),
+	initial: () => ({
+		stage: "designing",
+		waiting: {},
+		handled: {},
+		receipts: {},
+	}),
 	checkpointWhen: () => true,
 });
 
@@ -134,8 +139,7 @@ export const W1Event = defineEntry<
 	}
 >("w1.event");
 
-export const subject = (k: ConversationId, name: Subject) =>
-	`w1:${k}:${name}`;
+export const subject = (k: ConversationId, name: Subject) => `w1:${k}:${name}`;
 
 /** The work a conversation serves: D's own, or the one that I's or R's owner document names. */
 export async function workOf(tx: Tx, conversation: ConversationId) {
@@ -153,11 +157,7 @@ export const expects = (
 	id: DecisionId,
 ) => !closed(work) && work.waiting[name] === id && !work.handled[id];
 
-export function settle(
-	work: Draft<WorkState>,
-	name: Subject,
-	id: DecisionId,
-) {
+export function settle(work: Draft<WorkState>, name: Subject, id: DecisionId) {
 	delete work.waiting[name];
 	work.handled[id] = true;
 }
