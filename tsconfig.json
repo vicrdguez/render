@@ -3,6 +3,7 @@
 	"references": [
 		{ "path": "packages/store" },
 		{ "path": "packages/kit" },
-		{ "path": "packages/host" }
+		{ "path": "packages/host" },
+		{ "path": "packages/tau" }
 	]
 }
