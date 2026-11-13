@@ -4,7 +4,7 @@ The core is proved by workflows that differ. A concept that two unlike workflows
 
 A workflow is one kind of extension. [Extensions](extensions.md) has the model, and a fourth proving case that is not a workflow: web search.
 
-These are tests of the primitives, not products. Each one is as small as it can be while still stressing something the others do not.
+**W1 and W2 are samples for testing the core. They are not meant for real use.** The owner said so when locking the design. These are tests of the primitives, not products. Each one is as small as it can be while still stressing something the others do not.
 
 W1 and W2 have been walked on paper, one commit at a time. [The walk](walk.md) has every row. This file says what each workflow is, and it lists the rules for workflow authors that the walk and the [host](host.md) pass produced.
 
@@ -35,7 +35,7 @@ W1 has four options per project: the model of the designer, of the implementer, 
 
 ## W2, forecasts
 
-**Proposed.** W2 needs a model, the store, and a clock. It needs no shell, no Git, no network, and no files. It replaces "thesis to verdict" from the first draft.
+**Decided.** W2 needs a model, the store, and a clock. It needs no shell, no Git, no network, and no files. It replaces "thesis to verdict" from the first draft.
 
 1. You state a claim in a conversation.
 2. The agent sharpens it into a forecast: a statement that can fail, a probability, a date to resolve by, and the rule that settles it. Its tool `record_forecast` appends the forecast as an entry and creates a `w2.due` task, in one commit.
@@ -72,7 +72,7 @@ W2 has the shape of quant research without the compute job: a claim fixed before
 
 ## Rules for workflow authors
 
-**Proposed.** The walk produced these, and the [host](host.md) pass added the last four. None is in the core. Each one is a rule because a walk, or a check, showed what goes wrong without it.
+**Decided.** The walk produced these, and the [host](host.md) pass added the last four. None is in the core. Each one is a rule because a walk, or a check, showed what goes wrong without it.
 
 | Rule | Without it | Evidence |
 | --- | --- | --- |

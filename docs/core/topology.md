@@ -2,7 +2,7 @@
 
 **Decided.** One server hosts all work. Each project selects its extensions, workflows among them. You connect to that one server from several machines. Projects can later share some knowledge.
 
-**Proposed.** Inside that server, each project has its own store, its own harness, and its own registry. All three candidates of the first arena chose this independently. The [walk](walk.md) used it and added two points: the server opens every project when it starts, and every client call names its project. The [host](host.md) pass then settled where a project lives on disk and what the server reads at start.
+**Decided.** The owner locked the design on 2026-11-13. Inside that server, each project has its own store, its own harness, and its own registry. All three candidates of the first arena chose this independently. The [walk](walk.md) used it and added two points: the server opens every project when it starts, and every client call names its project. The [host](host.md) pass then settled where a project lives on disk and what the server reads at start.
 
 ## Three ways to do it
 
@@ -108,6 +108,7 @@ Limits: two projects and no load. Only `crash.mjs` kills a process. The other th
 
 ## Open
 
-- How a workflow is removed from a project. It is not offered, and the owner accepted that for now.
-- Whether the server needs a limit on concurrent model calls across projects.
-- A harness can open a store read-only "as a viewer of a session that another process drives" (measured, `src/harness/types.ts:759-765`). Whether that is useful here was not explored.
+- How an extension is removed from a project. It is not offered, and the owner accepted that for now.
+- Whether the server needs a limit on concurrent model calls across projects. Deferred until it is measured.
+
+A harness can also open a store read-only "as a viewer of a session that another process drives" (measured, `src/harness/types.ts:759-765`). The owner dropped that question. Nothing here needs it.

@@ -2,7 +2,7 @@
 
 [Host](host.md) lists the calls a client must be able to make. This file says how a call travels: the transport, the message shapes, how a watch streams, how a device gets a token, and how versions meet. The owner asked for it after the host pass.
 
-**Proposed.** It comes from the fifth arena, and [Protocol arena](arena-wire.md) says which part came from where. All three designs chose the same transport. The moves it leans on ran in `spikes/wire.mjs`, checks W1 to W9, over real HTTP on `127.0.0.1` with a stand-in server. No Tau code exists, and no client is designed.
+**Decided.** The owner locked the design on 2026-11-13. It comes from the fifth arena, and [Protocol arena](arena-wire.md) says which part came from where. All three designs chose the same transport. The moves it leans on ran in `spikes/wire.mjs`, checks W1 to W9, over real HTTP on `127.0.0.1` with a stand-in server. No Tau code exists, and no client is designed.
 
 ## Transport
 
@@ -191,7 +191,7 @@ A code worked once, and the server held a hash and no token (measured, W1). Five
 
 **Revoking.** `tau device revoke phone` records it, ends that device's streams with `revoked`, and refuses its next request (measured, W8). A call that is already past the check finishes. An answer the device sent stays, with its name in `by`.
 
-**The network.** The server listens on `127.0.0.1` only. A device on another machine comes through something that encrypts: Tailscale Serve, a TLS proxy, or an SSH tunnel. That is all that protects the token in transit. The server refuses an unexpected `Host`, refuses a request with another site's `Origin`, sends no CORS headers, never redirects, and keeps `Authorization` out of its logs.
+**The network.** The server listens on `127.0.0.1` only, on port 6283 by default. The number is the start of τ, 6.283, and no service is registered on it in the system's list. A device on another machine comes through something that encrypts: Tailscale Serve, a TLS proxy, or an SSH tunnel. That is all that protects the token in transit. The server refuses an unexpected `Host`, refuses a request with another site's `Origin`, sends no CORS headers, never redirects, and keeps `Authorization` out of its logs.
 
 **What this does not stop.** An agent's shell that runs as the server's OS user can open `admin.sock` and pair a device for itself, read a CLI's token file, or write the store. That is the accepted weak mode of "only a human answers". An answer sent that way names a device the owner never paired, which `tau device list` shows. Tools that run on another account, through pi-env, close it.
 

@@ -2,7 +2,7 @@
 
 **Decided.** Tau has one kit beside the core, the package `tau-kit`. It holds helpers for people who write extensions: `prose()`, `role()`, and `options()`. The core never imports it, and an extension may skip it. If it grows enough, it can be split later.
 
-**Proposed.** The shapes of `role()` and `options()`, and the rule for what enters the kit.
+**Decided.** The shapes of `role()` and `options()`, and the rule for what enters the kit. The owner locked the design on 2026-11-13.
 
 **Decided.** `options()` defines a document. The entry rule as first written forbade that, and the owner agreed to reword it. See "What enters the kit".
 

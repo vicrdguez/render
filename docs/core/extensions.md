@@ -2,7 +2,7 @@
 
 **Decided.** The extension is the main unit. A workflow is one kind of extension, the kind that Tau names and supports. Other extensions do other jobs. Web search is the first one planned, and sandboxing may follow.
 
-**Proposed.** Everything else in this file. It comes from the fourth arena, and [Extension arena](arena-ext.md) says which part came from where. The moves it leans on ran in `spikes/ext.mjs`, checks E1 to E12, with stand-ins for the host. No Tau code exists.
+**Decided.** Everything else in this file, too. The owner locked the design on 2026-11-13. It comes from the fourth arena, and [Extension arena](arena-ext.md) says which part came from where. The moves it leans on ran in `spikes/ext.mjs`, checks E1 to E12, with stand-ins for the host. No Tau code exists.
 
 The earlier notes were written around workflows. This file corrects that, and [Host](host.md), [Primitives](primitives.md), and [Kit](kit.md) now use its names.
 
@@ -88,7 +88,7 @@ Options work for any extension as they do for a workflow: `options(extension, sc
 ```ts
 export const WebsearchOptions = options(
 	"websearch",
-	obj({ provider: oneOf(["brave", "exa"]), apiKey: str({ format: "secret", minLength: 1 }) }),
+	obj({ provider: oneOf(["exa", "tavily"]), apiKey: str({ format: "secret", minLength: 1 }) }),
 );
 ```
 
@@ -108,7 +108,9 @@ Three homes for the key were weighed: the server's environment, which no client 
 
 ## Web search, the first extension that is not a workflow
 
-**Proposed.** `websearch` joins W0, W1, and W2 as a proving case. It has one tool, `web_search`, two options, no task, and no `entry`.
+**Decided.** `websearch` joins W0, W1, and W2 as a proving case. It has one tool, `web_search`, its options, no task, and no `entry`.
+
+**It is built on Webfox.** The owner chose that. Render v1 used Webfox's root library with Exa first and Tavily as the fallback, and found that Webfox's own adapter for pi-durable lost result content on pi-durable 1.4.0 (reported, the Web entries of `docs/spec.md` in this repository). Which Webfox version and entry point fit pi-durable 1.5.2, and which providers and keys the options name, is settled when the extension is built.
 
 | It stresses | Where |
 | --- | --- |

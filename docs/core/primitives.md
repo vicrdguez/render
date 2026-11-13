@@ -2,7 +2,7 @@
 
 pi-durable persists conversations, tasks, and documents. It has no way to ask a human, to record what the human decided on, or to show what happened in terms a client understands without knowing the workflow. The core adds two primitives for that: Decision and Event.
 
-The two primitives are **Decided**. The shapes and rules below are **Proposed**. They come from the first [arena](arena.md). The [walk](walk.md) then changed this file in six places. Each change is marked "From the walk" and carries its five checks from the admission rule in the [README](README.md). The owner reviewed the walk and accepted its changes, so those six are **Decided**.
+**Decided.** The two primitives, and the shapes and rules below. The owner locked the design on 2026-11-13. They come from the first [arena](arena.md). The [walk](walk.md) then changed this file in six places. Each change is marked "From the walk" and carries its five checks from the admission rule in the [README](README.md). The owner reviewed the walk and accepted its changes, so those six are **Decided**.
 
 ## Why a decision is not a waiting task
 

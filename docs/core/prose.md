@@ -2,7 +2,7 @@
 
 **Decided.** Prose belongs to the workflow that uses it.
 
-**Proposed.** Workflows share one small function, `prose()`, that binds facts into Markdown files. All three designs of the first arena reached this answer independently.
+**Decided.** Workflows share one small function, `prose()`, that binds facts into Markdown files. All three designs of the first arena reached this answer independently.
 
 **Decided.** `prose()` lives in the [kit](kit.md) beside the core, together with `role()`. The core does not import it.
 

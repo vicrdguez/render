@@ -1,6 +1,10 @@
 # Tau: working design
 
-This folder tracks Tau, a redesign of Render from zero. It is a working record, not a specification. Nothing in it is implemented, and `docs/spec.md` does not bind it.
+This folder tracks Tau, a redesign of Render from zero. Nothing in it is implemented, and `docs/spec.md` does not bind it.
+
+**The design is locked.** On 2026-11-13 the owner went through every entry that was still Proposed and every open point, and decided each one. What stays open or deferred is listed under "Open and deferred" below. A part that the build shows to be wrong comes back to the owner.
+
+**These notes are a working record.** They still speak of arenas, walks, and passes, because that is how the design was made. They are to be consolidated into final documents once the implementation is done.
 
 **The name.** The project was called Render until 2026-11-13. The owner renamed it: the core keeps continuity and human control, and workflows define how work happens, so "render" fits a workflow better than it fits the core. `render` may become the name of a workflow built on Tau. "Render v1" in these notes still means the first version. The repository, its branch, and the raw files of the arenas keep the old name.
 
@@ -58,11 +62,11 @@ After each arena the picker ran a spike of the moves the merged design makes: `s
 | Layer | Owns | Status |
 | --- | --- | --- |
 | Client | A CLI, a TUI, or a web UI. It holds one connection to the server. | Open. [Host](host.md) lists what it must be able to do, and [Protocol](protocol.md) how a call travels. |
-| Host layer | The server process. It binds projects, opens one store per project under a lock, checks device tokens, serves the client, and merges the open decisions of all projects into one inbox. It also wires models and the execution environment into each harness. | Proposed |
+| Host layer | The server process. It binds projects, opens one store per project under a lock, checks device tokens, serves the client, and merges the open decisions of all projects into one inbox. It also wires models and the execution environment into each harness. | Decided |
 | Store layer | One store. It opens a pi-durable harness and adds Decision and Event. | Decided |
 | pi-durable | Conversations, submissions, tasks, documents, extensions, and the registry. | Decided |
-| Extensions | Workflows, and extensions that do other jobs, such as web search. Each one is a pi-durable `Extension`. | Proposed |
-| Kit | `prose()`, `role()`, and `options()`, for workflow authors. | Decided. `options()` is Proposed. |
+| Extensions | Workflows, and extensions that do other jobs, such as web search. Each one is a pi-durable `Extension`. | Decided |
+| Kit | `prose()`, `role()`, and `options()`, for workflow authors. | Decided |
 
 "The core" means the host layer and the store layer together. Both follow the admission rule. The first draft let the host layer escape it, and the judge was right to object.
 
@@ -80,7 +84,7 @@ With no workflow, a project can create a conversation, pick a model, send input,
 4. **Two unlike users.** Two extensions that do different jobs use it with the same meaning, or a client that knows no extension cannot work without it. A repair to the server's safety is the one exception.
 5. **A small shape that names no workflow concept.** It is a type and a few functions over a `Tx` or the host. It adds no scheduler, loop, background process, or storage engine. A particular role such as "the designer", a phase, and an artifact type are workflow concepts. A way to define roles is not one. Checks 1 to 4 judge it.
 
-The owner accepted the rule as written and asked that check 5 be reworded on roles. Its last three sentences are the new wording, and that wording is **Proposed**.
+The owner accepted the rule as written and asked that check 5 be reworded on roles. Its last three sentences are the new wording, which the owner accepted.
 
 Check 4 first spoke of "two workflows". With the extension as the main unit, the owner agreed to the wording above. W1 and W2 still count as two, and two search providers do not.
 
@@ -118,60 +122,66 @@ How the current parts score:
 | --- | --- | --- |
 | The core sits on pi-durable | Decided | [Grounding](grounding.md) |
 | The target is the latest pi-durable, now 1.5.2. No older version is pinned. | Decided | [Grounding](grounding.md) |
-| The core does not use a Chord host | Proposed | [Grounding](grounding.md) |
+| The core does not use a Chord host | Decided | [Grounding](grounding.md) |
 | Decision and Event are core primitives | Decided | [Primitives](primitives.md) |
-| The shapes and rules of Decision and Event | Proposed | [Primitives](primitives.md) |
-| `request` writes documents only, and the core emits no events about decisions | Proposed | [Primitives](primitives.md) |
+| The shapes and rules of Decision and Event | Decided | [Primitives](primitives.md) |
+| `request` writes documents only, and the core emits no events about decisions | Decided | [Primitives](primitives.md) |
 | A basis entry carries `text` | Decided, from the walk | [Primitives](primitives.md) |
 | An answer carries `annotations`, and `notes` is gone | Decided, from the walk | [Primitives](primitives.md) |
 | The `then` task belongs to the decision's conversation and is `background` | Decided, from the walk | [Primitives](primitives.md) |
 | An equal resend creates a `then` task again when the old one ended `faulted` | Decided, from the walk | [Primitives](primitives.md) |
 | Extensions are trusted in-process code | Decided | |
-| An extension is a pi-durable `Extension`, unwrapped, that imports `request`, `withdraw`, `emit`, `decision`, and `eventLog` | Proposed. The last two are from the walk and Decided. | [Primitives](primitives.md) |
+| An extension is a pi-durable `Extension`, unwrapped, that imports `request`, `withdraw`, `emit`, `decision`, and `eventLog` | Decided | [Primitives](primitives.md) |
 | The host sets the selection on each conversation it creates, from a workflow's `entry` | Decided, from the walk | [Primitives](primitives.md) |
-| `entry` may be a function of a `tx`, and the host adds the project's working directory | Proposed | [Primitives](primitives.md), [Host](host.md) |
+| `entry` may be a function of a `tx`, and the host adds the project's working directory | Decided | [Primitives](primitives.md), [Host](host.md) |
 | The bare agent selects `coding-tools`. Codemode is optional. | Decided | [Proving workflows](workflows.md) |
 | Strict TypeScript, pi-schema at boundaries, no Effect, no Vite | Decided | |
-| `node --test` as the test runner | Proposed | |
+| `node --test` as the test runner | Decided | |
 | Prose is owned by the workflow | Decided | [Prose](prose.md) |
 | One kit beside the core holds `prose()` and `role()` | Decided | [Kit](kit.md) |
-| The shape of `role()`, and the rule for what enters the kit | Proposed | [Kit](kit.md) |
+| The shape of `role()`, and the rule for what enters the kit | Decided | [Kit](kit.md) |
 | A workflow has options per project that a client sets | Decided | [Host](host.md) |
-| Options live in the workflow's own document, and the host reaches them through a contract on the module | Proposed | [Host](host.md) |
-| `options()` and `modelRef()` in the kit | Proposed | [Kit](kit.md) |
+| Options live in the workflow's own document, and the host reaches them through a contract on the module | Decided | [Host](host.md) |
+| `options()` and `modelRef()` in the kit | Decided | [Kit](kit.md) |
 | A kit helper may define a document for its caller | Decided | [Kit](kit.md) |
-| `prose()` loads when the module loads | Proposed | [Prose](prose.md) |
+| `prose()` loads when the module loads | Decided | [Prose](prose.md) |
 | One server for all projects, workflows selected per project | Decided | [Topology](topology.md) |
-| One store, harness, and registry per project inside that server | Proposed | [Topology](topology.md) |
+| One store, harness, and registry per project inside that server | Decided | [Topology](topology.md) |
 | The server opens every project when it starts | Decided, from the walk | [Topology](topology.md) |
 | A client chooses a project's extensions when it binds the project | Decided | [Host](host.md) |
 | The extension is the main unit, and a workflow is one kind | Decided | [Extensions](extensions.md) |
-| A workflow is an extension whose module exports `entry` | Proposed | [Extensions](extensions.md) |
+| A workflow is an extension whose module exports `entry` | Decided | [Extensions](extensions.md) |
 | The host passes each project a default selection, which a conversation follows, edits, or replaces with an exact list | Decided | [Extensions](extensions.md) |
 | The bare agent follows the project default | Decided | [Extensions](extensions.md) |
-| A secret is an option with the format `secret`, stored in the project's store | Proposed | [Extensions](extensions.md) |
+| A secret is an option with the format `secret`, stored in the project's store | Decided | [Extensions](extensions.md) |
 | Check 4 of the admission rule speaks of two extensions | Decided | This file |
 | Lane is not in the core and not in the kit | Decided | [Lane](lane.md) |
 | The kit is the package `tau-kit` | Decided | [Kit](kit.md) |
-| `bind`, the `Project` document, and a directory per project as the catalogue | Proposed | [Host](host.md), [Topology](topology.md) |
+| `bind`, the `Project` document, and a directory per project as the catalogue | Decided | [Host](host.md), [Topology](topology.md) |
 | `bind` takes the working directory as a path on the server | Decided | [Host](host.md) |
 | An extension is added to a project and never removed | Decided, as a limit | [Host](host.md) |
-| Local use is the same server with one project | Proposed | [Topology](topology.md) |
-| The admission rule | Decided. The new wording of check 5 is Proposed. | This file |
+| Local use is the same server with one project | Decided | [Topology](topology.md) |
+| The admission rule | Decided | This file |
 | W0, the bare agent, and W1, design to merge, as proving workflows | Decided | [Proving workflows](workflows.md) |
-| W2, forecasts, as the second proving workflow | Proposed | [Proving workflows](workflows.md) |
-| The rules for workflow authors | Proposed | [Proving workflows](workflows.md) |
+| W2, forecasts, as the second proving workflow | Decided | [Proving workflows](workflows.md) |
+| The rules for workflow authors | Decided | [Proving workflows](workflows.md) |
 | A client that reconnects gets the current state, not a replay | Decided | [Host](host.md) |
 | The client API is a list of capabilities. No client is designed yet. | Decided | [Host](host.md) |
-| The protocol: HTTP, one POST for a call, and an event stream of ops for a watch | Proposed | [Protocol](protocol.md) |
-| A device is paired with a code, and the server keeps a hash of its token | Proposed | [Protocol](protocol.md) |
-| A request ID is stored under its device's name | Proposed | [Protocol](protocol.md) |
-| The open list holds four fields for each subject | Proposed | [Primitives](primitives.md), [Protocol](protocol.md) |
-| The calls of the first version | Proposed | [Host](host.md) |
+| The protocol: HTTP, one POST for a call, and an event stream of ops for a watch | Decided | [Protocol](protocol.md) |
+| A device is paired with a code, and the server keeps a hash of its token | Decided | [Protocol](protocol.md) |
+| A request ID is stored under its device's name | Decided | [Protocol](protocol.md) |
+| The open list holds four fields for each subject | Decided | [Primitives](primitives.md), [Protocol](protocol.md) |
+| The calls of the first version | Decided | [Host](host.md) |
 | You can join and steer any running agent | Decided | [Host](host.md) |
 | A client can read the faulted tasks | Decided | [Host](host.md) |
-| The `faults` call scans by task kind and stores nothing | Proposed | [Host](host.md) |
+| The `faults` call scans by task kind and stores nothing | Decided | [Host](host.md) |
 | A run that fails or is stopped is the workflow's concern | Decided | [The walk](walk.md) |
+| Web search is the first extension that is not a workflow, and it is built on Webfox | Decided | [Extensions](extensions.md) |
+| W1 and W2 are samples for testing the core, not for real use | Decided | [Proving workflows](workflows.md) |
+| The owner logs in to model providers on the server's machine, with pi's own login | Decided, for now | [Host](host.md) |
+| The server's default port is 6283 | Decided | [Protocol](protocol.md) |
+| Build order: the store layer, the host layer, web search, W2, W1 | Decided | "Next steps" below |
+| The notes are consolidated into final documents after the implementation | Decided | "Next steps" below |
 | The accepted limits | Decided | "Accepted limits" below |
 | Shared knowledge across projects is deferred | Decided | [Topology](topology.md) |
 
@@ -191,24 +201,28 @@ How the current parts score:
 - **A faulted task cannot be run again or cleaned up.** A client can read the list. [Host](host.md) says what the next step would need.
 - **A workflow cannot be removed from a project, a project cannot be unbound, and a conversation cannot be deleted.** None is offered.
 
-## Open questions
+## Open and deferred
 
-The owner is locking the design. Every entry that is still **Proposed** in the decision log above waits for that. These points are open, with no recommendation in the notes:
+**Decided.** The owner gave each of these its place when locking the design.
 
-- **The first client.** Not designed, by the owner's ruling. [Host](host.md) and [Protocol](protocol.md) are what it will speak.
-- **Where a secret lives.** [Extensions](extensions.md) keeps an API key in the project's store, in plain text. One key for all projects would need a home in the server's configuration that no call sets today.
-- **Sandboxing as an extension.** pi-durable takes an execution environment for a whole harness. An extension that supplies one needs a new member on its module.
-- **Two work items at once in one repository.** The judge of the extension arena showed that the second hand-over no longer fast-forwards after the first is merged. W1 does not walk it.
-- **Explorer reports.** Eight reports under `/tmp/render-ground/findings/` are not in the repository. [Grounding](grounding.md) says the commits are enough to fetch the sources again.
+| Point | Where it stands |
+| --- | --- |
+| The first client | Open on purpose. None is built now. [Host](host.md) and [Protocol](protocol.md) are what it will speak. |
+| A home in the server for a secret that all projects share | Deferred. An API key lives in its project's store for now. See [Extensions](extensions.md). |
+| Sandboxing as an extension | Deferred. It needs a new member on the extension module. |
+| Two work items at once in one repository, where the second hand-over no longer fast-forwards | Deferred to when W1 is built. |
+| A limit on concurrent model calls across projects | Deferred until it is measured. |
+| Which Webfox version, entry point, and providers the web search extension uses | Settled when the extension is built. |
+| The repository, its branch, and the documents outside this folder that still say Render | Left alone. The work is in this folder only. |
 
-[Topology](topology.md) lists its own open points.
+Dropped: a read-only viewer of a store, and keeping the eight explorer reports. [Grounding](grounding.md) says the commits are enough to fetch the sources again.
 
 ## Next steps
 
-1. Lock the design: the owner decides each entry that is still Proposed, and each open point.
-2. Build the store layer: Decision and Event as designed here. The `answer` table and the failure paths of the walk are the list of ways it can fail. The tests come from that list, before the code. Then run K1 to K6 again, against the real functions.
-3. Build the host layer on it: `bind`, the start order, the project default, and the calls in [Host](host.md), carried as [Protocol](protocol.md) says. The scripts in those files and the checks of the three spikes are the list of ways it can fail.
-4. Build web search, then W2, then W1. Web search comes first because it is the smallest extension and has no decision. This order is a proposal.
+1. Build the store layer: Decision and Event as designed here. The `answer` table and the failure paths of the walk are the list of ways it can fail. The tests come from that list, before the code. Then run K1 to K6 again, against the real functions.
+2. Build the host layer on it: `bind`, the start order, the project default, and the calls in [Host](host.md), carried as [Protocol](protocol.md) says. The scripts in those files and the checks of the three spikes are the list of ways it can fail.
+3. Build web search on Webfox, then W2, then W1. Web search comes first because it is the smallest extension and has no decision.
+4. Consolidate this folder into final documents that no longer speak of arenas, walks, or passes. That comes last, once the implementation is done.
 
 ## Files
 

@@ -1,6 +1,6 @@
 # W1 and W2, one commit at a time
 
-**Proposed.** This is the paper walk that the first arena asked for. Nothing in it is implemented.
+**Decided.** The owner locked the design on 2026-11-13. This is the paper walk that the first arena asked for. Nothing in it is implemented. W1 and W2 are samples for testing the core, and are not meant for real use.
 
 Three walks were written apart from one brief. A judge from another model family scored them. This file merges them: the base is candidate 2, with parts from the other two and from the checks the picker ran afterwards. [Walk arena](arena-walk.md) says which part came from where.
 
@@ -219,14 +219,14 @@ A fix whose home is "Core" or "Host wiring" changes the core. Each one has its f
 | 10 | Nothing said that timers must be `background`. | W2 2 | The flag. | Workflow |
 | 11 | A store that is closed never wakes. | W2 4 | The server opens every project at start. | Host wiring |
 | 12 | The first conversation of a workflow gets every installed extension and no role. | W1 0 | The module's `entry`. | Host wiring |
-| 13 | A workflow has no place for per-project options, such as the reviewer's model or the base branch. | W1 0, 8 | Options that the workflow defines and a client sets. See [Host](host.md). | Kit and host wiring. Proposed. |
+| 13 | A workflow has no place for per-project options, such as the reviewer's model or the base branch. | W1 0, 8 | Options that the workflow defines and a client sets. See [Host](host.md). | Kit and host wiring |
 | 14 | A run that ends is not a handoff. | W1 E1 to E3 | The `afterRun` check. A failed or stopped run is the owner's to continue. | Workflow |
 | 15 | A Stop is not a cancel, and aborting a conversation withdraws no decision. | W1 X1 to X6 | An "abort" choice on every decision, and a durable cancel before the stops. | Workflow |
 | 16 | An outside effect has no receipt in the store. | W1 9, G1 | Store the plan, look, act, and stop on a mismatch. | Workflow |
 | 17 | The reviewer could read files that are not in the reviewed commit, and a publish does not end a run. | W1 11 to 13 | Tools pinned to the SHA, and a sequential publish. | Workflow |
 | 18 | A task that waits in memory is ended after five restarts. | K3, K5 | Commit a changed checkpoint before the wait. | Workflow |
 | 19 | Event has one reader among the extensions, and W2 could have read its own document instead. | W2 15 | Event stays in the core for the client alone. | README |
-| 20 | A faulted task that no decision points at is seen only by `onReport` and `getTask`. | | A `faults` call for clients. Running a task again is not designed. See [Host](host.md). | Host wiring. Proposed. |
+| 20 | A faulted task that no decision points at is seen only by `onReport` and `getTask`. | | A `faults` call for clients. Running a task again is not designed. See [Host](host.md). | Host wiring |
 | 21 | A client that retries "create a conversation" gets two. `createConversation` takes no key (measured, `src/harness/types.ts:919`). | W1 0 | None. The owner accepted it. | Accepted limit |
 | 22 | An annotation can come with a choice that ends a stage. Nothing said who answers it then. | W1 7, 18, X1 | W1 carries it to the next role, or lists it as not acted on. | Workflow |
 | 23 | The handover said what it requires, and not what it does when the branch has moved since the review. | W1 19 | A decision on the `stuck` subject. Retry sends the new head to review. | Workflow |

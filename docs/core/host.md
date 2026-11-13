@@ -4,7 +4,7 @@ After the [walk](walk.md), the owner answered its open questions. The answers le
 
 **Decided.** The owner's rulings below.
 
-**Proposed.** Everything else in this file. Nothing is implemented. Each change to the core carries its five checks from the admission rule in the [README](README.md).
+**Decided.** Everything else in this file, too. The owner locked the design on 2026-11-13. Nothing is implemented. Each change to the core carries its five checks from the admission rule in the [README](README.md).
 
 Two later passes changed this file. [Extensions](extensions.md) made the extension the unit that a project selects, so `workflows` became `extensions`, `addWorkflows` became `addExtensions`, and `WorkflowModule` became `ExtensionModule`. [Protocol](protocol.md) says how each call travels, and it changed `open`, `timeline`, and the request ID.
 
@@ -105,7 +105,7 @@ A workflow that is added changes no live work. It is never in the default, and a
 
 ### What the server reads at start
 
-1. Its own configuration: model logins and device tokens. The import map is code.
+1. Its own configuration: model logins and device tokens. The import map is code. The owner logs in to model providers on the server's machine, with pi's own login. No client call sets a login. That is decided for now.
 2. The names under `~/.tau/projects/`.
 3. For each one: the lock, then the store, opened with an empty registry. pi-durable sets `running` tasks back to `pending` (measured, `src/harness/harness.ts:299`).
 4. `Project`. A store without one, or with another project's name in it, is skipped and reported.
@@ -290,7 +290,7 @@ Notes:
 | 6 | A second Stop can end a newer run. | Said plainly in the list. | Docs |
 | 7 | A failed run shows only inside its conversation. | `conversations` carries the state. | Host wiring |
 | 8 | The event log is a conversation, and a client could submit to it. | The host refuses. | Host wiring |
-| 9 | A run the owner started can overlap a dispatch and take its model change. | None. The transcript says which model wrote what. | A limit. Proposed. |
+| 9 | A run the owner started can overlap a dispatch and take its model change. | None. The transcript says which model wrote what. | Accepted limit |
 | 10 | The kit's rule forbids a helper that defines a document, and the owner asked for exactly that. | A reworded check 3 in [Kit](kit.md). | Kit. Decided. |
 
 ## Not verified
