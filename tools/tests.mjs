@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { glob, readFile } from "node:fs/promises";
+import { access, glob, readFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
@@ -7,7 +7,7 @@ const manifest = JSON.parse(await readFile("package.json", "utf8"));
 const tests = [];
 for await (const directory of glob(manifest.workspaces)) {
 	const pkg = JSON.parse(await readFile(`${directory}/package.json`, "utf8"));
-	for await (const source of glob(`${directory}/test/**/*.test.{ts,mts,cts}`)) {
+	for await (const source of glob(`${directory}/test/**/*.test.ts`)) {
 		const emitted = source
 			.replace(`${directory}/test/`, `${directory}/dist/test/`)
 			.replace(/\.([cm]?)ts$/, ".$1js");
@@ -41,6 +41,14 @@ for (const selection of selected) {
 }
 if (!selected.length) for (const test of tests) files.add(test.emitted);
 if (!files.size) throw new Error("no emitted tests selected");
+for (const file of files) {
+	await access(file).catch((error) => {
+		throw new Error(
+			`missing emitted test ${file}; check the package tsconfig includes test/** and rebuild`,
+			{ cause: error },
+		);
+	});
+}
 const result = spawnSync(process.execPath, ["--test", ...[...files].sort()], {
 	stdio: "inherit",
 });

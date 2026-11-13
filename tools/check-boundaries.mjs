@@ -1,4 +1,4 @@
-import { readdir, readFile, realpath } from "node:fs/promises";
+import { glob, readdir, readFile, realpath } from "node:fs/promises";
 import { builtinModules } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -8,6 +8,17 @@ import ts from "typescript";
 export async function check(root) {
 	const policy = JSON.parse(
 		await readFile(path.join(root, "boundaries.json"), "utf8"),
+	);
+	const rootConfig = JSON.parse(
+		await readFile(path.join(root, "tsconfig.json"), "utf8"),
+	);
+	const references = new Set(
+		(rootConfig.references ?? []).map(({ path: reference }) => {
+			const target = path.resolve(root, reference);
+			return path.basename(target) === "tsconfig.json"
+				? path.dirname(target)
+				: target;
+		}),
 	);
 	const packages = [];
 	const errors = [];
@@ -20,6 +31,10 @@ export async function check(root) {
 			await readFile(path.join(directory, "package.json"), "utf8"),
 		);
 		packages.push({ directory, manifest });
+		if (!references.has(directory))
+			errors.push(
+				`${manifest.name}: missing from root tsconfig.json references`,
+			);
 		const config = JSON.parse(
 			await readFile(path.join(directory, "tsconfig.json"), "utf8"),
 		);
@@ -41,6 +56,8 @@ export async function check(root) {
 	const builtins = new Set(builtinModules.flatMap((n) => [n, `node:${n}`]));
 	function inspectSpecifier(pkg, file, spec) {
 		const label = `${path.relative(root, file)}: ${spec}`;
+		const isTest = file.startsWith(path.join(pkg.directory, "test") + path.sep);
+		const permissions = policy[pkg.manifest.name];
 		if (
 			spec.startsWith(".") ||
 			path.isAbsolute(spec) ||
@@ -61,22 +78,23 @@ export async function check(root) {
 			: spec.split("/")[0];
 		const subpath = spec === name ? "." : `.${spec.slice(name.length)}`;
 		const target = byName.get(name);
+		const declared =
+			Object.hasOwn(pkg.manifest.dependencies ?? {}, name) ||
+			(isTest && Object.hasOwn(pkg.manifest.devDependencies ?? {}, name));
 		if (Object.hasOwn(policy, name)) {
 			if (
 				pkg !== target &&
-				!policy[pkg.manifest.name]?.[name]?.includes(subpath)
+				!permissions?.[name]?.includes(subpath) &&
+				!(isTest && permissions?.testOnly?.[name]?.includes(subpath))
 			) {
 				errors.push(`${label}: forbidden workspace capability`);
 			}
-			if (
-				pkg !== target &&
-				!Object.hasOwn(pkg.manifest.dependencies ?? {}, name)
-			)
+			if (pkg !== target && !declared)
 				errors.push(`${label}: undeclared workspace dependency`);
 			if (!target) errors.push(`${label}: workspace package is missing`);
 			else if (!Object.hasOwn(target.manifest.exports ?? {}, subpath))
 				errors.push(`${label}: not an exported subpath`);
-		} else if (!Object.hasOwn(pkg.manifest.dependencies ?? {}, name)) {
+		} else if (!declared) {
 			errors.push(`${label}: undeclared external dependency`);
 		}
 	}
@@ -106,7 +124,23 @@ export async function check(root) {
 					node.moduleSpecifier
 				) {
 					inspectSpecifier(pkg, file, node.moduleSpecifier.text);
+					if (
+						ts.isImportDeclaration(node) &&
+						["node:module", "module"].includes(node.moduleSpecifier.text) &&
+						node.importClause?.namedBindings &&
+						ts.isNamedImports(node.importClause.namedBindings) &&
+						node.importClause.namedBindings.elements.some(
+							(binding) =>
+								(binding.propertyName ?? binding.name).text === "createRequire",
+						)
+					)
+						errors.push(`${file}: CommonJS escape forbidden`);
 				}
+				if (
+					ts.isPropertyAccessExpression(node) &&
+					node.name.text === "createRequire"
+				)
+					errors.push(`${file}: CommonJS escape forbidden`);
 				if (ts.isImportTypeNode(node)) {
 					if (
 						ts.isLiteralTypeNode(node.argument) &&
@@ -138,13 +172,28 @@ export async function check(root) {
 		}
 	}
 	for (const pkg of packages) {
-		for (const name of Object.keys(pkg.manifest.dependencies ?? {})) {
-			if (
-				Object.hasOwn(policy, name) &&
-				name !== pkg.manifest.name &&
-				!policy[pkg.manifest.name]?.[name]
-			)
-				errors.push(`${pkg.manifest.name}: forbidden dependency ${name}`);
+		for (const field of ["dependencies", "devDependencies"]) {
+			for (const name of Object.keys(pkg.manifest[field] ?? {})) {
+				if (
+					Object.hasOwn(policy, name) &&
+					name !== pkg.manifest.name &&
+					!policy[pkg.manifest.name]?.[name] &&
+					!(
+						field === "devDependencies" &&
+						policy[pkg.manifest.name]?.testOnly?.[name]
+					)
+				)
+					errors.push(`${pkg.manifest.name}: forbidden dependency ${name}`);
+			}
+		}
+		for await (const file of glob("**/*.{test,spec}.*", {
+			cwd: pkg.directory,
+			exclude: ["dist/**", "node_modules/**"],
+		})) {
+			if (!/^test\/(?:.*\/)?[^/]+\.test\.ts$/.test(file))
+				errors.push(
+					`${path.relative(root, pkg.directory)}/${file}: tests must live in <pkg>/test/**/*.test.ts`,
+				);
 		}
 		for (const value of Object.values(pkg.manifest.exports ?? {})) {
 			for (const target of Object.values(
