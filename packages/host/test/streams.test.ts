@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { requestAdmin } from "../src/index.js";
-import { start } from "./helpers.js";
+import { gate, modules } from "./extensions.js";
+import { type Running, start, until } from "./helpers.js";
 
 test("the inbox holds each project under its name, and a project bound later joins it", async () => {
 	const s = await start();
@@ -41,6 +43,219 @@ test("a clean stop ends each stream with stopping, and a revoke ends only that d
 		await mine.until((w) => w.closed, "the laptop's stream to close");
 		assert.equal(mine.end, "stopping");
 	} finally {
+		await s.close();
+	}
+});
+
+async function designer(s: Running): Promise<number> {
+	await s.call("bind", { project: "p", workdir: "/p", extensions: ["flow"] });
+	await s.call("setOptions", {
+		project: "p",
+		extension: "flow",
+		patch: { designer: "faux/a" },
+	});
+	return (await s.call("create", { project: "p", workflow: "flow" })).body
+		.result.conversation;
+}
+const toolCall = (name: string, args = {}) =>
+	fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
+const ops = (s: Running, conversation: number, text: string) =>
+	s.call("input", { project: "p", conversation, text, requestId: text });
+const idle = (s: Running, conversation: number) =>
+	until("idle", async () => {
+		const page = await s.call("conversations", { project: "p" });
+		return page.body.result.items.every(
+			(c: { conversation: number; state: string }) =>
+				c.conversation !== conversation || c.state !== "running",
+		);
+	});
+
+test("open sends the view, then ops that rebuild what a new watch sees first", async () => {
+	const s = await start({ modules });
+	try {
+		const d = await designer(s);
+		const missing = s.watch("open", { project: "p", conversation: 999 });
+		await missing.until((w) => w.closed, "the refusal");
+		assert.equal(missing.status, 404);
+		assert.equal(missing.headers["tau-protocol"], "1");
+		assert.equal(missing.refused?.refused?.code, "unknown_conversation");
+
+		const live = s.watch("open", { project: "p", conversation: d });
+		await live.until((w) => w.value !== undefined);
+		assert.deepEqual(Object.keys(live.value).sort(), [
+			"conversation",
+			"docs",
+			"entries",
+		]);
+		s.faux.setResponses([toolCall("hold"), fauxAssistantMessage("Counted.")]);
+		gate.arm();
+		await ops(s, d, "Count.");
+		await gate.entered;
+		await ops(s, d, "Steer.");
+		gate.release();
+		await idle(s, d);
+		await live.until(
+			(w) => w.value.docs["pi.live"]?.run === undefined,
+			"the run's end",
+		);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		const fresh = s.watch("open", { project: "p", conversation: d });
+		await fresh.until((w) => w.value !== undefined);
+		assert.ok(live.frames > 3, `${live.frames} frames`);
+		assert.deepEqual(live.value, fresh.value);
+		live.close();
+		fresh.close();
+	} finally {
+		await s.close();
+	}
+});
+
+test("a client that stopped reading gets folded frames, and history fills the gap that before shows", async () => {
+	const s = await start({ modules });
+	try {
+		const d = await designer(s);
+		s.faux.setResponses([
+			toolCall("flood", { count: 300, size: 16_000 }),
+			fauxAssistantMessage("Done."),
+		]);
+		const live = s.watch("open", { project: "p", conversation: d });
+		await live.until((w) => w.value !== undefined);
+		live.response?.pause();
+		await ops(s, d, "Flood.");
+		await idle(s, d);
+		const before = live.frames;
+		live.response?.resume();
+		const all = (
+			await s.call("history", {
+				project: "p",
+				conversation: d,
+				order: "ascending",
+				limit: 1000,
+			})
+		).body.result.items.map((e: { id: number }) => e.id);
+		await live.until((w) => w.newest === all.at(-1), "the newest entry");
+		assert.ok(
+			live.frames - before < 300,
+			`${live.frames - before} frames for 300 commits`,
+		);
+		assert.ok(live.gaps.length > 0, "the window left a gap");
+		for (const gap of live.gaps) {
+			let cursor: string | undefined;
+			do {
+				const page = await s.call("history", {
+					project: "p",
+					conversation: d,
+					...(cursor === undefined
+						? { ...gap, order: "ascending" }
+						: { cursor }),
+					limit: 100,
+				});
+				for (const entry of page.body.result.items)
+					live.held.set(entry.id, entry);
+				cursor = page.body.result.next;
+			} while (cursor !== undefined);
+		}
+		assert.deepEqual(
+			[...live.held.keys()].sort((a, b) => a - b),
+			all,
+		);
+		live.close();
+
+		const resumed = s.watch("open", {
+			project: "p",
+			conversation: d,
+			after: all.at(-2),
+		});
+		await resumed.until((w) => w.value !== undefined);
+		assert.deepEqual(
+			resumed.value.entries.map((e: { id: number }) => e.id),
+			[all.at(-1)],
+		);
+		assert.equal(resumed.value.before, all.at(-2));
+		assert.ok(resumed.value.docs["pi.agent"] !== undefined);
+		resumed.close();
+	} finally {
+		await s.close();
+	}
+});
+
+test("a client that leaves ends only its watch, and the run goes on", async () => {
+	const s = await start({ modules });
+	try {
+		const d = await designer(s);
+		const live = s.watch("open", { project: "p", conversation: d });
+		await live.until((w) => w.value !== undefined);
+		gate.arm();
+		s.faux.setResponses([
+			toolCall("hold"),
+			fauxAssistantMessage("Finished alone."),
+		]);
+		await ops(s, d, "Work.");
+		await gate.entered;
+		live.close();
+		gate.release();
+		await idle(s, d);
+		const history = await s.call("history", { project: "p", conversation: d });
+		assert.ok(
+			JSON.stringify(history.body.result.items).includes("Finished alone."),
+		);
+	} finally {
+		await s.close();
+	}
+});
+
+test("a quiet stream gets a heartbeat every 15 seconds, and a write that does not drain in 60 seconds ends it", async (t) => {
+	const s = await start({ modules });
+	try {
+		const d = await designer(s);
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		const quiet = s.watch("inbox", {});
+		const tick = async (ms: number) => {
+			t.mock.timers.tick(ms);
+			for (let i = 0; i < 20; i++)
+				await new Promise((resolve) => setImmediate(resolve));
+		};
+		const settle = async (test: () => boolean) => {
+			for (let i = 0; i < 2000 && !test(); i++)
+				await new Promise((resolve) => setImmediate(resolve));
+			assert.ok(test());
+		};
+		await settle(() => quiet.value !== undefined);
+		await tick(14_000);
+		assert.equal(quiet.heartbeats, 0);
+		await tick(1_000);
+		await settle(() => quiet.heartbeats === 1);
+		await tick(15_000);
+		await settle(() => quiet.heartbeats === 2);
+		quiet.close();
+
+		const slow = s.watch("open", { project: "p", conversation: d });
+		await settle(() => slow.value !== undefined);
+		slow.response?.pause();
+		s.faux.setResponses([
+			toolCall("flood", { count: 1, size: 8_000_000 }),
+			fauxAssistantMessage("Done."),
+		]);
+		await ops(s, d, "Flood.");
+		let waited = 0;
+		while (waited < 50_000) {
+			const page = await s.call("history", {
+				project: "p",
+				conversation: d,
+				limit: 1,
+			});
+			if (JSON.stringify(page.body.result.items).includes("Done.")) break;
+			await tick(100);
+			waited += 100;
+		}
+		await tick(59_000 - waited);
+		assert.equal(slow.closed, false, "not cut before 60 seconds");
+		await tick(2_000);
+		slow.response?.resume();
+		await settle(() => slow.closed);
+		assert.equal(slow.end, undefined, "a cut sends no end frame");
+	} finally {
+		t.mock.timers.reset();
 		await s.close();
 	}
 });
