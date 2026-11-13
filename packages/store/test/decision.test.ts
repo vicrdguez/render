@@ -169,6 +169,9 @@ test("decision reads a made-up ID as undefined and writes nothing", async () => 
 		"test:none#1",
 		"test:k",
 		"#1",
+		"constructor#1",
+		"__proto__#1",
+		"toString#1",
 	]) {
 		assert.equal(await s.read(id as DecisionId), undefined, id);
 	}

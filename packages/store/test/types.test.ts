@@ -37,10 +37,10 @@ export function cases() {
 		choices: ["approve", "revise", "abort"],
 		then: DesignAnswer,
 	});
-	// @ts-expect-error The then task does not accept "retry".
 	void request(tx, {
 		...draft,
 		choices: ["retry", "abort"],
+		// @ts-expect-error The then task does not accept "retry".
 		then: DesignAnswer,
 	});
 	void request(tx, {
