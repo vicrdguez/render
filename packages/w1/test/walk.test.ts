@@ -39,7 +39,8 @@ describe("W1 rows 0 to 19 on one piece of work", () => {
 	let S1: string;
 	let S2: string;
 	let tampered = "";
-	const one = (items: EntryRecord[], what: string) => {
+	let worktreeAtReview = "";
+	const one = (items: readonly EntryRecord[], what: string) => {
 		assert.equal(items.length, 1, what);
 		return items[0] as EntryRecord;
 	};
@@ -170,10 +171,7 @@ describe("W1 rows 0 to 19 on one piece of work", () => {
 	test("row 6: the phone that still shows V1 answers A1 and gets conflict; the open decision is A2", async () => {
 		const result = await w.reply(s.design(1), "approve", [], "phone");
 		assert.equal(result.kind, "refused");
-		assert.equal(
-			result.kind === "refused" && result.refusal.code,
-			"conflict",
-		);
+		assert.equal(result.kind === "refused" && result.refusal.code, "conflict");
 		await w.open(s.design(2));
 	});
 
@@ -205,6 +203,7 @@ describe("W1 rows 0 to 19 on one piece of work", () => {
 				return call("show_file", { path: "export.js" });
 			},
 			async () => {
+				worktreeAtReview = readFileSync(tampered, "utf8");
 				await w.setOptions({ implementer: "faux/faux-b" });
 				return call("publish_review", {
 					text: "No test for --json.",
@@ -289,7 +288,11 @@ describe("W1 rows 0 to 19 on one piece of work", () => {
 		]);
 		assert.equal(data(b1).fixes, undefined);
 		const agent = await w.agent(R);
-		assert.deepEqual(agent.model, { provider: "faux", modelId: "faux-b" });
+		assert.equal(
+			w.requests.find((r) => r.role === "reviewer")?.model,
+			"faux-b",
+			"R was created with the reviewer's model",
+		);
 		assert.deepEqual(
 			agent.extensions.map((e) => e.name),
 			["w1"],
@@ -325,7 +328,7 @@ describe("W1 rows 0 to 19 on one piece of work", () => {
 		assert.match(`${read?.text} ${bash?.text}`, /not available|unavailable/i);
 		assert.equal(diff?.isError, false);
 		assert.ok(diff?.text.includes("ndjson"), diff?.text);
-		assert.equal(readFileSync(tampered, "utf8"), "TAMPERED AFTER PUBLISH");
+		assert.equal(worktreeAtReview, "TAMPERED AFTER PUBLISH");
 		assert.equal(file?.isError, false);
 		assert.equal(file?.text, "export const format = ndjson;");
 		const [r1] = await w.entries(R, "w1.review");

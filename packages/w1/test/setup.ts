@@ -13,16 +13,25 @@ import {
 	fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
 import {
+	type Agent,
+	type Conversation,
 	type ConversationId,
 	configure,
 	createRegistry,
 	defineExtension,
 	defineTool,
+	type EntryId,
 	type EntryRecord,
+	type Harness,
+	type HarnessInspection,
+	type HarnessOptions,
 	type JsonObject,
 	MemoryStorage,
 	type Storage,
+	type Submission,
 	type SubmissionDraft,
+	type TaskRecord,
+	type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
@@ -34,7 +43,7 @@ import {
 	decision,
 	eventLog,
 } from "tau-store";
-import { answer, openStore } from "tau-store/host";
+import { answer, openStore, type Store } from "tau-store/host";
 import * as W1 from "../src/index.js";
 
 export { context, W1 };
@@ -125,6 +134,17 @@ export const Script = defineExtension({
 });
 
 export type Request = { role: Role; model: string; seen: string };
+export type Event = { id: EntryId; kind: string; [field: string]: unknown };
+export type {
+	Agent,
+	Conversation,
+	Harness,
+	HarnessInspection,
+	HarnessOptions,
+	Submission,
+	TaskRecord,
+	ToolRegistration,
+};
 
 /**
  * One project's store with W1 installed, as the host will open it: the coding tools and W1 in the registry, a project
@@ -149,11 +169,12 @@ export async function world(
 	};
 	const requests: Request[] = [];
 	const respond: Step = (request, streamOptions, state, model) => {
-		const tools = new Set(
-			((request as { tools?: { name: string }[] }).tools ?? []).map(
-				(tool) => tool.name,
-			),
-		);
+		const tools = new Set<string>();
+		for (const message of request.messages) {
+			if (message.role !== "system") continue;
+			for (const tool of message.toolsAdded ?? []) tools.add(tool.name);
+			for (const tool of message.toolsRemoved ?? []) tools.delete(tool.name);
+		}
 		const role: Role = tools.has("publish_design")
 			? "designer"
 			: tools.has("publish_build")
@@ -194,8 +215,8 @@ export async function world(
 
 	const read = (id: DecisionId) => commit((tx) => decision(tx, id));
 	const self = {
-		store,
-		harness,
+		store: store as Store,
+		harness: harness as Harness,
 		repo,
 		requests,
 		script(role: Role, ...steps: Step[]) {
@@ -220,7 +241,7 @@ export async function world(
 		async submit(
 			conversation: ConversationId,
 			draft: SubmissionDraft | string,
-		) {
+		): Promise<Submission> {
 			const handle = await harness.conversation(conversation, context);
 			assert.ok(handle, `conversation ${conversation} exists`);
 			return handle.submit(
@@ -275,7 +296,9 @@ export async function world(
 							)
 						).items,
 				)
-			).map((entry) => ({ id: entry.id, kind: entry.kind, ...data(entry) }));
+			).map(
+				(entry): Event => ({ ...data(entry), id: entry.id, kind: entry.kind }),
+			);
 		},
 		async entries(conversation: ConversationId, kind?: string) {
 			const handle = await harness.conversation(conversation, context);
@@ -290,12 +313,14 @@ export async function world(
 				? items
 				: items.filter((entry) => entry.kind === kind);
 		},
-		async agent(conversation: ConversationId) {
+		async agent(conversation: ConversationId): Promise<Agent> {
 			const handle = await harness.conversation(conversation, context);
 			assert.ok(handle);
 			return handle.agent(context);
 		},
-		async tasks(kind: string) {
+		async tasks(
+			kind: string,
+		): Promise<readonly TaskRecord<unknown, unknown, unknown>[]> {
 			return (await commit((tx) => tx.scanTasks({ kind }, 1000))).items;
 		},
 		close: () => harness.close(context),
@@ -315,7 +340,7 @@ export function data(entry: EntryRecord | undefined): Record<string, unknown> {
 
 /** The text a tool returned to the model, from the tool result entries of a conversation. */
 export async function toolResults(w: World, conversation: ConversationId) {
-	return (await w.entries(conversation, "pi.tool_result")).map((entry) => {
+	return (await w.entries(conversation, "pi.tool-result")).map((entry) => {
 		const message = entry.model?.[0];
 		return message?.role === "toolResult"
 			? {

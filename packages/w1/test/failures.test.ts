@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
 	type ConversationId,
-	CodingTools as Coding,
 	configure,
 	LiveDoc,
 } from "@earendil-works/pi-durable";
+import { CodingTools as Coding } from "@earendil-works/pi-durable/tools";
 import {
 	answered,
 	approved,
@@ -138,7 +138,11 @@ test("rows E1 to E3: a designer that asks instead of publishing opens stuck on i
 			),
 		);
 		await w.open(s.design(1));
-		assert.equal(await w.read(s.stuck(2)), undefined, "the publish run is fine");
+		assert.equal(
+			await w.read(s.stuck(2)),
+			undefined,
+			"the publish run is fine",
+		);
 	}));
 
 test("a run that fails opens no decision, and the owner continues it to a publish", () =>
@@ -297,10 +301,14 @@ test("an option changed after the plan cannot change the worktree's base", () =>
 		git(w.repo, "commit", "-qm", "Other");
 		git(w.repo, "checkout", "-q", "main");
 		const main = git(w.repo, "rev-parse", "main");
-		w.script("implementer", async () => {
-			await w.setOptions({ base: "other" });
-			return commitStep("export.js", "json", "Add --json");
-		}, call("publish_build", { text: "Built." }));
+		w.script(
+			"implementer",
+			async () => {
+				await w.setOptions({ base: "other" });
+				return commitStep("export.js", "json", "Add --json");
+			},
+			call("publish_build", { text: "Built." }),
+		);
 		w.script("reviewer", call("show_diff"));
 		const { k } = await approved(w);
 		const path = plannedPath(w.repo, k);
@@ -340,7 +348,11 @@ test("a then task that runs twice for one decision does its work once", () =>
 				tx.createTask(
 					designAnswer as never,
 					{ decision: s.design(1), choice: "revise" },
-					{ ownership: { kind: "conversation" }, conversationId: k, background: true },
+					{
+						ownership: { kind: "conversation" },
+						conversationId: k,
+						background: true,
+					},
 				),
 			context,
 		);
@@ -383,19 +395,25 @@ test("publish_build reads a clean head itself, runs its round in order, and refu
 			"implementer",
 			call("bash", { command: "printf 'x' > dirty.txt" }),
 			call("publish_build", { text: "Dirty." }),
-			commitStep("export.js", "json", "Add --json"),
 			async () => {
 				const I = await named(w, "building");
 				await w.harness.commit(
 					(tx) =>
 						configure(tx, I, {
 							extensions: [Coding, W1.extension, Script],
-							tools: null,
+							tools: [
+								...(Coding.tools ?? []),
+								...(W1.extension.tools ?? []).filter(
+									(tool) => tool.name === "publish_build",
+								),
+								...(Script.tools ?? []),
+							],
 						}),
 					context,
 				);
-				return call("script", { tool: "publish_build", text: "Nested." });
+				return commitStep("export.js", "json", "Add --json");
 			},
+			call("script", { tool: "publish_build", text: "Nested." }),
 			calls(
 				["publish_build", { text: "In order." }],
 				[
@@ -448,7 +466,10 @@ test("roles: the designer follows the project default, the implementer and revie
 		assert.ok(!(await names(I)).includes("web_search"));
 		assert.ok(!(await names(R)).includes("web_search"));
 		for (const c of [k, I, R]) {
-			const record = await w.harness.commit((tx) => tx.conversation(c), context);
+			const record = await w.harness.commit(
+				(tx) => tx.conversation(c),
+				context,
+			);
 			assert.equal(record?.owner, undefined, "ownerless");
 		}
 	}));

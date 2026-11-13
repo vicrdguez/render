@@ -34,7 +34,10 @@ function run(scenario: string, dir: string, step: string): Promise<Run> {
 }
 
 /** Runs the scenario until the process kills itself, then opens the same files again and returns what it saw. */
-async function crashThenLook(scenario: string, prepare?: (repo: string) => void) {
+async function crashThenLook(
+	scenario: string,
+	prepare?: (repo: string) => void,
+) {
 	const dir = realpathSync(mkdtempSync(join(tmpdir(), `tau-w1-${scenario}-`)));
 	const repo = repository(dir);
 	prepare?.(repo);
@@ -45,7 +48,9 @@ async function crashThenLook(scenario: string, prepare?: (repo: string) => void)
 	return look.seen;
 }
 
-describe("W1 across a killed server, SQLite, SIGKILL", { concurrency: true }, () => {
+describe("W1 across a killed server, SQLite, SIGKILL", {
+	concurrency: true,
+}, () => {
 	test("a publish killed after its commit and before its result keeps one entry and one decision", async () => {
 		const seen = await crashThenLook("publish");
 		assert.equal(seen.designs, 1, "one design entry");
@@ -64,14 +69,18 @@ describe("W1 across a killed server, SQLite, SIGKILL", { concurrency: true }, ()
 			git(repo, "checkout", "-q", "main");
 		});
 		assert.equal(seen.worktrees, 2, "the repository and one worktree");
-		assert.equal(seen.forkPoint, seen.base, "the worktree starts at main");
+		assert.equal(
+			seen.head,
+			seen.base,
+			"the worktree starts at main, not at other",
+		);
 		assert.equal(seen.implementers, 1);
 	});
 
 	test("killed after the worktree exists and before its commit, prepare finds it and carries on", async () => {
 		const seen = await crashThenLook("worktree");
 		assert.equal(seen.worktrees, 2, "one worktree, not two");
-		assert.equal(seen.forkPoint, seen.base);
+		assert.equal(seen.head, seen.base);
 		assert.equal(seen.implementers, 1, "one implementer");
 	});
 

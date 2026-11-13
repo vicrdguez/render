@@ -1,11 +1,10 @@
 import { existsSync, writeSync } from "node:fs";
 import { join } from "node:path";
-import type { Storage } from "@earendil-works/pi-durable";
+import type { ConversationId, Storage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import {
 	answered,
 	call,
-	commitStep,
 	data,
 	git,
 	plannedPath,
@@ -34,17 +33,25 @@ const storage = new Proxy(real, {
 			if (step === "first" && scenario === "worktree" && worktreeExists())
 				die();
 			const result = await value.apply(target, args);
-			if (step === "first" && scenario === "publish" && write.includes('"w1.design"'))
+			if (
+				step === "first" &&
+				scenario === "publish" &&
+				write.includes('"w1.design"')
+			)
 				die();
-			if (step === "first" && scenario === "plan" && write.includes('"w1.prepare"'))
+			if (
+				step === "first" &&
+				scenario === "plan" &&
+				write.includes('"w1.prepare"')
+			)
 				die();
 			return result;
 		};
 	},
 });
-let k: number | undefined;
+let k: ConversationId | undefined;
 const worktreeExists = () =>
-	k !== undefined && existsSync(join(plannedPath(repo, k as never), ".git"));
+	k !== undefined && existsSync(join(plannedPath(repo, k), ".git"));
 
 const w = await world({ storage, repo, now: () => Date.UTC(2026, 10, 14) });
 
@@ -74,18 +81,20 @@ if (step === "first") {
 }
 
 const found = (await w.events()).find((e) => e.stage === "design_review");
-k = found?.conversation as number;
-const s = subjects(k as never);
+k = found?.conversation as ConversationId;
+const s = subjects(k);
 if (scenario === "plan") await w.setOptions({ base: "other" });
 if (scenario === "g1")
 	w.script("implementer", call("publish_build", { text: "Built." }));
 await w.settle();
 const events = await w.events();
-const I = events.find((e) => e.stage === "building")?.conversation as never;
-const path = plannedPath(repo, k as never);
+const I = events.find((e) => e.stage === "building")?.conversation as
+	| ConversationId
+	| undefined;
+const path = plannedPath(repo, k);
 const builds = I === undefined ? [] : await w.entries(I, "w1.build");
 say({
-	designs: (await w.entries(k as never, "w1.design")).length,
+	designs: (await w.entries(k, "w1.design")).length,
 	design1: (await w.read(s.design(1)))?.status ?? null,
 	design2: (await w.read(s.design(2)))?.status ?? null,
 	stages: events.map((e) => e.stage),
@@ -94,7 +103,6 @@ say({
 		.split("\n")
 		.filter((line) => line.startsWith("worktree ")).length,
 	base: git(repo, "rev-parse", "main"),
-	forkPoint: existsSync(path) ? git(path, "merge-base", "HEAD", "main") : null,
 	implementers: events.filter((e) => e.stage === "building").length,
 	commitsOnBranch: existsSync(path)
 		? Number(git(path, "rev-list", "--count", "main..HEAD"))
