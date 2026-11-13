@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "strict": true,
+    "verbatimModuleSyntax": true,
+    "composite": true,
+    "declaration": true,
+    "rootDir": ".",
+    "outDir": "dist",
+    "types": [
+      "node"
+    ]
+  },
+  "references": [
+    {
+      "path": "../producer"
+    }
+  ],
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts"
+  ]
+}

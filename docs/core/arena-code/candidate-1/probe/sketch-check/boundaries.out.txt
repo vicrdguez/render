@@ -1,0 +1,48 @@
+== the sketch as it is
+   tsc=pass biome=pass
+== S1 an extension imports a core internal by package name
+   extensions/w2/src/bad.ts: export { answer } from "tau-core/src/store/decision.ts";
+   tsc=FAIL biome=pass
+   tsc:   extensions/w2/src/bad.ts(1,24): error TS2307: Cannot find module 'tau-core/src/store/decision.ts' or its corresponding type declarations.
+== S2 an extension reaches a core internal by a relative path
+   extensions/w2/src/bad.ts: export { answer } from "../../../packages/core/src/store/decision.ts";
+   tsc=pass biome=FAIL
+   biome: extensions/w2/src/bad.ts:1:24 lint/style/noRestrictedImports ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+== S3 an extension imports the host entry
+   extensions/w2/src/bad.ts: export { openHost } from "tau-core/host";
+   tsc=pass biome=FAIL
+   biome: extensions/w2/src/bad.ts:1:26 lint/style/noRestrictedImports ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+== S4 the kit imports the host entry
+   packages/kit/src/bad.ts: export { openHost } from "tau-core/host";
+   tsc=pass biome=FAIL
+   biome: packages/kit/src/bad.ts:1:26 lint/style/noRestrictedImports ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+== S5 the core imports the kit
+   packages/core/src/bad.ts: export { options } from "tau-kit";
+   tsc=pass biome=FAIL
+   biome: packages/core/src/bad.ts:1:25 lint/correctness/noUndeclaredDependencies ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+== S6 the core imports an extension
+   packages/core/src/host/bad.ts: export { extension } from "tau-w2";
+   tsc=pass biome=FAIL
+   biome: packages/core/src/host/bad.ts:1:27 lint/correctness/noUndeclaredDependencies ━━━━━━━━━━━━━━━━━━━━━━━
+== S7 the store layer imports the host layer
+   packages/core/src/store/bad.ts: export { openHost } from "../host/host.ts";
+   tsc=pass biome=FAIL
+   biome: packages/core/src/store/bad.ts:1:26 lint/style/noRestrictedImports ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+== S8b an extension's code imports one of its devDependencies (test-only)
+   extensions/w2/src/bad.ts: export { fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+   tsc=pass biome=FAIL
+   biome: extensions/w2/src/bad.ts:1:30 lint/correctness/noUndeclaredDependencies ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+== S8 an extension's test drives a real host (allowed)
+   extensions/w2/test/host.test.ts: export { openHost } from "tau-core/host";
+   tsc=pass biome=pass
+== S9 src/index.ts gives extensions answer
+   tsc=pass biome=FAIL
+   biome: × Sort these exports.
+✖ tau-core exports exactly request, withdraw, emit, decision, and eventLog (31.987166ms)
+✔ tau-core/host exports the composition root's surface and no store function (5.780583ms)
+✖ failing tests:
+== S10 a module in the import map without an extension member
+   tsc=FAIL biome=pass
+   tsc:   apps/tau/src/extensions.ts(14,44): error TS2741: Property 'extension' is missing in type '{ readonly options: undefined; }' but required in type 'Exte
+== the sketch again
+   tsc=pass biome=pass

@@ -1,0 +1,465 @@
+packages/host/src/cursors.ts:8:30 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+     6 │ 	positions: Record<string, Cursor>;
+     7 │ };
+   > 8 │ export function encodeCursor(value: CursorPayload): string {
+       │                              ^^^^^
+     9 │ 	throw new Error("not implemented");
+    10 │ }
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend value with an underscore.
+  
+     6  6 │   	positions: Record<string, Cursor>;
+     7  7 │   };
+     8    │ - export·function·encodeCursor(value:·CursorPayload):·string·{
+        8 │ + export·function·encodeCursor(_value:·CursorPayload):·string·{
+     9  9 │   	throw new Error("not implemented");
+    10 10 │   }
+  
+
+packages/host/src/cursors.ts:11:30 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+     9 │ 	throw new Error("not implemented");
+    10 │ }
+  > 11 │ export function decodeCursor(value: string, query: object): CursorPayload {
+       │                              ^^^^^
+    12 │ 	// TODO base64url JSON + pi-schema; refuse wrong call/project/bounds with bad_cursor.
+    13 │ 	// TODO no server memory, so restart does not invalidate the cursor.
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend value with an underscore.
+  
+     9  9 │   	throw new Error("not implemented");
+    10 10 │   }
+    11    │ - export·function·decodeCursor(value:·string,·query:·object):·CursorPayload·{
+       11 │ + export·function·decodeCursor(_value:·string,·query:·object):·CursorPayload·{
+    12 12 │   	// TODO base64url JSON + pi-schema; refuse wrong call/project/bounds with bad_cursor.
+    13 13 │   	// TODO no server memory, so restart does not invalidate the cursor.
+  
+
+packages/host/src/cursors.ts:11:45 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+     9 │ 	throw new Error("not implemented");
+    10 │ }
+  > 11 │ export function decodeCursor(value: string, query: object): CursorPayload {
+       │                                             ^^^^^
+    12 │ 	// TODO base64url JSON + pi-schema; refuse wrong call/project/bounds with bad_cursor.
+    13 │ 	// TODO no server memory, so restart does not invalidate the cursor.
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend query with an underscore.
+  
+     9  9 │   	throw new Error("not implemented");
+    10 10 │   }
+    11    │ - export·function·decodeCursor(value:·string,·query:·object):·CursorPayload·{
+       11 │ + export·function·decodeCursor(value:·string,·_query:·object):·CursorPayload·{
+    12 12 │   	// TODO base64url JSON + pi-schema; refuse wrong call/project/bounds with bad_cursor.
+    13 13 │   	// TODO no server memory, so restart does not invalidate the cursor.
+  
+
+packages/host/src/devices.ts:11:14 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+     9 │ };
+    10 │ export class Devices {
+  > 11 │ 	constructor(home: string, now: () => number) {
+       │ 	            ^^^^
+    12 │ 		throw new Error("not implemented");
+    13 │ 	}
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend home with an underscore.
+  
+     9  9 │   };
+    10 10 │   export class Devices {
+    11    │ - → constructor(home:·string,·now:·()·=>·number)·{
+       11 │ + → constructor(_home:·string,·now:·()·=>·number)·{
+    12 12 │   		throw new Error("not implemented");
+    13 13 │   	}
+  
+
+packages/host/src/devices.ts:11:28 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+     9 │ };
+    10 │ export class Devices {
+  > 11 │ 	constructor(home: string, now: () => number) {
+       │ 	                          ^^^
+    12 │ 		throw new Error("not implemented");
+    13 │ 	}
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend now with an underscore.
+  
+     9  9 │   };
+    10 10 │   export class Devices {
+    11    │ - → constructor(home:·string,·now:·()·=>·number)·{
+       11 │ + → constructor(home:·string,·_now:·()·=>·number)·{
+    12 12 │   		throw new Error("not implemented");
+    13 13 │   	}
+  
+
+packages/host/src/devices.ts:18:15 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    16 │ 		throw new Error("not implemented");
+    17 │ 	}
+  > 18 │ 	authenticate(authorization: string | undefined): DeviceId {
+       │ 	             ^^^^^^^^^^^^^
+    19 │ 		// TODO token tau.<device>.<32 random bytes base64url>; compare SHA-256 in constant time.
+    20 │ 		throw new Error("not implemented");
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend authorization with an underscore.
+  
+    16 16 │   		throw new Error("not implemented");
+    17 17 │   	}
+    18    │ - → authenticate(authorization:·string·|·undefined):·DeviceId·{
+       18 │ + → authenticate(_authorization:·string·|·undefined):·DeviceId·{
+    19 19 │   		// TODO token tau.<device>.<32 random bytes base64url>; compare SHA-256 in constant time.
+    20 20 │   		throw new Error("not implemented");
+  
+
+packages/host/src/devices.ts:22:14 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    20 │ 		throw new Error("not implemented");
+    21 │ 	}
+  > 22 │ 	async admin(request: AdminRequest): Promise<AdminResult> {
+       │ 	            ^^^^^^^
+    23 │ 		// TODO id ^[a-z][a-z0-9-]{0,31}$; IDs never reused, even if revoked.
+    24 │ 		// TODO pair code 8 chars, display XXXX-XXXX, one use, 10 minute expiry.
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend request with an underscore.
+  
+    20 20 │   		throw new Error("not implemented");
+    21 21 │   	}
+    22    │ - → async·admin(request:·AdminRequest):·Promise<AdminResult>·{
+       22 │ + → async·admin(_request:·AdminRequest):·Promise<AdminResult>·{
+    23 23 │   		// TODO id ^[a-z][a-z0-9-]{0,31}$; IDs never reused, even if revoked.
+    24 24 │   		// TODO pair code 8 chars, display XXXX-XXXX, one use, 10 minute expiry.
+  
+
+packages/host/src/devices.ts:29:3 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    27 │ 	}
+    28 │ 	registerStream(
+  > 29 │ 		device: DeviceId,
+       │ 		^^^^^^
+    30 │ 		end: (reason: "revoked" | "stopping") => void,
+    31 │ 	): () => void {
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend device with an underscore.
+  
+    27 27 │   	}
+    28 28 │   	registerStream(
+    29    │ - → → device:·DeviceId,
+       29 │ + → → _device:·DeviceId,
+    30 30 │   		end: (reason: "revoked" | "stopping") => void,
+    31 31 │   	): () => void {
+  
+
+packages/host/src/devices.ts:30:3 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    28 │ 	registerStream(
+    29 │ 		device: DeviceId,
+  > 30 │ 		end: (reason: "revoked" | "stopping") => void,
+       │ 		^^^
+    31 │ 	): () => void {
+    32 │ 		// TODO track in the same owner as revocation. Already revoked refuses attachment.
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend end with an underscore.
+  
+    28 28 │   	registerStream(
+    29 29 │   		device: DeviceId,
+    30    │ - → → end:·(reason:·"revoked"·|·"stopping")·=>·void,
+       30 │ + → → _end:·(reason:·"revoked"·|·"stopping")·=>·void,
+    31 31 │   	): () => void {
+    32 32 │   		// TODO track in the same owner as revocation. Already revoked refuses attachment.
+  
+
+packages/host/src/devices.ts:40:13 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    38 │ 		throw new Error("not implemented");
+    39 │ 	}
+  > 40 │ 	async pair(code: string): Promise<{ device: DeviceId; token: string }> {
+       │ 	           ^^^^
+    41 │ 		// TODO five wrong codes in a row cancel all pending codes.
+    42 │ 		// TODO persist hash BEFORE returning token; no plaintext token persisted or logged.
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend code with an underscore.
+  
+    38 38 │   		throw new Error("not implemented");
+    39 39 │   	}
+    40    │ - → async·pair(code:·string):·Promise<{·device:·DeviceId;·token:·string·}>·{
+       40 │ + → async·pair(_code:·string):·Promise<{·device:·DeviceId;·token:·string·}>·{
+    41 41 │   		// TODO five wrong codes in a row cancel all pending codes.
+    42 42 │   		// TODO persist hash BEFORE returning token; no plaintext token persisted or logged.
+  
+
+packages/host/src/faults.ts:15:2 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    13 │ };
+    14 │ export async function faults(
+  > 15 │ 	project: OpenProject,
+       │ 	^^^^^^^
+    16 │ 	cursor?: string,
+    17 │ 	limit?: number,
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend project with an underscore.
+  
+    13 13 │   };
+    14 14 │   export async function faults(
+    15    │ - → project:·OpenProject,
+       15 │ + → _project:·OpenProject,
+    16 16 │   	cursor?: string,
+    17 17 │   	limit?: number,
+  
+
+packages/host/src/faults.ts:16:2 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    14 │ export async function faults(
+    15 │ 	project: OpenProject,
+  > 16 │ 	cursor?: string,
+       │ 	^^^^^^
+    17 │ 	limit?: number,
+    18 │ ): Promise<{
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend cursor with an underscore.
+  
+    14 14 │   export async function faults(
+    15 15 │   	project: OpenProject,
+    16    │ - → cursor?:·string,
+       16 │ + → _cursor?:·string,
+    17 17 │   	limit?: number,
+    18 18 │   ): Promise<{
+  
+
+packages/host/src/faults.ts:17:2 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    15 │ 	project: OpenProject,
+    16 │ 	cursor?: string,
+  > 17 │ 	limit?: number,
+       │ 	^^^^^
+    18 │ ): Promise<{
+    19 │ 	items: readonly Fault[];
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend limit with an underscore.
+  
+    15 15 │   	project: OpenProject,
+    16 16 │   	cursor?: string,
+    17    │ - → limit?:·number,
+       17 │ + → _limit?:·number,
+    18 18 │   ): Promise<{
+    19 19 │   	items: readonly Fault[];
+  
+
+packages/host/src/http.ts:11:2 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+     9 │ 	| { unknown: { code: string; message: string } };
+    10 │ export async function serve(
+  > 11 │ 	request: IncomingMessage,
+       │ 	^^^^^^^
+    12 │ 	response: ServerResponse,
+    13 │ 	calls: Calls,
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend request with an underscore.
+  
+     9  9 │   	| { unknown: { code: string; message: string } };
+    10 10 │   export async function serve(
+    11    │ - → request:·IncomingMessage,
+       11 │ + → _request:·IncomingMessage,
+    12 12 │   	response: ServerResponse,
+    13 13 │   	calls: Calls,
+  
+
+packages/host/src/http.ts:12:2 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    10 │ export async function serve(
+    11 │ 	request: IncomingMessage,
+  > 12 │ 	response: ServerResponse,
+       │ 	^^^^^^^^
+    13 │ 	calls: Calls,
+    14 │ 	devices: Devices,
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend response with an underscore.
+  
+    10 10 │   export async function serve(
+    11 11 │   	request: IncomingMessage,
+    12    │ - → response:·ServerResponse,
+       12 │ + → _response:·ServerResponse,
+    13 13 │   	calls: Calls,
+    14 14 │   	devices: Devices,
+  
+
+packages/host/src/http.ts:13:2 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    11 │ 	request: IncomingMessage,
+    12 │ 	response: ServerResponse,
+  > 13 │ 	calls: Calls,
+       │ 	^^^^^
+    14 │ 	devices: Devices,
+    15 │ 	context: Context,
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend calls with an underscore.
+  
+    11 11 │   	request: IncomingMessage,
+    12 12 │   	response: ServerResponse,
+    13    │ - → calls:·Calls,
+       13 │ + → _calls:·Calls,
+    14 14 │   	devices: Devices,
+    15 15 │   	context: Context,
+  
+
+packages/host/src/http.ts:14:2 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    12 │ 	response: ServerResponse,
+    13 │ 	calls: Calls,
+  > 14 │ 	devices: Devices,
+       │ 	^^^^^^^
+    15 │ 	context: Context,
+    16 │ ): Promise<void> {
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend devices with an underscore.
+  
+    12 12 │   	response: ServerResponse,
+    13 13 │   	calls: Calls,
+    14    │ - → devices:·Devices,
+       14 │ + → _devices:·Devices,
+    15 15 │   	context: Context,
+    16 16 │   ): Promise<void> {
+  
+
+packages/host/src/http.ts:15:2 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    13 │ 	calls: Calls,
+    14 │ 	devices: Devices,
+  > 15 │ 	context: Context,
+       │ 	^^^^^^^
+    16 │ ): Promise<void> {
+    17 │ 	// TODO node:http POST only, /v1/<key>, JSON object <=1 MiB, closed pi-schema.
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend context with an underscore.
+  
+    13 13 │   	calls: Calls,
+    14 14 │   	devices: Devices,
+    15    │ - → context:·Context,
+       15 │ + → _context:·Context,
+    16 16 │   ): Promise<void> {
+    17 17 │   	// TODO node:http POST only, /v1/<key>, JSON object <=1 MiB, closed pi-schema.
+  
+
+packages/host/src/options.ts:13:2 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    11 │ /** Host owns external validation and redaction, never storage or meaning of keys. */
+    12 │ export async function inspectOptions(
+  > 13 │ 	tx: Tx,
+       │ 	^^
+    14 │ 	name: string,
+    15 │ 	module: ExtensionModule,
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend tx with an underscore.
+  
+    11 11 │   /** Host owns external validation and redaction, never storage or meaning of keys. */
+    12 12 │   export async function inspectOptions(
+    13    │ - → tx:·Tx,
+       13 │ + → _tx:·Tx,
+    14 14 │   	name: string,
+    15 15 │   	module: ExtensionModule,
+  
+
+packages/host/src/options.ts:14:2 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━━━
+
+  ! This parameter is unused.
+  
+    12 │ export async function inspectOptions(
+    13 │ 	tx: Tx,
+  > 14 │ 	name: string,
+       │ 	^^^^
+    15 │ 	module: ExtensionModule,
+    16 │ 	availableModel: (value: string) => boolean,
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend name with an underscore.
+  
+    12 12 │   export async function inspectOptions(
+    13 13 │   	tx: Tx,
+    14    │ - → name:·string,
+       14 │ + → _name:·string,
+    15 15 │   	module: ExtensionModule,
+    16 16 │   	availableModel: (value: string) => boolean,
+  
+
+The number of diagnostics exceeds the limit allowed. Use --max-diagnostics to increase it.
+Diagnostics not shown: 162.
+Checked 74 files in 11ms. No fixes applied.
+Found 181 warnings.
+Found 1 info.

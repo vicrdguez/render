@@ -241,6 +241,8 @@ Dropped: a read-only viewer of a store, and keeping the eight explorer reports. 
 - [Walk arena](arena-walk.md) records how the walk was chosen. The folder `arena-walk/` holds the brief, the rubric, the three walks, two probes, and the judge's verdict.
 - [Host arena](arena-host.md) records how the host design was chosen. The folder `arena-host/` holds the brief, the rubric, the three designs, three probes, and the judge's verdict.
 - [Extension arena](arena-ext.md) and [Protocol arena](arena-wire.md) record the last two arenas. The folders `arena-ext/` and `arena-wire/` hold their raw files.
+- [Code arena](arena-code.md) records how the code layout was chosen. The folder `arena-code/` holds the brief, the rubric, both candidates, and the judge's verdict.
+- [Build notes](build-notes/README.md) records each gap or small contradiction the build met, and what it did. `build-log.tsv` is the decision trail of the build.
 - `spikes/substrate.mjs` runs seven checks against pi-durable on SQLite.
 - `spikes/two-harnesses.mjs` checks that one process can drive two harnesses at once.
 - `spikes/crash.mjs` kills the process at six points and checks the store afterwards.

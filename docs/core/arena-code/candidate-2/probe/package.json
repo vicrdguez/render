@@ -1,0 +1,13 @@
+{
+  "name": "tau-architecture-probe",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "fixture/*"
+  ],
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "24.10.1",
+    "@biomejs/biome": "2.3.8"
+  }
+}

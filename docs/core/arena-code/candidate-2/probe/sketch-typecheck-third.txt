@@ -1,0 +1,55 @@
+packages/host/src/calls.ts(1,30): error TS2307: Cannot find module '@earendil-works/chord/context' or its corresponding type declarations.
+packages/host/src/calls.ts(2,123): error TS2307: Cannot find module '@earendil-works/pi-durable' or its corresponding type declarations.
+packages/host/src/calls.ts(3,84): error TS2307: Cannot find module '@earendil-works/pi-schema' or its corresponding type declarations.
+packages/host/src/calls.ts(4,29): error TS2307: Cannot find module '@earendil-works/pi-schema' or its corresponding type declarations.
+packages/host/src/calls.ts(5,41): error TS2307: Cannot find module 'tau-store' or its corresponding type declarations.
+packages/host/src/calls.ts(6,35): error TS2307: Cannot find module 'tau-store/host' or its corresponding type declarations.
+packages/host/src/cursors.ts(2,29): error TS2307: Cannot find module '@earendil-works/pi-durable' or its corresponding type declarations.
+packages/host/src/devices.ts(1,31): error TS2307: Cannot find module 'tau-store' or its corresponding type declarations.
+packages/host/src/faults.ts(1,45): error TS2307: Cannot find module '@earendil-works/pi-durable' or its corresponding type declarations.
+packages/host/src/faults.ts(2,33): error TS2307: Cannot find module 'tau-store' or its corresponding type declarations.
+packages/host/src/http.ts(1,30): error TS2307: Cannot find module '@earendil-works/chord/context' or its corresponding type declarations.
+packages/host/src/index.ts(1,30): error TS2307: Cannot find module '@earendil-works/chord/context' or its corresponding type declarations.
+packages/host/src/index.ts(2,77): error TS2307: Cannot find module '@earendil-works/pi-durable' or its corresponding type declarations.
+packages/host/src/index.ts(3,33): error TS2307: Cannot find module '@earendil-works/pi-schema' or its corresponding type declarations.
+packages/host/src/options.ts(1,37): error TS2307: Cannot find module '@earendil-works/pi-durable' or its corresponding type declarations.
+packages/host/src/options.ts(2,38): error TS2307: Cannot find module '@earendil-works/pi-schema' or its corresponding type declarations.
+packages/host/src/projects.ts(1,30): error TS2307: Cannot find module '@earendil-works/chord/context' or its corresponding type declarations.
+packages/host/src/projects.ts(2,31): error TS2307: Cannot find module '@earendil-works/pi-durable' or its corresponding type declarations.
+packages/host/src/projects.ts(3,28): error TS2307: Cannot find module 'tau-store/host' or its corresponding type declarations.
+packages/host/src/streams.ts(1,25): error TS2307: Cannot find module '@earendil-works/chord/delta' or its corresponding type declarations.
+packages/host/src/streams.ts(2,52): error TS2307: Cannot find module '@earendil-works/pi-durable' or its corresponding type declarations.
+packages/host/src/streams.ts(4,36): error TS2307: Cannot find module 'tau-store/host' or its corresponding type declarations.
+packages/w1/src/index.ts(1,38): error TS2307: Cannot find module '@earendil-works/pi-durable' or its corresponding type declarations.
+packages/w1/src/index.ts(2,26): error TS2307: Cannot find module '@earendil-works/pi-schema' or its corresponding type declarations.
+packages/w1/src/index.ts(3,52): error TS2307: Cannot find module 'tau-kit' or its corresponding type declarations.
+packages/w1/src/roles.ts(1,31): error TS2307: Cannot find module '@earendil-works/pi-durable' or its corresponding type declarations.
+packages/w1/src/roles.ts(2,94): error TS2307: Cannot find module '@earendil-works/pi-durable/tools' or its corresponding type declarations.
+packages/w1/src/roles.ts(7,23): error TS2307: Cannot find module 'tau-kit' or its corresponding type declarations.
+packages/w1/src/roles.ts(8,35): error TS2307: Cannot find module 'tau-kit' or its corresponding type declarations.
+packages/w1/src/tasks.ts(1,70): error TS2307: Cannot find module '@earendil-works/pi-durable' or its corresponding type declarations.
+packages/w1/src/tasks.ts(2,33): error TS2307: Cannot find module 'tau-store' or its corresponding type declarations.
+packages/w1/src/tasks.ts(3,30): error TS2307: Cannot find module '@earendil-works/chord/context' or its corresponding type declarations.
+packages/w1/src/tools.ts(1,58): error TS2307: Cannot find module '@earendil-works/pi-durable' or its corresponding type declarations.
+packages/w1/src/tools.ts(2,53): error TS2307: Cannot find module '@earendil-works/pi-schema' or its corresponding type declarations.
+packages/w1/src/tools.ts(15,17): error TS7006: Parameter 'args' implicitly has an 'any' type.
+packages/w1/src/tools.ts(15,23): error TS7006: Parameter 'api' implicitly has an 'any' type.
+packages/w1/src/tools.ts(15,28): error TS7006: Parameter 'context' implicitly has an 'any' type.
+packages/w1/src/tools.ts(26,17): error TS7006: Parameter 'args' implicitly has an 'any' type.
+packages/w1/src/tools.ts(26,23): error TS7006: Parameter 'api' implicitly has an 'any' type.
+packages/w1/src/tools.ts(26,28): error TS7006: Parameter 'context' implicitly has an 'any' type.
+packages/w1/src/tools.ts(36,17): error TS7006: Parameter 'args' implicitly has an 'any' type.
+packages/w1/src/tools.ts(36,23): error TS7006: Parameter 'api' implicitly has an 'any' type.
+packages/w1/src/tools.ts(36,28): error TS7006: Parameter 'context' implicitly has an 'any' type.
+packages/w1/src/tools.ts(43,17): error TS7006: Parameter 'args' implicitly has an 'any' type.
+packages/w1/src/tools.ts(43,23): error TS7006: Parameter 'api' implicitly has an 'any' type.
+packages/w1/src/tools.ts(43,28): error TS7006: Parameter 'context' implicitly has an 'any' type.
+packages/w1/src/tools.ts(52,17): error TS7006: Parameter 'args' implicitly has an 'any' type.
+packages/w1/src/tools.ts(52,23): error TS7006: Parameter 'api' implicitly has an 'any' type.
+packages/w1/src/tools.ts(52,28): error TS7006: Parameter 'context' implicitly has an 'any' type.
+packages/w1/src/work.ts(1,54): error TS2307: Cannot find module '@earendil-works/pi-durable' or its corresponding type declarations.
+packages/w1/src/work.ts(2,33): error TS2307: Cannot find module 'tau-store' or its corresponding type declarations.
+packages/tau/src/modules.ts(1,38): error TS2307: Cannot find module 'tau-host' or its corresponding type declarations.
+packages/tau/src/modules.ts(2,28): error TS2307: Cannot find module 'tau-websearch' or its corresponding type declarations.
+packages/tau/src/modules.ts(3,21): error TS2307: Cannot find module 'tau-w2' or its corresponding type declarations.
+packages/tau/src/modules.ts(4,21): error TS2307: Cannot find module 'tau-w1' or its corresponding type declarations.

@@ -1,0 +1,26 @@
+{
+	"files": [],
+	"references": [
+		{
+			"path": "packages/store"
+		},
+		{
+			"path": "packages/host"
+		},
+		{
+			"path": "packages/kit"
+		},
+		{
+			"path": "packages/websearch"
+		},
+		{
+			"path": "packages/w2"
+		},
+		{
+			"path": "packages/w1"
+		},
+		{
+			"path": "packages/tau"
+		}
+	]
+}

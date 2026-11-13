@@ -1,0 +1,15 @@
+packages/w1/src/tools.ts(6,35): error TS2344: Type 'DesignData' does not satisfy the constraint 'JsonValue'.
+  Type 'DesignData' is not assignable to type '{ [key: string]: JsonValue; }'.
+    Property 'replies' is incompatible with index signature.
+      Type 'readonly Reply[]' is not assignable to type 'JsonValue'.
+        The type 'readonly Reply[]' is 'readonly' and cannot be assigned to the mutable type 'JsonValue[]'.
+packages/w1/src/tools.ts(7,34): error TS2344: Type 'BuildData' does not satisfy the constraint 'JsonValue'.
+  Type 'BuildData' is not assignable to type '{ [key: string]: JsonValue; }'.
+    Property 'replies' is incompatible with index signature.
+      Type 'readonly Reply[]' is not assignable to type 'JsonValue'.
+        The type 'readonly Reply[]' is 'readonly' and cannot be assigned to the mutable type 'JsonValue[]'.
+packages/w1/src/tools.ts(8,35): error TS2344: Type 'ReviewData' does not satisfy the constraint 'JsonValue'.
+  Type 'ReviewData' is not assignable to type '{ [key: string]: JsonValue; }'.
+    Property 'findings' is incompatible with index signature.
+      Type 'readonly string[]' is not assignable to type 'JsonValue'.
+        The type 'readonly string[]' is 'readonly' and cannot be assigned to the mutable type 'JsonValue[]'.

@@ -1,0 +1,81 @@
+{
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	"files": { "includes": ["**", "!**/node_modules", "!**/.scratch"] },
+	"formatter": { "indentStyle": "tab", "lineWidth": 120 },
+	"linter": {
+		"rules": {
+			"preset": "recommended",
+			"correctness": {
+				"noUndeclaredDependencies": {
+					"level": "error",
+					"options": { "devDependencies": ["**/test/**"] }
+				}
+			},
+			"suspicious": {
+				"noThenProperty": "off"
+			},
+			"style": {
+				"noRestrictedImports": {
+					"level": "error",
+					"options": {
+						"patterns": [
+							{
+								"group": ["**/packages/**", "**/extensions/**", "**/apps/**"],
+								"message": "Import another package by its name. Only its package.json `exports` are part of it."
+							}
+						]
+					}
+				}
+			}
+		}
+	},
+	"overrides": [
+		{
+			"includes": ["extensions/*/src/**", "packages/kit/src/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"paths": {
+									"tau-core/host": "An extension reaches the core through `tau-core` only: request, withdraw, emit, decision, eventLog. `answer` and the host are the host's (docs/core/primitives.md). A test may import tau-core/host."
+								},
+								"patterns": [
+									{
+										"group": ["**/packages/**", "**/extensions/**", "**/apps/**"],
+										"message": "Import another package by its name. Only its package.json `exports` are part of it."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["packages/core/src/store/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": ["../host/**", "../protocol/**", "../cli.ts"],
+										"message": "The store layer knows no project and no host (docs/core/README.md, the import rule)."
+									},
+									{
+										"group": ["**/packages/**", "**/extensions/**", "**/apps/**"],
+										"message": "Import another package by its name. Only its package.json `exports` are part of it."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		}
+	]
+}

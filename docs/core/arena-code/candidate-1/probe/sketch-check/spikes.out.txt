@@ -1,0 +1,18 @@
+== crash.mjs
+ok: checks K1-K6 passed
+   6 s
+== ext.mjs
+ok: checks E1-E12 passed
+   1 s
+== host.mjs
+ok: checks H1-H12 passed
+   0 s
+== substrate.mjs
+ok: checks 1-7 passed
+   0 s
+== two-harnesses.mjs
+ok a:generating > b:done > a:done
+   0 s
+== wire.mjs
+ok: checks W1-W9 passed
+   1 s

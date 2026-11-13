@@ -1,0 +1,29 @@
+== npm install
+up to date in 139ms
+== versions: node v24.21.0, Version 7.0.2, biome 2.6.7
+== tsc -p .
+   pass in 270 ms, npx start included
+== biome check .
+Checked 86 files in 26ms. No fixes applied.
+== npm test
+ℹ tests 242
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 234
+== the bin
+file:///private/tmp/arena-code/candidate-1/probe/sketch-check/.scratch/tree/packages/core/src/cli.ts:27
+	throw new Error("not implemented");
+	      ^
+
+Error: not implemented
+    at main (file:///private/tmp/arena-code/candidate-1/probe/sketch-check/.scratch/tree/packages/core/src/cli.ts:27:8)
+    at file:///private/tmp/arena-code/candidate-1/probe/sketch-check/.scratch/tree/apps/tau/src/main.ts:10:26
+    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+    at async node:internal/modules/esm/loader:647:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.21.0
+   exit 1

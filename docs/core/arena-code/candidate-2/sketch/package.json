@@ -1,0 +1,25 @@
+{
+	"name": "tau-workspace",
+	"private": true,
+	"type": "module",
+	"engines": {
+		"node": ">=24 <25"
+	},
+	"workspaces": [
+		"packages/*"
+	],
+	"scripts": {
+		"build": "node tools/check-boundaries.mjs && tsc -b && node tools/assets.mjs",
+		"typecheck": "npm run build",
+		"test": "npm run build && node tools/tests.mjs",
+		"fmt": "biome format --write .",
+		"lint": "biome check .",
+		"spikes": "node tools/spikes.mjs",
+		"check": "npm run build && npm run lint && node tools/tests.mjs && npm run spikes"
+	},
+	"devDependencies": {
+		"typescript": "5.9.3",
+		"@types/node": "24.10.1",
+		"@biomejs/biome": "2.3.8"
+	}
+}

@@ -1,0 +1,7 @@
+ts	phase	decision	why	evidence	result
+2026-11-13T20:06:45Z	unit-0a	split unit 0 into the Nix base (0a) and the TypeScript workspace (0b)	the code layout was not designed yet, and everything in 0a does not depend on it	docs/core/build-notes/coordinator.md	done
+2026-11-13T20:06:45Z	unit-0a	merged the Nix toolchain after an independent pass	verifier on another model family broke the gate eight ways and it failed each time; no blocking defect, six follow-ups sent to 0b	PR 89, merge 2a07685, head e0b43b1	merged, gate green
+2026-11-13T20:06:45Z	arena-code	ran a two-runner arena on the code layout, judged by a third model	the owner's rule: an impactful design pass is not decided by one agent alone	docs/core/arena-code/verdict.md	candidate 2 scored 22, candidate 1 scored 19
+2026-11-13T20:06:45Z	arena-code	picked candidate 2 as the base, with six parts taken from candidate 1	the owner said to take the highest score; the judge showed four wrong imports passing candidate 1's checks	docs/core/arena-code.md	picked
+2026-11-13T20:06:45Z	arena-code	did not adopt the refusal codes unknown_extension and bad_code	the locked design names neither and records an unknown extension as missing	docs/core/build-notes/coordinator.md	design kept
+2026-11-13T20:06:45Z	plan	set the exit condition: units 0b, store, host with protocol, kit, web search, W2, W1 each merged into render-core on an independent pass at its head, and nix flake check green on render-core	the owner expects the implementation finished by morning	docs/core/build-log.tsv	open

@@ -1,0 +1,67 @@
+Node v24.21.0 npm 11.19.0
+$ node setup-links.mjs 
+linked published pi 1.5.2 read-only; workspace links confined to candidate-2
+
+$ /private/tmp/arena-code/candidate-2/probe/node_modules/.bin/tsc -b fixture/consumer/tsconfig.json 
+
+$ node --test fixture/consumer/dist/test/import.test.js 
+✔ emitted ESM imports a second workspace package (0.51125ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 36.777625
+
+$ node fixture/consumer/dist/src/main.js 
+{"count":24}
+
+$ /private/tmp/arena-code/candidate-2/probe/node_modules/.bin/tsc -b 
+
+full sketch strict TypeScript: pass
+$ node tools/assets.mjs 
+
+module-relative Markdown copied beside emitted extension modules: pass
+$ /private/tmp/arena-code/candidate-2/probe/node_modules/.bin/biome check . --diagnostic-level=error 
+Checked 74 files in 9ms. No fixes applied.
+
+$ /private/tmp/arena-code/candidate-2/probe/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module NodeNext --target ES2023 public-types.ts 
+
+five helpers + choice coverage: pass (narrow then task rejected)
+$ /private/tmp/arena-code/candidate-2/probe/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module NodeNext --target ES2023 negative-import.ts 
+negative-import.ts(1,10): error TS2305: Module '"tau-store"' has no exported member 'answer'.
+
+$ /private/tmp/arena-code/candidate-2/probe/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module NodeNext --target ES2023 private-import.ts 
+private-import.ts(1,26): error TS2307: Cannot find module 'tau-store/src/decisions.js' or its corresponding type declarations.
+
+runtime hidden subpath: ERR_PACKAGE_PATH_NOT_EXPORTED
+$ node --test boundaries.test.mjs lock.test.mjs 
+core cannot import kit: rejected
+extension cannot reach answer capability: rejected
+relative internals blocked: rejected
+re-export internals blocked: rejected
+type-only bypass blocked: rejected
+dynamic literal bypass blocked: rejected
+dynamic computed bypass blocked: rejected
+allowed extension tau-store root + tau-kit dependencies: accepted
+✔ build rejects forbidden imports including relative and type-only paths (17.941708ms)
+second process: database is locked
+after SIGKILL: acquired
+✔ SQLite lock excludes a second process and releases on SIGKILL (79.709292ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 157.144125
+
+$ node tools/check-boundaries.mjs 
+workspace import boundaries: pass
+
+single host registry: 20 extensions, models, projects, bind, addExtensions, options, setOptions, create, conversations, open, history, input, continue, stop, setModel, inbox, decision, answer, timeline, faults
+20 closed pi-schema request schemas: unknown by rejected
+Architecture probes pass. No Tau behavior is implemented or accepted.

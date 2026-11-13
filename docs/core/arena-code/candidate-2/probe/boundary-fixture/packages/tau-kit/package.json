@@ -1,0 +1,1 @@
+{"name":"tau-kit","exports":{".":{"import":"./dist/index.js"},"./host":{"import":"./dist/host.js"}},"dependencies":{}}

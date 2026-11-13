@@ -1,0 +1,2 @@
+inside: killed with SIGKILL; reopened: {"answer":"none","tasks":0}
+after: killed with SIGKILL; reopened: {"answer":"answered","tasks":1}

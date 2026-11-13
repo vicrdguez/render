@@ -1,0 +1,26 @@
+{
+	// One program for every package. tsc only checks; Node runs the .ts sources itself (type stripping), so nothing is
+	// emitted. `erasableSyntaxOnly` refuses what Node cannot strip (enum, namespace, parameter properties).
+	// `allowImportingTsExtensions` lets a relative import name its .ts file, which Node needs.
+	// A package is reached by its name, through its package.json `exports`, which point at .ts sources.
+	"compilerOptions": {
+		"target": "es2024",
+		"lib": ["es2024"],
+		"module": "nodenext",
+		"moduleResolution": "nodenext",
+		"types": ["node"],
+		"strict": true,
+		"exactOptionalPropertyTypes": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"noFallthroughCasesInSwitch": true,
+		"noEmit": true,
+		"allowImportingTsExtensions": true,
+		"verbatimModuleSyntax": true,
+		"erasableSyntaxOnly": true,
+		"isolatedModules": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true
+	},
+	"include": ["packages/*/src", "packages/*/test", "extensions/*/src", "extensions/*/test", "apps/*/src", "apps/*/test"]
+}

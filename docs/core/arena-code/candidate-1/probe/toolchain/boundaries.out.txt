@@ -1,0 +1,49 @@
+== the good tree
+   tsc=pass biome=pass
+== B1 an extension deep-imports a core internal by package name
+   file: extensions/demo/src/bad-deep.ts
+   tsc=FAIL biome=pass
+   tsc:   extensions/demo/src/bad-deep.ts(1,24): error TS2307: Cannot find module 'tau-core/src/store/decision.ts' or its corresponding type declarations.
+   biome: 
+   node:  FAIL return new ERR_PACKAGE_PATH_NOT_EXPORTED(
+== B2 an extension reaches a core internal by a relative path
+   file: extensions/demo/src/bad-relative.ts
+   tsc=pass biome=FAIL
+   tsc:   
+   biome: extensions/demo/src/bad-relative.ts:1:24 lint/style/noRestrictedImports ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   node:  pass
+== B3 an extension imports the host entry
+   file: extensions/demo/src/bad-host.ts
+   tsc=pass biome=FAIL
+   tsc:   
+   biome: extensions/demo/src/bad-host.ts:1:26 lint/style/noRestrictedImports ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   node:  pass
+== B4 the core imports the kit
+   file: packages/core/src/bad-kit.ts
+   tsc=pass biome=FAIL
+   tsc:   
+   biome: packages/core/src/bad-kit.ts:1:26 lint/correctness/noUndeclaredDependencies ━━━━━━━━━━━━━━━━━━━━━━━━
+   node:  pass
+== B5 the store layer imports the host layer
+   file: packages/core/src/store/bad-up.ts
+   tsc=pass biome=FAIL
+   tsc:   
+   biome: packages/core/src/store/bad-up.ts:1:26 lint/style/noRestrictedImports ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+== B6 syntax that Node cannot strip
+   file: packages/core/src/bad-enum.ts
+   tsc=FAIL biome=FAIL
+   tsc:   packages/core/src/bad-enum.ts(1,13): error TS1294: This syntax is not allowed when 'erasableSyntaxOnly' is enabled.
+   biome: × Formatter would have printed the following content:
+   node:  FAIL SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript enum is not supported in strip-only mode
+== B7 an extension imports a package it does not declare
+   file: extensions/demo/src/bad-undeclared.ts
+   tsc=FAIL biome=FAIL
+   tsc:   extensions/demo/src/bad-undeclared.ts(1,26): error TS2307: Cannot find module 'tau' or its corresponding type declarations.
+   biome: extensions/demo/src/bad-undeclared.ts:1:26 lint/correctness/noUndeclaredDependencies ━━━━━━━━━━━━━━━
+== B8 a test of an extension imports the host entry (allowed)
+   file: extensions/demo/test/host-ok.test.ts
+   tsc=pass biome=pass
+   tsc:   
+   biome: 
+== the good tree again
+   tsc=pass biome=pass

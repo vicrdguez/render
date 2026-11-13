@@ -1,0 +1,385 @@
+packages/host/src/http.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { Context } from "@earendil-works/chord/context";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import type { IncomingMessage, ServerResponse } from "node:http";
+    3 │ import type { Devices } from "./devices.js";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1    │ - import·type·{·Context·}·from·"@earendil-works/chord/context";
+     2    │ - import·type·{·IncomingMessage,·ServerResponse·}·from·"node:http";
+     3    │ - import·type·{·Devices·}·from·"./devices.js";
+     4    │ - import·type·{·Calls·}·from·"./calls.js";
+        1 │ + import·type·{·IncomingMessage,·ServerResponse·}·from·"node:http";
+        2 │ + import·type·{·Context·}·from·"@earendil-works/chord/context";
+        3 │ + import·type·{·Calls·}·from·"./calls.js";
+        4 │ + import·type·{·Devices·}·from·"./devices.js";
+     5  5 │   export type Refusal = { code: string; message: string; [key: string]: unknown };
+     6  6 │   export type Reply<R> =
+  
+
+packages/host/src/options.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { Tx, JsonObject } from "@earendil-works/pi-durable";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import type { ValidationError } from "@earendil-works/pi-schema";
+    3 │ import type { ExtensionModule } from "./index.js";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1    │ - import·type·{·Tx,·JsonObject·}·from·"@earendil-works/pi-durable";
+        1 │ + import·type·{·JsonObject,·Tx·}·from·"@earendil-works/pi-durable";
+     2  2 │   import type { ValidationError } from "@earendil-works/pi-schema";
+     3  3 │   import type { ExtensionModule } from "./index.js";
+  
+
+packages/host/src/projects.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { Context } from "@earendil-works/chord/context";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import type { Registry, WatchHandle } from "@earendil-works/pi-durable";
+    3 │ import type { Inbox } from "./streams.js";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import type { Context } from "@earendil-works/chord/context";
+     2  2 │   import type { Registry, WatchHandle } from "@earendil-works/pi-durable";
+     3    │ - import·type·{·Inbox·}·from·"./streams.js";
+     4    │ - import·type·{·Store·}·from·"tau-store/host";
+     5    │ - import·type·{·ServerOptions·}·from·"./index.js";
+        3 │ + import·type·{·Store·}·from·"tau-store/host";
+        4 │ + import·type·{·ServerOptions·}·from·"./index.js";
+        5 │ + import·type·{·Inbox·}·from·"./streams.js";
+     6  6 │   
+     7  7 │   export type Project = {
+  
+
+packages/host/src/streams.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { Op } from "@earendil-works/chord/delta";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import type { WatchHandle, ConversationView } from "@earendil-works/pi-durable";
+    3 │ import type { ServerResponse } from "node:http";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1    │ - import·type·{·Op·}·from·"@earendil-works/chord/delta";
+     2    │ - import·type·{·WatchHandle,·ConversationView·}·from·"@earendil-works/pi-durable";
+     3    │ - import·type·{·ServerResponse·}·from·"node:http";
+        1 │ + import·type·{·ServerResponse·}·from·"node:http";
+        2 │ + import·type·{·Op·}·from·"@earendil-works/chord/delta";
+        3 │ + import·type·{·ConversationView,·WatchHandle·}·from·"@earendil-works/pi-durable";
+     4  4 │   import type { OpenDecisions } from "tau-store/host";
+     5  5 │   
+  
+
+packages/host/test/devices.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { test } from "node:test";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+    3 │ test.todo(
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import { test } from "node:test";
+        2 │ + 
+     2  3 │   // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+     3  4 │   test.todo(
+  
+
+packages/host/test/options.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { test } from "node:test";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+    3 │ test.todo(
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import { test } from "node:test";
+        2 │ + 
+     2  3 │   // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+     3  4 │   test.todo(
+  
+
+packages/host/test/projects.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { test } from "node:test";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+    3 │ test.todo(
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import { test } from "node:test";
+        2 │ + 
+     2  3 │   // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+     3  4 │   test.todo(
+  
+
+packages/host/test/protocol.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { test } from "node:test";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+    3 │ test.todo(
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import { test } from "node:test";
+        2 │ + 
+     2  3 │   // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+     3  4 │   test.todo(
+  
+
+packages/host/test/streams.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { test } from "node:test";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+    3 │ test.todo(
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import { test } from "node:test";
+        2 │ + 
+     2  3 │   // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+     3  4 │   test.todo(
+  
+
+packages/host/test/w0.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { test } from "node:test";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+    3 │ test.todo(
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import { test } from "node:test";
+        2 │ + 
+     2  3 │   // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+     3  4 │   test.todo(
+  
+
+packages/kit/test/options.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { test } from "node:test";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+    3 │ test.todo(
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import { test } from "node:test";
+        2 │ + 
+     2  3 │   // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+     3  4 │   test.todo(
+  
+
+packages/kit/test/prose.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { test } from "node:test";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+    3 │ test.todo(
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import { test } from "node:test";
+        2 │ + 
+     2  3 │   // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+     3  4 │   test.todo(
+  
+
+packages/kit/test/role.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { test } from "node:test";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+    3 │ test.todo(
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import { test } from "node:test";
+        2 │ + 
+     2  3 │   // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+     3  4 │   test.todo(
+  
+
+packages/store/src/host.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { Context } from "@earendil-works/chord/context";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import type {
+    3 │ 	Harness,
+  
+  i Safe fix: Organize Imports (Biome)
+  
+    13 13 │   	OpenDecisions,
+    14 14 │   } from "./types.js";
+       15 │ + 
+    15 16 │   export type { AnswerInput, AnswerResult, OpenDecisions } from "./types.js";
+    16 17 │   
+  
+
+packages/store/src/index.ts:2:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+    1 │ // The complete extension-facing interface. No answer, no document token.
+  > 2 │ export { request, withdraw, decision } from "./decisions.js";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    3 │ export { emit, eventLog } from "./events.js";
+    4 │ export type { DecisionInput, RequestDraft } from "./decisions.js";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   // The complete extension-facing interface. No answer, no document token.
+     2    │ - export·{·request,·withdraw,·decision·}·from·"./decisions.js";
+     3    │ - export·{·emit,·eventLog·}·from·"./events.js";
+     4    │ - export·type·{·DecisionInput,·RequestDraft·}·from·"./decisions.js";
+        2 │ + 
+        3 │ + export·type·{·DecisionInput,·RequestDraft·}·from·"./decisions.js";
+        4 │ + export·{·decision,·request,·withdraw·}·from·"./decisions.js";
+        5 │ + export·{·emit,·eventLog·}·from·"./events.js";
+     5  6 │   export type {
+     6  7 │   	Annotation,
+  
+
+packages/store/test/events.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { test } from "node:test";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+    3 │ test.todo(
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import { test } from "node:test";
+        2 │ + 
+     2  3 │   // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+     3  4 │   test.todo(
+  
+
+packages/store/test/recovery.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { test } from "node:test";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+    3 │ test.todo(
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import { test } from "node:test";
+        2 │ + 
+     2  3 │   // Failure list first. Replace each TODO with a failing test BEFORE filling the behavior stub.
+     3  4 │   test.todo(
+  
+
+packages/tau/src/modules.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { ExtensionModule } from "tau-host";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import * as websearch from "tau-websearch";
+    3 │ import * as w2 from "tau-w2";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import type { ExtensionModule } from "tau-host";
+     2    │ - import·*·as·websearch·from·"tau-websearch";
+        2 │ + import·*·as·w1·from·"tau-w1";
+     3  3 │   import * as w2 from "tau-w2";
+     4    │ - import·*·as·w1·from·"tau-w1";
+        4 │ + import·*·as·websearch·from·"tau-websearch";
+     5  5 │   
+     6  6 │   // Only composition knows particular extensions. Unit 2 starts with {}.
+  
+
+tools/spikes.mjs:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { readdir } from "node:fs/promises";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { spawnSync } from "node:child_process";
+    3 │ import path from "node:path";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1    │ - import·{·readdir·}·from·"node:fs/promises";
+     2    │ - import·{·spawnSync·}·from·"node:child_process";
+        1 │ + import·{·spawnSync·}·from·"node:child_process";
+        2 │ + import·{·readdir·}·from·"node:fs/promises";
+     3  3 │   import path from "node:path";
+        4 │ + 
+     4  5 │   // Converted from docs/core/spikes, once functions exist. Never run a stand-in as acceptance.
+     5  6 │   const dir = "packages/store/dist/test/spikes";
+  
+
+tools/tests.mjs:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { readdir } from "node:fs/promises";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { spawnSync } from "node:child_process";
+    3 │ import path from "node:path";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1    │ - import·{·readdir·}·from·"node:fs/promises";
+     2    │ - import·{·spawnSync·}·from·"node:child_process";
+        1 │ + import·{·spawnSync·}·from·"node:child_process";
+        2 │ + import·{·readdir·}·from·"node:fs/promises";
+     3  3 │   import path from "node:path";
+        4 │ + 
+     4  5 │   const selected = new Set(process.argv.slice(2));
+     5  6 │   const files = [];
+  
+
+The number of diagnostics exceeds the limit allowed. Use --max-diagnostics to increase it.
+Diagnostics not shown: 19.
+Checked 74 files in 11ms. No fixes applied.
+Found 39 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

@@ -1,0 +1,15 @@
+{
+	"name": "tau-demo",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"dependencies": {
+		"@earendil-works/chord": "1.5.2",
+		"@earendil-works/pi-durable": "1.5.2",
+		"@earendil-works/pi-schema": "1.5.2",
+		"tau-core": "*",
+		"tau-kit": "*"
+	}
+}

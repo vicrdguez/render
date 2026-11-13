@@ -1,0 +1,26 @@
+{
+	"name": "tau-workspace",
+	"private": true,
+	"type": "module",
+	"engines": {
+		"node": ">=24.11.0 <25"
+	},
+	"workspaces": [
+		"packages/*",
+		"extensions/*",
+		"apps/*"
+	],
+	"scripts": {
+		"typecheck": "tsc -p .",
+		"test": "node --test 'packages/*/test/**/*.test.ts' 'extensions/*/test/**/*.test.ts' 'apps/*/test/**/*.test.ts'",
+		"fmt": "biome format --write .",
+		"lint": "biome check .",
+		"spikes": "for spike in docs/core/spikes/*.mjs; do PI_MODULES=\"$PWD/node_modules/@earendil-works\" node \"$spike\" || exit 1; done",
+		"check": "npm run typecheck && npm run lint && npm run test && npm run spikes"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.6.7",
+		"@types/node": "24.19.2",
+		"typescript": "7.0.2"
+	}
+}

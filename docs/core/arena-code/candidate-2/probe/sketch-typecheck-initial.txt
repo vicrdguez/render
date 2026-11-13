@@ -1,0 +1,34 @@
+packages/host/src/calls.ts(58,5): error TS2345: Argument of type 'Schema<{ project: string; workflow: string; }>' is not assignable to parameter of type 'readonly Schema<unknown>[]'.
+  Type 'Schema<{ project: string; workflow: string; }>' is missing the following properties from type 'readonly Schema<unknown>[]': length, concat, join, slice, and 26 more.
+packages/host/src/calls.ts(72,125): error TS2345: Argument of type 'Schema<"ascending">' is not assignable to parameter of type 'readonly Schema<unknown>[]'.
+  Type 'Schema<"ascending">' is missing the following properties from type 'readonly Schema<unknown>[]': length, concat, join, slice, and 26 more.
+packages/host/src/calls.ts(76,96): error TS2345: Argument of type 'Schema<"steer">' is not assignable to parameter of type 'readonly Schema<unknown>[]'.
+  Type 'Schema<"steer">' is missing the following properties from type 'readonly Schema<unknown>[]': length, concat, join, slice, and 26 more.
+packages/host/src/calls.ts(97,131): error TS2314: Generic type 'TaskRecord' requires 3 type argument(s).
+packages/w1/src/roles.ts(2,23): error TS2305: Module '"@earendil-works/pi-durable/tools"' has no exported member 'read'.
+packages/w1/src/roles.ts(2,29): error TS2305: Module '"@earendil-works/pi-durable/tools"' has no exported member 'write'.
+packages/w1/src/roles.ts(2,36): error TS2305: Module '"@earendil-works/pi-durable/tools"' has no exported member 'edit'.
+packages/w1/src/roles.ts(2,42): error TS2305: Module '"@earendil-works/pi-durable/tools"' has no exported member 'bash'.
+packages/w1/src/tools.ts(6,35): error TS2344: Type 'DesignData' does not satisfy the constraint 'JsonValue'.
+  Type 'DesignData' is not assignable to type '{ [key: string]: JsonValue; }'.
+    Property 'replies' is incompatible with index signature.
+      Type 'readonly Reply[]' is not assignable to type 'JsonValue'.
+        The type 'readonly Reply[]' is 'readonly' and cannot be assigned to the mutable type 'JsonValue[]'.
+packages/w1/src/tools.ts(7,34): error TS2344: Type 'BuildData' does not satisfy the constraint 'JsonValue'.
+  Type 'BuildData' is not assignable to type '{ [key: string]: JsonValue; }'.
+    Property 'replies' is incompatible with index signature.
+      Type 'readonly Reply[]' is not assignable to type 'JsonValue'.
+        The type 'readonly Reply[]' is 'readonly' and cannot be assigned to the mutable type 'JsonValue[]'.
+packages/w1/src/tools.ts(8,35): error TS2344: Type 'ReviewData' does not satisfy the constraint 'JsonValue'.
+  Type 'ReviewData' is not assignable to type '{ [key: string]: JsonValue; }'.
+    Property 'findings' is incompatible with index signature.
+      Type 'readonly string[]' is not assignable to type 'JsonValue'.
+        The type 'readonly string[]' is 'readonly' and cannot be assigned to the mutable type 'JsonValue[]'.
+packages/w1/src/tools.ts(50,49): error TS2345: Argument of type 'Schema<"pass">' is not assignable to parameter of type 'readonly Schema<unknown>[]'.
+  Type 'Schema<"pass">' is missing the following properties from type 'readonly Schema<unknown>[]': length, concat, join, slice, and 26 more.
+packages/tau/src/modules.ts(8,37): error TS2322: Type 'typeof import("/private/tmp/arena-code/candidate-2/sketch/packages/w2/dist/src/index", { with: { "resolution-mode": "import" } })' is not assignable to type 'ExtensionModule'.
+  Types of property 'entry' are incompatible.
+    Type '(tx: Tx) => Promise<void>' is not assignable to type 'AgentChange | ((tx: Tx) => Promise<AgentChange>)'.
+      Type '(tx: Tx) => Promise<void>' is not assignable to type '(tx: Tx) => Promise<AgentChange>'.
+        Type 'Promise<void>' is not assignable to type 'Promise<AgentChange>'.
+          Type 'void' is not assignable to type 'AgentChange'.

@@ -1,0 +1,14 @@
+{
+	"name": "tau",
+	"private": true,
+	"type": "module",
+	"bin": {
+		"tau": "./src/main.ts"
+	},
+	"dependencies": {
+		"tau-core": "*",
+		"tau-w1": "*",
+		"tau-w2": "*",
+		"tau-websearch": "*"
+	}
+}

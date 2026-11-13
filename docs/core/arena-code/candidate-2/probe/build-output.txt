@@ -1,0 +1,5 @@
+
+> build
+> node tools/check-boundaries.mjs && tsc -b && node tools/assets.mjs
+
+workspace import boundaries: pass

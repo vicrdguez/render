@@ -1,0 +1,20 @@
+{
+	"name": "tau-w1",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/src/index.d.ts",
+			"import": "./dist/src/index.js"
+		}
+	},
+	"dependencies": {
+		"@earendil-works/pi-durable": "1.5.2",
+		"@earendil-works/pi-schema": "1.5.2",
+		"@earendil-works/pi-ai": "1.5.2",
+		"@earendil-works/chord": "1.5.2",
+		"tau-store": "0.0.0",
+		"tau-kit": "0.0.0"
+	}
+}
