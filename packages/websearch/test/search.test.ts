@@ -293,13 +293,24 @@ test("project default reaches bare and open roles, never closed roles, including
 		},
 	});
 	const coding = defineExtension({ name: "coding-tools", tools: [hold] });
-	const workflow = defineExtension({ name: "selection-fixture" });
+	const review = defineTool({
+		name: "review",
+		description: "Review",
+		parameters: obj({}),
+		async execute() {
+			return { output: [] };
+		},
+	});
+	const workflow = defineExtension({
+		name: "selection-fixture",
+		tools: [review],
+	});
 	let defaults: readonly Extension[] = [coding];
 	const f = await harness(t, coding, new MemoryStorage(), () => defaults);
 	f.registry.install(workflow);
 	const bare = await f.create();
 	const open = await f.create({ extensions: { add: [workflow] } });
-	const closed = await f.create({ extensions: [workflow], tools: [] });
+	const closed = await f.create({ extensions: [workflow], tools: [review] });
 	const offered: boolean[] = [];
 	f.faux.setResponses([
 		(request) => {
@@ -328,7 +339,15 @@ test("project default reaches bare and open roles, never closed roles, including
 			(tool) => tool.name === "web_search",
 		),
 	);
-	assert.deepEqual((await closed.agent(context)).tools, []);
+	const closedAgent = await closed.agent(context);
+	assert.deepEqual(
+		closedAgent.extensions.map((extension) => extension.name),
+		[workflow.name],
+	);
+	assert.deepEqual(
+		closedAgent.tools.map((tool) => tool.name),
+		["review"],
+	);
 });
 
 test("unset or invalid project options return a safe tool error and do not prevent conversation creation", async (t) => {
@@ -445,6 +464,13 @@ test("provider errors and echoed keys never reach results, entries, events, sect
 			);
 			const out = await search(f, c);
 			assert.equal(out.result.isError === true, status !== 200);
+			if (status !== 200) {
+				assert.equal(
+					out.text,
+					"Web search failed. Check the provider and project options, then try again.",
+				);
+				assert.ok(JSON.stringify(out.seen[1]).includes(out.text));
+			}
 			for (const [surface, value] of Object.entries({
 				result: out.result,
 				entries: out.entries,
@@ -464,6 +490,120 @@ test("provider errors and echoed keys never reach results, entries, events, sect
 	const events = await logConversation.entries({}, 1000, undefined, context);
 	assert.deepEqual(events.items, []);
 	assert.equal(p.requests.length, 8, "no retries or fallback calls");
+	for (const name of ["exa", "tavily"] as const) {
+		for (const surviving of [
+			KEY.length - 1,
+			KEY.length - 2,
+			Math.floor(KEY.length / 2),
+			4,
+		]) {
+			await t.test(
+				`${name} hides ${surviving} leading key characters after the snippet cut`,
+				async () => {
+					await f.h.commit(
+						(tx) => module.options.set(tx, { provider: name, apiKey: KEY }),
+						context,
+					);
+					const prefix = KEY.slice(0, surviving);
+					const text = "x".repeat(299 - surviving) + KEY + " tail";
+					p.respond({
+						images: [],
+						results: [
+							{
+								title: `title ${prefix}`,
+								url: `https://example.test/${prefix}`,
+								text,
+								content: text,
+							},
+						],
+					});
+					const out = await search(f, await f.create());
+					assert.notEqual(out.result.isError, true, out.text);
+					for (const [surface, value] of Object.entries({
+						result: out.result,
+						entries: out.entries,
+						nextRequest: out.seen[1],
+						errors: f.reports,
+						logs,
+					})) {
+						assert.ok(
+							!JSON.stringify(value).includes(prefix),
+							`${name} ${surviving} leaked in ${surface}`,
+						);
+					}
+				},
+			);
+		}
+	}
+});
+
+for (const name of ["exa", "tavily"] as const) {
+	test(`${name} requests five hits and returns only titles URLs and snippets`, async (t) => {
+		const p = await provider(t);
+		p.respond({
+			images: [],
+			answer: "PRIVATE-ANSWER",
+			results: Array.from({ length: 6 }, (_, i) => ({
+				title: `Title ${i}`,
+				url: `https://example.test/${i}`,
+				text: `Snippet ${i}`,
+				content: `Snippet ${i}`,
+				score: 0.12345,
+				metadata: { note: "PRIVATE-METADATA" },
+			})),
+		});
+		const f = await harness(
+			t,
+			createSearchExtension({ exa: p.url, tavily: p.url }),
+		);
+		await f.h.commit(
+			(tx) => module.options.set(tx, { provider: name, apiKey: KEY }),
+			context,
+		);
+		const out = await search(f, await f.create());
+		assert.notEqual(out.result.isError, true, out.text);
+		assert.equal(
+			p.requests[0]?.body[name === "exa" ? "numResults" : "max_results"],
+			5,
+		);
+		assert.deepEqual(JSON.parse(out.text), {
+			provider: name,
+			results: Array.from({ length: 5 }, (_, i) => ({
+				title: `Title ${i}`,
+				url: `https://example.test/${i}`,
+				snippet: `Snippet ${i}`,
+			})),
+		});
+		for (const value of [out.result, out.entries, out.seen[1]]) {
+			assert.doesNotMatch(
+				JSON.stringify(value),
+				/PRIVATE-ANSWER|PRIVATE-METADATA|0\.12345/,
+			);
+		}
+	});
+}
+
+test("search does not read the server environment for Webfox configuration", async (t) => {
+	const p = await provider(t);
+	const f = await harness(t, createSearchExtension({ exa: p.url }));
+	await f.h.commit(
+		(tx) => module.options.set(tx, { provider: "exa", apiKey: KEY }),
+		context,
+	);
+	const original = process.env;
+	process.env = {
+		...original,
+		get WEBFOX_CONFIG(): string {
+			throw new Error("Ambient Webfox configuration was read");
+		},
+	};
+	t.after(() => {
+		process.env = original;
+	});
+	const out = await search(f, await f.create());
+	assert.notEqual(out.result.isError, true, out.text);
+	assert.match(out.text, /EXA-CONTENT-END/);
+	assert.equal(p.requests.length, 1);
 });
 
 test("model cannot set provider, key or base URL and another project cannot borrow its key", async (t) => {
