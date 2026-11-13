@@ -4,8 +4,8 @@ import type { WatchHandle } from "@earendil-works/chord/watch";
 import type { Models } from "@earendil-works/pi-ai";
 import {
 	type Conversation,
-	type ConversationId,
 	ConversationBusy,
+	type ConversationId,
 	ConversationIdle,
 	type Cursor,
 	configure,
