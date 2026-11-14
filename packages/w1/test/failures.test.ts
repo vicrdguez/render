@@ -64,9 +64,17 @@ test("row 19: a moved head hands nothing over, names both SHAs, sets fixing, and
 		git(path, "add", "-A");
 		git(path, "commit", "-qm", "A late change");
 		const S3 = git(path, "rev-parse", "HEAD");
-		answered(await w.reply(s.merge(1), "approve"));
+		const annotations = [
+			{ text: "Keep the release note.", range: { start: 0, end: 6 } },
+			{ text: "Tell me before deploying." },
+		];
+		answered(await w.reply(s.merge(1), "approve", annotations));
 		await w.settle();
-		const stages = (await w.events()).map((e) => e.stage);
+		const events = await w.events();
+		assert.deepEqual(events.at(-1)?.notActedOn, annotations);
+		for (const annotation of annotations)
+			assert.ok(String(events.at(-1)?.text).includes(annotation.text));
+		const stages = events.map((e) => e.stage);
 		assert.ok(!stages.includes("handed_over"), "nothing was handed over");
 		assert.equal(stages.at(-1), "fixing");
 		const notes = await w.entries(I, "w1.note");
@@ -289,6 +297,103 @@ test("rows X3 to X6: the stop aborts a running agent, keeps the worktree, and na
 		assert.equal(last?.tool, "publish_build");
 		assert.equal(last?.isError, true);
 		assert.match(last?.text ?? "", /stopped/);
+		assert.equal((await w.entries(I, "w1.build")).length, 0);
+	}));
+
+for (const role of ["implementer", "reviewer"] as const) {
+	test(`rows X4 and X5: cancel aborts a live ${role} before stopped`, () =>
+		using(async (w) => {
+			if (role === "reviewer")
+				w.script(
+					"implementer",
+					commitStep("export.js", "json", "Build"),
+					call("publish_build", { text: "Built." }),
+				);
+			w.script(role, say("Need advice."));
+			const { s } = await approved(w);
+			const target = await named(
+				w,
+				role === "implementer" ? "building" : "reviewing",
+			);
+			await w.open(s.stuck(1));
+			w.script(role, hanging);
+			const chat = await w.submit(target, "Please wait.");
+			try {
+				for (let i = 0; i < 400; i++) {
+					if ((await w.harness.snapshot(LiveDoc, target, context))?.run) break;
+					await new Promise((resolve) => setTimeout(resolve, 5));
+				}
+				assert.ok((await w.harness.snapshot(LiveDoc, target, context))?.run);
+				answered(await w.reply(s.stuck(1), "abort"));
+				for (let i = 0; i < 400; i++) {
+					if ((await w.events()).some((event) => event.stage === "stopped"))
+						break;
+					await new Promise((resolve) => setTimeout(resolve, 5));
+				}
+				assert.equal((await w.events()).at(-1)?.stage, "stopped");
+				assert.equal(
+					(await w.harness.snapshot(LiveDoc, target, context))?.run,
+					undefined,
+					`${role} still running after stopped`,
+				);
+				const ended = await chat.wait(context);
+				assert.equal(ended.status, "unanswered");
+				assert.equal(ended.reason, "aborted");
+			} finally {
+				await (await w.harness.conversation(target, context))?.abort(context);
+			}
+		}));
+}
+
+for (const abort of ["stuck", "merge"] as const) {
+	test(`row X2: abort ${abort} withdraws the other open merge or stuck decision`, () =>
+		using(async (w) => {
+			w.script(
+				"implementer",
+				commitStep("export.js", "json", "Build"),
+				call("publish_build", { text: "Built." }),
+			);
+			w.script("reviewer", say("Need advice."));
+			const { s } = await approved(w);
+			const R = await named(w, "reviewing");
+			await w.open(s.stuck(1));
+			w.script(
+				"reviewer",
+				call("publish_review", {
+					text: "Pass.",
+					verdict: "pass",
+					findings: [],
+				}),
+			);
+			await w.submit(R, "Publish the review.");
+			await w.settle();
+			await w.open(s.merge(1));
+			await w.open(s.stuck(1));
+			answered(await w.reply(s[abort](1), "abort"));
+			await w.settle();
+			assert.equal((await w.read(s[abort](1)))?.status, "answered");
+			const other = abort === "stuck" ? "merge" : "stuck";
+			assert.equal((await w.read(s[other](1)))?.status, "withdrawn");
+			assert.equal((await w.events()).at(-1)?.stage, "stopped");
+		}));
+}
+
+test("row 11: publish_build refuses a clean worktree on the wrong branch", () =>
+	using(async (w) => {
+		w.script(
+			"implementer",
+			commitStep("export.js", "json", "Build"),
+			call("bash", { command: "git checkout -qb foreign" }),
+			call("publish_build", { text: "Built on foreign." }),
+		);
+		const { k } = await approved(w);
+		const I = await named(w, "building");
+		const path = plannedPath(w.repo, k);
+		assert.equal(git(path, "status", "--porcelain"), "");
+		assert.equal(git(path, "rev-parse", "--abbrev-ref", "HEAD"), "foreign");
+		const result = (await toolResults(w, I)).at(-1);
+		assert.equal(result?.isError, true);
+		assert.match(result?.text ?? "", /Check out/);
 		assert.equal((await w.entries(I, "w1.build")).length, 0);
 	}));
 
