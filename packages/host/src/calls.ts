@@ -13,6 +13,7 @@ import {
 	type EntryQuery,
 	LiveDoc,
 	type ScanOrder,
+	StorageRequestError,
 } from "@earendil-works/pi-durable";
 import {
 	arr,
@@ -55,11 +56,13 @@ function checked<T, R>(schema: Schema<T>, run: Run<T, R>): Run<unknown, R> {
 	const validator = compile(schema);
 	return async (host, device, body) => {
 		const parsed = validator.validate(body);
-		return parsed.ok
-			? run(host, device, parsed.value as T)
-			: refuse("bad_request", "The body does not fit the call.", {
-					errors: parsed.errors,
-				});
+		if (!parsed.ok) return refuse("bad_request", "The body does not fit the call.", { errors: parsed.errors });
+		try {
+			return await run(host, device, parsed.value as T);
+		} catch (error) {
+			if (error instanceof StorageRequestError && (error.message === "Invalid storage cursor" || error.message.startsWith("The cursor continues a "))) return badCursor();
+			throw error;
+		}
 	};
 }
 function inProject<T extends { project: string }, R>(
