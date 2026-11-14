@@ -143,7 +143,7 @@ test("a shared task name names the module that kept it and the one left out", as
 		stderr.push(String(chunk));
 		return true;
 	});
-	const tasks = Flow.tasks!.filter(
+	const tasks = (Flow.tasks ?? []).filter(
 		(task) => task.definition.name === "flow.due",
 	);
 	const s = await start({

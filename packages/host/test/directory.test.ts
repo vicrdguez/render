@@ -19,7 +19,7 @@ import { defineTask } from "@earendil-works/pi-durable";
 import { obj } from "@earendil-works/pi-schema";
 import { request } from "tau-store";
 import { type ExtensionScan, fromDirectory } from "../src/index.js";
-import { start, until } from "./helpers.js";
+import { type Reply, start, until } from "./helpers.js";
 
 const TESTING =
 	"tau-extension/testing is for tests. An extension cannot import it at run time.";
@@ -467,7 +467,7 @@ test("a directory extension runs through startServer: its tool asks, an HTTP ans
 			text: "Ask.",
 			requestId: "ask",
 		});
-		let shown: any;
+		let shown: Reply | undefined;
 		await until("the decision opens", async () => {
 			shown = await s.call("decision", {
 				project: "p",
@@ -475,11 +475,11 @@ test("a directory extension runs through startServer: its tool asks, an HTTP ans
 			});
 			return shown.status === 200;
 		});
-		assert.equal(shown.body.result.text, "Ship it?");
+		assert.equal(shown?.body.result.text, "Ship it?");
 		const answered = await s.call("answer", {
 			project: "p",
 			decision: "demo:ship#1",
-			basis: shown.body.result.decision.basis,
+			basis: shown?.body.result.decision.basis,
 			choice: "ship",
 			annotations: [],
 		});
