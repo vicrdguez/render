@@ -8,11 +8,11 @@ Tau makes delegated work trustworthy enough that you can leave, reconnect elsewh
 | --- | --- | --- | --- |
 | Import map names | Literal names checked at startup, or names derived from modules. | Derive every key from `extension.name`, with an `ExtensionModule` record type. | The host also checks the names. There is no second list to update. |
 | Journey setup | Reach into stores to make history, or send ordinary inputs. | W0 sends 56 exchanges over HTTP before restart and pages the actual gap from the phone. | This proves the gap rule without adding an extension or a storage shortcut. |
-
 | Web search fixture endpoint | Widen the root export, expose an internal subpath and change boundaries, or intercept global fetch. | Export the existing `createSearchExtension` from the root. Keep the production import map on the normal extension. | The HTTP journey first failed because the constructor was not reachable. One export exposes the ordinary provider endpoint parameter without a transport fake, boundary exception or test flag. The existing module contract test now names that export. |
-
 | SIGKILL boundary | Inspect storage commits, race a kill after the answer, or stop at an outside dependency. | A temporary Git executable pauses at the base-ref read. SIGKILL kills the server and its paused child as one process group. | The response proves the answer landed. The absent branch proves the continuation effect did not. No store handle, package internal or production switch is used. |
 | Installed prose | Copy prose a second way, or reuse the asset copier already used by typecheck. | Include and run `tools/assets.mjs` in the package build. | The installed verifier first failed on missing designer prose. The existing copier preserves the module-relative layout. |
+| Missing-code fixture | Add a synthetic extension, or remove W2 from the server map. | Use W2's real due task. | One journey proves both persisted tasks and options without faking another Tau package. |
+| Installed verification command | Run Nix recursively from every default test, or run a retained verifier after `nix build`. | Compile `test/verify-build.ts` and run it explicitly against the installed executable. | The default tests run inside a Nix derivation without a daemon. The verifier also exercises `nix run` against the same server. |
 
 ## Checkpoints
 
