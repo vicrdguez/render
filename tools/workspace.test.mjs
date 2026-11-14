@@ -238,6 +238,40 @@ for (const [name, directory, specifier, allowed] of [
 	});
 }
 
+for (const name of ["tau-store", "tau-host", "tau"]) {
+	for (const directory of ["src", "test"]) {
+		test(`${name} ${directory} cannot import tau-extension`, async (t) => {
+			const { root, put } = await fixture(t);
+			await put(
+				"boundaries.json",
+				await readFile(path.join(tools, "../boundaries.json"), "utf8"),
+			);
+			await put("packages/store/package.json", {
+				name,
+				dependencies: { "tau-extension": "0.0.0" },
+			});
+			await put("packages/extension/package.json", {
+				name: "tau-extension",
+				exports: { ".": "./dist/src/index.js" },
+			});
+			await put("packages/extension/tsconfig.json", {});
+			await put("tsconfig.json", {
+				references: ["store", "extension"].map((dir) => ({
+					path: `packages/${dir}`,
+				})),
+			});
+			await put(
+				`packages/store/${directory}/index.ts`,
+				'import "tau-extension";',
+			);
+			const result = run("check-boundaries.mjs", root);
+			assert.equal(result.status, 1, result.stderr);
+			assert.match(result.stderr, /forbidden workspace capability/);
+			assert.match(result.stderr, /forbidden dependency tau-extension/);
+		});
+	}
+}
+
 for (const name of ["tau-w2", "tau-store"]) {
 	for (const directory of ["src", "test"]) {
 		test(`${name} ${directory} relative import of test helper is ${directory === "test" ? "allowed" : "forbidden"}`, async (t) => {
