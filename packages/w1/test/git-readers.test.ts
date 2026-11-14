@@ -152,7 +152,12 @@ for (const source of ["info", "file", "environment"] as const) {
 
 test("row 13: diff output pins color prefixes renames algorithm quoting and context", async (t) => {
 	const { repo, plan, sha } = built(t);
-	const expected = await diffAt(plan, sha);
+	git(repo, "mv", "export.js", "café.js");
+	writeFileSync(join(repo, "café.js"), "MALICIOUS_PUBLISHED\nextra\n");
+	git(repo, "add", ".");
+	git(repo, "commit", "-qm", "Rename");
+	const candidate = git(repo, "rev-parse", "HEAD");
+	const expected = await diffAt({ ...plan, baseSha: sha }, candidate);
 	for (const [key, value] of [
 		["color.diff", "always"], ["diff.noprefix", "true"],
 		["diff.mnemonicPrefix", "true"], ["diff.renames", "copies"],
@@ -160,7 +165,7 @@ test("row 13: diff output pins color prefixes renames algorithm quoting and cont
 		["diff.context", "0"], ["diff.relative", "true"],
 		["diff.suppressBlankEmpty", "true"],
 	] as const) git(repo, "config", key, value);
-	assert.equal(await diffAt(plan, sha), expected);
+	assert.equal(await diffAt({ ...plan, baseSha: sha }, candidate), expected);
 });
 
 test("row 13: submodule diffs show only the gitlink, not nested repository content", async (t) => {
