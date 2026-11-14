@@ -26,23 +26,51 @@ const entries = {
 };
 
 test("tau-extension exposes exactly five package entries", () => {
-	const manifest = JSON.parse(readFileSync(resolve(directory, "../package.json"), "utf8"));
-	assert.deepEqual(Object.keys(manifest.exports).sort(), Object.keys(entries).sort());
+	const manifest = JSON.parse(
+		readFileSync(resolve(directory, "../package.json"), "utf8"),
+	);
+	assert.deepEqual(
+		Object.keys(manifest.exports).sort(),
+		Object.keys(entries).sort(),
+	);
 });
 
 test("README tables match every emitted value, type, and origin exactly once", () => {
 	const readme = readFileSync(resolve(directory, "../README.md"), "utf8");
-	const declarations = Object.keys(entries).map((entry) => resolve(directory, "src", `${entry === "." ? "index" : entry.slice(2)}.d.ts`));
-	const program = ts.createProgram(declarations, { module: ts.ModuleKind.NodeNext, skipLibCheck: true });
+	const declarations = Object.keys(entries).map((entry) =>
+		resolve(
+			directory,
+			"src",
+			`${entry === "." ? "index" : entry.slice(2)}.d.ts`,
+		),
+	);
+	const program = ts.createProgram(declarations, {
+		module: ts.ModuleKind.NodeNext,
+		skipLibCheck: true,
+	});
 	const checker = program.getTypeChecker();
 	const seen = new Set<string>();
-	assert.deepEqual([...readme.matchAll(/^## `(tau-extension[^`]*)`$/gm)].map((match) => match[1]).sort(), Object.keys(entries).map((entry) => `tau-extension${entry.slice(1)}`).sort());
+	assert.deepEqual(
+		[...readme.matchAll(/^## `(tau-extension[^`]*)`$/gm)]
+			.map((match) => match[1])
+			.sort(),
+		Object.keys(entries)
+			.map((entry) => `tau-extension${entry.slice(1)}`)
+			.sort(),
+	);
 	for (const [index, [entry, values]] of Object.entries(entries).entries()) {
 		const title = `tau-extension${entry.slice(1)}`;
 		const section = readme.split(`## \`${title}\``)[1]?.split("\n## ")[0];
 		assert.ok(section, title);
-		const documented = [...section.matchAll(/^\| `([^`]+)` \| (value|type) \| `([^`]+)` \|$/gm)].map((match) => ({ name: match[1], kind: match[2], origin: match[3] }));
-		const source = program.getSourceFile(declarations[index]!);
+		const documented = [
+			...section.matchAll(/^\| `([^`]+)` \| (value|type) \| `([^`]+)` \|$/gm),
+		].map(([, name, kind, origin]) => {
+			assert.ok(name && kind && origin);
+			return { name, kind, origin };
+		});
+		const file = declarations[index];
+		assert.ok(file);
+		const source = program.getSourceFile(file);
 		assert.ok(source);
 		const module = checker.getSymbolAtLocation(source);
 		assert.ok(module);
@@ -51,15 +79,34 @@ test("README tables match every emitted value, type, and origin exactly once", (
 			const declaration = symbol.declarations?.[0];
 			assert.ok(declaration && ts.isExportSpecifier(declaration), symbol.name);
 			const statement = declaration.parent.parent;
-			assert.ok(statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier));
+			assert.ok(
+				statement.moduleSpecifier &&
+					ts.isStringLiteral(statement.moduleSpecifier),
+			);
 			const target = checker.getAliasedSymbol(symbol);
-			return { name: symbol.name, kind: target.flags & ts.SymbolFlags.Value ? "value" : "type", origin: statement.moduleSpecifier.text };
+			return {
+				name: symbol.name,
+				kind: target.flags & ts.SymbolFlags.Value ? "value" : "type",
+				origin: statement.moduleSpecifier.text,
+			};
 		});
-		const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+		const byName = (a: { name: string }, b: { name: string }) =>
+			a.name.localeCompare(b.name);
 		assert.deepEqual(actual.sort(byName), documented.sort(byName), title);
-		assert.deepEqual(Object.keys(values).sort(), documented.filter((row) => row.kind === "value").map((row) => row.name).sort(), title);
+		assert.deepEqual(
+			Object.keys(values).sort(),
+			documented
+				.filter((row) => row.kind === "value")
+				.map((row) => row.name)
+				.sort(),
+			title,
+		);
 		for (const { name } of actual) {
-			assert.equal(seen.has(name), false, `${name} has more than one import path`);
+			assert.equal(
+				seen.has(name),
+				false,
+				`${name} has more than one import path`,
+			);
 			seen.add(name);
 		}
 	}
@@ -73,7 +120,8 @@ test("extension re-exports preserve Tau and pi object identity", () => {
 	assert.equal(testing.createModels, createModels);
 	assert.equal(testing.fauxAnswer, fauxAnswer);
 	assert.equal(testing.openStore, openStore);
-	for (const name of ["modelRef", "options", "prose", "role"] as const) {
-		assert.equal(root[name], helpers[name]);
-	}
+	assert.equal(root.modelRef, helpers.modelRef);
+	assert.equal(root.options, helpers.options);
+	assert.equal(root.prose, helpers.prose);
+	assert.equal(root.role, helpers.role);
 });

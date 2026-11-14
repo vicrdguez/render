@@ -3,7 +3,12 @@
 	"tau-host": {
 		"tau-store": [".", "./host"]
 	},
-	"tau-kit": {},
+	"tau-extension": {
+		"tau-store": [".", "./testing"]
+	},
+	"tau-kit": {
+		"tau-extension": ["."]
+	},
 	"tau-websearch": {
 		"tau-store": ["."],
 		"tau-kit": ["."],
