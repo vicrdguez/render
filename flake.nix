@@ -99,8 +99,12 @@
                 node "docs/core/spikes/$spike.mjs"
               done
             '';
-            verify-build = mkCommand "verify-build" [ ] ''
-              node ${tau}/lib/tau/packages/tau/dist/test/verify-build.js ${tau}/bin/tau
+            verify-build = mkCommand "verify-build" [ pkgs.nix ] ''
+              executable="''${1:-}"
+              if [ -z "$executable" ]; then
+                executable="$(nix build --no-link --print-out-paths .#tau)/bin/tau"
+              fi
+              node "''${executable%/bin/tau}/lib/tau/packages/tau/dist/test/verify-build.js" "$executable"
             '';
             check = mkCommand "check" [ ] ''
               ${commands.lint}/bin/lint
@@ -125,7 +129,9 @@
                 cp -R ${self} source
                 chmod -R u+w source
                 cd source
-                timeout --kill-after=10s 660s ${commands.${name}}/bin/${name}
+                timeout --kill-after=10s 660s ${commands.${name}}/bin/${name} ${
+                  lib.optionalString (name == "verify-build") "${tau}/bin/tau"
+                }
                 touch "$out"
               ''
           );
@@ -166,6 +172,9 @@
         in
         {
           inherit commands checks tau;
+          verifyBuildApp = pkgs.writeShellScript "verify-build" ''
+            exec ${commands.verify-build}/bin/verify-build ${tau}/bin/tau "$@"
+          '';
           formatter = pkgs.nixfmt;
           shell = pkgs.mkShellNoCC {
             packages = [
@@ -194,6 +203,10 @@
           program = "${command}/bin/${name}";
         }) value.commands
         // {
+          verify-build = {
+            type = "app";
+            program = "${value.verifyBuildApp}";
+          };
           tau = {
             type = "app";
             program = "${value.tau}/bin/tau";
