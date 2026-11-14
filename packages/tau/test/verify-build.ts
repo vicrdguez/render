@@ -164,11 +164,18 @@ try {
 		"store",
 		"tau",
 	]);
-	for await (const file of glob("packages/**/*", { cwd: lib })) {
+	for await (const file of glob("**/*", {
+		cwd: resolve(command, "../.."),
+		exclude: ["**/node_modules", "**/node_modules/**"],
+	})) {
 		assert.ok(!file.endsWith(".md"), `core ships prose: ${file}`);
+		assert.ok(
+			!file.endsWith(".ts") || file.endsWith(".d.ts"),
+			`core ships TypeScript source: ${file}`,
+		);
 		if (!/\.(?:js|json)$/.test(file)) continue;
 		assert.doesNotMatch(
-			await readFile(join(lib, file), "utf8"),
+			await readFile(resolve(command, "../..", file), "utf8"),
 			/tau-w1|tau-w2|tau-websearch/,
 			file,
 		);
