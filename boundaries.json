@@ -28,12 +28,6 @@
 		}
 	},
 	"tau": {
-		"tau-host": ["."],
-		"tau-websearch": ["."],
-		"tau-w2": ["."],
-		"tau-w1": ["."],
-		"testOnly": {
-			"tau-websearch": ["./testing"]
-		}
+		"tau-host": ["."]
 	}
 }

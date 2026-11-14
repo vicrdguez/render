@@ -1,19 +1,26 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { moduleMap, modules } from "../src/modules.js";
+import { symlink } from "node:fs/promises";
+import { join } from "node:path";
+import { fromDirectory } from "tau-host";
+import { extensionSource } from "./extensions.js";
 import { journey } from "./journey.js";
 
-test("the import map refuses a repeated extension name instead of dropping code", () => {
-	const w2 = modules.w2;
-	assert.ok(w2);
-	assert.deepEqual(moduleMap([w2]), { w2 });
-	assert.throws(
-		() => moduleMap([w2, { ...w2 }]),
-		/Repeated extension name: w2/,
-	);
+test("the directory loader reports a repeated extension folder instead of importing it twice", async () => {
+	const j = await journey();
+	try {
+		await symlink(extensionSource("w2"), join(j.home, "extensions", "w2-copy"));
+		const loaded = await fromDirectory(join(j.home, "extensions"))();
+		assert.deepEqual(Object.keys(loaded.modules), ["w1", "w2", "websearch"]);
+		assert.equal(loaded.failures.length, 1);
+		assert.equal(loaded.failures[0]?.name, "w2-copy");
+		assert.match(String(loaded.failures[0]?.error), /same folder as w2/);
+	} finally {
+		await j.close();
+	}
 });
 
-test("extensions reports the name, workflow flag and options schema of every real import-map entry", async () => {
+test("extensions reports the name, workflow flag and options schema of every real directory entry", async () => {
 	const j = await journey();
 	try {
 		const model = { type: "string", format: "model" };

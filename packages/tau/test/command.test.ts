@@ -140,18 +140,27 @@ test("tau starts empty and discovers only the extensions placed in its home", as
 	const empty = await serve(env);
 	try {
 		const token = await pair(env, empty.url, "empty");
-		assert.deepEqual((await post(empty.url, "extensions", {}, token)).body.result.items, []);
+		assert.deepEqual(
+			(await post(empty.url, "extensions", {}, token)).body.result.items,
+			[],
+		);
 	} finally {
 		empty.child.kill("SIGTERM");
 		assert.equal((await once(empty.child, "exit"))[0], 0);
 	}
 	const folder = path.join(env.HOME, ".tau", "extensions", "local");
 	await mkdir(folder, { recursive: true });
-	await writeFile(path.join(folder, "index.ts"), `import { defineExtension } from "tau-extension/durable";\nexport const extension = defineExtension({name: "local"});\n`);
+	await writeFile(
+		path.join(folder, "index.ts"),
+		`import { defineExtension } from "tau-extension/durable";\nexport const extension = defineExtension({name: "local"});\n`,
+	);
 	const loaded = await serve(env);
 	try {
 		const token = await pair(env, loaded.url, "loaded");
-		assert.deepEqual((await post(loaded.url, "extensions", {}, token)).body.result.items, [{name: "local", workflow: false}]);
+		assert.deepEqual(
+			(await post(loaded.url, "extensions", {}, token)).body.result.items,
+			[{ name: "local", workflow: false }],
+		);
 	} finally {
 		loaded.child.kill("SIGTERM");
 		assert.equal((await once(loaded.child, "exit"))[0], 0);

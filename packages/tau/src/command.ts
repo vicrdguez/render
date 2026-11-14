@@ -2,7 +2,12 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { type AdminRequest, fromDirectory, requestAdmin, startServer } from "tau-host";
+import {
+	type AdminRequest,
+	fromDirectory,
+	requestAdmin,
+	startServer,
+} from "tau-host";
 import { piLogins } from "./credentials.js";
 
 const USAGE = `usage: tau [--port PORT] [--allow-host NAME]...  start the server on ~/.tau and 127.0.0.1:6283

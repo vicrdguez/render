@@ -5,8 +5,13 @@ import { join } from "node:path";
 import { applyImmutable, type Op } from "@earendil-works/chord/delta";
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { requestAdmin, type ServerOptions, startServer } from "tau-host";
-import { modules } from "../src/modules.js";
+import {
+	fromDirectory,
+	requestAdmin,
+	type ServerOptions,
+	startServer,
+} from "tau-host";
+import { linkExtensions } from "./extensions.js";
 
 export async function until(
 	what: string,
@@ -93,12 +98,13 @@ export async function watch(
 export async function journey(changes: Partial<ServerOptions> = {}) {
 	const root = await realpath(await mkdtemp(join(tmpdir(), "tau-journey-")));
 	const home = join(root, "home");
+	await linkExtensions(home);
 	const faux = fauxProvider({ models: [{ id: "a" }, { id: "b" }] });
 	const models = createModels();
 	models.setProvider(faux.provider);
 	let options: ServerOptions = {
 		home,
-		source: () => ({ modules, failures: [] }),
+		source: fromDirectory(join(home, "extensions")),
 		models,
 		port: 0,
 		env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? root }),

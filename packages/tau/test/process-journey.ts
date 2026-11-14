@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { requestAdmin } from "tau-host";
 import { post, watch } from "./journey.js";
+import { linkExtensions } from "./extensions.js";
 
 export async function processJourney(
 	config: { now?: () => number; searchUrl?: string } = {},
@@ -18,6 +19,7 @@ export async function processJourney(
 		await mkdtemp(join(tmpdir(), "tau-process-journey-")),
 	);
 	const home = join(root, "home");
+	await linkExtensions(home, config.searchUrl);
 	let child: ChildProcess;
 	let url = "";
 	const wire: string[] = [];

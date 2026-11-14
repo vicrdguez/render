@@ -1,7 +1,7 @@
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { startServer } from "tau-host";
-import { modules } from "../src/modules.js";
+import { join } from "node:path";
+import { fromDirectory, startServer } from "tau-host";
 
 const home = process.argv[2];
 if (!home) throw new Error("A home is required.");
@@ -10,7 +10,7 @@ const models = createModels();
 models.setProvider(faux.provider);
 const server = await startServer({
 	home,
-	source: () => ({ modules, failures: [] }),
+	source: fromDirectory(join(home, "extensions")),
 	models,
 	port: 0,
 	env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? home }),
