@@ -183,17 +183,32 @@ test("a failed revocation is persisted on retry and survives restart", async () 
 	const temporary = path.join(s.home, "devices.json.tmp");
 	try {
 		const phone = await s.pair("phone");
+		const stream = s.watch("inbox", {}, phone);
+		await stream.until((w) => w.value !== undefined);
 		await mkdir(temporary);
 		const failed = await requestAdmin(s.home, {
 			command: "revoke",
 			device: "phone",
 		});
 		assert.ok("error" in failed);
+		assert.equal((await s.call("projects", {}, phone)).status, 200);
+		const listed = await requestAdmin(s.home, { command: "list" });
+		assert.ok("devices" in listed);
+		assert.equal(
+			listed.devices.find((d) => d.device === "phone")?.revokedAt,
+			undefined,
+		);
+		assert.equal(stream.closed, false);
+		await s.call("bind", { project: "p", workdir: "/p", extensions: [] });
+		await stream.until((w) => w.value.p !== undefined);
 		await rm(temporary, { recursive: true });
 		assert.deepEqual(
 			await requestAdmin(s.home, { command: "revoke", device: "phone" }),
 			{ done: true },
 		);
+		assert.equal((await s.call("projects", {}, phone)).status, 401);
+		await stream.until((w) => w.closed);
+		assert.equal(stream.end, "revoked");
 		const again = await s.restart();
 		try {
 			assert.equal((await again.call("projects", {}, phone)).status, 401);
