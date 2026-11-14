@@ -157,6 +157,8 @@ for (const mode of [0o770, 0o707, 0o730]) {
 			async () => fromDirectory(dir)(),
 			(error: Error) => {
 				assert.match(error.message, /writable by group or others/);
+				assert.match(error.message, /server does not start until.*permissions are fixed/i);
+				assert.match(error.message, /chmod 700/);
 				assert.ok(error.message.includes(dir), error.message);
 				return true;
 			},

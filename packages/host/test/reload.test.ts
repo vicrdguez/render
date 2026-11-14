@@ -402,6 +402,71 @@ for (const mode of ["first", "sleep"])
 		}
 	});
 
+test("reload installs in every listed project and leaves unlisted projects untouched", async (t) => {
+	const get = capture(t);
+	const old = version("old");
+	const next = version("new");
+	let current = old.module;
+	const s = await start({
+		source: () => ({ modules: { demo: current }, failures: [] }),
+	});
+	try {
+		await bind(s);
+		await bind(s, "q");
+		await bind(s, "r", []);
+		const r = get().all().find((project) => project.name === "r");
+		assert.ok(r);
+		const registry = r.registry.snapshot();
+		const defaults = [...r.selection.defaults];
+		current = next.module;
+		const report = await reload(s);
+		assert.equal(report.result?.status, "applied");
+		for (const name of ["p", "q"]) {
+			const project = get().all().find((project) => project.name === name);
+			assert.ok(project);
+			assert.equal(project.registry.snapshot().extension("demo"), next.module.extension);
+			assert.ok(project.selection.defaults.includes(next.module.extension));
+			assert.ok(!project.selection.defaults.includes(old.module.extension));
+		}
+		assert.equal(r.registry.snapshot(), registry);
+		assert.deepEqual(r.selection.defaults, defaults);
+		assert.deepEqual(report.result?.extensions, [
+			{ name: "demo", status: "replaced", projects: ["p", "q"] },
+		]);
+	} finally {
+		await s.close();
+	}
+});
+
+test("reload reports only the projects publication installed in", async (t) => {
+	const old = version("old");
+	const next = version("new");
+	let current = old.module;
+	const publish = Projects.prototype.publish;
+	t.mock.method(Projects.prototype, "publish", function (this: Projects, ...args: Parameters<typeof publish>) {
+		const originalAll = this.all.bind(this);
+		const all = t.mock.method(this, "all", () => originalAll().slice(0, 1));
+		try {
+			return publish.apply(this, args);
+		} finally {
+			all.mock.restore();
+		}
+	});
+	const s = await start({
+		source: () => ({ modules: { demo: current }, failures: [] }),
+	});
+	try {
+		await bind(s);
+		await bind(s, "q");
+		current = next.module;
+		assert.deepEqual((await reload(s)).result?.extensions, [
+			{ name: "demo", status: "replaced", projects: ["p"] },
+		]);
+	} finally {
+		await s.close();
+	}
+});
+
 test("reload refreshes schemas for extensions options setOptions and create", async () => {
 	const old = version("old");
 	let current: ExtensionModule = {
@@ -455,7 +520,7 @@ test("reload keeps absent names and names skipped stores but not stores since bo
 		current = {} as typeof current;
 		const report = await reload(s);
 		assert.deepEqual(report.result?.extensions, [
-			{ name: "demo", status: "kept", projects: ["p"] },
+			{ name: "demo", status: "kept", projects: [] },
 		]);
 		assert.deepEqual(
 			report.result?.skipped.map((p) => p.project),
@@ -585,6 +650,7 @@ test("a subscriber throw stops publication and requires restart on the same home
 	assert.ok(p);
 	assert.ok(q);
 	const qBefore = q.registry.snapshot();
+	const catalogueBefore = get().catalogue;
 	p.registry.subscribe(() => {
 		throw new Error("subscriber failed");
 	});
@@ -595,6 +661,7 @@ test("a subscriber throw stops publication and requires restart on the same home
 	assert.match(JSON.stringify(report), /restart/i);
 	assert.equal(p.registry.snapshot().extension("demo"), next.module.extension);
 	assert.equal(q.registry.snapshot(), qBefore);
+	assert.equal(get().catalogue, catalogueBefore);
 	assert.equal((await reload(s)).refused?.code, "busy");
 	await assert.rejects(s.close(), /restart/i);
 	const restarted = await start({
