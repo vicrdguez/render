@@ -126,6 +126,10 @@ export function handler(
 			return reply(response, await call.dispatch(host, device, body.result));
 		const opened = await call.dispatch(host, device, body.result);
 		if ("refused" in opened) return reply(response, opened);
+		if (host.devices.authenticate(request.headers.authorization) === undefined) {
+			await opened.result.stop();
+			return reply(response, refuse("unauthorized", "The device was revoked."));
+		}
 		pipe(opened.result, response, (end) => host.devices.attach(device, end));
 	};
 	return (request, response) => {
