@@ -4,6 +4,7 @@ import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { test } from "node:test";
+import { Devices } from "../src/devices.js";
 import { requestAdmin, startServer } from "../src/index.js";
 import { faux, start } from "./helpers.js";
 
@@ -78,6 +79,13 @@ test("!test cannot pair or authenticate as a device", async () => {
 			list.devices.map((d) => d.device),
 			["laptop", "phone"],
 		);
+		// Bypass admin validation so a matching stored secret cannot mask a permissive token parser.
+		const devices = await Devices.load(s.home, Date.now);
+		const issued = devices.issue("!test");
+		assert.ok("code" in issued);
+		const invalid = await devices.pair(issued.code);
+		assert.ok(invalid);
+		assert.equal(devices.authenticate(`Bearer ${invalid.token}`), undefined);
 	} finally {
 		await s.close();
 	}
