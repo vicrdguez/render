@@ -13,6 +13,31 @@ Tau makes delegated work trustworthy enough that you can leave, reconnect elsewh
 | Kit boundary fixtures | Keep tests of a deleted package, or test its former consumers. | Replace three kit-owner cases with extension imports of the removed kit. | The replacement protects the prohibition after the kit no longer has a policy row. |
 | Lock update | Enter the changed shell, or use the committed shell to update the current lock. | Use `nix develop` pinned to the tests-first commit for the lock-only npm command. | The changed shell could not build while the old lock still referred to the deleted kit. No dependencies were installed by npm. |
 
+## Verifier follow-up
+
+| Where | Readings | Taken | Why |
+| --- | --- | --- | --- |
+| README identity coverage | Import origins dynamically, or use explicit namespace imports. | Compare every value row with a namespace table keyed by its documented origin. | The boundary checker forbids nonliteral dynamic imports. Missing modules and missing names fail explicitly. |
+| README origin policy | Check table agreement alone, or also check allowed origins. | Root origins must be `tau-store` or `./helpers.js`. All pi-ai origins belong to testing. | Matching declarations alone would accept an unwanted re-export. |
+| Boundary guidance | Suggest testing to production, or explain the restriction. | Source pi-ai imports say pi-ai is for tests only. Deep facade paths name their public entry. | An error must not recommend an import that the same checker forbids. |
+| Unused tooling | Retain the old import inventory, or delete it. | Delete `packages/extension/tools/imports.mjs`. | No caller remains. |
+
+The follow-up began with `git fetch origin && git merge origin/render-core`, which reported already up to date. The baseline is `origin/render-core` at `c38084a`.
+
+Tests preceded the boundary code. Both diagnostic regression tests failed before implementation and passed after. The full workspace test file and full package suite passed after restoring all mutants.
+
+| Temporary mutant | Observed failure | Restored result |
+| --- | --- | --- |
+| Export schema `tuple` from root and document it in the root table. | README test fails with root origin must be tau-store or ./helpers.js. | README test passes. |
+| Export pi-ai `ModelsError` from durable and document it there. | README test fails with pi-ai is testing only. | README test passes. |
+| Replace durable `AgentDoc` with `LiveDoc as AgentDoc`. | Identity test fails for `./durable.AgentDoc`. | Identity test passes. |
+
+The identity mutant was built with `node node_modules/typescript/bin/tsc -b packages/extension` and tested directly with the identity test name filter. A whole-workspace build also detected the mutant through a W1 type error. The focused run proves the identity assertion itself catches the wrong object.
+
+Fresh baseline and candidate logs are `/tmp/r3-followup-before.log` and `/tmp/r3-followup-after.log`. The requested sorted top-level name lists are `/tmp/r3-followup-before.txt` and `/tmp/r3-followup-after.txt`. Baseline passed 329 tests. Candidate passed 351 tests, with zero failures or skipped tests. The six renamed tests below are still the only removed names. The twenty new tests below remain, plus `extension source pi-ai diagnostics reserve pi-ai for tests` and `extension deep facade diagnostics name the public entry`. All three extension suites keep their names. No facade exports were added.
+
+Mutant logs are `/tmp/r3-followup-mutant-root.log`, `/tmp/r3-followup-mutant-ai.log`, and `/tmp/r3-followup-mutant-identity.log`. Diagnostic red and green evidence is in `/tmp/r3-followup-diagnostics-red.log` and `/tmp/r3-followup-workspace-green.log`. The fresh-checkout gate and forced-check output will be posted to PR 108 at the final head.
+
 ## Test disposition
 
 The complete requested top-level name lists are `/tmp/r3-before.txt` and `/tmp/r3-after.txt`. Full output is in the corresponding `.log` files. Baseline has 329 tests. The candidate has 349 tests. Extension test names and assertions are unchanged.
