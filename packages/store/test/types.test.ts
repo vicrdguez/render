@@ -65,6 +65,23 @@ export function cases() {
 	});
 	// @ts-expect-error A decision offers at least one choice.
 	void request(tx, { ...draft, choices: [], then: DesignAnswer });
+	const descriptor = {
+		definition: {
+			name: "types.design_answer",
+			initial: (_input: DecisionInput<"retry">) => ({ phase: "run" }),
+		},
+	};
+	// @ts-expect-error The then task is a pi-durable task, not only a name and an initial.
+	void request(tx, { ...draft, choices: ["retry"], then: descriptor });
+	const Wrong = defineTask<{ payload: string }, { phase: "run" }, null>({
+		name: "types.wrong",
+		version: 1,
+		initial: () => ({ phase: "run" }),
+		phases: { run: async () => {} },
+		abort: async () => {},
+	});
+	// @ts-expect-error The then task takes a decision and a choice.
+	void request(tx, { ...draft, choices: ["approve"], then: Wrong });
 
 	const Handed = defineEntry<{ text: string; at: number; sha: string }>(
 		"w1.handed",
