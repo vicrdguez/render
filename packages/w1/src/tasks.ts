@@ -431,7 +431,7 @@ export const handoff = single<DecisionInput<"approve" | "abort">>(
 			) {
 				work.stage = "handed_over";
 				await emit(tx, W1Event, {
-					text: `Approved. Merge with \`git merge --ff-only ${sha}\`.${notActedOn.length === 0 ? "" : ` Not acted on: ${notActedOn.map((a) => a.text).join(" | ")}`}`,
+					text: `Approved. Merge with \`git --no-replace-objects merge --ff-only ${sha}\`.${notActedOn.length === 0 ? "" : ` Not acted on: ${notActedOn.map((a) => a.text).join(" | ")}`}`,
 					at: runtime.now(),
 					conversation: k,
 					stage: work.stage,
