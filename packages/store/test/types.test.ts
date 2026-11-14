@@ -24,7 +24,7 @@ declare const conversation: ConversationId;
 declare const design: TypedEntry<{ text: string; replies: string[] }>;
 declare const commit: TypedEntry<{ sha: string }>;
 
-export function cases() {
+export async function cases() {
 	const draft = {
 		subject: "w1:7:design",
 		title: "Design v2",
@@ -32,16 +32,21 @@ export function cases() {
 		conversation,
 		requestedAt: 0,
 	} as const;
-	void request(tx, {
+	const asked = await request(tx, {
 		...draft,
 		choices: ["approve", "revise", "abort"],
 		then: DesignAnswer,
 	});
-	// A task that accepts more choices than the request offers.
+	void (asked.choices satisfies readonly [
+		"approve" | "revise" | "abort",
+		...("approve" | "revise" | "abort")[],
+	]);
+	// @ts-expect-error The then task accepts more choices than the request offers.
 	void request(tx, { ...draft, choices: ["approve"], then: DesignAnswer });
 	void request(tx, {
 		...draft,
 		choices: ["approve", "abort"],
+		// @ts-expect-error The then task accepts more choices than the request offers.
 		then: DesignAnswer,
 	});
 	void request(tx, {
