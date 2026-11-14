@@ -180,7 +180,10 @@ test("the admin socket is owner-only and refuses a message that does not fit", a
 		const reloaded = JSON.parse(await raw('{"command":"extension_reload"}'));
 		assert.equal(reloaded.reload.status, "applied");
 		assert.deepEqual(reloaded.reload.tasks, []);
-		assert.equal((await s.call("extension_reload", {})).body.refused?.code, "unknown_call");
+		assert.equal(
+			(await s.call("extension_reload", {})).body.refused?.code,
+			"unknown_call",
+		);
 		const listed = JSON.parse(await raw('{"command":"list"}'));
 		assert.deepEqual(
 			listed.devices.map((d: { device: string }) => d.device),

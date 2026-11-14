@@ -184,6 +184,20 @@ test("a directory path that is a file refuses the scan and says so", async () =>
 	);
 });
 
+test("a directory owned by another user asks for ownership repair, not chmod", async (t) => {
+	const dir = await scratch();
+	const uid = process.getuid!();
+	t.mock.method(process as { getuid(): number }, "getuid", () => uid + 1);
+	await assert.rejects(
+		async () => fromDirectory(dir)(),
+		(error: Error) => {
+			assert.match(error.message, /not owned.*transfer ownership/);
+			assert.doesNotMatch(error.message, /chmod/);
+			return true;
+		},
+	);
+});
+
 test("a folder or file writable by group or others fails that extension alone", async () => {
 	const dir = await directory({
 		alpha: { "index.ts": plain("alpha") },

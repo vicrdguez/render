@@ -3,6 +3,8 @@ import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import {
 	access,
+	chmod,
+	cp,
 	glob,
 	mkdir,
 	mkdtemp,
@@ -10,6 +12,7 @@ import {
 	readFile,
 	rm,
 	symlink,
+	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -46,7 +49,7 @@ async function post(url: string, name: string, body: object, token?: string) {
 	return reply.result;
 }
 
-async function check(installed: boolean) {
+async function check() {
 	const child = spawn(command!, ["--port", "0"], {
 		env,
 		stdio: ["ignore", "pipe", "pipe"],
@@ -72,16 +75,37 @@ async function check(installed: boolean) {
 		process.stdout.write(stdout);
 		const url = /http:\/\/127\.0\.0\.1:\d+/.exec(stdout)?.[0];
 		assert.ok(url);
-		const device = installed ? "phone" : "empty";
+		const device = "phone";
 		const paired = await run(command!, ["device", "pair", device], { env });
 		const code = /[0-9A-Z]{4}-[0-9A-Z]{4}/.exec(paired.stdout)?.[0];
 		assert.ok(code);
 		const { token } = await post(url, "pair", { code });
+		assert.deepEqual(
+			(await post(url, "extensions", {}, token)).items,
+			[],
+			stderr,
+		);
+		process.stdout.write("empty extensions []\n");
+		for (const [i, name] of ["w1", "w2", "websearch"].entries()) {
+			const output = outputs[i]!;
+			await access(join(output, "index.ts"));
+			for await (const file of glob("**/*.{js,mjs,cjs}", {
+				cwd: output,
+				exclude: ["node_modules/**"],
+			}))
+				assert.fail(`extension ships JavaScript: ${file}`);
+			await symlink(output, join(home, "extensions", name));
+		}
+		const added = await run(command!, ["extension", "reload"], { env });
+		assert.equal(
+			added.stdout.split("\n").filter((line) => line.startsWith("added "))
+				.length,
+			3,
+			added.stdout,
+		);
+		process.stdout.write(added.stdout);
 		const { items } = await post(url, "extensions", {}, token);
-		if (!installed) {
-			assert.deepEqual(items, [], stderr);
-			process.stdout.write("empty extensions []\n");
-		} else {
+		{
 			assert.deepEqual(
 				items.map((item: any) => [item.name, item.workflow]),
 				[
@@ -140,6 +164,20 @@ async function check(installed: boolean) {
 				"project missing []; W2 conversation created without a model call\n",
 			);
 		}
+		const changed = join(root, "changed-w2");
+		await cp(outputs[1]!, changed, { recursive: true, dereference: false });
+		await chmod(changed, 0o700);
+		const prose = join(changed, "agent.md");
+		await chmod(prose, 0o644);
+		await writeFile(
+			prose,
+			(await readFile(prose, "utf8")) + "\nRELOADED-MARKDOWN.\n",
+		);
+		await rm(join(home, "extensions", "w2"));
+		await symlink(changed, join(home, "extensions", "w2"));
+		const replaced = await run(command!, ["extension", "reload"], { env });
+		assert.match(replaced.stdout, /^replaced w2; projects: p$/m);
+		process.stdout.write(replaced.stdout);
 		const models = await post(url, "models", {}, token);
 		assert.ok(Array.isArray(models.items));
 		const listed = await run(command!, ["device", "list"], { env });
@@ -181,17 +219,7 @@ try {
 		);
 	}
 	await mkdir(join(home, "extensions"), { recursive: true, mode: 0o700 });
-	await check(false);
-	for (const [i, name] of ["w1", "w2", "websearch"].entries()) {
-		const output = outputs[i]!;
-		await access(join(output, "index.ts"));
-		for await (const file of glob("**/*.{js,mjs,cjs}", {
-			cwd: output,
-			exclude: ["node_modules/**"],
-		}))
-			assert.fail(`extension ships JavaScript: ${file}`);
-		await symlink(output, join(home, "extensions", name));
-	}
+	await check();
 	for (const file of [
 		"build",
 		"designer",
@@ -207,7 +235,6 @@ try {
 		);
 	assert.ok((await readFile(join(outputs[1]!, "agent.md"), "utf8")).length > 0);
 	process.stdout.write("extension source and Markdown installed\n");
-	await check(true);
 } finally {
 	await rm(root, { recursive: true, force: true });
 }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
 import {
 	chmod,
 	lstat,
@@ -11,6 +11,7 @@ import {
 	symlink,
 	writeFile,
 } from "node:fs/promises";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { test } from "node:test";
@@ -35,6 +36,11 @@ async function fixture(t) {
 		`#!${process.execPath}\nimport { writeFileSync, symlinkSync, unlinkSync, lstatSync, readlinkSync } from 'node:fs';\nconst args = process.argv.slice(2);\nwriteFileSync(${JSON.stringify(log)}, JSON.stringify(args));\nif (process.env.FAIL_BUILD || (process.env.FAIL_OUTLINK && args.includes('--out-link'))) process.exit(1);\nif (args.includes('--no-link')) process.exit(0);\nconst link = args[args.indexOf('--out-link') + 1];\nlet info;\ntry { info = lstatSync(link); } catch (error) { if (error.code !== 'ENOENT') throw error; }\nif (info?.isSymbolicLink() && readlinkSync(link).startsWith('/nix/store/')) unlinkSync(link);\nsymlinkSync(${JSON.stringify(target)}, link);\n`,
 	);
 	await chmod(join(bin, "nix"), 0o755);
+	await writeFile(
+		join(bin, "nix-store"),
+		`#!${process.execPath}\nprocess.exit(0);\n`,
+	);
+	await chmod(join(bin, "nix-store"), 0o755);
 	execFileSync("git", ["init", "-q", root]);
 	const run = (args = [], extraEnv = {}, defaultHome = false) =>
 		spawnSync(
@@ -158,14 +164,73 @@ test("install-extension warns that untracked extension files are excluded by the
 	assert.match(result.stderr, /flake.*tracked.*git add/s);
 });
 
+for (const [status, tasks, expected] of [
+	["applied", [], 0],
+	["applied", [{ project: "p", task: 33 }], 3],
+	["refused", [], 1],
+]) {
+	test(`install-extension reloads a running home and returns ${expected}`, async (t) => {
+		const f = await fixture(t);
+		await mkdir(f.home, { recursive: true });
+		const report = {
+			status,
+			tasks,
+			extensions: [{ name: "w2", status: "added", projects: ["p"] }],
+			skipped: [],
+			failures: [],
+		};
+		let request;
+		const server = net.createServer({ allowHalfOpen: true }, (socket) => {
+			let input = "";
+			socket.on("data", (chunk) => {
+				input += String(chunk);
+			});
+			socket.on("end", () => {
+				request = JSON.parse(input);
+				socket.end(JSON.stringify({ reload: report }) + "\n");
+			});
+		});
+		await new Promise((resolve) =>
+			server.listen(join(f.home, "admin.sock"), resolve),
+		);
+		try {
+			const result = await new Promise((resolve) =>
+				execFile(
+					process.execPath,
+					[installer, names, "--home", f.home, "w2"],
+					{
+						cwd: f.root,
+						env: {
+							...process.env,
+							PATH: `${join(f.root, "bin")}${delimiter}${process.env.PATH ?? ""}`,
+						},
+					},
+					(error, stdout, stderr) =>
+						resolve({
+							code: error === null ? 0 : Number(error.code),
+							stdout,
+							stderr,
+						}),
+				),
+			);
+			assert.equal(result.code, expected, result.stderr);
+			assert.deepEqual(request, { command: "extension_reload" });
+			assert.match(result.stdout, new RegExp(status));
+			assert.doesNotMatch(result.stdout, /next start/);
+		} finally {
+			await new Promise((resolve) => server.close(resolve));
+		}
+	});
+}
+
 test("install-extension keeps the old link when the out-link build fails", async (t) => {
- const f = await fixture(t);
- await mkdir(join(f.home, "extensions"), {recursive: true});
- const link = join(f.home, "extensions", "w2");
- await symlink(f.root, link);
- const result = f.run(["w2"], {FAIL_OUTLINK: "1"});
- assert.equal(result.status, 1);
- assert.equal(await readlink(link), f.root);
+	const f = await fixture(t);
+	await mkdir(join(f.home, "extensions"), { recursive: true });
+	const link = join(f.home, "extensions", "w2");
+	await symlink(f.root, link);
+	const result = f.run(["w2"], { FAIL_OUTLINK: "1" });
+	assert.equal(result.status, 1);
+	assert.equal(await readlink(link), f.root);
 });
 
 test("install-extension reports a failed build without claiming installation or replacing the old link", async (t) => {
