@@ -257,6 +257,24 @@ test("extensions accept only canonical facade entries with testing limited to te
 	}
 });
 
+test("extension source pi-ai diagnostics reserve pi-ai for tests", async (t) => {
+	const { root, put } = await extensionFixture(t);
+	for (const specifier of ["@earendil-works/pi-ai", "@earendil-works/pi-ai/models"]) {
+		await put("packages/w2/src/index.ts", `import "${specifier}";`);
+		const errors = (await check(root)).join("\n");
+		assert.match(errors, /pi-ai is for tests only/);
+		assert.doesNotMatch(errors, /use tau-extension\/testing/);
+	}
+});
+
+test("extension deep facade diagnostics name the public entry", async (t) => {
+	const { root, put } = await extensionFixture(t);
+	for (const entry of ["durable", "schema", "chord"]) {
+		await put("packages/w2/src/index.ts", `import "tau-extension/dist/src/${entry}.js";`);
+		assert.match((await check(root)).join("\n"), new RegExp(`use tau-extension/${entry}(?:$|\\n)`));
+	}
+});
+
 test("extensions require declared runtime dependencies and reserve devDependencies for tests", async (t) => {
 	const { root, put } = await extensionFixture(t);
 	for (const specifier of ["undeclared", "test-helper"]) {
