@@ -26,4 +26,48 @@ W1 passed its three HTTP journeys in 317.407541, 177.112625 and 210.519708 ms. T
 
 The built verifier first failed on missing `w1/dist/src/designer.md`. After the existing asset copier was added to the Nix build, it started the installed executable on port 0, paired a phone, listed it through both the built command and `nix run .#tau -- device list`, loaded all three modules over HTTP and read all nine emitted prose files.
 
-Remaining checkpoints are mutations and the fresh checkout gate.
+## Failure coverage
+
+| Failure | Test | File |
+| --- | --- | --- |
+| An extension is absent from the command, or a bare conversation cannot reconnect and continue | W0 | `packages/tau/test/w0.test.ts` |
+| A reconnect silently loses entries outside the stream window | W0 compares the gap-filled ID set with the complete HTTP history | `packages/tau/test/w0.test.ts` |
+| Project defaults omit search, results lose content, options expose a key, or a stream or log leaks it | search | `packages/tau/test/search.test.ts` |
+| An overdue timer is not resumed, the phone inbox misses it, scoring calls a model or computes the wrong score | W2 | `packages/tau/test/w2.test.ts` |
+| Not yet uses the wrong deadline, revision leaves an open decision, or an old answer can score it | W2 | `packages/tau/test/w2.test.ts` |
+| Missing code refuses bind, loses options, runs absent tasks or never runs them after restoration | missing extension | `packages/tau/test/w2.test.ts` |
+| An approval annotation is lost, evidence names different SHAs, handover names no real reviewed commit or Tau merges | W1 annotated design to handover | `packages/tau/test/w1.test.ts` |
+| A stale basis changes work | W1 annotated design to handover | `packages/tau/test/w1.test.ts` |
+| Concurrent device answers overwrite each other, hide their winner, or duplicate work | W1 two devices and fault recovery | `packages/tau/test/w1.test.ts` |
+| A faulted continuation is invisible or an equal resend cannot recover it | W1 two devices and fault recovery | `packages/tau/test/w1.test.ts` |
+| A moved head is handed over without review | W1 row 19 | `packages/tau/test/w1.test.ts` |
+| SIGKILL loses an answered decision or repeats its continuation effect | W1 SIGKILL | `packages/tau/test/crash.test.ts` |
+| The installed command lacks extension code or prose, cannot pair or cannot list devices | installed verifier | `packages/tau/test/verify-build.ts` |
+
+## Mutation evidence
+
+Each mutation was applied alone, compiled with `nix develop -c typecheck`, tested with `nix develop -c node --test <file>`, and reverted. All three tests exited 1 on the intended assertion.
+
+| Mutation | Emitted test file | Failure |
+| --- | --- | --- |
+| Remove W2 from the import map | `packages/tau/dist/test/w0.test.js` | Extensions lacked `[w2, true]`. One test failed. |
+| Return a secret option value instead of `true` | `packages/tau/dist/test/search.test.js` | Actual apiKey was the fixture key. Expected `true`. One test failed. |
+| Use subtraction instead of the Brier square | `packages/tau/dist/test/w2.test.js` | The score differed from 0.09. W2 failed and missing extension passed. |
+
+`git diff` of the three mutated source files was empty after restoration. The package run after restoration passed all 14 tests. Node reported 4267.61525 ms. The whole focused command took 6.23 seconds. Each of the eight new journeys was below 1.4 seconds in that run. It includes a real child kill, SQLite restarts, local provider HTTP and Git. It makes no real model call. The machine had 12 CPUs and load averages 2.08, 2.24 and 2.52 before the run. These are single-run command costs, not speedup claims.
+
+## Fixes outside the command package
+
+| File | Failing check first | Change |
+| --- | --- | --- |
+| `packages/websearch/src/index.ts` | HTTP search asserted that the endpoint constructor was reachable. It failed before the export. | Export the existing provider constructor. No tool or production endpoint changes. |
+| `packages/websearch/test/search.test.ts` | The module contract was changed before the export. | Accept the one added export while retaining the extension contract assertions. |
+| `flake.nix` | The installed verifier failed with ENOENT on designer prose. | Include and run the existing asset copier during package build. |
+
+## Cumulative check
+
+`/usr/bin/time -p nix develop -c check` exited 0 after all mutations were restored. It passed 246 tests with no failures, cancellations, skips or TODOs. Node reported 10718.2985 ms. All six unchanged spike scripts passed. Whole-command wall time was 23.93 seconds. This is one command-cost sample, not a benchmark comparison. The fresh pushed-source gate and forced rebuild output are published with the PR after this evidence commit.
+
+## Limits
+
+No real model or live search service was called. No TLS proxy, real phone, remote machine, browser, Linux run, power loss or kill inside SQLite's write was tested. The two devices are separately paired tokens over localhost fetch. The SIGKILL test kills a paused Git read after the answer response, not the SQLite write. Search checks full fixture-key secrecy, not all possible short fragments; the websearch unit records that accepted limit. The installed verifier is an explicit post-build command, not part of the default unit-test command, because that command runs inside the Nix test derivation without a Nix daemon. The source-specific fresh gate runs after this evidence commit.
