@@ -2,6 +2,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "node:test";
+import * as chordContext from "@earendil-works/chord/context";
+import * as aiModels from "@earendil-works/pi-ai/models";
+import * as aiFaux from "@earendil-works/pi-ai/providers/faux";
+import * as piDurable from "@earendil-works/pi-durable";
+import * as nodeEnv from "@earendil-works/pi-durable/env/node";
+import * as sqlite from "@earendil-works/pi-durable/storage/sqlite/node";
+import * as durableTools from "@earendil-works/pi-durable/tools";
+import * as piSchema from "@earendil-works/pi-schema";
+import * as store from "tau-store";
+import * as storeTesting from "tau-store/testing";
 import * as root from "tau-extension";
 import * as chord from "tau-extension/chord";
 import * as durable from "tau-extension/durable";
@@ -74,7 +84,11 @@ test("README tables match every emitted value, type, and origin exactly once", (
 					`${title}.${name}: root origin must be tau-store or ./helpers.js`,
 				);
 			if (/^@earendil-works\/pi-ai(?:\/|$)/.test(origin))
-				assert.equal(entry, "./testing", `${title}.${name}: pi-ai is testing only`);
+				assert.equal(
+					entry,
+					"./testing",
+					`${title}.${name}: pi-ai is testing only`,
+				);
 		}
 		const file = declarations[index];
 		assert.ok(file);
@@ -120,14 +134,28 @@ test("README tables match every emitted value, type, and origin exactly once", (
 	}
 });
 
-test("extension re-exports preserve Tau and pi object identity", async () => {
+test("extension re-exports preserve Tau and pi object identity", () => {
+	const origins: Record<string, Record<string, unknown>> = {
+		"./helpers.js": helpers,
+		"tau-store": store,
+		"tau-store/testing": storeTesting,
+		"@earendil-works/chord/context": chordContext,
+		"@earendil-works/pi-ai/models": aiModels,
+		"@earendil-works/pi-ai/providers/faux": aiFaux,
+		"@earendil-works/pi-durable": piDurable,
+		"@earendil-works/pi-durable/env/node": nodeEnv,
+		"@earendil-works/pi-durable/storage/sqlite/node": sqlite,
+		"@earendil-works/pi-durable/tools": durableTools,
+		"@earendil-works/pi-schema": piSchema,
+	};
 	for (const [entry, values] of Object.entries(entries)) {
 		for (const { name, kind, origin } of rows(entry)) {
 			if (kind !== "value") continue;
-			const original = origin === "./helpers.js" ? helpers : await import(origin);
+			const original = origins[origin];
+			assert.ok(original && Object.hasOwn(original, name), `${origin}.${name}`);
 			assert.equal(
 				(values as Record<string, unknown>)[name],
-				original[name as keyof typeof original],
+				original[name],
 				`${entry}.${name} must preserve identity from ${origin}`,
 			);
 		}

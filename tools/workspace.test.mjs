@@ -163,7 +163,11 @@ for (const [specifier, replacement] of [
 				errors.some(
 					(error) =>
 						error.includes(`${directory}/access.ts: ${specifier}`) &&
-						error.includes(`use ${replacement}`),
+						error.includes(
+							directory === "src" && name === "@earendil-works/pi-ai"
+								? "pi-ai is for tests only"
+								: `use ${replacement}`,
+						),
 				),
 				errors.join("\n"),
 			);
@@ -259,7 +263,10 @@ test("extensions accept only canonical facade entries with testing limited to te
 
 test("extension source pi-ai diagnostics reserve pi-ai for tests", async (t) => {
 	const { root, put } = await extensionFixture(t);
-	for (const specifier of ["@earendil-works/pi-ai", "@earendil-works/pi-ai/models"]) {
+	for (const specifier of [
+		"@earendil-works/pi-ai",
+		"@earendil-works/pi-ai/models",
+	]) {
 		await put("packages/w2/src/index.ts", `import "${specifier}";`);
 		const errors = (await check(root)).join("\n");
 		assert.match(errors, /pi-ai is for tests only/);
@@ -270,8 +277,14 @@ test("extension source pi-ai diagnostics reserve pi-ai for tests", async (t) => 
 test("extension deep facade diagnostics name the public entry", async (t) => {
 	const { root, put } = await extensionFixture(t);
 	for (const entry of ["durable", "schema", "chord"]) {
-		await put("packages/w2/src/index.ts", `import "tau-extension/dist/src/${entry}.js";`);
-		assert.match((await check(root)).join("\n"), new RegExp(`use tau-extension/${entry}(?:$|\\n)`));
+		await put(
+			"packages/w2/src/index.ts",
+			`import "tau-extension/dist/src/${entry}.js";`,
+		);
+		assert.match(
+			(await check(root)).join("\n"),
+			new RegExp(`use tau-extension/${entry}(?:$|\\n)`),
+		);
 	}
 });
 
