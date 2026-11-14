@@ -5,6 +5,8 @@
 		{ "path": "packages/kit" },
 		{ "path": "packages/w1" },
 		{ "path": "packages/websearch" },
-		{ "path": "packages/w2" }
+		{ "path": "packages/w2" },
+		{ "path": "packages/host" },
+		{ "path": "packages/tau" }
 	]
 }

@@ -124,9 +124,41 @@
                 touch "$out"
               ''
           );
+          tau = pkgs.stdenvNoCC.mkDerivation {
+            pname = "tau";
+            version = "0.0.0";
+            src = lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions [
+                ./package.json
+                ./tsconfig.json
+                ./tsconfig.base.json
+                ./tools/link-node-modules.mjs
+                ./packages
+              ];
+            };
+            nativeBuildInputs = [
+              nodejs
+              pkgs.makeWrapper
+            ];
+            buildPhase = ''
+              runHook preBuild
+              node tools/link-node-modules.mjs ${npmDeps}/node_modules
+              node node_modules/typescript/bin/tsc -b
+              runHook postBuild
+            '';
+            installPhase = ''
+              runHook preInstall
+              mkdir -p $out/lib/tau $out/bin
+              cp -R package.json packages tools $out/lib/tau/
+              (cd $out/lib/tau && node tools/link-node-modules.mjs ${npmDeps}/node_modules)
+              makeWrapper ${nodejs}/bin/node $out/bin/tau --add-flags $out/lib/tau/packages/tau/dist/src/main.js
+              runHook postInstall
+            '';
+          };
         in
         {
-          inherit commands checks;
+          inherit commands checks tau;
           formatter = pkgs.nixfmt;
           shell = pkgs.mkShellNoCC {
             packages = [
@@ -154,7 +186,17 @@
           type = "app";
           program = "${command}/bin/${name}";
         }) value.commands
+        // {
+          tau = {
+            type = "app";
+            program = "${value.tau}/bin/tau";
+          };
+        }
       ) perSystem;
+      packages = lib.mapAttrs (_: value: {
+        inherit (value) tau;
+        default = value.tau;
+      }) perSystem;
       devShells = lib.mapAttrs (_: value: { default = value.shell; }) perSystem;
       checks = lib.mapAttrs (_: value: value.checks) perSystem;
       formatter = lib.mapAttrs (_: value: value.formatter) perSystem;
