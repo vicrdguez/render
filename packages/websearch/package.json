@@ -7,6 +7,10 @@
 		".": {
 			"types": "./dist/src/index.d.ts",
 			"import": "./dist/src/index.js"
+		},
+		"./testing": {
+			"types": "./dist/src/web-search.d.ts",
+			"import": "./dist/src/web-search.js"
 		}
 	},
 	"dependencies": {

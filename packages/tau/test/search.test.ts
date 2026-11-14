@@ -3,19 +3,14 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import * as websearch from "tau-websearch";
+import { createSearchExtension } from "tau-websearch/testing";
 import { modules } from "../src/modules.js";
 import { journey, until } from "./journey.js";
 
 test("search: project default calls the local provider and no device surface or log reveals the key", {
 	timeout: 15_000,
 }, async (t) => {
-	assert.ok(
-		"createSearchExtension" in websearch,
-		"composition needs a provider endpoint parameter",
-	);
-	assert.equal(typeof websearch.createSearchExtension, "function");
-	const create = websearch.createSearchExtension;
+	const create = createSearchExtension;
 	const key = "sk-integration-secret-never-return";
 	let requests = 0;
 	const provider = createServer(async (request, response) => {
