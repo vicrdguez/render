@@ -136,10 +136,8 @@ export class Devices {
 	async revoke(device: string): Promise<{ done: true } | { error: string }> {
 		const record = this.#records.find((r) => r.device === device);
 		if (record === undefined) return { error: `No device is named ${device}.` };
-		if (record.revokedAt === undefined) {
-			record.revokedAt = this.#now();
-			await this.#persist();
-		}
+		record.revokedAt ??= this.#now();
+		await this.#persist();
 		this.#end(device, "revoked");
 		return { done: true };
 	}
