@@ -136,15 +136,7 @@ export class Devices {
 	async revoke(device: string): Promise<{ done: true } | { error: string }> {
 		const record = this.#records.find((r) => r.device === device);
 		if (record === undefined) return { error: `No device is named ${device}.` };
-		const previous = record.revokedAt;
-		record.revokedAt ??= this.#now();
-		try {
-			await this.#persist();
-		} catch (error) {
-			if (previous === undefined) delete record.revokedAt;
-			else record.revokedAt = previous;
-			throw error;
-		}
+		await this.#persist(record);
 		this.#end(device, "revoked");
 		return { done: true };
 	}
@@ -173,15 +165,25 @@ export class Devices {
 		for (const end of [...(this.#streams.get(device) ?? [])]) end(reason);
 	}
 
-	#persist(): Promise<void> {
+	#persist(revoking?: DeviceRecord): Promise<void> {
 		const next = this.#writing.then(async () => {
-			const temporary = `${this.#file}.tmp`;
-			await writeFile(
-				temporary,
-				`${JSON.stringify({ devices: this.#records }, null, "\t")}\n`,
-				{ mode: 0o600 },
-			);
-			await rename(temporary, this.#file);
+			const previous = revoking?.revokedAt;
+			if (revoking) revoking.revokedAt ??= this.#now();
+			try {
+				const temporary = `${this.#file}.tmp`;
+				await writeFile(
+					temporary,
+					`${JSON.stringify({ devices: this.#records }, null, "\t")}\n`,
+					{ mode: 0o600 },
+				);
+				await rename(temporary, this.#file);
+			} catch (error) {
+				if (revoking) {
+					if (previous === undefined) delete revoking.revokedAt;
+					else revoking.revokedAt = previous;
+				}
+				throw error;
+			}
 		});
 		this.#writing = next.catch(() => {});
 		return next;
