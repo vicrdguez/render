@@ -32,7 +32,7 @@ async function fixture(t) {
 	await mkdir(target);
 	await writeFile(
 		join(bin, "nix"),
-		`#!${process.execPath}\nimport { writeFileSync, symlinkSync, unlinkSync, lstatSync, readlinkSync } from 'node:fs';\nconst args = process.argv.slice(2);\nwriteFileSync(${JSON.stringify(log)}, JSON.stringify(args));\nif (process.env.FAIL_BUILD) process.exit(1);\nif (args.includes('--no-link')) process.exit(0);\nconst link = args[args.indexOf('--out-link') + 1];\nlet info;\ntry { info = lstatSync(link); } catch (error) { if (error.code !== 'ENOENT') throw error; }\nif (info?.isSymbolicLink() && readlinkSync(link).startsWith('/nix/store/')) unlinkSync(link);\nsymlinkSync(${JSON.stringify(target)}, link);\n`,
+		`#!${process.execPath}\nimport { writeFileSync, symlinkSync, unlinkSync, lstatSync, readlinkSync } from 'node:fs';\nconst args = process.argv.slice(2);\nwriteFileSync(${JSON.stringify(log)}, JSON.stringify(args));\nif (process.env.FAIL_BUILD || (process.env.FAIL_OUTLINK && args.includes('--out-link'))) process.exit(1);\nif (args.includes('--no-link')) process.exit(0);\nconst link = args[args.indexOf('--out-link') + 1];\nlet info;\ntry { info = lstatSync(link); } catch (error) { if (error.code !== 'ENOENT') throw error; }\nif (info?.isSymbolicLink() && readlinkSync(link).startsWith('/nix/store/')) unlinkSync(link);\nsymlinkSync(${JSON.stringify(target)}, link);\n`,
 	);
 	await chmod(join(bin, "nix"), 0o755);
 	execFileSync("git", ["init", "-q", root]);
@@ -70,15 +70,13 @@ test("install-extension builds an out-link, replaces it and tells the owner to r
 	const installed = f.run(["w2"]);
 	assert.equal(installed.status, 0, installed.stderr);
 	const link = join(f.home, "extensions", "w2");
-	assert.deepEqual(JSON.parse(await readFile(f.log, "utf8")), [
-		"build",
-		".#extension-w2",
-		"--out-link",
-		link,
-	]);
+	const args = JSON.parse(await readFile(f.log, "utf8"));
+	assert.deepEqual(args.slice(0, 3), ["build", ".#extension-w2", "--out-link"]);
+	assert.equal(join(args[3], ".."), join(link, ".."));
+	assert.notEqual(args[3], link);
 	assert.equal(await readlink(link), f.target);
 	assert.equal((await lstat(join(f.home, "extensions"))).mode & 0o777, 0o700);
-	assert.match(installed.stdout, /Restart tau/);
+	assert.match(installed.stdout, /next start/);
 	await rm(link);
 	await symlink(f.root, link);
 	assert.equal(f.run(["w2"]).status, 0);
@@ -158,6 +156,16 @@ test("install-extension warns that untracked extension files are excluded by the
 	assert.equal(result.status, 0, result.stderr);
 	assert.match(result.stderr, /untracked.*packages\/w2\/src\/new.ts/s);
 	assert.match(result.stderr, /flake.*tracked.*git add/s);
+});
+
+test("install-extension keeps the old link when the out-link build fails", async (t) => {
+ const f = await fixture(t);
+ await mkdir(join(f.home, "extensions"), {recursive: true});
+ const link = join(f.home, "extensions", "w2");
+ await symlink(f.root, link);
+ const result = f.run(["w2"], {FAIL_OUTLINK: "1"});
+ assert.equal(result.status, 1);
+ assert.equal(await readlink(link), f.root);
 });
 
 test("install-extension reports a failed build without claiming installation or replacing the old link", async (t) => {

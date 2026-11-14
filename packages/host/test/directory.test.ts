@@ -177,6 +177,8 @@ test("a directory path that is a file refuses the scan and says so", async () =>
 		(error: Error) => {
 			assert.ok(error.message.includes(file), error.message);
 			assert.match(error.message, /extension directory/);
+			assert.match(error.message, /replace.*folder/i);
+			assert.doesNotMatch(error.message, /chmod/);
 			return true;
 		},
 	);

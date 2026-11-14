@@ -231,10 +231,16 @@ test("the default listen configuration is loopback port 6283 without binding it"
 
 test("a device command with no server, or an unknown command, fails with a message", async () => {
 	const env = await home();
+	const reload = await run(env, ["extension", "reload"]);
+	assert.equal(reload.code, 1);
+	assert.match(reload.stderr, /no Tau server/i);
 	const none = await run(env, ["device", "list"]);
 	assert.equal(none.code, 1);
 	assert.match(none.stderr, /no Tau server/i);
 	for (const args of [
+		["extension"],
+		["extension", "reload", "demo"],
+		["extension", "remove"],
 		["serve"],
 		["--allow-host"],
 		["--port"],
