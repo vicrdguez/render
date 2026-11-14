@@ -32,16 +32,18 @@ async function fixture(t) {
 	await mkdir(target);
 	await writeFile(
 		join(bin, "nix"),
-		`#!${process.execPath}\nimport { writeFileSync, symlinkSync, unlinkSync, existsSync } from 'node:fs';\nconst args = process.argv.slice(2);\nwriteFileSync(${JSON.stringify(log)}, JSON.stringify(args));\nif (process.env.FAIL_BUILD) process.exit(1);\nconst link = args[args.indexOf('--out-link') + 1];\nif (existsSync(link)) unlinkSync(link);\nsymlinkSync(${JSON.stringify(target)}, link);\n`,
+		`#!${process.execPath}\nimport { writeFileSync, symlinkSync, unlinkSync, lstatSync, readlinkSync } from 'node:fs';\nconst args = process.argv.slice(2);\nwriteFileSync(${JSON.stringify(log)}, JSON.stringify(args));\nif (process.env.FAIL_BUILD) process.exit(1);\nif (args.includes('--no-link')) process.exit(0);\nconst link = args[args.indexOf('--out-link') + 1];\nlet info;\ntry { info = lstatSync(link); } catch (error) { if (error.code !== 'ENOENT') throw error; }\nif (info?.isSymbolicLink() && readlinkSync(link).startsWith('/nix/store/')) unlinkSync(link);\nsymlinkSync(${JSON.stringify(target)}, link);\n`,
 	);
 	await chmod(join(bin, "nix"), 0o755);
 	execFileSync("git", ["init", "-q", root]);
-	const run = (args = [], extraEnv = {}) =>
-		spawnSync(process.execPath, [installer, names, "--home", home, ...args], {
+	const run = (args = [], extraEnv = {}, defaultHome = false) =>
+		spawnSync(process.execPath, [installer, names, ...(defaultHome ? [] : ["--home", home]), ...args], {
 			cwd: root,
 			env: {
 				...process.env,
 				PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+				HOME: root,
+				TAU_INVOCATION_DIR: root,
 				...extraEnv,
 			},
 			encoding: "utf8",
@@ -78,6 +80,47 @@ test("install-extension builds an out-link, replaces it and tells the owner to r
 	assert.equal(f.run(["w2"]).status, 0);
 	assert.equal(await readlink(link), f.target);
 });
+
+test("install-extension uses a temporary HOME for its default Tau home", async (t) => {
+	const f = await fixture(t);
+	const result = f.run(["w2"], {}, true);
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(await readlink(join(f.root, ".tau/extensions/w2")), f.target);
+});
+
+test("install-extension resolves a relative home from the caller directory", async (t) => {
+	const f = await fixture(t);
+	const caller = join(f.root, "nested");
+	await mkdir(caller);
+	const result = f.run(["--home", "relative", "w2"], { TAU_INVOCATION_DIR: caller });
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(await readlink(join(caller, "relative/extensions/w2")), f.target);
+});
+
+test("install-extension replaces a dangling link", async (t) => {
+	const f = await fixture(t);
+	await mkdir(join(f.home, "extensions"), { recursive: true });
+	const link = join(f.home, "extensions/w2");
+	await symlink(join(f.root, "absent"), link);
+	const result = f.run(["w2"]);
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(await readlink(link), f.target);
+});
+
+for (const kind of ["file", "directory"]) {
+	test(`install-extension refuses an existing ${kind} without removing it`, async (t) => {
+		const f = await fixture(t);
+		await mkdir(join(f.home, "extensions"), { recursive: true });
+		const link = join(f.home, "extensions/w2");
+		if (kind === "file") await writeFile(link, "keep");
+		else await mkdir(link);
+		const result = f.run(["w2"]);
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, new RegExp(`Refusing.*${kind}`));
+		if (kind === "file") assert.equal(await readFile(link, "utf8"), "keep");
+		else assert.ok((await lstat(link)).isDirectory());
+	});
+}
 
 test("install-extension refuses unknown names and malformed arguments without building", async (t) => {
 	const f = await fixture(t);
