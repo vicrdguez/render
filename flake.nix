@@ -17,15 +17,21 @@
         let
           pkgs = import nixpkgs { inherit system; };
           nodejs = pkgs.nodejs_24;
+          npmRootSrc = lib.fileset.toSource {
+            root = ./.;
+            fileset = lib.fileset.unions [
+              ./package.json
+              ./package-lock.json
+              (lib.fileset.fileFilter (file: file.name == "package.json") ./packages)
+            ];
+          };
           npmDeps = pkgs.importNpmLock.buildNodeModules {
-            npmRoot = lib.fileset.toSource {
-              root = ./.;
-              fileset = lib.fileset.unions [
-                ./package.json
-                ./package-lock.json
-              ];
-            };
+            npmRoot = npmRootSrc;
             inherit nodejs;
+            derivationArgs = {
+              postPatch = "cp -R --no-preserve=mode ${npmRootSrc}/packages packages";
+              postInstall = "find $out/node_modules -maxdepth 2 -type l -lname '*packages/*' -delete";
+            };
           };
           enterRoot = ''
             TAU_INVOCATION_DIR="$(pwd -P)"
