@@ -76,6 +76,8 @@ Focused directory and source tests then passed, 71 of 71, in 1.63 seconds of Nod
 
 The exports-map identity test reads every production entry and compares every value export with native imports from the installed facade. Adding an entry needs no edit to the test. The inherited independent probe measured 36 identities. The unchanged tool, decision, HTTP answer and then-task journey still passes. The cache and second-scan freshness tests still pass.
 
+The first fresh-checkout gate caught an incidental test-output failure. The child compared all 36 values successfully, but parsing its colored numeric stdout failed under the gate's color settings. The nonempty comparison assertion now runs inside the child beside the identity assertions. The focused test passes with `FORCE_COLOR=1`. No production change was needed.
+
 Local logs are `/tmp/r5-red.log`, `/tmp/r5-options-red.log`, `/tmp/r5-green.log`, `/tmp/r5-mutant-*-new.log` and `/tmp/r5-after-tests.log`. Fresh-checkout gate and forced-check output for the pushed head are reported in PR 109. No other unit's source files changed.
 
 ## Test names

@@ -476,14 +476,13 @@ for (const [i, [key, target]] of entries.entries()) {
   checked++;
  }
 }
-console.log(checked);`;
+assert.ok(checked > 0);`;
 	const child = spawnSync(
 		process.execPath,
 		["--input-type=module", "--eval", script],
 		{ encoding: "utf8" },
 	);
 	assert.equal(child.status, 0, child.stderr);
-	assert.ok(Number(child.stdout.trim()) > 0, child.stdout);
 });
 
 test("the first sorted folder owns a shared task even with integer names on every start", async (t) => {
