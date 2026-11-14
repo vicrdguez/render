@@ -17,4 +17,6 @@ W0 first failed with an empty extension list. The import map fixed that failure.
 
 Search passed in 99.982875 ms after the constructor export. It uses real Webfox against local HTTP, sets options from a device, checks masked secrets, observes search in the bare agent default, reads content and redaction on the stream, and reopens options and history after restart. It checks replies, all three streams, model context and console logs for the key. No live provider runs.
 
-Remaining checkpoints are W2, W1, missing code, installed command, mutations and the fresh checkout gate.
+W2 passed in 159.975209 ms. The missing extension journey passed in 55.619875 ms. W2 reads an overdue decision in the phone inbox after restart, scores it over HTTP, sees the timeline, defers seven days, revises the new open round and gets `not_open` for its old ID. The missing-code journey binds absent W2 without error, restores it, records a timer, restarts overdue without code, then restores code and sees the waiting timer run with its options intact.
+
+Remaining checkpoints are W1, installed command, mutations and the fresh checkout gate.
