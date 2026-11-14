@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import http from "node:http";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { requestAdmin } from "../src/index.js";
@@ -45,6 +46,35 @@ test("a clean stop ends each stream with stopping, and a revoke ends only that d
 		assert.equal(mine.end, "stopping");
 	} finally {
 		gate.release();
+		await s.close();
+	}
+});
+
+test("revoking a device while its stream body is pending refuses the stream", async () => {
+	const s = await start();
+	const phone = await s.pair("phone");
+	let status = 0;
+	let body = "";
+	const request = http.request(`${s.url}/v1/inbox`, {
+		method: "POST",
+		headers: { Authorization: `Bearer ${phone}`, "Content-Length": "2" },
+	}, (response) => {
+		status = response.statusCode ?? 0;
+		response.setEncoding("utf8");
+		response.on("data", (chunk: string) => { body += chunk; });
+	});
+	request.on("error", () => {});
+	try {
+		request.flushHeaders();
+		request.write("{");
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		assert.deepEqual(await requestAdmin(s.home, { command: "revoke", device: "phone" }), { done: true });
+		request.end("}");
+		await until("the stream reply", () => body.length > 0);
+		assert.equal(status, 401);
+		assert.equal(JSON.parse(body).refused.code, "unauthorized");
+	} finally {
+		request.destroy();
 		await s.close();
 	}
 });
