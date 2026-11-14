@@ -65,6 +65,7 @@ export async function loadExtensions(
 	const current = typeof models === "function" ? models : () => models;
 	const registry = createRegistry();
 	registry.install(CodingTools);
+	const owners = new Map<string, string>();
 	for (const [name, value] of Object.entries(found.modules)) {
 		let stage = "shape";
 		try {
@@ -75,7 +76,16 @@ export async function loadExtensions(
 					? undefined
 					: new Options(module.options, current);
 			stage = "install";
+			const tasks = (module.extension.tasks ?? []).map(
+				(task) => task.definition.name,
+			);
+			const shared = tasks.find((task) => owners.has(task));
+			if (shared !== undefined)
+				throw new Error(
+					`Task ${shared} of extension ${name} is already installed by extension ${owners.get(shared)}`,
+				);
 			registry.install(module.extension);
+			for (const task of tasks) owners.set(task, name);
 			modules[name] = module;
 			if (contract !== undefined) options.set(name, contract);
 		} catch (error) {
