@@ -134,6 +134,7 @@
                 ./tsconfig.json
                 ./tsconfig.base.json
                 ./tools/link-node-modules.mjs
+                ./tools/assets.mjs
                 ./packages
               ];
             };
@@ -145,6 +146,7 @@
               runHook preBuild
               node tools/link-node-modules.mjs ${npmDeps}/node_modules
               node node_modules/typescript/bin/tsc -b
+              node tools/assets.mjs
               runHook postBuild
             '';
             installPhase = ''
