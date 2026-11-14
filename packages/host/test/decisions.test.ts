@@ -246,6 +246,28 @@ test("faults lists each faulted task of an installed kind, with the decision who
 	}
 });
 
+test("fault pagination stays anchored when a new fault arrives between pages and across restart", async () => {
+	const s = await start({ modules });
+	try {
+		const d = await designer(s);
+		await run(s, d, "explode", {});
+		await run(s, d, "explode", {});
+		const faults = async () => (await s.call("faults", { project: "p" })).body.result.items;
+		await until("two faults", async () => (await faults()).length === 2);
+		const original = await faults();
+		const first = (await s.call("faults", { project: "p", limit: 1 })).body.result;
+		assert.equal(first.items[0].task, original[0].task);
+		await run(s, d, "explode", {});
+		await until("a new fault", async () => (await faults()).length === 3);
+		const again = await s.restart();
+		try {
+			const rest = (await again.call("faults", { project: "p", cursor: first.next, limit: 5 })).body.result;
+			assert.deepEqual(rest.items.map((f: { task: number }) => f.task), [original[1].task]);
+			assert.equal(rest.next, undefined);
+		} finally { await again.close(); }
+	} finally { await s.close(); }
+});
+
 test("answer refuses with extension_not_loaded when the server lacks the then task", async () => {
 	const s = await start({ modules });
 	try {
