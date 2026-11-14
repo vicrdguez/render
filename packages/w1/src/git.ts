@@ -8,7 +8,19 @@ const run = promisify(execFile);
 /** Git with an argument list, never a shell. Rejects with Git's own message. */
 async function git(cwd: string, ...args: string[]) {
 	try {
-		return (await run("git", args, { cwd, maxBuffer: 64 * 1024 * 1024 }))
+		const env = Object.fromEntries(
+			Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+		);
+		env.GIT_CONFIG_NOSYSTEM = "1";
+		env.GIT_CONFIG_GLOBAL = "/dev/null";
+		env.GIT_GRAFT_FILE = "/dev/null";
+		env.GIT_NO_REPLACE_OBJECTS = "1";
+		env.GIT_CONFIG_COUNT = "2";
+		env.GIT_CONFIG_KEY_0 = "core.quotePath";
+		env.GIT_CONFIG_VALUE_0 = "true";
+		env.GIT_CONFIG_KEY_1 = "diff.suppressBlankEmpty";
+		env.GIT_CONFIG_VALUE_1 = "false";
+		return (await run("git", args, { cwd, env, maxBuffer: 64 * 1024 * 1024 }))
 			.stdout;
 	} catch (error) {
 		const stderr = (error as { stderr?: string }).stderr?.trim();
@@ -99,10 +111,32 @@ export const diffAt = (plan: Plan, sha: string) =>
 		"diff",
 		"--no-ext-diff",
 		"--no-textconv",
+		"--text",
+		"--no-color",
+		"--submodule=short",
+		"--ignore-submodules=none",
+		"--src-prefix=a/",
+		"--dst-prefix=b/",
+		"--no-renames",
+		"--diff-algorithm=myers",
+		"--no-indent-heuristic",
+		"--unified=3",
+		"--inter-hunk-context=0",
+		"--no-relative",
+		"--no-function-context",
+		"--output-indicator-new=+",
+		"--output-indicator-old=-",
+		"--output-indicator-context= ",
+		"-O/dev/null",
 		plan.baseSha,
 		sha,
 		"--",
 	);
 
-export const fileAt = (plan: Plan, sha: string, path: string) =>
-	git(plan.repo, "cat-file", "blob", `${sha}:${path}`);
+export async function fileAt(plan: Plan, sha: string, path: string) {
+	try {
+		return await git(plan.repo, "cat-file", "blob", `${sha}:${path}`);
+	} catch {
+		throw new Error("The path is not a file in the published commit.");
+	}
+}
