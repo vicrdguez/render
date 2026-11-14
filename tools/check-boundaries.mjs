@@ -63,6 +63,11 @@ export async function check(root) {
 	}
 	function extensionEntry(name, spec = name) {
 		if (spec === "tau-store/testing") return "tau-extension/testing";
+		const deepEntry =
+			/^tau-extension\/dist\/src\/(durable|schema|chord|testing)\.js$/.exec(
+				spec,
+			);
+		if (deepEntry) return `tau-extension/${deepEntry[1]}`;
 		return (
 			{
 				"@earendil-works/pi-durable": "tau-extension/durable",
@@ -113,9 +118,11 @@ export async function check(root) {
 					![".", "./durable", "./schema", "./chord"].includes(subpath) &&
 					!(isTest && subpath === "./testing")))
 		) {
-			errors.push(
-				`${label}: forbidden extension import; use ${extensionEntry(name, spec)}${spec === "tau-extension/testing" ? "/testing in test/ only" : ""}`,
-			);
+			const guidance =
+				name === "@earendil-works/pi-ai" && !isTest
+					? "pi-ai is for tests only"
+					: `use ${extensionEntry(name, spec)}${spec === "tau-extension/testing" ? "/testing in test/ only" : ""}`;
+			errors.push(`${label}: forbidden extension import; ${guidance}`);
 			return;
 		}
 		const target = byName.get(name);
