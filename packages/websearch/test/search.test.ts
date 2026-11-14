@@ -6,13 +6,8 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import { createModels } from "@earendil-works/pi-ai/models";
-import {
-	fauxAssistantMessage,
-	fauxProvider,
-	fauxToolCall,
-} from "@earendil-works/pi-ai/providers/faux";
+import { eventLog } from "tau-extension";
+import { BACKGROUND_CONTEXT as context } from "tau-extension/chord";
 import {
 	type AgentChange,
 	type Conversation,
@@ -22,13 +17,18 @@ import {
 	type Extension,
 	type JsonObject,
 	MemoryStorage,
+	openNodeSqliteStorage,
 	type Storage,
 	type Tx,
-} from "@earendil-works/pi-durable";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { compile, type JsonSchema, obj } from "@earendil-works/pi-schema";
-import { eventLog } from "tau-store";
-import { openStore } from "tau-store/testing";
+} from "tau-extension/durable";
+import { compile, type JsonSchema, obj } from "tau-extension/schema";
+import {
+	createModels,
+	fauxAssistantMessage,
+	fauxProvider,
+	fauxToolCall,
+	openStore,
+} from "tau-extension/testing";
 import * as module from "../src/index.js";
 import { createSearchExtension } from "../src/web-search.js";
 

@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import { setImmediate } from "node:timers/promises";
-import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import { createModels } from "@earendil-works/pi-ai/models";
-import {
-	fauxAssistantMessage,
-	fauxProvider,
-	fauxToolCall,
-} from "@earendil-works/pi-ai/providers/faux";
+import { type DecisionId, decision, eventLog } from "tau-extension";
+import { BACKGROUND_CONTEXT as context } from "tau-extension/chord";
 import {
 	type Conversation,
 	type ConversationId,
@@ -20,9 +15,16 @@ import {
 	type Registry,
 	type Storage,
 	type TaskId,
-} from "@earendil-works/pi-durable";
-import { type DecisionId, decision, eventLog } from "tau-store";
-import { fauxAnswer, openStore, type Store } from "tau-store/testing";
+} from "tau-extension/durable";
+import {
+	createModels,
+	fauxAnswer,
+	fauxAssistantMessage,
+	fauxProvider,
+	fauxToolCall,
+	openStore,
+	type Store,
+} from "tau-extension/testing";
 import { entry, extension, options } from "../src/index.js";
 
 export { context };
@@ -89,7 +91,7 @@ type Fixture = {
 		conversation?: ConversationId,
 	): Promise<
 		Awaited<
-			ReturnType<import("@earendil-works/pi-durable").Tx["scanTasks"]>
+			ReturnType<import("tau-extension/durable").Tx["scanTasks"]>
 		>["items"]
 	>;
 	sleeping(): ReturnType<Fixture["tasks"]>;

@@ -1,10 +1,10 @@
+import { options as defineOptions, modelRef, prose } from "tau-extension";
 import {
 	type AgentChange,
 	defineExtension,
 	type Tx,
-} from "@earendil-works/pi-durable";
-import { obj, str } from "@earendil-works/pi-schema";
-import { options as defineOptions, modelRef, prose } from "tau-kit";
+} from "tau-extension/durable";
+import { obj, str } from "tau-extension/schema";
 import { calibration, recordForecast, reviseForecast } from "./forecast.js";
 import { due, score } from "./tasks.js";
 

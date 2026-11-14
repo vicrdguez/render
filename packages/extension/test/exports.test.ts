@@ -2,17 +2,21 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "node:test";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { createModels } from "@earendil-works/pi-ai/models";
-import { defineTask } from "@earendil-works/pi-durable";
-import { obj } from "@earendil-works/pi-schema";
+import * as chordContext from "@earendil-works/chord/context";
+import * as aiModels from "@earendil-works/pi-ai/models";
+import * as aiFaux from "@earendil-works/pi-ai/providers/faux";
+import * as piDurable from "@earendil-works/pi-durable";
+import * as nodeEnv from "@earendil-works/pi-durable/env/node";
+import * as sqlite from "@earendil-works/pi-durable/storage/sqlite/node";
+import * as durableTools from "@earendil-works/pi-durable/tools";
+import * as piSchema from "@earendil-works/pi-schema";
 import * as root from "tau-extension";
 import * as chord from "tau-extension/chord";
 import * as durable from "tau-extension/durable";
 import * as schema from "tau-extension/schema";
 import * as testing from "tau-extension/testing";
-import { request } from "tau-store";
-import { fauxAnswer, openStore } from "tau-store/testing";
+import * as store from "tau-store";
+import * as storeTesting from "tau-store/testing";
 import ts from "typescript";
 import * as helpers from "../src/helpers.js";
 
@@ -35,8 +39,20 @@ test("tau-extension exposes exactly five package entries", () => {
 	);
 });
 
+const readme = readFileSync(resolve(directory, "../README.md"), "utf8");
+function rows(entry: string) {
+	const title = `tau-extension${entry.slice(1)}`;
+	const section = readme.split(`## \`${title}\``)[1]?.split("\n## ")[0];
+	assert.ok(section, title);
+	return [
+		...section.matchAll(/^\| `([^`]+)` \| (value|type) \| `([^`]+)` \|$/gm),
+	].map(([, name, kind, origin]) => {
+		assert.ok(name && kind && origin);
+		return { name, kind, origin };
+	});
+}
+
 test("README tables match every emitted value, type, and origin exactly once", () => {
-	const readme = readFileSync(resolve(directory, "../README.md"), "utf8");
 	const declarations = Object.keys(entries).map((entry) =>
 		resolve(
 			directory,
@@ -60,14 +76,20 @@ test("README tables match every emitted value, type, and origin exactly once", (
 	);
 	for (const [index, [entry, values]] of Object.entries(entries).entries()) {
 		const title = `tau-extension${entry.slice(1)}`;
-		const section = readme.split(`## \`${title}\``)[1]?.split("\n## ")[0];
-		assert.ok(section, title);
-		const documented = [
-			...section.matchAll(/^\| `([^`]+)` \| (value|type) \| `([^`]+)` \|$/gm),
-		].map(([, name, kind, origin]) => {
-			assert.ok(name && kind && origin);
-			return { name, kind, origin };
-		});
+		const documented = rows(entry);
+		for (const { name, origin } of documented) {
+			if (entry === ".")
+				assert.ok(
+					origin === "tau-store" || origin === "./helpers.js",
+					`${title}.${name}: root origin must be tau-store or ./helpers.js`,
+				);
+			if (/^@earendil-works\/pi-ai(?:\/|$)/.test(origin))
+				assert.equal(
+					entry,
+					"./testing",
+					`${title}.${name}: pi-ai is testing only`,
+				);
+		}
 		const file = declarations[index];
 		assert.ok(file);
 		const source = program.getSourceFile(file);
@@ -113,15 +135,29 @@ test("README tables match every emitted value, type, and origin exactly once", (
 });
 
 test("extension re-exports preserve Tau and pi object identity", () => {
-	assert.equal(root.request, request);
-	assert.equal(durable.defineTask, defineTask);
-	assert.equal(schema.obj, obj);
-	assert.equal(chord.BACKGROUND_CONTEXT, BACKGROUND_CONTEXT);
-	assert.equal(testing.createModels, createModels);
-	assert.equal(testing.fauxAnswer, fauxAnswer);
-	assert.equal(testing.openStore, openStore);
-	assert.equal(root.modelRef, helpers.modelRef);
-	assert.equal(root.options, helpers.options);
-	assert.equal(root.prose, helpers.prose);
-	assert.equal(root.role, helpers.role);
+	const origins: Record<string, Record<string, unknown>> = {
+		"./helpers.js": helpers,
+		"tau-store": store,
+		"tau-store/testing": storeTesting,
+		"@earendil-works/chord/context": chordContext,
+		"@earendil-works/pi-ai/models": aiModels,
+		"@earendil-works/pi-ai/providers/faux": aiFaux,
+		"@earendil-works/pi-durable": piDurable,
+		"@earendil-works/pi-durable/env/node": nodeEnv,
+		"@earendil-works/pi-durable/storage/sqlite/node": sqlite,
+		"@earendil-works/pi-durable/tools": durableTools,
+		"@earendil-works/pi-schema": piSchema,
+	};
+	for (const [entry, values] of Object.entries(entries)) {
+		for (const { name, kind, origin } of rows(entry)) {
+			if (kind !== "value") continue;
+			const original = origins[origin];
+			assert.ok(original && Object.hasOwn(original, name), `${origin}.${name}`);
+			assert.equal(
+				(values as Record<string, unknown>)[name],
+				original[name],
+				`${entry}.${name} must preserve identity from ${origin}`,
+			);
+		}
+	}
 });

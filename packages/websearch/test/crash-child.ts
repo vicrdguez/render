@@ -1,12 +1,15 @@
-import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import { createModels } from "@earendil-works/pi-ai/models";
+import { BACKGROUND_CONTEXT as context } from "tau-extension/chord";
 import {
+	createRegistry,
+	Harness,
+	openNodeSqliteStorage,
+} from "tau-extension/durable";
+import {
+	createModels,
 	fauxAssistantMessage,
 	fauxProvider,
 	fauxToolCall,
-} from "@earendil-works/pi-ai/providers/faux";
-import { createRegistry, Harness } from "@earendil-works/pi-durable";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+} from "tau-extension/testing";
 import { options } from "../src/index.js";
 import { createSearchExtension } from "../src/web-search.js";
 

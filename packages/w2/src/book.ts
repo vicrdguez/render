@@ -1,10 +1,10 @@
+import type { DecisionId, EventData } from "tau-extension";
 import {
 	defineDoc,
 	defineEntry,
 	type EntryId,
 	type TaskId,
-} from "@earendil-works/pi-durable";
-import type { DecisionId, EventData } from "tau-store";
+} from "tau-extension/durable";
 
 export type ForecastData = {
 	text: string;

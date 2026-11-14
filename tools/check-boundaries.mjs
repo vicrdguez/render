@@ -54,6 +54,29 @@ export async function check(root) {
 	}
 	const byName = new Map(packages.map((p) => [p.manifest.name, p]));
 	const builtins = new Set(builtinModules.flatMap((n) => [n, `node:${n}`]));
+	function forbiddenExtensionDependency(name) {
+		return (
+			name.startsWith("@earendil-works/") ||
+			["tau-store", "tau-host", "tau", "tau-kit"].includes(name) ||
+			(name !== "tau-extension" && Object.hasOwn(policy, name))
+		);
+	}
+	function extensionEntry(name, spec = name) {
+		if (spec === "tau-store/testing") return "tau-extension/testing";
+		const deepEntry =
+			/^tau-extension\/dist\/src\/(durable|schema|chord|testing)\.js$/.exec(
+				spec,
+			);
+		if (deepEntry) return `tau-extension/${deepEntry[1]}`;
+		return (
+			{
+				"@earendil-works/pi-durable": "tau-extension/durable",
+				"@earendil-works/pi-schema": "tau-extension/schema",
+				"@earendil-works/chord": "tau-extension/chord",
+				"@earendil-works/pi-ai": "tau-extension/testing",
+			}[name] ?? "tau-extension"
+		);
+	}
 	function inspectSpecifier(pkg, file, spec) {
 		const label = `${path.relative(root, file)}: ${spec}`;
 		const isTest = file.startsWith(path.join(pkg.directory, "test") + path.sep);
@@ -88,6 +111,20 @@ export async function check(root) {
 			? spec.split("/").slice(0, 2).join("/")
 			: spec.split("/")[0];
 		const subpath = spec === name ? "." : `.${spec.slice(name.length)}`;
+		if (
+			permissions?.extension &&
+			(forbiddenExtensionDependency(name) ||
+				(name === "tau-extension" &&
+					![".", "./durable", "./schema", "./chord"].includes(subpath) &&
+					!(isTest && subpath === "./testing")))
+		) {
+			const guidance =
+				name === "@earendil-works/pi-ai" && !isTest
+					? "pi-ai is for tests only"
+					: `use ${extensionEntry(name, spec)}${spec === "tau-extension/testing" ? "/testing in test/ only" : ""}`;
+			errors.push(`${label}: forbidden extension import; ${guidance}`);
+			return;
+		}
 		const target = byName.get(name);
 		const declared =
 			Object.hasOwn(pkg.manifest.dependencies ?? {}, name) ||
@@ -174,8 +211,20 @@ export async function check(root) {
 		}
 	}
 	for (const pkg of packages) {
-		for (const field of ["dependencies", "devDependencies"]) {
+		for (const field of [
+			"dependencies",
+			"devDependencies",
+			"peerDependencies",
+			"optionalDependencies",
+		]) {
 			for (const name of Object.keys(pkg.manifest[field] ?? {})) {
+				if (
+					policy[pkg.manifest.name]?.extension &&
+					forbiddenExtensionDependency(name)
+				)
+					errors.push(
+						`${pkg.manifest.name}: forbidden dependency ${name}; use ${extensionEntry(name)}`,
+					);
 				if (
 					Object.hasOwn(policy, name) &&
 					name !== pkg.manifest.name &&

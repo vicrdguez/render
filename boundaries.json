@@ -6,28 +6,25 @@
 	"tau-extension": {
 		"tau-store": [".", "./testing"]
 	},
-	"tau-kit": {
-		"tau-extension": ["."]
-	},
 	"tau-websearch": {
-		"tau-store": ["."],
-		"tau-kit": ["."],
+		"extension": true,
+		"tau-extension": [".", "./durable", "./schema", "./chord"],
 		"testOnly": {
-			"tau-store": ["./testing"]
+			"tau-extension": ["./testing"]
 		}
 	},
 	"tau-w2": {
-		"tau-store": ["."],
-		"tau-kit": ["."],
+		"extension": true,
+		"tau-extension": [".", "./durable", "./schema", "./chord"],
 		"testOnly": {
-			"tau-store": ["./testing"]
+			"tau-extension": ["./testing"]
 		}
 	},
 	"tau-w1": {
-		"tau-store": ["."],
-		"tau-kit": ["."],
+		"extension": true,
+		"tau-extension": [".", "./durable", "./schema", "./chord"],
 		"testOnly": {
-			"tau-store": ["./testing"]
+			"tau-extension": ["./testing"]
 		}
 	},
 	"tau": {

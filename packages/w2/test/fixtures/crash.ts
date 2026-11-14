@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { writeSync } from "node:fs";
-import type { Storage } from "@earendil-works/pi-durable";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import type { Storage } from "tau-extension/durable";
+import { openNodeSqliteStorage } from "tau-extension/durable";
 import { score } from "../../src/tasks.js";
 import { args, Clock, context, open, START, until, WEEK } from "../harness.js";
 

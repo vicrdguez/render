@@ -1,5 +1,5 @@
-import type { AgentChange, Tx } from "@earendil-works/pi-durable";
-import { modelRef } from "tau-kit";
+import { modelRef } from "tau-extension";
+import type { AgentChange, Tx } from "tau-extension/durable";
 import { designer } from "./roles.js";
 import { W1Options } from "./work.js";
 
