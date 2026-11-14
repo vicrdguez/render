@@ -430,7 +430,8 @@ export const calls: Readonly<Record<string, Call>> = {
 					},
 					context,
 				);
-				return { result: { submission: await submission.status(context) } };
+				const { id, ...record } = await submission.status(context);
+				return { result: { submission: { id, ...record } } };
 			} catch (error) {
 				if (error instanceof ConversationIdle)
 					return refuse("idle", "Nothing runs in this conversation.");
