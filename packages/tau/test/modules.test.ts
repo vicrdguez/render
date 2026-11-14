@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { ExtensionModule } from "tau-host";
+import * as imports from "../src/modules.js";
 import { journey } from "./journey.js";
+
+test("the import map refuses a repeated extension name instead of dropping code", () => {
+	assert.ok("moduleMap" in imports, "the map must check names before entries can overwrite");
+	const build = imports.moduleMap as (entries: readonly ExtensionModule[]) => Readonly<Record<string, ExtensionModule>>;
+	const w2 = imports.modules.w2!;
+	assert.deepEqual(build([w2]), { w2 });
+	assert.throws(() => build([w2, { ...w2 }]), /Repeated extension name: w2/);
+});
 
 test("extensions reports the name, workflow flag and options schema of every real import-map entry", async () => {
 	const j = await journey();
