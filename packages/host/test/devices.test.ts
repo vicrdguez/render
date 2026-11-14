@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { test } from "node:test";
@@ -174,6 +174,28 @@ test("revoking a device refuses its next call and the list shows it", async () =
 			],
 		);
 	} finally {
+		await s.close();
+	}
+});
+
+test("a failed revocation is persisted on retry and survives restart", async () => {
+	const s = await start();
+	const temporary = path.join(s.home, "devices.json.tmp");
+	try {
+		const phone = await s.pair("phone");
+		await mkdir(temporary);
+		const failed = await requestAdmin(s.home, { command: "revoke", device: "phone" });
+		assert.ok("error" in failed);
+		await rm(temporary, { recursive: true });
+		assert.deepEqual(await requestAdmin(s.home, { command: "revoke", device: "phone" }), { done: true });
+		const again = await s.restart();
+		try {
+			assert.equal((await again.call("projects", {}, phone)).status, 401);
+		} finally {
+			await again.close();
+		}
+	} finally {
+		await rm(temporary, { recursive: true, force: true });
 		await s.close();
 	}
 });
