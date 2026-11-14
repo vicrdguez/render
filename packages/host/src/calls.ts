@@ -31,21 +31,21 @@ import {
 } from "@earendil-works/pi-schema";
 import { type DecisionId, decision } from "tau-store";
 import { answer } from "tau-store/host";
+import type { Catalogue } from "./catalogue.js";
 import { decodeCursor, encodeCursor } from "./cursors.js";
 import type { Devices } from "./devices.js";
 import { type Positions, scanFaults } from "./faults.js";
 import { watchInbox } from "./inbox.js";
-import type { ExtensionModule } from "./index.js";
-import { hasModel, modelRef, type Options } from "./options.js";
+import { hasModel, modelRef } from "./options.js";
 import { type OpenProject, PROJECT, type Projects } from "./projects.js";
 import { type Outcome, refuse } from "./refusals.js";
+import type { StructuralQueue } from "./structural.js";
 
 /** What every call reaches, bound once when the server starts. */
 export type Host = {
 	readonly projects: Projects;
 	readonly devices: Devices;
-	readonly modules: Readonly<Record<string, ExtensionModule>>;
-	readonly options: ReadonlyMap<string, Options>;
+	readonly structural: StructuralQueue;
 	readonly models: () => Models;
 };
 type Run<T, R> = (host: Host, device: string, input: T) => Promise<Outcome<R>>;
@@ -93,6 +93,37 @@ const unary = <T, R>(schema: Schema<T>, run: Run<T, R>): Call => ({
 	stream: false,
 	dispatch: checked(schema, run),
 });
+function structural<T, R>(
+	schema: Schema<T>,
+	run: (
+		host: Host,
+		device: string,
+		input: T,
+		catalogue: Catalogue,
+	) => Promise<Outcome<R>>,
+): Call {
+	return unary(schema, (host, device, input) =>
+		host.structural.run(() =>
+			run(host, device, input, host.projects.catalogue),
+		),
+	);
+}
+function structuralProject<T extends { project: string }, R>(
+	schema: Schema<T>,
+	run: (
+		host: Host,
+		device: string,
+		input: T,
+		open: OpenProject,
+		catalogue: Catalogue,
+	) => Promise<Outcome<R>>,
+): Call {
+	return structural(schema, (host, device, input, catalogue) =>
+		inProject((host, device, input: T, open) =>
+			run(host, device, input, open, catalogue),
+		)(host, device, input),
+	);
+}
 const stream = <T>(
 	schema: Schema<T>,
 	run: Run<T, WatchHandle<JsonValue>>,
@@ -162,7 +193,7 @@ const levels = [
 export const calls: Readonly<Record<string, Call>> = {
 	extensions: unary(obj({}), async (host) => ({
 		result: {
-			items: Object.entries(host.modules).map(([name, module]) => ({
+			items: host.projects.catalogue.entries().map(([name, { module }]) => ({
 				name,
 				workflow: module.entry !== undefined,
 				...(module.options === undefined
@@ -182,28 +213,29 @@ export const calls: Readonly<Record<string, Call>> = {
 	projects: unary(obj({}), async (host) => ({
 		result: { items: host.projects.list() },
 	})),
-	bind: unary(
+	bind: structural(
 		obj({ project, workdir: str({ pattern: "^/" }), extensions: arr(str()) }),
-		(host, _device, input) => host.projects.bind(input),
+		(host, _device, input, catalogue) => host.projects.bind(input, catalogue),
 	),
-	addExtensions: unary(
+	addExtensions: structuralProject(
 		obj({ project, extensions: arr(str()) }),
-		inProject(async (host, _device, input) => ({
+		async (host, _device, input, _open, catalogue) => ({
 			result: {
 				project: await host.projects.addExtensions(
 					input.project,
 					input.extensions,
+					catalogue,
 				),
 			},
-		})),
+		}),
 	),
-	options: unary(
+	options: structuralProject(
 		obj({ project }),
-		inProject(async (host, _device, _input, open) => {
+		async (_host, _device, _input, open, catalogue) => {
 			const items = await open.store.harness.commit(async (tx) => {
 				const views = [];
 				for (const name of open.record.extensions) {
-					const options = host.options.get(name);
+					const options = catalogue.get(name)?.options;
 					if (options === undefined) continue;
 					views.push({
 						extension: name,
@@ -214,21 +246,21 @@ export const calls: Readonly<Record<string, Call>> = {
 				return views;
 			}, context);
 			return { result: { items } };
-		}),
+		},
 	),
-	setOptions: unary(
+	setOptions: structuralProject(
 		obj({ project, extension: str(), patch: map(unknown()) }),
-		inProject(async (host, _device, input, open) => {
+		async (_host, _device, input, open, catalogue) => {
 			const name = input.extension;
 			if (
 				!open.record.extensions.includes(name) ||
-				!Object.hasOwn(host.modules, name)
+				catalogue.get(name) === undefined
 			)
 				return refuse(
 					"extension_not_loaded",
 					`${input.project} has no extension ${name}.`,
 				);
-			const options = host.options.get(name);
+			const options = catalogue.get(name)?.options;
 			if (options === undefined)
 				return refuse("bad_options", `${name} has no options.`, {
 					errors: [
@@ -244,11 +276,11 @@ export const calls: Readonly<Record<string, Call>> = {
 						errors: patched.errors,
 					})
 				: { result: patched };
-		}),
+		},
 	),
-	create: unary(
+	create: structuralProject(
 		union([obj({ project, workflow: str() }), obj({ project, model: str() })]),
-		inProject(async (host, _device, input, open) => {
+		async (host, _device, input, open, catalogue) => {
 			const { harness } = open.store;
 			const cwd = open.record.workdir;
 			if ("model" in input) {
@@ -268,9 +300,7 @@ export const calls: Readonly<Record<string, Call>> = {
 				return { result: { conversation } };
 			}
 			const name = input.workflow;
-			const module = Object.hasOwn(host.modules, name)
-				? host.modules[name]
-				: undefined;
+			const module = catalogue.get(name)?.module;
 			if (!open.record.extensions.includes(name))
 				return refuse(
 					"not_a_workflow",
@@ -284,7 +314,7 @@ export const calls: Readonly<Record<string, Call>> = {
 			const entry = module.entry;
 			if (entry === undefined)
 				return refuse("not_a_workflow", `${name} is not a workflow.`);
-			const options = host.options.get(name);
+			const options = catalogue.get(name)?.options;
 			return harness.commit(async (tx) => {
 				const errors =
 					options === undefined ? [] : (await options.view(tx)).errors;
@@ -303,7 +333,7 @@ export const calls: Readonly<Record<string, Call>> = {
 				await configure(tx, created.id, { cwd, ...change });
 				return { result: { conversation: created.id } };
 			}, context);
-		}),
+		},
 	),
 	conversations: unary(
 		obj({ project, cursor, limit }),
@@ -588,13 +618,12 @@ export const calls: Readonly<Record<string, Call>> = {
 				if (decoded === undefined) return badCursor();
 				positions = decoded.position as Positions;
 			}
-			const kinds = open.record.extensions.flatMap((name) =>
-				Object.hasOwn(host.modules, name)
-					? (host.modules[name]?.extension.tasks ?? []).map(
-							(task) => task.definition.name,
-						)
-					: [],
-			);
+			const catalogue = host.projects.catalogue;
+			const kinds = catalogue
+				.selected(open.record.extensions)
+				.flatMap(({ module }) =>
+					(module.extension.tasks ?? []).map((task) => task.definition.name),
+				);
 			const scanned = await scanFaults(
 				open,
 				kinds,

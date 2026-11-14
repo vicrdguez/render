@@ -115,7 +115,6 @@ for (const second of [
 			});
 			pending.push(next);
 			await accepted.promise;
-			// An unrelated round trip lets an unqueued response reach the client.
 			await s.call("models", {});
 			await setImmediate();
 			assert.equal(started, false, "the second structural call must not start");
