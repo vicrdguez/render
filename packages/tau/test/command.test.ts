@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -132,6 +132,29 @@ test("tau starts on ~/.tau at an ephemeral port, and the device commands reach i
 	} finally {
 		server.child.kill("SIGKILL");
 		await once(server.child, "exit");
+	}
+});
+
+test("tau starts empty and discovers only the extensions placed in its home", async () => {
+	const env = await home();
+	const empty = await serve(env);
+	try {
+		const token = await pair(env, empty.url, "empty");
+		assert.deepEqual((await post(empty.url, "extensions", {}, token)).body.result.items, []);
+	} finally {
+		empty.child.kill("SIGTERM");
+		assert.equal((await once(empty.child, "exit"))[0], 0);
+	}
+	const folder = path.join(env.HOME, ".tau", "extensions", "local");
+	await mkdir(folder, { recursive: true });
+	await writeFile(path.join(folder, "index.ts"), `import { defineExtension } from "tau-extension/durable";\nexport const extension = defineExtension({name: "local"});\n`);
+	const loaded = await serve(env);
+	try {
+		const token = await pair(env, loaded.url, "loaded");
+		assert.deepEqual((await post(loaded.url, "extensions", {}, token)).body.result.items, [{name: "local", workflow: false}]);
+	} finally {
+		loaded.child.kill("SIGTERM");
+		assert.equal((await once(loaded.child, "exit"))[0], 0);
 	}
 });
 
