@@ -27,23 +27,30 @@ export type DecisionInput<C extends string> = {
 	choice: C;
 };
 /**
- * A task that accepts every choice in `C`. A pi-durable `Task` whose input is `DecisionInput<A>` fits when `C` is a
- * subset of `A`. `Task` itself is invariant in its input, through `migrate`. Here `initial` is a property, so TypeScript
- * checks its parameter contravariantly.
+ * A pi-durable task that accepts every choice in `C`. `Task` is invariant in its input, through `migrate`, so its own
+ * type parameters are inferred apart from `C`. The second part checks the input: `initial` is a property there, so
+ * TypeScript checks its parameter contravariantly, and a task whose input is `DecisionInput<A>` fits when `C` is a
+ * subset of `A`.
  */
-export type ThenTask<C extends string> = {
+export type ThenTask<
+	C extends string,
+	I,
+	S extends { phase: string },
+	R,
+	H extends object,
+> = Task<I, S, R, H> & {
 	readonly definition: {
-		readonly name: string;
 		readonly initial: (input: DecisionInput<C>) => unknown;
 	};
 };
-export type RequestDraft<C extends string> = {
+/** `T` is the type of the `then` task. `request` requires a `ThenTask`. */
+export type RequestDraft<C extends string, T> = {
 	subject: string;
 	title: string;
 	basis: TypedEntry<{ text: string }>;
 	choices: readonly [C, ...C[]];
 	conversation: Decision["conversation"];
-	then: ThenTask<NoInfer<C>>;
+	then: T;
 	requestedAt: number;
 };
 
@@ -104,9 +111,15 @@ export async function createDecisionDocs(tx: Tx): Promise<void> {
  * | An open decision, and every field of the draft but requestedAt is equal. | Returns it. Writes nothing. |
  * | An open decision, and any other field differs. | Marks it superseded. Opens a new one. |
  */
-export async function request<const C extends string>(
+export async function request<
+	const C extends string,
+	I,
+	S extends { phase: string },
+	R,
+	H extends object,
+>(
 	tx: Tx,
-	draft: RequestDraft<C>,
+	draft: RequestDraft<C, ThenTask<NoInfer<C>, I, S, R, H>>,
 ): Promise<Decision<C>> {
 	const open = await tx.doc(Open);
 	const slot = own(open, draft.subject);
