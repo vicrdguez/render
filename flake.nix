@@ -74,6 +74,9 @@
               '';
             };
           commands = {
+            install-extension = mkCommand "install-extension" [ pkgs.nix pkgs.git ] ''
+              exec node tools/install-extension.mjs '${builtins.toJSON (builtins.attrNames extensions)}' "$@"
+            '';
             fmt = mkCommand "fmt" [ pkgs.biome pkgs.nixfmt pkgs.findutils ] ''
               biome format --write .
               ${nixFiles ""}
@@ -104,7 +107,16 @@
               if [ -z "$executable" ]; then
                 executable="$(nix build --no-link --print-out-paths .#tau)/bin/tau"
               fi
-              node "''${executable%/bin/tau}/lib/tau/packages/tau/dist/test/verify-build.js" "$executable"
+              shift "$(( $# > 0 ? 1 : 0 ))"
+              if [ "$#" -eq 0 ]; then
+                outputs=()
+                for name in w1 w2 websearch; do
+                  outputs+=("$(nix build --no-link --print-out-paths ".#extension-$name")")
+                done
+                set -- "''${outputs[@]}"
+              fi
+              ${commands.typecheck}/bin/typecheck
+              node packages/tau/dist/test/verify-build.js "$executable" "$@"
             '';
             check = mkCommand "check" [ ] ''
               ${commands.lint}/bin/lint
@@ -130,10 +142,23 @@
                 chmod -R u+w source
                 cd source
                 timeout --kill-after=10s 660s ${commands.${name}}/bin/${name} ${
-                  lib.optionalString (name == "verify-build") "${tau}/bin/tau"
+                  lib.optionalString (
+                    name == "verify-build"
+                  ) "${tau}/bin/tau ${extensions.w1} ${extensions.w2} ${extensions.websearch}"
                 }
                 touch "$out"
               ''
+          );
+          extensions = lib.genAttrs [ "w1" "w2" "websearch" ] (
+            name:
+            pkgs.runCommand "tau-extension-${name}" { } ''
+              mkdir -p "$out"
+              cp -R ${./packages + "/${name}/src"}/. "$out/"
+              ${lib.optionalString (name == "websearch") ''
+                mkdir "$out/node_modules"
+                ln -s ${npmDeps}/node_modules/webfox "$out/node_modules/webfox"
+              ''}
+            ''
           );
           tau = pkgs.stdenvNoCC.mkDerivation {
             pname = "tau";
@@ -146,7 +171,10 @@
                 ./tsconfig.base.json
                 ./tools/link-node-modules.mjs
                 ./tools/assets.mjs
-                ./packages
+                ./packages/tau
+                ./packages/host
+                ./packages/store
+                ./packages/extension
               ];
             };
             nativeBuildInputs = [
@@ -156,24 +184,34 @@
             buildPhase = ''
               runHook preBuild
               node tools/link-node-modules.mjs ${npmDeps}/node_modules
-              node node_modules/typescript/bin/tsc -b
-              node tools/assets.mjs
+              node node_modules/typescript/bin/tsc -b packages/tau packages/extension
               runHook postBuild
             '';
             installPhase = ''
               runHook preInstall
               mkdir -p $out/lib/tau $out/bin
-              cp -R package.json packages tools $out/lib/tau/
-              (cd $out/lib/tau && node tools/link-node-modules.mjs ${npmDeps}/node_modules)
+              cp package.json $out/lib/tau/
+              for name in tau host store extension; do
+                mkdir -p "$out/lib/tau/packages/$name/dist"
+                cp "packages/$name/package.json" "$out/lib/tau/packages/$name/"
+                cp -R "packages/$name/dist/src" "$out/lib/tau/packages/$name/dist/"
+              done
+              linker="$PWD/tools/link-node-modules.mjs"
+              (cd $out/lib/tau && node "$linker" ${npmDeps}/node_modules)
               makeWrapper ${nodejs}/bin/node $out/bin/tau --add-flags $out/lib/tau/packages/tau/dist/src/main.js
               runHook postInstall
             '';
           };
         in
         {
-          inherit commands checks tau;
+          inherit
+            commands
+            checks
+            tau
+            extensions
+            ;
           verifyBuildApp = pkgs.writeShellScript "verify-build" ''
-            exec ${commands.verify-build}/bin/verify-build ${tau}/bin/tau "$@"
+            exec ${commands.verify-build}/bin/verify-build ${tau}/bin/tau ${extensions.w1} ${extensions.w2} ${extensions.websearch} "$@"
           '';
           formatter = pkgs.nixfmt;
           shell = pkgs.mkShellNoCC {
@@ -213,10 +251,14 @@
           };
         }
       ) perSystem;
-      packages = lib.mapAttrs (_: value: {
-        inherit (value) tau;
-        default = value.tau;
-      }) perSystem;
+      packages = lib.mapAttrs (
+        _: value:
+        {
+          inherit (value) tau;
+          default = value.tau;
+        }
+        // lib.mapAttrs' (name: output: lib.nameValuePair "extension-${name}" output) value.extensions
+      ) perSystem;
       devShells = lib.mapAttrs (_: value: { default = value.shell; }) perSystem;
       checks = lib.mapAttrs (_: value: value.checks) perSystem;
       formatter = lib.mapAttrs (_: value: value.formatter) perSystem;

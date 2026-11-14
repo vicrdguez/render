@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { symlink, unlink } from "node:fs/promises";
+import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { modules } from "../src/modules.js";
+import { extensionSource } from "./extensions.js";
 import { decision, journey, until } from "./journey.js";
 import { processJourney } from "./process-journey.js";
 
@@ -172,19 +174,19 @@ test("missing extension: bind succeeds, tasks wait without code, and a restart w
 	timeout: 15_000,
 }, async () => {
 	let clock = Date.UTC(2026, 10, 14);
-	const without = { w1: modules.w1!, websearch: modules.websearch! };
-	const j = await journey({
-		source: () => ({ modules: without, failures: [] }),
-		now: () => clock,
-	});
+	const j = await journey({ now: () => clock });
+	const link = join(j.home, "extensions", "w2");
 	try {
+		await unlink(link);
+		await j.restart();
 		const bound = await j.ok("bind", {
 			project: "p",
 			workdir: j.root,
 			extensions: ["w2"],
 		});
 		assert.deepEqual(bound.project.missing, ["w2"]);
-		await j.restart({ source: () => ({ modules, failures: [] }) });
+		await symlink(extensionSource("w2"), link);
+		await j.restart();
 		await j.ok("setOptions", {
 			project: "p",
 			extension: "w2",
@@ -207,7 +209,8 @@ test("missing extension: bind succeeds, tasks wait without code, and a restart w
 		);
 		await j.stop();
 		clock += 2000;
-		await j.restart({ source: () => ({ modules: without, failures: [] }) });
+		await unlink(link);
+		await j.restart();
 		assert.deepEqual((await j.ok("projects", {}, j.phone)).items[0].missing, [
 			"w2",
 		]);
@@ -228,7 +231,8 @@ test("missing extension: bind succeeds, tasks wait without code, and a restart w
 			).body.refused.code,
 			"unknown_decision",
 		);
-		await j.restart({ source: () => ({ modules, failures: [] }) });
+		await symlink(extensionSource("w2"), link);
+		await j.restart();
 		assert.deepEqual((await j.ok("projects", {})).items[0].missing, []);
 		assert.equal(
 			(await j.ok("options", { project: "p" })).items[0].value.model,

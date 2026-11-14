@@ -6,10 +6,5 @@
 		"tsBuildInfoFile": "dist/build.tsbuildinfo"
 	},
 	"include": ["src/**/*.ts", "test/**/*.ts"],
-	"references": [
-		{ "path": "../host" },
-		{ "path": "../websearch" },
-		{ "path": "../w2" },
-		{ "path": "../w1" }
-	]
+	"references": [{ "path": "../host" }]
 }
