@@ -4,7 +4,7 @@
 
 ## The owner's answer
 
-**Decided.** On 2026-11-14 the owner accepted every choice in the "taken" column below, with one exception. The type of `then` is rolled back: the task's choices and the request's choices are the same set. No caller used the wider allowance, and a shared handler across requests with different choice lists no longer compiles. Of the three rows under "Found last, and not fixed", the owner asked for the first to be fixed. The other two stay as they are, on purpose: W1 and W2 are samples for testing, and those two gaps are failure cases worth having in a sample.
+**Decided.** On 2026-11-14 the owner accepted every choice in the "taken" column below, with one exception. The type of `then` is rolled back: the task's choices and the request's choices are the same set. No caller used the wider allowance, and a shared handler across requests with different choice lists no longer compiles. Of the three rows under "Found last", the owner asked for the first to be fixed. The other two stay as they are, on purpose: W1 and W2 are samples for testing, and those two gaps are failure cases worth having in a sample.
 
 ## Choices that are not small
 
@@ -23,13 +23,13 @@
 | Revising a settled forecast | `unit-4-w2.md`, `packages/w2/src/forecast.ts:30-43` | The walk allows a revision. It does not forbid one after the score. | A revision needs an unsettled forecast, and a record needs a new key. | Allow a new version after the score and keep the old score. |
 | A test-only export of web search | `unit-6-integration.md` | An extension module has `extension`, `options`, and `entry`. | `tau-websearch/testing` exports the constructor that takes a provider address. Only tests of `tau` may import it. | Test at a lower seam with no export. |
 
-## Found last, and not fixed
+## Found last
 
-**Reported.** The verifier of the last fix round (PR 102) passed it and listed these. None is fixed. Each needs the owner's choice.
+**Reported.** The verifier of the last fix round (PR 102) passed it and listed these. The owner had the first one fixed and accepted the other two as they are.
 
 | What | Where | Why it matters | The smallest fix |
 | --- | --- | --- | --- |
-| The merge command W1 gives the owner honours replace refs | `packages/w1/src/tasks.ts`, the hand-over text | W1's own Git calls now ignore replace refs. The owner's Git does not. An implementer can publish a harmless commit, add a replace ref, and the owner's `git merge --ff-only <sha>` checks out other content. A hook left in the shared `.git` does the same. | Refuse the hand-over when `refs/replace/` or `info/grafts` exists, or print `git --no-replace-objects merge --ff-only <sha>`. |
+| A replace ref can swap content after the review | `packages/w1/src/tasks.ts`, the hand-over text | **Fixed for the merge itself (PR 104).** The hand-over now says `git --no-replace-objects merge --ff-only <sha>`, and that checks out the reviewed content. The replace ref itself stays in the repository. A later ordinary command that rewrites the file, such as a stash, a checkout of another commit and back, or a pull, writes the swapped content (reported, the verifier's run on real Git). | Check `git for-each-ref refs/replace` after a hand-over and delete what is there with `git replace -d`. W1 does not say so. It is a sample. |
 | W1 now ignores the server account's global Git configuration | `packages/w1/src/git.ts:15` | With a global `core.excludesFile`, the owner's `git status` is clean and W1 still refuses the publish as dirty. A global `safe.directory` is dropped too. Neither is set on this machine today. | Pass the global `core.excludesFile` to `status`, or keep global configuration for `status` and `worktree add`. |
 | The key filter only looks for the first four characters | `packages/websearch/src/web-search.ts:89-90` | An echo of the key without its first four characters gets through, for example the key without its `sk-` start. | Record it, or match more than the start. |
 
