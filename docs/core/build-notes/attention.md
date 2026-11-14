@@ -2,6 +2,10 @@
 
 **Reported.** A reviewer on another model family (`gpt-6-astra`) read the decision trail, every build note, the pull requests, and parts of the coordinator's transcript on 2026-11-14. It changed nothing. This file is what it flagged, in the coordinator's words. Each choice below can be rolled back for the alternative.
 
+## The owner's answer
+
+**Decided.** On 2026-11-14 the owner accepted every choice in the "taken" column below, with one exception. The type of `then` is rolled back: the task's choices and the request's choices are the same set. No caller used the wider allowance, and a shared handler across requests with different choice lists no longer compiles. The three rows under "Found last, and not fixed" have no taken choice and stay open.
+
 ## Choices that are not small
 
 | Choice | Where | What the design says | What was taken | The alternative |
@@ -11,7 +15,7 @@
 | Model logins | `unit-2-host.md`, `unit-6-integration.md`, `packages/tau/src/credentials.ts` | [Host](../host.md) says to use the owner's pi logins. It names no store and no write rule. | Tau reads and writes pi's `auth.json` under pi's own lock, with `proper-lockfile` 4.1.2, and queues its own reads. | Read the logins and never write a refreshed one back. Do not go back to the first, unlocked write. It could erase another provider's login. |
 | A resent answer after a fault, when the task's code is gone | `unit-1-store.md`, `packages/store/src/decisions.ts:245-256` | The `answer` table promises that an equal resend repeats, and creates the task again after a fault. `extension_not_loaded` is listed only for an open decision. | The resend is refused with `extension_not_loaded` and writes nothing. | Return the answered record as repeated and leave the fault visible. |
 | A counter per subject | `unit-1-store.md` | [Primitives](../primitives.md) names the decision family and the open list. | A third stored document, `tau.decision.next`. It also keeps a read of a made-up ID from creating a document. | Another index. The arena's judge had asked for the check. |
-| The type of `then` | `unit-1-store.md` | TypeScript checks that the task accepts every offered choice. | A new exported type, `ThenTask<C>`, that checks only the task's name and its first input. | Another type that allows a task to accept more than is offered. pi-durable's own `Task` type refuses that. |
+| The type of `then` | `unit-1-store.md` | TypeScript checks that the task accepts every offered choice. | **Rolled back by the owner.** It was a new exported type, `ThenTask<C>`, that let a task accept more choices than offered. It is now pi-durable's own `Task`, which requires the same set. | None. This is the owner's choice. |
 | How much of a leaked key counts | `unit-3-websearch.md` | A secret stays out of results, entries, errors, and logs. | A field that holds the first four characters of the key is replaced whole. One to three leading characters can still appear, and ordinary text that happens to match is lost. | Refuse a response that looks like it holds the key. |
 | Two transport limits of web search | `unit-3-websearch.md` | A key belongs to one project. | Tavily's library reads proxy settings from the server's environment, and a proxy would carry the key. Exa's key header follows a redirect to another origin. Both are behaviours of the libraries. | Limit the supported provider, or fix them upstream. |
 | Where W1 puts its worktree | `unit-5-w1.md`, `packages/w1/src/tasks.ts:203` | The walk stores a path. It chooses no place. | `<workdir>.w1-<conversation>`, beside the repository. | A configured root, or a directory under the repository's Git data. |

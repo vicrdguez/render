@@ -108,7 +108,7 @@ One cost is known. A client offers comments on every decision, and a workflow ma
 
 Extension code calls these inside its own commit.
 
-`request` takes `then` as a typed task whose input is `{ decision: DecisionId; choice: C }`. TypeScript then checks that the task accepts every choice in the request. The core stores only the task's name.
+`request` takes `then` as a typed task whose input is `{ decision: DecisionId; choice: C }`. TypeScript then checks that the task accepts exactly the choices in the request. The owner chose the exact match on 2026-11-14: no workflow reuses one task for requests with different choice lists, so a task that accepts more is refused too. The core stores only the task's name.
 
 `request` takes the basis as the record that `tx.appendEntry` or `tx.entry` returned, typed `TypedEntry<{ text: string }>` (measured, `src/types.ts:993,1026-1030`). The compiler then checks that the entry has `text`, and `request` does not have to read a table.
 
