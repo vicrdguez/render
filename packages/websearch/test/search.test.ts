@@ -29,8 +29,8 @@ import {
 	fauxToolCall,
 	openStore,
 } from "tau-extension/testing";
-import * as module from "../src/index.js";
-import { createSearchExtension } from "../src/web-search.js";
+import * as module from "../src/index.ts";
+import { createSearchExtension } from "../src/web-search.ts";
 
 function deferred() {
 	let resolve = () => {};
@@ -197,7 +197,7 @@ test("interrupted unsafe search returns an interruption after SIGKILL without re
 	assert.ok(address && typeof address !== "string");
 	const url = `http://127.0.0.1:${address.port}`;
 	const child = fork(
-		new URL("./crash-child.js", import.meta.url),
+		new URL("./crash-child.ts", import.meta.url),
 		[file, url],
 		{ stdio: ["ignore", "pipe", "pipe", "ipc"] },
 	);

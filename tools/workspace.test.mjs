@@ -129,6 +129,158 @@ async function extensionFixture(t) {
 	return { ...result, policy, extension };
 }
 
+for (const statement of [
+	'import "./local.js";',
+	'export { value } from "./local.js";',
+	'const value = import("./local.js");',
+	'type Value = import("./local.js").Value;',
+	'import "./local";',
+	'import "./local.mts";',
+]) {
+	test(`extensions require .ts relative specifiers: ${statement}`, async (t) => {
+		const { root, put } = await extensionFixture(t);
+		for (const directory of ["src", "test"]) {
+			await put(`packages/w2/${directory}/access.ts`, statement);
+			assert.match(
+				(await check(root)).join("\n"),
+				new RegExp(
+					`${directory}/access.ts: .*relative imports must end in \\.ts`,
+				),
+			);
+		}
+	});
+}
+
+test("source extensions reject tests outside the runner's discovery pattern", async (t) => {
+	const { root, put } = await extensionFixture(t);
+	await put("packages/w2/tsconfig.json", { compilerOptions: { noEmit: true } });
+	for (const file of [
+		"src/lost.test.ts",
+		"test/lost.spec.ts",
+		"test/lost.test.mts",
+	]) {
+		await put(`packages/w2/${file}`, 'throw new Error("must not be lost");');
+		assert.ok(
+			(await check(root)).some(
+				(error) => error.includes(file) && error.includes("tests must live"),
+			),
+		);
+	}
+});
+
+test("noEmit tests run source with types and prose, select nested files, and propagate failure", async (t) => {
+	const { root, put } = await fixture(t);
+	await put("packages/store/tsconfig.json", {
+		compilerOptions: { noEmit: true },
+	});
+	await put("packages/store/src/value.ts", "export const value: number = 7;");
+	await put("packages/store/src/agent.md", "source prose");
+	await put(
+		"packages/store/test/nested/first.test.ts",
+		`
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+import { value } from "../../src/value.ts";
+test("source first", () => {
+  assert.equal(value, 7);
+  assert.equal(readFileSync(new URL("../../src/agent.md", import.meta.url), "utf8"), "source prose");
+});`,
+	);
+	await put(
+		"packages/store/test/second.test.ts",
+		'import { test } from "node:test"; test("source second", () => {});',
+	);
+	await put(
+		"packages/store/dist/test/nested/first.test.js",
+		'throw new Error("stale emitted test ran");',
+	);
+	for (const selections of [
+		[],
+		["store"],
+		["tau-store"],
+		["packages/store/test/nested/first.test.ts"],
+	]) {
+		const result = run("tests.mjs", root, ...selections);
+		assert.equal(result.status, 0, result.stderr);
+		assert.match(result.stdout, /source first/);
+		if (selections[0]?.endsWith(".ts"))
+			assert.doesNotMatch(result.stdout, /source second/);
+		else assert.match(result.stdout, /source second/);
+	}
+	await put(
+		"packages/store/test/nested/first.test.ts",
+		'import { test } from "node:test"; test("source failure", () => { throw new Error("source assertion"); });',
+	);
+	const result = run("tests.mjs", root, "tau-store");
+	assert.equal(result.status, 1);
+	assert.match(result.stdout, /source assertion/);
+});
+
+test("assets preserve emitted prose and leave noEmit packages without dist", async (t) => {
+	const { root, put } = await extensionFixture(t);
+	await put("packages/w2/tsconfig.json", { compilerOptions: { noEmit: true } });
+	await put("packages/w2/src/agent.md", "source prose");
+	await put("packages/w2/test/nested/fixture.md", "source fixture");
+	await put("packages/store/src/agent.md", "emitted prose");
+	assert.equal(run("assets.mjs", root).status, 0);
+	assert.equal(
+		await readFile(path.join(root, "packages/store/dist/src/agent.md"), "utf8"),
+		"emitted prose",
+	);
+	await assert.rejects(lstat(path.join(root, "packages/w2/dist")), {
+		code: "ENOENT",
+	});
+});
+
+for (const name of ["websearch", "w2", "w1"]) {
+	for (const [label, source, diagnostic] of [
+		["no output", "export const value: number = 1;", null],
+		["type errors", 'export const value: number = "wrong";', /TS2322/],
+		["non-erasable syntax", "export enum Mode { A, B }", /TS1294/],
+	]) {
+		test(`${name} typecheck enforces ${label}`, async (t) => {
+			const { root, put } = await fixture(t);
+			const config = JSON.parse(
+				await readFile(
+					path.join(tools, `../packages/${name}/tsconfig.json`),
+					"utf8",
+				),
+			);
+			await put("packages/store/tsconfig.json", {
+				...config,
+				extends: path.join(tools, "../tsconfig.base.json"),
+				compilerOptions: {
+					...config.compilerOptions,
+					types: [],
+					tsBuildInfoFile: path.join(root, "build.tsbuildinfo"),
+				},
+				references: [{ path: path.join(tools, "../packages/extension") }],
+			});
+			await put("packages/store/src/index.ts", source);
+			const result = spawnSync(
+				process.execPath,
+				[
+					path.join(tools, "../node_modules/typescript/bin/tsc"),
+					"-b",
+					"packages/store",
+				],
+				{ cwd: root, encoding: "utf8", env },
+			);
+			assert.equal(
+				result.status,
+				diagnostic ? 1 : 0,
+				result.stdout + result.stderr,
+			);
+			if (diagnostic) assert.match(result.stdout, diagnostic);
+			else
+				await assert.rejects(lstat(path.join(root, "packages/store/dist")), {
+					code: "ENOENT",
+				});
+		});
+	}
+}
+
 for (const [specifier, replacement] of [
 	["@earendil-works/pi-durable/tools", "tau-extension/durable"],
 	["@earendil-works/pi-schema", "tau-extension/schema"],
@@ -216,7 +368,7 @@ test("extensions accept only canonical facade entries with testing limited to te
 	await put(
 		"packages/w2/src/index.ts",
 		[
-			"./local.js",
+			"./local.ts",
 			"node:fs",
 			"path",
 			"webfox",
@@ -231,7 +383,7 @@ test("extensions accept only canonical facade entries with testing limited to te
 	);
 	await put(
 		"packages/w2/test/access.ts",
-		'import "tau-extension/testing"; import "test-helper"; import "../src/local.js";',
+		'import "tau-extension/testing"; import "test-helper"; import "../src/local.ts";',
 	);
 	assert.deepEqual(await check(root), []);
 	policy["tau-w2"]["tau-extension"].push(

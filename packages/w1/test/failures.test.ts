@@ -15,7 +15,7 @@ import {
 	configure,
 	LiveDoc,
 } from "tau-extension/durable";
-import { Work } from "../src/work.js";
+import { Work } from "../src/work.ts";
 import {
 	answered,
 	approved,
@@ -36,7 +36,7 @@ import {
 	W1,
 	type World,
 	world,
-} from "./setup.js";
+} from "./setup.ts";
 
 async function using<T>(body: (w: World) => Promise<T>) {
 	const w = await world();

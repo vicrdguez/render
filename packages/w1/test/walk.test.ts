@@ -18,7 +18,7 @@ import {
 	toolResults,
 	type World,
 	world,
-} from "./setup.js";
+} from "./setup.ts";
 
 // docs/core/walk.md, "W1, design to merge", one row at a time on one piece of work. Each test continues the last.
 const V1 =

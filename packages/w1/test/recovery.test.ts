@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { git, repository } from "./setup.js";
+import { git, repository } from "./setup.ts";
 
-const child = fileURLToPath(new URL("./fixtures/child.js", import.meta.url));
+const child = fileURLToPath(new URL("./fixtures/child.ts", import.meta.url));
 
 type Run = { signal: string | null; seen: Record<string, unknown> };
 

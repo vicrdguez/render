@@ -1,8 +1,8 @@
 import { emit, eventLog, withdraw } from "tau-extension";
 import { type Cursor, defineTool } from "tau-extension/durable";
 import { int, num, obj, str } from "tau-extension/schema";
-import { Book, Forecast, Recorded, Resolved, Revised } from "./book.js";
-import { due } from "./tasks.js";
+import { Book, Forecast, Recorded, Resolved, Revised } from "./book.ts";
+import { due } from "./tasks.ts";
 
 const parameters = obj({
 	key: str(),
