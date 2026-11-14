@@ -10,13 +10,13 @@ import * as nodeEnv from "@earendil-works/pi-durable/env/node";
 import * as sqlite from "@earendil-works/pi-durable/storage/sqlite/node";
 import * as durableTools from "@earendil-works/pi-durable/tools";
 import * as piSchema from "@earendil-works/pi-schema";
-import * as store from "tau-store";
-import * as storeTesting from "tau-store/testing";
 import * as root from "tau-extension";
 import * as chord from "tau-extension/chord";
 import * as durable from "tau-extension/durable";
 import * as schema from "tau-extension/schema";
 import * as testing from "tau-extension/testing";
+import * as store from "tau-store";
+import * as storeTesting from "tau-store/testing";
 import ts from "typescript";
 import * as helpers from "../src/helpers.js";
 
