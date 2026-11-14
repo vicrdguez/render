@@ -5,8 +5,13 @@ import * as imports from "../src/modules.js";
 import { journey } from "./journey.js";
 
 test("the import map refuses a repeated extension name instead of dropping code", () => {
-	assert.ok("moduleMap" in imports, "the map must check names before entries can overwrite");
-	const build = imports.moduleMap as (entries: readonly ExtensionModule[]) => Readonly<Record<string, ExtensionModule>>;
+	assert.ok(
+		"moduleMap" in imports,
+		"the map must check names before entries can overwrite",
+	);
+	const build = imports.moduleMap as (
+		entries: readonly ExtensionModule[],
+	) => Readonly<Record<string, ExtensionModule>>;
 	const w2 = imports.modules.w2!;
 	assert.deepEqual(build([w2]), { w2 });
 	assert.throws(() => build([w2, { ...w2 }]), /Repeated extension name: w2/);

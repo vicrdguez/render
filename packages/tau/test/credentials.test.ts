@@ -47,7 +47,10 @@ test("forty-five concurrent provider reads share pi's lock within this process",
 		const results = await Promise.all(
 			Array.from({ length: 45 }, (_, i) => stores[i % 2]!.read("anthropic")),
 		);
-		assert.deepEqual(results, Array.from({ length: 45 }, () => key("latest")));
+		assert.deepEqual(
+			results,
+			Array.from({ length: 45 }, () => key("latest")),
+		);
 	} finally {
 		await rm(home, { recursive: true, force: true });
 	}
