@@ -88,12 +88,25 @@ test("an open decision reaches the inbox, and answer maps every row of the store
 			assert.equal(refused.body.refused?.code, code);
 		}
 		for (const start of [-1, 0.5]) {
-			const before = (await s.call("history", { project: "p", conversation: d })).body.result.items;
-			const refused = await answer(s, "flow:k#1", { basis, annotations: [{ text: "x", range: { start, end: 1 } }] });
+			const before = (
+				await s.call("history", { project: "p", conversation: d })
+			).body.result.items;
+			const refused = await answer(s, "flow:k#1", {
+				basis,
+				annotations: [{ text: "x", range: { start, end: 1 } }],
+			});
 			assert.equal(refused.status, 409);
 			assert.equal(refused.body.refused?.code, "bad_annotation");
-			assert.deepEqual((await s.call("history", { project: "p", conversation: d })).body.result.items, before);
-			assert.equal((await s.call("decision", { project: "p", decision: "flow:k#1" })).body.result.decision.status, "open");
+			assert.deepEqual(
+				(await s.call("history", { project: "p", conversation: d })).body.result
+					.items,
+				before,
+			);
+			assert.equal(
+				(await s.call("decision", { project: "p", decision: "flow:k#1" })).body
+					.result.decision.status,
+				"open",
+			);
 		}
 		const none = await answer(s, "flow:x#1", { basis });
 		assert.equal(none.status, 404);
@@ -260,20 +273,35 @@ test("fault pagination stays anchored when a new fault arrives between pages and
 		const d = await designer(s);
 		await run(s, d, "explode", {});
 		await run(s, d, "explode", {});
-		const faults = async () => (await s.call("faults", { project: "p" })).body.result.items;
+		const faults = async () =>
+			(await s.call("faults", { project: "p" })).body.result.items;
 		await until("two faults", async () => (await faults()).length === 2);
 		const original = await faults();
-		const first = (await s.call("faults", { project: "p", limit: 1 })).body.result;
+		const first = (await s.call("faults", { project: "p", limit: 1 })).body
+			.result;
 		assert.equal(first.items[0].task, original[0].task);
 		await run(s, d, "explode", {});
 		await until("a new fault", async () => (await faults()).length === 3);
 		const again = await s.restart();
 		try {
-			const rest = (await again.call("faults", { project: "p", cursor: first.next, limit: 5 })).body.result;
-			assert.deepEqual(rest.items.map((f: { task: number }) => f.task), [original[1].task]);
+			const rest = (
+				await again.call("faults", {
+					project: "p",
+					cursor: first.next,
+					limit: 5,
+				})
+			).body.result;
+			assert.deepEqual(
+				rest.items.map((f: { task: number }) => f.task),
+				[original[1].task],
+			);
 			assert.equal(rest.next, undefined);
-		} finally { await again.close(); }
-	} finally { await s.close(); }
+		} finally {
+			await again.close();
+		}
+	} finally {
+		await s.close();
+	}
 });
 
 test("answer refuses with extension_not_loaded when the server lacks the then task", async () => {

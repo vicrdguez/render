@@ -174,7 +174,10 @@ test("the default listen configuration is loopback port 6283 without binding it"
 	assert.ok("serverConfig" in command);
 	const config = command.serverConfig as (args: string[]) => unknown;
 	assert.deepEqual(config([]), { port: 6283, allowedHosts: [] });
-	assert.deepEqual(config(["--port", "0", "--allow-host", "tau.example"]), { port: 0, allowedHosts: ["tau.example"] });
+	assert.deepEqual(config(["--port", "0", "--allow-host", "tau.example"]), {
+		port: 0,
+		allowedHosts: ["tau.example"],
+	});
 });
 
 test("a device command with no server, or an unknown command, fails with a message", async () => {

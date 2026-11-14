@@ -184,10 +184,16 @@ test("a failed revocation is persisted on retry and survives restart", async () 
 	try {
 		const phone = await s.pair("phone");
 		await mkdir(temporary);
-		const failed = await requestAdmin(s.home, { command: "revoke", device: "phone" });
+		const failed = await requestAdmin(s.home, {
+			command: "revoke",
+			device: "phone",
+		});
 		assert.ok("error" in failed);
 		await rm(temporary, { recursive: true });
-		assert.deepEqual(await requestAdmin(s.home, { command: "revoke", device: "phone" }), { done: true });
+		assert.deepEqual(
+			await requestAdmin(s.home, { command: "revoke", device: "phone" }),
+			{ done: true },
+		);
 		const again = await s.restart();
 		try {
 			assert.equal((await again.call("projects", {}, phone)).status, 401);

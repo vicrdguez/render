@@ -9,7 +9,10 @@ test("a real Storage rejection over HTTP has only unknown storage_failed with st
 		const backing = await openNodeSqliteStorage(file);
 		return new Proxy(backing, {
 			get(target, property) {
-				if (property === "scanConversations" && fail) return async () => { throw new Error("disk read failed"); };
+				if (property === "scanConversations" && fail)
+					return async () => {
+						throw new Error("disk read failed");
+					};
 				const value = Reflect.get(target, property);
 				return typeof value === "function" ? value.bind(target) : value;
 			},
@@ -26,5 +29,7 @@ test("a real Storage rejection over HTTP has only unknown storage_failed with st
 		assert.deepEqual(Object.keys(reply.body), ["unknown"]);
 		assert.equal(reply.body.unknown?.code, "storage_failed");
 		assert.equal(typeof reply.body.unknown?.message, "string");
-	} finally { await s.close(); }
+	} finally {
+		await s.close();
+	}
 });

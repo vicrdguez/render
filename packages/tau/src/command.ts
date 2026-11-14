@@ -23,20 +23,30 @@ function parse(argv: readonly string[]): AdminRequest | undefined {
 
 const when = (ms: number) => new Date(ms).toISOString();
 
-export function serverConfig(argv: readonly string[]): { port: number; allowedHosts: string[] } | undefined {
+export function serverConfig(
+	argv: readonly string[],
+): { port: number; allowedHosts: string[] } | undefined {
 	const allowedHosts: string[] = [];
 	let port = 6283;
 	for (let i = 0; i < argv.length; i += 2) {
 		const value = argv[i + 1];
 		if (value === undefined) return undefined;
 		if (argv[i] === "--allow-host") allowedHosts.push(value);
-		else if (argv[i] === "--port" && /^\d+$/.test(value) && Number(value) <= 65535) port = Number(value);
+		else if (
+			argv[i] === "--port" &&
+			/^\d+$/.test(value) &&
+			Number(value) <= 65535
+		)
+			port = Number(value);
 		else return undefined;
 	}
 	return { port, allowedHosts };
 }
 
-async function serve(home: string, config: { port: number; allowedHosts: string[] }): Promise<number> {
+async function serve(
+	home: string,
+	config: { port: number; allowedHosts: string[] },
+): Promise<number> {
 	const agentDir =
 		process.env.PI_CODING_AGENT_DIR ?? path.join(homedir(), ".pi", "agent");
 	const server = await startServer({
