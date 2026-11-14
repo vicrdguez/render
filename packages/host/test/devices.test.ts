@@ -259,7 +259,13 @@ test("a failed revocation is persisted on retry and survives restart", async () 
 test("devices survive a restart and a second server on the same home is refused", async () => {
 	const s = await start();
 	await assert.rejects(
-		startServer({ home: s.home, modules: {}, models: faux().models, port: 0 }),
+		startServer({
+			home: s.home,
+			source: () => ({ modules: {}, failures: [] }),
+			models: faux().models,
+			port: 0,
+		}),
+		/a Tau server is already running on /,
 	);
 	const again = await s.restart();
 	try {

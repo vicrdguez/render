@@ -145,7 +145,7 @@ const idle = (s: Running, conversation: number) =>
 	});
 
 test("open sends the view, then ops that rebuild what a new watch sees first", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		const d = await designer(s);
 		const missing = s.watch("open", { project: "p", conversation: 999 });
@@ -186,7 +186,7 @@ test("open sends the view, then ops that rebuild what a new watch sees first", a
 });
 
 test("a client that stopped reading gets folded frames, and history fills the gap that before shows", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		const d = await designer(s);
 		s.faux.setResponses([
@@ -256,7 +256,7 @@ test("a client that stopped reading gets folded frames, and history fills the ga
 });
 
 test("a client that leaves ends only its watch, and the run goes on", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		const d = await designer(s);
 		const live = s.watch("open", { project: "p", conversation: d });
@@ -282,7 +282,7 @@ test("a client that leaves ends only its watch, and the run goes on", async () =
 });
 
 test("a quiet stream gets a heartbeat every 15 seconds, and a write that does not drain in 60 seconds ends it", async (t) => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		const d = await designer(s);
 		t.mock.timers.enable({ apis: ["setTimeout"] });

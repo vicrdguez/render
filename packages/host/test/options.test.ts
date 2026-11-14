@@ -4,7 +4,7 @@ import { modules } from "./extensions.js";
 import { start } from "./helpers.js";
 
 test("extensions and models describe what the server has", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		const listed = await s.call("extensions", {});
 		assert.deepEqual(
@@ -35,7 +35,7 @@ test("extensions and models describe what the server has", async () => {
 });
 
 test("setOptions merges a patch, stores set keys only, and refuses at JSON pointers without writing", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		await s.call("bind", {
 			project: "p",
@@ -117,7 +117,7 @@ test("setOptions merges a patch, stores set keys only, and refuses at JSON point
 });
 
 test("a secret is replied as true and never as its value", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		await s.call("bind", {
 			project: "p",

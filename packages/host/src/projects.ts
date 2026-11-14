@@ -14,7 +14,7 @@ import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { arr, compile, obj, str } from "@earendil-works/pi-schema";
 import { eventLog } from "tau-store";
 import { openStore, type Store } from "tau-store/host";
-import type { ServerOptions } from "./index.js";
+import type { ExtensionModule, ServerOptions } from "./index.js";
 import { acquireLock } from "./lock.js";
 import { type Outcome, refuse } from "./refusals.js";
 
@@ -75,6 +75,7 @@ export class Projects {
 	readonly skipped: { project: string; reason: string }[] = [];
 	readonly #root: string;
 	readonly #options: ServerOptions;
+	readonly #modules: Readonly<Record<string, ExtensionModule>>;
 	readonly #open = new Map<
 		string,
 		OpenProject & { selection: Opened["selection"]; lock: Opened["lock"] }
@@ -82,9 +83,13 @@ export class Projects {
 	readonly #queues = new Map<string, Promise<unknown>>();
 	readonly #joined = new Set<(project: OpenProject) => void>();
 
-	constructor(options: ServerOptions) {
+	constructor(
+		options: ServerOptions,
+		modules: Readonly<Record<string, ExtensionModule>>,
+	) {
 		this.#root = path.join(options.home, "projects");
 		this.#options = options;
+		this.#modules = modules;
 	}
 
 	async start(): Promise<void> {
@@ -135,7 +140,7 @@ export class Projects {
 			workdir: record.workdir,
 			extensions: [...record.extensions],
 			missing: record.extensions.filter(
-				(name) => !Object.hasOwn(this.#options.modules, name),
+				(name) => !Object.hasOwn(this.#modules, name),
 			),
 		};
 	}
@@ -269,8 +274,8 @@ export class Projects {
 
 	#install(open: Opened & { record: Project }) {
 		const modules = open.record.extensions.flatMap((name) => {
-			const module = this.#options.modules[name];
-			return Object.hasOwn(this.#options.modules, name) && module !== undefined
+			const module = this.#modules[name];
+			return Object.hasOwn(this.#modules, name) && module !== undefined
 				? [module]
 				: [];
 		});

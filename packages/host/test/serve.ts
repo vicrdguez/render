@@ -15,7 +15,7 @@ if (mode === "mid-run")
 try {
 	const server = await startServer({
 		home,
-		modules,
+		source: () => ({ modules, failures: [] }),
 		models: models.models,
 		port: 0,
 	});

@@ -12,13 +12,18 @@ import type {
 import type { JsonSchema } from "@earendil-works/pi-schema";
 import { adminSocket, listenAdmin, refuseRunning } from "./admin.js";
 import { Devices } from "./devices.js";
+import { type ExtensionSource, loadExtensions } from "./extensions.js";
 import { handler } from "./http.js";
-import { Options } from "./options.js";
 import { Projects } from "./projects.js";
 
 export type { AdminRequest, AdminResult } from "./admin.js";
 export { requestAdmin } from "./admin.js";
 export type { DeviceInfo } from "./devices.js";
+export type {
+	ExtensionFailure,
+	ExtensionScan,
+	ExtensionSource,
+} from "./extensions.js";
 
 // docs/core/host.md, "Options per project".
 export type ExtensionModule = {
@@ -34,8 +39,8 @@ export type ExtensionModule = {
 export type ServerOptions = {
 	/** `~/.tau` in production: `devices.json`, `admin.sock`, and `projects/`. */
 	readonly home: string;
-	/** Each key is its module's `extension.name`. */
-	readonly modules: Readonly<Record<string, ExtensionModule>>;
+	/** Finds extension modules and any failures before projects open. */
+	readonly source: ExtensionSource;
 	readonly models: HarnessOptions["models"];
 	readonly env?: HarnessOptions["env"];
 	readonly now?: () => number;
@@ -59,18 +64,13 @@ export type Server = {
 };
 
 export async function startServer(options: ServerOptions): Promise<Server> {
-	for (const [key, module] of Object.entries(options.modules)) {
-		if (key !== module.extension.name)
-			throw new Error(
-				`the module map has ${module.extension.name} under the key ${key}`,
-			);
-	}
+	const loaded = await loadExtensions(options.source, options.models);
 	await mkdir(options.home, { recursive: true, mode: 0o700 });
 	await chmod(options.home, 0o700);
 	const socket = adminSocket(options.home);
 	const models = options.models;
 	const current = typeof models === "function" ? models : () => models;
-	const projects = new Projects(options);
+	const projects = new Projects(options, loaded.modules);
 	let admin: NetServer | undefined;
 	try {
 		const devices = await Devices.load(options.home, options.now ?? Date.now);
@@ -80,15 +80,9 @@ export async function startServer(options: ServerOptions): Promise<Server> {
 		const host = {
 			projects,
 			devices,
-			modules: options.modules,
+			modules: loaded.modules,
 			models: current,
-			options: new Map(
-				Object.entries(options.modules).flatMap(([name, module]) =>
-					module.options === undefined
-						? []
-						: [[name, new Options(module.options, current)] as const],
-				),
-			),
+			options: loaded.options,
 		};
 		const http = createServer(handler(host, options.allowedHosts ?? []));
 		await new Promise<void>((resolve, reject) => {

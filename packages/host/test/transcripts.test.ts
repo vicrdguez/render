@@ -8,10 +8,13 @@ import { start, until } from "./helpers.js";
 test("the bind and input calls of protocol.md replay against the real server", async () => {
 	const websearch = defineExtension({ name: "websearch" });
 	const s = await start({
-		modules: {
-			websearch: { extension: websearch },
-			w1: { extension: defineExtension({ name: "w1" }), entry: {} },
-		},
+		source: () => ({
+			modules: {
+				websearch: { extension: websearch },
+				w1: { extension: defineExtension({ name: "w1" }), entry: {} },
+			},
+			failures: [],
+		}),
 	});
 	try {
 		const bind = await fetch(`${s.url}/v1/bind`, {

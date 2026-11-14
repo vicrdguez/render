@@ -98,7 +98,7 @@ export async function journey(changes: Partial<ServerOptions> = {}) {
 	models.setProvider(faux.provider);
 	let options: ServerOptions = {
 		home,
-		modules,
+		source: () => ({ modules, failures: [] }),
 		models,
 		port: 0,
 		env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? root }),

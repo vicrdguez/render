@@ -173,7 +173,10 @@ test("missing extension: bind succeeds, tasks wait without code, and a restart w
 }, async () => {
 	let clock = Date.UTC(2026, 10, 14);
 	const without = { w1: modules.w1!, websearch: modules.websearch! };
-	const j = await journey({ modules: without, now: () => clock });
+	const j = await journey({
+		source: () => ({ modules: without, failures: [] }),
+		now: () => clock,
+	});
 	try {
 		const bound = await j.ok("bind", {
 			project: "p",
@@ -181,7 +184,7 @@ test("missing extension: bind succeeds, tasks wait without code, and a restart w
 			extensions: ["w2"],
 		});
 		assert.deepEqual(bound.project.missing, ["w2"]);
-		await j.restart({ modules });
+		await j.restart({ source: () => ({ modules, failures: [] }) });
 		await j.ok("setOptions", {
 			project: "p",
 			extension: "w2",
@@ -204,7 +207,7 @@ test("missing extension: bind succeeds, tasks wait without code, and a restart w
 		);
 		await j.stop();
 		clock += 2000;
-		await j.restart({ modules: without });
+		await j.restart({ source: () => ({ modules: without, failures: [] }) });
 		assert.deepEqual((await j.ok("projects", {}, j.phone)).items[0].missing, [
 			"w2",
 		]);
@@ -225,7 +228,7 @@ test("missing extension: bind succeeds, tasks wait without code, and a restart w
 			).body.refused.code,
 			"unknown_decision",
 		);
-		await j.restart({ modules });
+		await j.restart({ source: () => ({ modules, failures: [] }) });
 		assert.deepEqual((await j.ok("projects", {})).items[0].missing, []);
 		assert.equal(
 			(await j.ok("options", { project: "p" })).items[0].value.model,

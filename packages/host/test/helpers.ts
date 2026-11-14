@@ -93,7 +93,7 @@ export async function start(
 	const models = options.models ?? faux();
 	const { token: existing, ...rest } = options;
 	const server = await startServer({
-		modules: {},
+		source: () => ({ modules: {}, failures: [] }),
 		port: 0,
 		...rest,
 		home,

@@ -85,7 +85,7 @@ const send = (
 	);
 
 test("create makes a bare conversation in the working directory, and a workflow's from its entry", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		await s.call("bind", {
 			project: "p",
@@ -149,10 +149,13 @@ test("the bare agent follows the project default, and an added extension reaches
 		],
 	});
 	const s = await start({
-		modules: {
-			...modules,
-			closed: { extension: Closed, entry: { extensions: [Closed] } },
-		},
+		source: () => ({
+			modules: {
+				...modules,
+				closed: { extension: Closed, entry: { extensions: [Closed] } },
+			},
+			failures: [],
+		}),
 	});
 	try {
 		await project(s, ["flow", "search", "closed"]);
@@ -188,7 +191,7 @@ test("the bare agent follows the project default, and an added extension reaches
 });
 
 test("conversations pages each one's state, leaves out the event log, and its cursor survives a restart", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		await project(s);
 		const failed = await create(s, { model: "faux/a" });
@@ -267,7 +270,7 @@ test("conversations pages each one's state, leaves out the event log, and its cu
 });
 
 test("input is keyed by device, refuses only-if-running when idle, and steers a working run", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		await project(s);
 		const phone = await s.pair("phone");
@@ -342,7 +345,7 @@ test("input is keyed by device, refuses only-if-running when idle, and steers a 
 });
 
 test("continue answers a failed run and refuses a busy one, and each stop ends the run working then", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		await project(s);
 		const bare = await create(s, { model: "faux/a" });
@@ -410,7 +413,7 @@ test("continue answers a failed run and refuses a busy one, and each stop ends t
 });
 
 test("setModel changes the model and thinking level from the next request", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		await project(s);
 		const designer = await create(s, { workflow: "flow" });
@@ -459,7 +462,7 @@ test("setModel changes the model and thinking level from the next request", asyn
 });
 
 test("the event log is read with history and timeline, and refuses every write call", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		await project(s);
 		const timeline = s.watch("timeline", { project: "p" });
@@ -517,7 +520,7 @@ test("the event log is read with history and timeline, and refuses every write c
 });
 
 test("two projects keep separate stores", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		await s.call("bind", { project: "p", workdir: "/p", extensions: [] });
 		await s.call("bind", { project: "q", workdir: "/q", extensions: [] });
