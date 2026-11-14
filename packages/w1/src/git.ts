@@ -94,7 +94,15 @@ export const branchHead = (plan: Plan) =>
 
 /** Git objects only: the published commit against the plan's base. */
 export const diffAt = (plan: Plan, sha: string) =>
-	git(plan.repo, "diff", plan.baseSha, sha, "--");
+	git(
+		plan.repo,
+		"diff",
+		"--no-ext-diff",
+		"--no-textconv",
+		plan.baseSha,
+		sha,
+		"--",
+	);
 
 export const fileAt = (plan: Plan, sha: string, path: string) =>
 	git(plan.repo, "cat-file", "blob", `${sha}:${path}`);

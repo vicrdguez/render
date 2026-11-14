@@ -423,13 +423,13 @@ export const handoff = single<DecisionInput<"approve" | "abort">>(
 			const head = await branchHead(plan);
 			const sha = merge.data.sha;
 			settle(work, "merge", id);
+			const notActedOn = answered.annotations.map((a) => ({ ...a }));
 			if (
 				merge.data.design === accepted?.design &&
 				sha === candidate?.sha &&
 				head === sha
 			) {
 				work.stage = "handed_over";
-				const notActedOn = answered.annotations.map((a) => ({ ...a }));
 				await emit(tx, W1Event, {
 					text: `Approved. Merge with \`git merge --ff-only ${sha}\`.${notActedOn.length === 0 ? "" : ` Not acted on: ${notActedOn.map((a) => a.text).join(" | ")}`}`,
 					at: runtime.now(),
@@ -449,11 +449,12 @@ export const handoff = single<DecisionInput<"approve" | "abort">>(
 			work.waiting.stuck = (await stuck(tx, k, note, runtime.now())).id;
 			work.retry = I;
 			await emit(tx, W1Event, {
-				text: `Branch ${plan.branch} moved from ${sha} to ${head}. Nothing was handed over.`,
+				text: `Branch ${plan.branch} moved from ${sha} to ${head}. Nothing was handed over.${notActedOn.length === 0 ? "" : ` Not acted on: ${notActedOn.map((a) => a.text).join(" | ")}`}`,
 				at: runtime.now(),
 				conversation: I,
 				stage: work.stage,
 				sha: head,
+				notActedOn,
 			});
 			return done;
 		}, context);
