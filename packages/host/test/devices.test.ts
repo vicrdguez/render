@@ -56,6 +56,33 @@ test("a pairing code has eight characters, works once, and leaves only a hash", 
 	}
 });
 
+test("!test cannot pair or authenticate as a device", async () => {
+	const s = await start();
+	try {
+		const reply = await requestAdmin(s.home, {
+			command: "pair",
+			device: "!test",
+		});
+		assert.ok("error" in reply);
+		const token = await s.pair("phone");
+		for (const name of ["!test", "%21test", "phone.!test", "!test.phone"]) {
+			const forged = token.replace("tau.phone.", `tau.${name}.`);
+			const refused = await s.call("projects", {}, forged);
+			assert.equal(refused.status, 401, name);
+			assert.equal(refused.body.refused?.code, "unauthorized", name);
+		}
+		assert.equal((await s.call("projects", {}, token)).status, 200);
+		const list = await requestAdmin(s.home, { command: "list" });
+		assert.ok("devices" in list);
+		assert.deepEqual(
+			list.devices.map((d) => d.device),
+			["laptop", "phone"],
+		);
+	} finally {
+		await s.close();
+	}
+});
+
 test("five wrong codes in a row cancel every pending code", async () => {
 	const s = await start();
 	try {
