@@ -25,7 +25,7 @@ import {
 	openStore,
 	type Store,
 } from "tau-extension/testing";
-import { entry, extension, options } from "../src/index.js";
+import { entry, extension, options } from "../src/index.ts";
 
 export { context };
 export const START = Date.UTC(2026, 10, 14);

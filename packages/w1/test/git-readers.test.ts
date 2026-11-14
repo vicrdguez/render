@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { diffAt, ensureWorktree, fileAt, publishedHead } from "../src/git.js";
-import type { Plan } from "../src/work.js";
+import { diffAt, ensureWorktree, fileAt, publishedHead } from "../src/git.ts";
+import type { Plan } from "../src/work.ts";
 import {
 	answered,
 	approved,
@@ -16,7 +16,7 @@ import {
 	repository,
 	toolResults,
 	world,
-} from "./setup.js";
+} from "./setup.ts";
 
 for (const driver of ["external", "textconv", "environment"] as const) {
 	test(`row 13: Git ${driver} cannot expose unpublished files through the reviewer`, async () => {

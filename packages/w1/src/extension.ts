@@ -9,14 +9,14 @@ import {
 	retry,
 	reviewStart,
 	stop,
-} from "./tasks.js";
+} from "./tasks.ts";
 import {
 	publishBuild,
 	publishDesign,
 	publishReview,
 	showDiff,
 	showFile,
-} from "./tools.js";
+} from "./tools.ts";
 
 export const W1 = defineExtension({
 	name: "w1",

@@ -90,6 +90,8 @@ export async function check(root) {
 				errors.push(`${label}: absolute/file imports forbidden`);
 				return;
 			}
+			if (permissions?.extension && !spec.endsWith(".ts"))
+				errors.push(`${label}: extension relative imports must end in .ts`);
 			const target = path.resolve(path.dirname(file), spec);
 			if (!target.startsWith(pkg.directory + path.sep))
 				errors.push(`${label}: cross-package relative import`);

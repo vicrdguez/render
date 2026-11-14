@@ -22,7 +22,7 @@ import {
 	type TaskRuntime,
 	type Tx,
 } from "tau-extension/durable";
-import { branchHead, commitOf, ensureWorktree } from "./git.js";
+import { branchHead, commitOf, ensureWorktree } from "./git.ts";
 import {
 	buildInput,
 	fixInput,
@@ -30,7 +30,7 @@ import {
 	retryInput,
 	reviewInput,
 	reviseInput,
-} from "./roles.js";
+} from "./roles.ts";
 import {
 	annotationsOf,
 	Build,
@@ -51,7 +51,7 @@ import {
 	Work,
 	type WorkState,
 	workOf,
-} from "./work.js";
+} from "./work.ts";
 
 const done = {
 	status: "terminal",

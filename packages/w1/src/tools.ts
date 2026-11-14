@@ -6,9 +6,9 @@ import {
 	type ToolExecutionResult,
 } from "tau-extension/durable";
 import { arr, int, obj, oneOf, opt, str } from "tau-extension/schema";
-import { diffAt, fileAt, publishedHead } from "./git.js";
-import { reviewer } from "./roles.js";
-import { designAnswer, fixStart, handoff, reviewStart } from "./tasks.js";
+import { diffAt, fileAt, publishedHead } from "./git.ts";
+import { reviewer } from "./roles.ts";
+import { designAnswer, fixStart, handoff, reviewStart } from "./tasks.ts";
 import {
 	Build,
 	closed,
@@ -22,7 +22,7 @@ import {
 	W1Event,
 	W1Options,
 	workOf,
-} from "./work.js";
+} from "./work.ts";
 
 type Outcome = { text: string } | { refused: string };
 

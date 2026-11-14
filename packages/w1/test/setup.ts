@@ -46,7 +46,7 @@ import {
 	openStore,
 	type Store,
 } from "tau-extension/testing";
-import * as W1 from "../src/index.js";
+import * as W1 from "../src/index.ts";
 
 export { context, W1 };
 

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { promisify } from "node:util";
-import type { Plan } from "./work.js";
+import type { Plan } from "./work.ts";
 
 const run = promisify(execFile);
 
