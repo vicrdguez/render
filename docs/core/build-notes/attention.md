@@ -4,7 +4,7 @@
 
 ## The owner's answer
 
-**Decided.** On 2026-11-14 the owner accepted every choice in the "taken" column below, with one exception. The type of `then` is rolled back: the task's choices and the request's choices are the same set. No caller used the wider allowance, and a shared handler across requests with different choice lists no longer compiles. The three rows under "Found last, and not fixed" have no taken choice and stay open.
+**Decided.** On 2026-11-14 the owner accepted every choice in the "taken" column below, with one exception. The type of `then` is rolled back: the task's choices and the request's choices are the same set. No caller used the wider allowance, and a shared handler across requests with different choice lists no longer compiles. Of the three rows under "Found last, and not fixed", the owner asked for the first to be fixed. The other two stay as they are, on purpose: W1 and W2 are samples for testing, and those two gaps are failure cases worth having in a sample.
 
 ## Choices that are not small
 
