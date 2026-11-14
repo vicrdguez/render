@@ -19,8 +19,8 @@ export type Fault = {
 	endedAt?: number;
 	decision?: DecisionId;
 };
-/** Where a kind's scan goes on: from `cursor`, past `skip` records. `null` is a kind with nothing left. */
-type Position = { cursor?: Cursor; skip: number } | null;
+/** Each kind continues after a returned task's identity. `null` is a kind with nothing left. */
+type Position = Cursor | null;
 export type Positions = Record<string, Position>;
 type Task = TaskRecord<JsonValue, JsonValue, JsonValue>;
 
@@ -40,8 +40,7 @@ export async function scanFaults(
 	for (const kind of kinds) {
 		const start = positions[kind];
 		if (start === null) continue;
-		let cursor = start?.cursor;
-		let skip = start?.skip ?? 0;
+		let cursor = start;
 		let count = 0;
 		for (;;) {
 			const at = cursor;
@@ -54,16 +53,14 @@ export async function scanFaults(
 					),
 				context,
 			);
-			for (let i = skip; i < page.items.length && count < limit; i++) {
+			for (let i = 0; i < page.items.length && count < limit; i++) {
 				const task = page.items[i];
 				if (task?.state.outcome?.status !== "faulted") continue;
 				count++;
 				const after: Position =
-					i + 1 < page.items.length
-						? { ...(at === undefined ? {} : { cursor: at }), skip: i + 1 }
-						: page.next === undefined
-							? null
-							: { cursor: page.next, skip: 0 };
+					i + 1 === page.items.length && page.next === undefined
+						? null
+						: { after: task.id, order: "descending" };
 				found.push({ kind, task, after });
 			}
 			if (count >= limit) break;
@@ -72,7 +69,6 @@ export async function scanFaults(
 				break;
 			}
 			cursor = page.next;
-			skip = 0;
 		}
 	}
 	const chosen = found.sort((a, b) => b.task.id - a.task.id).slice(0, limit);
