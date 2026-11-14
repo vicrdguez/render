@@ -93,7 +93,7 @@ test("W1: approve an annotated design from the phone, build, review the SHA and 
 		assert.equal((await decision(j, shown.decision.id)).decision.by, "phone");
 		const handed = await stage(j, "handed_over");
 		assert.equal(handed.sha, merge.data.sha);
-		assert.ok(handed.text.includes(`git merge --ff-only ${merge.data.sha}`));
+		assert.ok(handed.text.includes(`git --no-replace-objects merge --ff-only ${merge.data.sha}`));
 		assert.equal(git(repo, "rev-parse", "main"), base, "Tau never merges");
 		await j.restart();
 		const after = await j.watch("timeline", { project: "p" }, j.phone);

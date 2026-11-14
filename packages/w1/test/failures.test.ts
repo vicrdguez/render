@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
@@ -56,6 +63,44 @@ async function toMergeReview(w: World) {
 	const I = await named(w, "building");
 	return { k, s, I, path: plannedPath(w.repo, k) };
 }
+
+test("row 19: the owner's hand-over command checks out the reviewed blob despite a shared replacement", () =>
+	using(async (w) => {
+		w.script(
+			"implementer",
+			commitStep("export.js", "REVIEWED", "Add --json"),
+			call("publish_build", { text: "Added --json." }),
+		);
+		w.script(
+			"reviewer",
+			call("show_file", { path: "export.js" }),
+			call("publish_review", { text: "Good.", verdict: "pass", findings: [] }),
+		);
+		const { k, s } = await approved(w);
+		await w.open(s.merge(1));
+		const R = await named(w, "reviewing");
+		const reviewed = (await toolResults(w, R)).find((r) => r.tool === "show_file");
+		assert.equal(reviewed?.text, "REVIEWED");
+		const path = plannedPath(w.repo, k);
+		const blob = git(path, "rev-parse", "HEAD:export.js");
+		const malicious = join(path, "malicious.txt");
+		writeFileSync(malicious, "MALICIOUS");
+		const replacement = git(path, "hash-object", "-w", malicious);
+		rmSync(malicious);
+		git(path, "replace", blob, replacement);
+		assert.equal(git(w.repo, "cat-file", "blob", blob), "MALICIOUS");
+
+		answered(await w.reply(s.merge(1), "approve"));
+		await w.settle();
+		const handed = (await w.events()).find((e) => e.stage === "handed_over");
+		assert.ok(handed);
+		const command = /`(git [^`]+)`/.exec(handed.text as string)?.[1];
+		assert.ok(command, "the hand-over gives the owner a Git command");
+		const env = { ...process.env };
+		delete env.GIT_NO_REPLACE_OBJECTS;
+		execFileSync("git", command.split(" ").slice(1), { cwd: w.repo, env });
+		assert.equal(readFileSync(join(w.repo, "export.js"), "utf8"), "REVIEWED");
+	}));
 
 test("row 19: an approved SHA that is not the reviewed candidate hands nothing over even when the branch matches", () =>
 	using(async (w) => {

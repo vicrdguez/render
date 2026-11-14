@@ -406,7 +406,7 @@ describe("W1 rows 0 to 19 on one piece of work", () => {
 		assert.ok(handed);
 		assert.match(
 			handed.text as string,
-			new RegExp(`git merge --ff-only ${S2}`),
+			new RegExp(`git --no-replace-objects merge --ff-only ${S2}`),
 		);
 		assert.equal(handed.sha, S2);
 		assert.deepEqual(handed.notActedOn, [{ text: "Squash it later." }]);
@@ -445,7 +445,7 @@ describe("W1 rows 0 to 19 on one piece of work", () => {
 	});
 
 	test("G3: the owner merges the SHA, and the timeline says handed over, not merged", async () => {
-		git(w.repo, "merge", "--ff-only", S2);
+		git(w.repo, "--no-replace-objects", "merge", "--ff-only", S2);
 		assert.equal(git(w.repo, "rev-parse", "main"), S2);
 		const stages = (await w.events()).map((e) => e.stage);
 		assert.equal(stages.at(-1), "handed_over");
