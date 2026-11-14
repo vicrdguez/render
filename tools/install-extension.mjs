@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdir, stat } from "node:fs/promises";
+import { lstat, mkdir, stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -17,7 +17,10 @@ try {
 	process.stderr.write("usage: install-extension [--home DIR] [NAME]\n");
 	process.exit(2);
 }
-const directory = join(resolve(args.values.home), "extensions");
+const directory = join(
+	resolve(process.env.TAU_INVOCATION_DIR ?? process.cwd(), args.values.home),
+	"extensions",
+);
 const name = args.positionals[0];
 if (name === undefined) {
 	for (const available of names) {
@@ -46,13 +49,23 @@ if (name === undefined) {
 		);
 	await mkdir(directory, { recursive: true, mode: 0o700 });
 	const link = join(directory, name);
-	const build = spawnSync(
-		"nix",
-		["build", `.#extension-${name}`, "--out-link", link],
-		{ stdio: "inherit" },
-	);
-	if (build.error) process.stderr.write(`${build.error.message}\n`);
-	if (build.status !== 0) process.exit(build.status ?? 1);
+	const existing = await lstat(link).catch((error) => {
+		if (error.code !== "ENOENT") throw error;
+	});
+	if (existing && !existing.isSymbolicLink()) {
+		const kind = existing.isDirectory() ? "directory" : "file";
+		process.stderr.write(`Refusing to replace ${kind} at ${link}.\n`);
+		process.exit(1);
+	}
+	for (const flags of [["--no-link"], ["--out-link", link]]) {
+		const build = spawnSync("nix", ["build", `.#extension-${name}`, ...flags], {
+			stdio: "inherit",
+		});
+		if (build.error) process.stderr.write(`${build.error.message}\n`);
+		if (build.status !== 0) process.exit(build.status ?? 1);
+		if (flags[0] === "--no-link" && existing?.isSymbolicLink())
+			await unlink(link);
+	}
 	process.stdout.write(
 		`Installed ${name} at ${link}.\nRestart tau to load the installed extension.\n`,
 	);

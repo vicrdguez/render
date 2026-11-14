@@ -13,7 +13,7 @@ Tau makes delegated work trustworthy enough that you can leave, reconnect elsewh
 | External dependency cache | Prune the shared cache, or retain the existing Nix dependency cache. | Keep the shared cache and existing linker. | The design defers lock projection. The installed workspace tree contains no extension code or Markdown. External npm packages and shared metadata are not sample extensions. |
 | Installed verifier | Ship journey tests with tau, or run the verifier from the checkout. | `verify-build` typechecks the checkout and runs its emitted verifier with the installed command and three source outputs. | The installed command must contain no extension references in tests. The verifier imports no journey helper. |
 | Installer catalogue | Repeat the names in JavaScript, or pass the flake's extension output names. | The flake passes its extension attribute names as JSON to the script. | One list defines the outputs and the command's accepted names. |
-| Installer home | Treat `--home` as a user home or a Tau home. | It is the Tau home. The default is `~/.tau`. | The link goes under `<home>/extensions`, matching the host API. Tests always supply a temporary directory. |
+| Installer home | Treat `--home` as a user home or a Tau home. | It is the Tau home. The default is `~/.tau`. | The link goes under `<home>/extensions`, matching the host API. Tests supply a temporary Tau home or set HOME to a temporary directory. |
 | Installer untracked warning | Include ignored build output or use Git's normal untracked list. | `git ls-files --others --exclude-standard` under the selected package. | Ignored emitted output is not deployed. New untracked source gets a warning with `git add` advice. |
 
 No extension source change was needed. Relative `.js` imports remain for R10. No host source changed, and no loader workaround was needed.
@@ -93,9 +93,39 @@ The real installer was driven with `/tmp/r9-install.1HOFHy` as its Tau home. The
 "/tmp/r9-install.1HOFHy/extensions/w2" -> /nix/store/23lzgl2m8jrmwz0nnp6y2v9cj2a7m4ay-tau-extension-w2
 ```
 
-The second line came from `nix-store --gc --print-roots`. No collection was requested. Full output is `/tmp/r9-install-real.log`. Isolated installer tests substitute only the Nix process to check arguments and failed-build behavior. The real run establishes the store-link and root semantics.
+The second line came from `nix-store --gc --print-roots`. No collection was requested. Full output is `/tmp/r9-install-real.log`. Isolated installer tests substitute only the Nix process to check arguments and failed-build behavior. That real run established store-link replacement and root registration only. It did not establish replacement of a hand-made or dangling link. The fake Nix incorrectly removed those links. The follow-up below corrects both the implementation and that evidence gap.
 
 The first local gate found six import-order errors. Biome fixed only the changed tau tests. Acceptance is rerun from a fresh checkout of the pushed head and recorded in the PR.
+
+## Verifier follow-up
+
+The branch merged `origin/render-core` at `f2f9fc7` before these fixes. Logs and normalized name lists are in `/tmp/r9-finish/`.
+
+| Where | Readings | Taken | Why |
+| --- | --- | --- | --- |
+| Replacing links | Let Nix replace any link, or build before removing a symlink ourselves. | Build with `--no-link`, unlink only a symbolic link after success, then create the out-link with Nix. | Real Nix refuses non-store links. A failed build must preserve the old link. Files and directories are refused with their kind and path. |
+| Relative home | Resolve from the repository root or the caller directory. | Use the wrapper's existing `TAU_INVOCATION_DIR`, with cwd for direct execution. | The caller chooses the relative location. No new wrapper mechanism is needed. |
+| Installed-tree scan | Scan workspace packages or the whole output. | Scan the whole output except node_modules; reject Markdown and non-declaration TypeScript. | Extension source can be copied outside packages or inside emitted folders. |
+
+The corrected fake Nix refuses existing non-store links, including dangling ones. Before the fix the installer suite had 5 passes and 5 failures: replacement, dangling replacement, relative home, file refusal message and directory refusal message. After the fix all 10 pass. The default-home test sets HOME to its own temporary directory, with no `--home`. Changing `.tau` to `.wrong` fails it. Skipping the build status guard and skipping unlink each fail the suite independently. Each mutation was restored.
+
+Both installed-layout mutants wrongly passed the old verifier (exit 0). With the new assertions, copying W2 TypeScript to `lib/tau/packages/tau/dist/src/w2` fails with `core ships TypeScript source: lib/tau/packages/tau/dist/src/w2/book.ts`; copying its source and Markdown to `lib/tau/w2` fails with `core ships prose: lib/tau/w2/agent.md`. The unchanged installed output passes the complete verifier.
+
+Real `nix run .#install-extension -- --home <temporary-home> w2` results, recorded in `real.log`:
+
+```text
+checkout link: exit=0; Installed w2; Restart tau
+ dangling link: exit=0; Installed w2; Restart tau
+store link: exit=0; Installed w2; Restart tau
+regular file: exit=1; Refusing to replace file at <home>/extensions/w2.
+real directory: exit=1; Refusing to replace directory at <home>/extensions/w2.
+```
+
+Each successful target is `/nix/store/23lzgl2m8jrmwz0nnp6y2v9cj2a7m4ay-tau-extension-w2`. The regular file still contains `keep`; the directory remains a directory. These runs establish replacement of all three link kinds, not just store links.
+
+The fresh `origin/render-core` baseline has 410 passing tests and 352 normalized top-level names. The candidate has 421 passing tests and 363 names. The only two removed names have the directory-test replacements listed above. Apart from those replacements, 11 names were added: the six listed above plus default HOME, relative home, dangling link, file refusal and directory refusal. No test was lost. The full run took 17.3 seconds, including concurrent setup and cleanup; this is a test-budget observation, not a speed comparison.
+
+Fresh-checkout gate and all five forced checks are recorded in the PR comment at the pushed head. No host source was changed. Linux and real provider calls remain outside this evidence.
 
 ## Limits
 

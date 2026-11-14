@@ -37,17 +37,21 @@ async function fixture(t) {
 	await chmod(join(bin, "nix"), 0o755);
 	execFileSync("git", ["init", "-q", root]);
 	const run = (args = [], extraEnv = {}, defaultHome = false) =>
-		spawnSync(process.execPath, [installer, names, ...(defaultHome ? [] : ["--home", home]), ...args], {
-			cwd: root,
-			env: {
-				...process.env,
-				PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
-				HOME: root,
-				TAU_INVOCATION_DIR: root,
-				...extraEnv,
+		spawnSync(
+			process.execPath,
+			[installer, names, ...(defaultHome ? [] : ["--home", home]), ...args],
+			{
+				cwd: root,
+				env: {
+					...process.env,
+					PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+					HOME: root,
+					TAU_INVOCATION_DIR: root,
+					...extraEnv,
+				},
+				encoding: "utf8",
 			},
-			encoding: "utf8",
-		});
+		);
 	return { root, home, target, log, run };
 }
 
@@ -92,9 +96,14 @@ test("install-extension resolves a relative home from the caller directory", asy
 	const f = await fixture(t);
 	const caller = join(f.root, "nested");
 	await mkdir(caller);
-	const result = f.run(["--home", "relative", "w2"], { TAU_INVOCATION_DIR: caller });
+	const result = f.run(["--home", "relative", "w2"], {
+		TAU_INVOCATION_DIR: caller,
+	});
 	assert.equal(result.status, 0, result.stderr);
-	assert.equal(await readlink(join(caller, "relative/extensions/w2")), f.target);
+	assert.equal(
+		await readlink(join(caller, "relative/extensions/w2")),
+		f.target,
+	);
 });
 
 test("install-extension replaces a dangling link", async (t) => {
