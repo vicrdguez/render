@@ -70,9 +70,9 @@ export async function startServer(options: ServerOptions): Promise<Server> {
 	const projects = new Projects(options);
 	let admin: NetServer | undefined;
 	try {
-		await projects.start();
 		await refuseRunning(socket);
 		const devices = await Devices.load(options.home, options.now ?? Date.now);
+		await projects.start();
 		admin = await listenAdmin(socket, devices);
 		const host = {
 			projects,
