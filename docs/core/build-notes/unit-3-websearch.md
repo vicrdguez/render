@@ -88,3 +88,13 @@ Removing the root pin with the old flake failed the new workspace check in a cle
 | Live service | Fixture evidence proves provider authentication, or only the local integration. | No live provider call was made. | No live key was used. The gate only calls local providers. |
 
 No live provider call is authorized or tested. Fixture tests do not establish provider authentication, relevance, billing or upstream cancellation. Host HTTP redaction, the module import map and missing-code reporting belong to the host and composition units. This package tests its schema and secret-free tool surfaces, not a stand-in host response.
+
+## Closure round
+
+| Where | Readings | Taken | Why |
+| --- | --- | --- | --- |
+| Three-character prefix | Hide three leading characters, or retain the four-character rule. | Keep the implementation unchanged. Both provider tests return a snippet with only three matching characters unchanged and replace a snippet with four matching characters. | The new tests pass the starting code. Changing the emitted filter from four to three made both tests fail. The mutation was reverted. |
+| Split provider echoes | Match across every field and result, or filter each field. | A key split across two fields or across two results can get through when no single field contains the matched prefix. | The filter sees each title, URL and snippet alone. This round documents the limit and does not join unrelated fields to chase provider transformations. |
+| Transformed provider echoes | Decode or normalize arbitrary provider output, or match literal text. | Another letter case, URL encoding and base64 can get through. | Each requires the provider to transform the key. The literal filter cannot recognize arbitrary transformations. No code change tries to chase them. |
+| Common key prefixes | Match common prefixes or special-case them. | A key that starts with common text, such as `https` or a year, can make the filter replace nearly every field. | Four-character matching trades false positives for hiding cut keys. It is not a complete secret filter. |
+| Removed external dependencies in a reused worktree | Keep old external links, or remove links absent from the current dependency set. | Remove stale symlinks in the managed `node_modules` directory, whether they point to workspace packages or external dependencies. | The old dependency can otherwise mask a missing declaration locally. Two tests cover scoped and unscoped links with a new external directory. Both failed before the link-tool fix and passed after it. The fresh checkout and gate were not affected by the stale-link bug. |
