@@ -1,6 +1,8 @@
 # Tau: working design
 
-This folder tracks Tau, a redesign of Render from zero. Nothing in it is implemented, and `docs/spec.md` does not bind it.
+This folder tracks Tau, a redesign of Render from zero. `docs/spec.md` does not bind it.
+
+**It is built.** On 2026-11-14 the design was implemented under `packages/`, one unit at a time, each checked by an agent on another model family before it merged into `render-core`. `nix flake check` is the gate, and it builds and runs the installed `tau`. [Build notes](build-notes/README.md) lists each place where the build met a gap or a small contradiction in this design and what it took. `build-log.tsv` is the decision trail. The other notes in this folder were written before the build and still say that nothing is implemented. They are corrected when the folder is consolidated.
 
 **The design is locked.** On 2026-11-13 the owner went through every entry that was still Proposed and every open point, and decided each one. What stays open or deferred is listed under "Open and deferred" below. A part that the build shows to be wrong comes back to the owner.
 
@@ -219,10 +221,10 @@ Dropped: a read-only viewer of a store, and keeping the eight explorer reports. 
 
 ## Next steps
 
-1. Build the store layer: Decision and Event as designed here. The `answer` table and the failure paths of the walk are the list of ways it can fail. The tests come from that list, before the code. Then run K1 to K6 again, against the real functions.
-2. Build the host layer on it: `bind`, the start order, the project default, and the calls in [Host](host.md), carried as [Protocol](protocol.md) says. The scripts in those files and the checks of the three spikes are the list of ways it can fail.
-3. Build web search on Webfox, then W2, then W1. Web search comes first because it is the smallest extension and has no decision.
-4. Consolidate this folder into final documents that no longer speak of arenas, walks, or passes. That comes last, once the implementation is done.
+1. The owner reads [Build notes](build-notes/README.md) and rolls back any choice they would have made differently.
+2. Run Tau against a real model provider and a real search provider. The build used stand-ins for both.
+3. Run the gate on Linux, and with the Nix sandbox on. Both are untested.
+4. Consolidate this folder into final documents that no longer speak of arenas, walks, or passes.
 
 ## Files
 

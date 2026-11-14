@@ -14,5 +14,7 @@ Each build unit writes its own file. A line names the place in the design, the t
 | [Unit 3](unit-3-websearch.md) | Web search |
 | [Unit 4](unit-4-w2.md) | W2 |
 | [Unit 5](unit-5-w1.md) | W1 |
+| [Unit 6](unit-6-integration.md) | The import map, the journeys through the server, and the build of `tau` |
+| [Unit 7](unit-7-shell.md) | The dev shell no longer needs the built package |
 
 `../build-log.tsv` is the decision trail of the whole run, one row per decision.
