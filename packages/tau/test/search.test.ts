@@ -58,8 +58,8 @@ test("search: project default calls the local provider and no device surface or 
 		modules: {
 			...modules,
 			websearch: {
+				...modules.websearch,
 				extension: create({ exa: `http://127.0.0.1:${address.port}` }),
-				options: websearch.options,
 			},
 		},
 	});
