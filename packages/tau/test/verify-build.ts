@@ -6,8 +6,8 @@ import {
 	glob,
 	mkdir,
 	mkdtemp,
-	readFile,
 	readdir,
+	readFile,
 	rm,
 	symlink,
 } from "node:fs/promises";

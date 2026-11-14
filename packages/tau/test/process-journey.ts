@@ -9,8 +9,8 @@ import {
 	fauxAssistantMessage,
 } from "@earendil-works/pi-ai";
 import { requestAdmin } from "tau-host";
-import { post, watch } from "./journey.js";
 import { linkExtensions } from "./extensions.js";
+import { post, watch } from "./journey.js";
 
 export async function processJourney(
 	config: { now?: () => number; searchUrl?: string } = {},

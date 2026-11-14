@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
 import { symlink } from "node:fs/promises";
 import { join } from "node:path";
+import { test } from "node:test";
 import { fromDirectory } from "tau-host";
 import { extensionSource } from "./extensions.js";
 import { journey } from "./journey.js";

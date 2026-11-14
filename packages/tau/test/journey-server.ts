@@ -1,10 +1,10 @@
+import { join } from "node:path";
 import {
 	type AssistantMessage,
 	createModels,
 	fauxProvider,
 } from "@earendil-works/pi-ai";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { join } from "node:path";
 import { fromDirectory, startServer } from "tau-host";
 
 const home = process.argv[2];
