@@ -13,13 +13,13 @@ test("extensions and models describe what the server has", async () => {
 				e.workflow,
 			]),
 			[
-				["search", false],
-				["notes", false],
 				["flow", true],
+				["notes", false],
+				["search", false],
 			],
 		);
 		assert.deepEqual(
-			listed.body.result.items[0].schema,
+			listed.body.result.items[2].schema,
 			modules.search.options?.schema,
 		);
 		assert.ok(!("schema" in listed.body.result.items[1]));
