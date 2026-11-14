@@ -99,14 +99,18 @@
                 node "docs/core/spikes/$spike.mjs"
               done
             '';
+            verify-build = mkCommand "verify-build" [ ] ''
+              node ${tau}/lib/tau/packages/tau/dist/test/verify-build.js ${tau}/bin/tau
+            '';
             check = mkCommand "check" [ ] ''
               ${commands.lint}/bin/lint
               ${commands.typecheck}/bin/typecheck
               ${commands.test}/bin/test "$@"
               ${commands.spikes}/bin/spikes
+              ${commands.verify-build}/bin/verify-build
             '';
           };
-          checks = lib.genAttrs [ "lint" "typecheck" "test" "spikes" ] (
+          checks = lib.genAttrs [ "lint" "typecheck" "test" "spikes" "verify-build" ] (
             name:
             pkgs.runCommand "tau-${name}"
               {
@@ -114,6 +118,7 @@
                 __darwinAllowLocalNetworking = builtins.elem name [
                   "test"
                   "spikes"
+                  "verify-build"
                 ];
               }
               ''
@@ -134,6 +139,7 @@
                 ./tsconfig.json
                 ./tsconfig.base.json
                 ./tools/link-node-modules.mjs
+                ./tools/assets.mjs
                 ./packages
               ];
             };
@@ -145,6 +151,7 @@
               runHook preBuild
               node tools/link-node-modules.mjs ${npmDeps}/node_modules
               node node_modules/typescript/bin/tsc -b
+              node tools/assets.mjs
               runHook postBuild
             '';
             installPhase = ''

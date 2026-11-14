@@ -135,6 +135,23 @@ test("tau starts on ~/.tau at an ephemeral port, and the device commands reach i
 	}
 });
 
+test("the command's real model source answers models over HTTP with isolated pi logins", async () => {
+	const env = await home();
+	const server = await serve(env);
+	try {
+		const token = await pair(env, server.url, "phone");
+		for (let i = 0; i < 3; i++) {
+			const reply = await post(server.url, "models", {}, token);
+			assert.equal(reply.status, 200, JSON.stringify(reply.body));
+			assert.ok(Array.isArray(reply.body.result.items));
+		}
+	} finally {
+		server.child.kill("SIGTERM");
+		const [code] = await once(server.child, "exit");
+		assert.equal(code, 0, server.output().stderr);
+	}
+});
+
 test("a signal ends every stream with stopping and frees the home for the next start", async () => {
 	const env = await home();
 	const first = await serve(env);

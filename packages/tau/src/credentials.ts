@@ -7,6 +7,8 @@ import type {
 } from "@earendil-works/pi-ai";
 import lockfile from "proper-lockfile";
 
+const pending = new Map<string, Promise<void>>();
+
 /** Shares pi's resolved auth.json lock for the entire read, refresh, and write. */
 export function piLogins(file: string): CredentialStore {
 	const locked = async <T>(
@@ -30,27 +32,39 @@ export function piLogins(file: string): CredentialStore {
 			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
 		}
 		const resolved = await realpath(file);
-		let compromised: Error | undefined;
-		const release = await lockfile.lock(resolved, {
-			stale: 30_000,
-			retries: { retries: 20, minTimeout: 10, maxTimeout: 2_000 },
-			onCompromised: (error) => {
-				compromised = error;
-			},
+		const previous = pending.get(resolved);
+		let done!: () => void;
+		const current = new Promise<void>((resolve) => {
+			done = resolve;
 		});
-		const check = () => {
-			if (compromised !== undefined) throw compromised;
-			options?.signal?.throwIfAborted();
-		};
+		pending.set(resolved, current);
+		await previous;
 		try {
-			check();
-			const text = (await readFile(resolved, "utf8")).replace(/^\uFEFF/, "");
-			const logins = text === "" ? {} : JSON.parse(text);
-			const result = await work(logins, resolved, check);
-			check();
-			return result;
+			let compromised: Error | undefined;
+			const release = await lockfile.lock(resolved, {
+				stale: 30_000,
+				retries: { retries: 20, minTimeout: 10, maxTimeout: 2_000 },
+				onCompromised: (error) => {
+					compromised = error;
+				},
+			});
+			const check = () => {
+				if (compromised !== undefined) throw compromised;
+				options?.signal?.throwIfAborted();
+			};
+			try {
+				check();
+				const text = (await readFile(resolved, "utf8")).replace(/^\uFEFF/, "");
+				const logins = text === "" ? {} : JSON.parse(text);
+				const result = await work(logins, resolved, check);
+				check();
+				return result;
+			} finally {
+				if (compromised === undefined) await release();
+			}
 		} finally {
-			if (compromised === undefined) await release();
+			done();
+			if (pending.get(resolved) === current) pending.delete(resolved);
 		}
 	};
 	const update = async (
