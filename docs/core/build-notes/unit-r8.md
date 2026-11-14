@@ -7,6 +7,7 @@ Tau makes delegated work trustworthy enough that you can leave, reconnect elsewh
 | Where | Readings | Taken | Why |
 | --- | --- | --- | --- |
 | Admin reply | Add another HTTP call, or extend the local socket. | The closed admin schemas accept only extension_reload with no fields and return a reload report. | The existing socket is owner-only. The client protocol does not change. |
+| CLI model initialization | Import all providers for every admin command, or only when serving. | Load the model providers, execution environment and credential reader inside serve. | An admin command does not use them. The existing server and device tests cover the unchanged behavior. |
 | Report shape | Repeat the report type in the admin schema, or derive it from one schema. | ReloadReport and TaskWarning have schema-derived types. | The socket validates the same shape the server produces. |
 | Task diagnostics | Read terminal faults, or inspect live tasks. | Inspect every open harness after publication and once after startup opens projects. Read installed definitions from each project's registry. | An unmigratable timer still looks sleeping before it is due. No eager migration or durable report is added. |
 | A stored version above installed code | Omit it until due, or warn now. | Report blocked with task_too_old, including both versions. | This code cannot reserve that version. A running old phase may still finish. |
@@ -130,9 +131,9 @@ reload rereads prose, refuses syntax errors and keeps the old workflow without e
 startup reports a stored task newer than installed code
 ```
 
-The test runner was inspected before execution. The focused host and command run passed 209 tests in 6686.591584 ms. The later installer run passed 14 tests in 6326.312584 ms. The final cumulative run passed 479 tests in 20479.199708 ms. These are test-budget observations, not speed comparisons. Node reports test execution time, excluding the preceding typecheck. Real-process CLI cases and two one-second timers account for most new work. No fault loop or real model call was added. Lint also passed.
+The test runner was inspected before execution. The focused host and command run passed 209 tests in 6686.591584 ms. The later installer run passed 14 tests in 6326.312584 ms. The final cumulative run passed 479 tests in 18152.466792 ms. These are test-budget observations, not speed comparisons. Node reports test execution time, excluding the preceding typecheck. Real-process CLI cases and two one-second timers account for most new work. No fault loop or real model call was added. Lint also passed.
 
-Fresh-checkout acceptance and all five forced flake checks are recorded in the PR at the pushed head. No spikes or concurrent R10 files changed.
+Fresh-checkout acceptance and forced flake checks are recorded in the PR at the pushed head. Three earlier gate attempts at f48e0d5 hit existing journey timeouts under host load between 16 and 28. The last had 477 passes, zero assertion failures and two cancellations. All four non-test checks passed forced rebuilds at that head. No assertion or deadline was weakened. No spikes or concurrent R10 files changed.
 
 ## Limits
 

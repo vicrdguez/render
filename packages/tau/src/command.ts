@@ -1,14 +1,11 @@
 import { homedir } from "node:os";
 import path from "node:path";
-import { builtinModels } from "@earendil-works/pi-ai/providers/all";
-import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import {
 	type AdminRequest,
 	fromDirectory,
 	requestAdmin,
 	startServer,
 } from "tau-host";
-import { piLogins } from "./credentials.js";
 import { printReload } from "./reload.js";
 
 const USAGE = `usage: tau [--port PORT] [--allow-host NAME]...  start the server on ~/.tau and 127.0.0.1:6283
@@ -55,6 +52,11 @@ async function serve(
 	home: string,
 	config: { port: number; allowedHosts: string[] },
 ): Promise<number> {
+	const { builtinModels } = await import("@earendil-works/pi-ai/providers/all");
+	const { NodeExecutionEnv } = await import(
+		"@earendil-works/pi-durable/env/node"
+	);
+	const { piLogins } = await import("./credentials.js");
 	const agentDir =
 		process.env.PI_CODING_AGENT_DIR ?? path.join(homedir(), ".pi", "agent");
 	const server = await startServer({
