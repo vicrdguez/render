@@ -3,8 +3,17 @@ import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 
 for (const alreadyRevoked of [false, true]) {
-	test(alreadyRevoked ? "a failed repeated revoke preserves the earlier revocation across restart" : "concurrent revokes serialize rollback before a successful write", () => {
-		const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
+	test(
+		alreadyRevoked
+			? "a failed repeated revoke preserves the earlier revocation across restart"
+			: "concurrent revokes serialize rollback before a successful write",
+		() => {
+			const child = spawnSync(
+				process.execPath,
+				[
+					"--input-type=module",
+					"-e",
+					`
 			import assert from "node:assert/strict";
 			import fs from "node:fs/promises";
 			import { syncBuiltinESMExports } from "node:module";
@@ -40,7 +49,11 @@ for (const alreadyRevoked of [false, true]) {
 				assert.equal(devices.list()[0]?.revokedAt, 123);
 				assert.equal((await Devices.load(home, () => 456)).authenticate(auth), undefined);
 			} finally { await fs.rm(home, { recursive: true, force: true }); }
-		`], { encoding: "utf8", timeout: 10000 });
-		assert.equal(child.status, 0, child.stderr);
-	});
+		`,
+				],
+				{ encoding: "utf8", timeout: 10000 },
+			);
+			assert.equal(child.status, 0, child.stderr);
+		},
+	);
 }

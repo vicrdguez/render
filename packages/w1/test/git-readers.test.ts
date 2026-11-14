@@ -81,7 +81,11 @@ for (const driver of ["external", "textconv", "environment"] as const) {
 	});
 }
 
-function environment(t: import("node:test").TestContext, key: string, value: string) {
+function environment(
+	t: import("node:test").TestContext,
+	key: string,
+	value: string,
+) {
 	const previous = process.env[key];
 	process.env[key] = value;
 	t.after(() => {
@@ -98,18 +102,33 @@ function built(t: import("node:test").TestContext) {
 	git(repo, "add", ".");
 	git(repo, "commit", "-qm", "Build");
 	const sha = git(repo, "rev-parse", "HEAD");
-	const plan: Plan = { repo, path: repo, branch: "main", base: "main", baseSha };
+	const plan: Plan = {
+		repo,
+		path: repo,
+		branch: "main",
+		base: "main",
+		baseSha,
+	};
 	return { repo, plan, sha };
 }
 
 test("row 13: both readers ignore blob replacements shared from the implementer worktree", async () => {
 	const w = await world();
 	try {
-		w.script("implementer",
+		w.script(
+			"implementer",
 			commitStep("export.js", "MALICIOUS_PUBLISHED", "Build"),
-			call("bash", { command: "printf '%s' 'BENIGN_REPLACED' > /tmp/tau-benign-blob-$$ && benign=$(git hash-object -w /tmp/tau-benign-blob-$$) && rm /tmp/tau-benign-blob-$$ && git replace $(git rev-parse HEAD:export.js) $benign" }),
-			call("publish_build", { text: "Built." }));
-		w.script("reviewer", call("show_diff"), call("show_file", { path: "export.js" }));
+			call("bash", {
+				command:
+					"printf '%s' 'BENIGN_REPLACED' > /tmp/tau-benign-blob-$$ && benign=$(git hash-object -w /tmp/tau-benign-blob-$$) && rm /tmp/tau-benign-blob-$$ && git replace $(git rev-parse HEAD:export.js) $benign",
+			}),
+			call("publish_build", { text: "Built." }),
+		);
+		w.script(
+			"reviewer",
+			call("show_diff"),
+			call("show_file", { path: "export.js" }),
+		);
 		await approved(w);
 		const results = await toolResults(w, await named(w, "reviewing"));
 		assert.equal(results.length, 2);
@@ -118,29 +137,45 @@ test("row 13: both readers ignore blob replacements shared from the implementer 
 			assert.match(result.text, /MALICIOUS_PUBLISHED/);
 			assert.doesNotMatch(result.text, /BENIGN_REPLACED/);
 		}
-	} finally { await w.close(); }
+	} finally {
+		await w.close();
+	}
 });
 
 test("row 11: publish_build reads the real commit even when its type is replaced", async () => {
 	const w = await world();
 	try {
-		w.script("implementer", commitStep("export.js", "published", "Build"),
-			call("bash", { command: "git replace -f HEAD $(git rev-parse HEAD:export.js)" }),
-			call("publish_build", { text: "Built." }));
+		w.script(
+			"implementer",
+			commitStep("export.js", "published", "Build"),
+			call("bash", {
+				command: "git replace -f HEAD $(git rev-parse HEAD:export.js)",
+			}),
+			call("publish_build", { text: "Built." }),
+		);
 		const { k } = await approved(w);
 		const I = await named(w, "building");
 		const builds = await w.entries(I, "w1.build");
 		assert.equal(builds.length, 1);
-		assert.equal(data(builds[0]).sha, git(plannedPath(w.repo, k), "--no-replace-objects", "rev-parse", "HEAD"));
-	} finally { await w.close(); }
+		assert.equal(
+			data(builds[0]).sha,
+			git(plannedPath(w.repo, k), "--no-replace-objects", "rev-parse", "HEAD"),
+		);
+	} finally {
+		await w.close();
+	}
 });
 
 for (const source of ["info", "file", "environment"] as const) {
 	test(`row 13: ${source} attributes cannot hide a text change`, async (t) => {
 		const { repo, plan, sha } = built(t);
-		const attributes = join(repo, source === "info" ? ".git/info/attributes" : "attributes");
+		const attributes = join(
+			repo,
+			source === "info" ? ".git/info/attributes" : "attributes",
+		);
 		writeFileSync(attributes, "* -diff\n");
-		if (source === "file") git(repo, "config", "core.attributesFile", attributes);
+		if (source === "file")
+			git(repo, "config", "core.attributesFile", attributes);
 		if (source === "environment") {
 			environment(t, "GIT_CONFIG_COUNT", "1");
 			environment(t, "GIT_CONFIG_KEY_0", "core.attributesFile");
@@ -159,12 +194,17 @@ test("row 13: diff output pins color prefixes renames algorithm quoting and cont
 	const candidate = git(repo, "rev-parse", "HEAD");
 	const expected = await diffAt({ ...plan, baseSha: sha }, candidate);
 	for (const [key, value] of [
-		["color.diff", "always"], ["diff.noprefix", "true"],
-		["diff.mnemonicPrefix", "true"], ["diff.renames", "copies"],
-		["diff.algorithm", "histogram"], ["core.quotePath", "false"],
-		["diff.context", "0"], ["diff.relative", "true"],
+		["color.diff", "always"],
+		["diff.noprefix", "true"],
+		["diff.mnemonicPrefix", "true"],
+		["diff.renames", "copies"],
+		["diff.algorithm", "histogram"],
+		["core.quotePath", "false"],
+		["diff.context", "0"],
+		["diff.relative", "true"],
 		["diff.suppressBlankEmpty", "true"],
-	] as const) git(repo, "config", key, value);
+	] as const)
+		git(repo, "config", key, value);
 	assert.equal(await diffAt({ ...plan, baseSha: sha }, candidate), expected);
 });
 
@@ -172,7 +212,16 @@ test("row 13: submodule diffs show only the gitlink, not nested repository conte
 	const { repo, plan } = built(t);
 	const sub = repository();
 	t.after(() => rmSync(join(sub, ".."), { recursive: true, force: true }));
-	git(repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "sm");
+	git(
+		repo,
+		"-c",
+		"protocol.file.allow=always",
+		"submodule",
+		"add",
+		"-q",
+		sub,
+		"sm",
+	);
 	git(repo, "commit", "-qam", "Submodule");
 	const baseSha = git(repo, "rev-parse", "HEAD");
 	writeFileSync(join(repo, "sm/export.js"), "UNPUBLISHED_SUBMODULE_CONTENT\n");
@@ -189,19 +238,36 @@ test("row 13: submodule diffs show only the gitlink, not nested repository conte
 test("row 13: every missing file has the same refusal without disk details", async (t) => {
 	const { repo, plan, sha } = built(t);
 	writeFileSync(join(repo, "disk-only"), "PRIVATE");
-	for (const path of ["disk-only", "/etc/hosts", "/tau-missing-file", "missing", "../missing"]) {
+	for (const path of [
+		"disk-only",
+		"/etc/hosts",
+		"/tau-missing-file",
+		"missing",
+		"../missing",
+	]) {
 		await assert.rejects(fileAt(plan, sha, path), {
 			message: "The path is not a file in the published commit.",
 		});
 	}
 });
 
-for (const variable of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG_PARAMETERS"]) {
+for (const variable of [
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_INDEX_FILE",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_CONFIG_PARAMETERS",
+]) {
 	test(`W1 Git ignores inherited ${variable}`, async (t) => {
 		const { repo, plan, sha } = built(t);
 		const expected = await diffAt(plan, sha);
-		const value = variable === "GIT_DIR" ? join(repo, "missing") :
-			variable === "GIT_CONFIG_PARAMETERS" ? "'color.diff=always'" : join(repo, "missing");
+		const value =
+			variable === "GIT_DIR"
+				? join(repo, "missing")
+				: variable === "GIT_CONFIG_PARAMETERS"
+					? "'color.diff=always'"
+					: join(repo, "missing");
 		environment(t, variable, value);
 		assert.equal(await diffAt(plan, sha), expected);
 		assert.equal(await fileAt(plan, sha, "export.js"), "MALICIOUS_PUBLISHED\n");
@@ -219,8 +285,19 @@ for (const change of ["replace", "graft"] as const) {
 	test(`row 19: the hand-over head check ignores a ${change}`, async () => {
 		const w = await world();
 		try {
-			w.script("implementer", commitStep("export.js", "published", "Build"), call("publish_build", { text: "Built." }));
-			w.script("reviewer", call("publish_review", { text: "Good.", verdict: "pass", findings: [] }));
+			w.script(
+				"implementer",
+				commitStep("export.js", "published", "Build"),
+				call("publish_build", { text: "Built." }),
+			);
+			w.script(
+				"reviewer",
+				call("publish_review", {
+					text: "Good.",
+					verdict: "pass",
+					findings: [],
+				}),
+			);
 			const { k, s } = await approved(w);
 			await w.open(s.merge(1));
 			const path = plannedPath(w.repo, k);
@@ -235,6 +312,8 @@ for (const change of ["replace", "graft"] as const) {
 			await w.settle();
 			assert.equal((await w.events()).at(-1)?.stage, "handed_over");
 			assert.equal(data((await w.entries(k, "w1.merge"))[0]).sha, sha);
-		} finally { await w.close(); }
+		} finally {
+			await w.close();
+		}
 	});
 }

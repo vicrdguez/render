@@ -335,10 +335,23 @@ for (const name of ["library", "@scope/library"]) {
 		const { root, put } = await fixture(t);
 		await put(`external-old/${name}/package.json`, { name });
 		await put("external-new/kept/package.json", { name: "kept" });
-		assert.equal(run("link-node-modules.mjs", root, path.join(root, "external-old")).status, 0);
-		assert.equal(run("link-node-modules.mjs", root, path.join(root, "external-new")).status, 0);
-		await assert.rejects(lstat(path.join(root, "node_modules", name)), { code: "ENOENT" });
-		assert.equal(await realpath(path.join(root, "node_modules/kept")), path.join(root, "external-new/kept"));
+		assert.equal(
+			run("link-node-modules.mjs", root, path.join(root, "external-old"))
+				.status,
+			0,
+		);
+		assert.equal(
+			run("link-node-modules.mjs", root, path.join(root, "external-new"))
+				.status,
+			0,
+		);
+		await assert.rejects(lstat(path.join(root, "node_modules", name)), {
+			code: "ENOENT",
+		});
+		assert.equal(
+			await realpath(path.join(root, "node_modules/kept")),
+			path.join(root, "external-new/kept"),
+		);
 	});
 }
 
