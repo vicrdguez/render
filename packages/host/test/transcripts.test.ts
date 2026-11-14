@@ -75,6 +75,7 @@ test("the bind and input calls of protocol.md replay against the real server", a
 		);
 		assert.equal(typeof submission.id, "number");
 		release();
+		assert.deepEqual(Object.keys(submission), ["id", "conversationId", "requestId", "type", "status"]);
 		await until("the run ends", async () => {
 			const page = await s.call("conversations", { project: "p" });
 			return page.body.result.items.every(
