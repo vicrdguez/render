@@ -43,7 +43,7 @@ import {
 	decision,
 	eventLog,
 } from "tau-store";
-import { answer, openStore, type Store } from "tau-store/host";
+import { fauxAnswer, openStore, type Store } from "tau-store/testing";
 import * as W1 from "../src/index.js";
 
 export { context, W1 };
@@ -268,20 +268,17 @@ export async function world(
 			assert.equal(found?.status, "open", `${id}: ${JSON.stringify(found)}`);
 			return found as Decision;
 		},
-		/** The owner answers from a device, quoting the basis the decision names. */
 		async reply(
 			id: DecisionId,
 			choice: string,
 			annotations: Annotation[] = [],
-			device = "laptop",
 		) {
 			const found = await read(id);
 			assert.ok(found, `${id} exists`);
-			return answer(
+			return fauxAnswer(
 				store,
 				id,
 				{ basis: found.basis, choice, annotations },
-				device,
 				context,
 			);
 		},
@@ -367,7 +364,7 @@ export async function named(w: World, stage: string) {
 	return event.conversation as ConversationId;
 }
 
-export function answered(result: Awaited<ReturnType<typeof answer>>) {
+export function answered(result: Awaited<ReturnType<typeof fauxAnswer>>) {
 	assert.equal(result.kind, "answered", JSON.stringify(result));
 	if (result.kind !== "answered") throw new Error("not answered");
 	return result;

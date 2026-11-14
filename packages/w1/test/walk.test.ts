@@ -168,8 +168,8 @@ describe("W1 rows 0 to 19 on one piece of work", () => {
 		assert.equal(a2.basis, v2?.id);
 	});
 
-	test("row 6: the phone that still shows V1 answers A1 and gets conflict; the open decision is A2", async () => {
-		const result = await w.reply(s.design(1), "approve", [], "phone");
+	test("row 6: an answer to A1 still showing V1 gets conflict; the open decision is A2", async () => {
+		const result = await w.reply(s.design(1), "approve");
 		assert.equal(result.kind, "refused");
 		assert.equal(result.kind === "refused" && result.refusal.code, "conflict");
 		await w.open(s.design(2));
@@ -222,7 +222,7 @@ describe("W1 rows 0 to 19 on one piece of work", () => {
 		const again = answered(await w.reply(s.design(2), "approve", draft));
 		assert.equal(again.repeated, true, "row 7: an equal resend repeats");
 		assert.equal(again.decision.continuation, first.decision.continuation);
-		assert.equal(again.decision.by, "laptop");
+		assert.equal(again.decision.by, "!test");
 		path = plannedPath(w.repo, k);
 		await w.settle();
 		I = await named(w, "building");

@@ -51,11 +51,12 @@ test("fauxAnswer preserves refusals and equal resends without extra writes", asy
 		choice: "approve",
 		annotations: [],
 	};
+	const other = await s.basis("Another basis.");
 	const before = s.commits();
 	const stale = await fauxAnswer(
 		s.store,
 		opened.id,
-		{ ...input, basis: opened.basis + 1 },
+		{ ...input, basis: other.id },
 		context,
 	);
 	assert.ok(stale.kind === "refused");
