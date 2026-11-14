@@ -74,6 +74,9 @@
               '';
             };
           commands = {
+            install-extension = mkCommand "install-extension" [ pkgs.nix pkgs.git ] ''
+              exec node tools/install-extension.mjs '${builtins.toJSON (builtins.attrNames extensions)}' "$@"
+            '';
             fmt = mkCommand "fmt" [ pkgs.biome pkgs.nixfmt pkgs.findutils ] ''
               biome format --write .
               ${nixFiles ""}
