@@ -87,7 +87,10 @@ test("W1: approve an annotated design from the phone, build, review the SHA and 
 		git(repo, "cat-file", "-e", `${merge.data.sha}^{commit}`);
 		assert.equal(git(repo, "rev-parse", `w1/${conversation}`), merge.data.sha);
 		const base = git(repo, "rev-parse", "main");
-		await j.ok("answer", answer(final, "approve"), j.phone);
+		const accepted = await j.ok("answer", answer(final, "approve"), j.laptop);
+		assert.equal(accepted.decision.by, "laptop");
+		assert.equal((await decision(j, final.decision.id)).decision.by, "laptop");
+		assert.equal((await decision(j, shown.decision.id)).decision.by, "phone");
 		const handed = await stage(j, "handed_over");
 		assert.equal(handed.sha, merge.data.sha);
 		assert.ok(handed.text.includes(`git merge --ff-only ${merge.data.sha}`));
