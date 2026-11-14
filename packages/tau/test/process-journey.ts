@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { fork, type ChildProcess } from "node:child_process";
+import { type ChildProcess, fork } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	fauxAssistantMessage,
 	type AssistantMessage,
+	fauxAssistantMessage,
 } from "@earendil-works/pi-ai";
 import { requestAdmin } from "tau-host";
 import { post, watch } from "./journey.js";
@@ -43,17 +43,21 @@ export async function processJourney(
 				stdio: ["ignore", "pipe", "pipe", "ipc"],
 			},
 		);
-		child.stdout!.on("data", (chunk) => stdout.push(String(chunk)));
-		child.stderr!.on("data", (chunk) => stderr.push(String(chunk)));
-		child.on("message", (message: any) => {
-			if (!("request" in message)) return;
-			requests.push(message.request);
-			faux.state.callCount++;
-			child.send({
-				id: message.id,
-				response: responses.shift() ?? fauxAssistantMessage(""),
-			});
-		});
+		assert.ok(child.stdout && child.stderr);
+		child.stdout.on("data", (chunk) => stdout.push(String(chunk)));
+		child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
+		child.on(
+			"message",
+			(message: { id: number; request: unknown } | { port: number }) => {
+				if (!("request" in message)) return;
+				requests.push(message.request);
+				faux.state.callCount++;
+				child.send({
+					id: message.id,
+					response: responses.shift() ?? fauxAssistantMessage(""),
+				});
+			},
+		);
 		const address = await Promise.race([
 			once(child, "message").then(([message]) => message),
 			once(child, "exit").then(() => {

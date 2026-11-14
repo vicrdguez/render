@@ -1,20 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ExtensionModule } from "tau-host";
-import * as imports from "../src/modules.js";
+import { moduleMap, modules } from "../src/modules.js";
 import { journey } from "./journey.js";
 
 test("the import map refuses a repeated extension name instead of dropping code", () => {
-	assert.ok(
-		"moduleMap" in imports,
-		"the map must check names before entries can overwrite",
+	const w2 = modules.w2;
+	assert.ok(w2);
+	assert.deepEqual(moduleMap([w2]), { w2 });
+	assert.throws(
+		() => moduleMap([w2, { ...w2 }]),
+		/Repeated extension name: w2/,
 	);
-	const build = imports.moduleMap as (
-		entries: readonly ExtensionModule[],
-	) => Readonly<Record<string, ExtensionModule>>;
-	const w2 = imports.modules.w2!;
-	assert.deepEqual(build([w2]), { w2 });
-	assert.throws(() => build([w2, { ...w2 }]), /Repeated extension name: w2/);
 });
 
 test("extensions reports the name, workflow flag and options schema of every real import-map entry", async () => {
@@ -22,8 +18,9 @@ test("extensions reports the name, workflow flag and options schema of every rea
 	try {
 		const model = { type: "string", format: "model" };
 		assert.deepEqual(
-			(await j.ok("extensions", {})).items.sort((a: any, b: any) =>
-				a.name.localeCompare(b.name),
+			(await j.ok("extensions", {})).items.sort(
+				(a: { name: string }, b: { name: string }) =>
+					a.name.localeCompare(b.name),
 			),
 			[
 				{

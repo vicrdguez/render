@@ -1,7 +1,7 @@
 import {
+	type AssistantMessage,
 	createModels,
 	fauxProvider,
-	type AssistantMessage,
 } from "@earendil-works/pi-ai";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { startServer } from "tau-host";
@@ -32,6 +32,7 @@ faux.setResponses(
 			}),
 	),
 );
+const now = config.now;
 const models = createModels();
 models.setProvider(faux.provider);
 const server = await startServer({
@@ -48,7 +49,7 @@ const server = await startServer({
 				},
 	models,
 	port: 0,
-	...(config.now === undefined ? {} : { now: () => config.now! }),
+	...(now === undefined ? {} : { now: () => now }),
 	env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? home }),
 });
 process.stdout.write(`journey server listening on ${server.address.port}\n`);
