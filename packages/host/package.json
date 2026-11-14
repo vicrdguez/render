@@ -14,6 +14,7 @@
 		"@earendil-works/pi-ai": "1.5.2",
 		"@earendil-works/pi-durable": "1.5.2",
 		"@earendil-works/pi-schema": "1.5.2",
+		"jiti": "2.7.0",
 		"tau-store": "0.0.0"
 	}
 }

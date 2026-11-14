@@ -137,6 +137,41 @@ for (const [what, name, module, stage] of refusals) {
 	});
 }
 
+test("a shared task name names the module that kept it and the one left out", async (t) => {
+	const stderr: string[] = [];
+	t.mock.method(process.stderr, "write", (chunk: string) => {
+		stderr.push(String(chunk));
+		return true;
+	});
+	const tasks = (Flow.tasks ?? []).filter(
+		(task) => task.definition.name === "flow.due",
+	);
+	const s = await start({
+		source: () => ({
+			modules: {
+				alpha: { extension: { name: "alpha", tasks } },
+				beta: { extension: { name: "beta", tasks } },
+			},
+			failures: [],
+		}),
+	});
+	try {
+		assert.deepEqual(
+			(await s.call("extensions", {})).body.result.items.map(
+				(item: { name: string }) => item.name,
+			),
+			["alpha"],
+		);
+		assert.equal(stderr.length, 1);
+		assert.match(
+			stderr[0] ?? "",
+			/^tau: extension beta \[install\]: .*flow\.due.*\balpha\b/,
+		);
+	} finally {
+		await s.close();
+	}
+});
+
 test("startup calls an async source once and reports its failures once", async (t) => {
 	const stderr: string[] = [];
 	t.mock.method(process.stderr, "write", (chunk: string) => {

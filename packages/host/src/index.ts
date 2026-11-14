@@ -24,6 +24,7 @@ export type {
 	ExtensionScan,
 	ExtensionSource,
 } from "./extensions.js";
+export { fromDirectory } from "./loader.js";
 
 // docs/core/host.md, "Options per project".
 export type ExtensionModule = {
