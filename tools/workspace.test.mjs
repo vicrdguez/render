@@ -172,9 +172,17 @@ for (const [name, directory, specifier, allowed] of [
 	["tau-websearch", "src", "tau-store/host", false],
 	["tau-w2", "src", "tau-store/host", false],
 	["tau-w1", "src", "tau-store/host", false],
-	["tau-websearch", "test", "tau-store/host", true],
-	["tau-w2", "test", "tau-store/host", true],
-	["tau-w1", "test", "tau-store/host", true],
+	["tau-websearch", "test", "tau-store/host", false],
+	["tau-w2", "test", "tau-store/host", false],
+	["tau-w1", "test", "tau-store/host", false],
+	["tau-websearch", "test", "tau-store/testing", true],
+	["tau-w2", "test", "tau-store/testing", true],
+	["tau-w1", "test", "tau-store/testing", true],
+	["tau-websearch", "src", "tau-store/testing", false],
+	["tau-w2", "src", "tau-store/testing", false],
+	["tau-w1", "src", "tau-store/testing", false],
+	["tau-kit", "test", "tau-store/testing", false],
+	["tau-kit", "src", "tau-store/testing", false],
 	["tau-kit", "test", "tau-store/host", false],
 	["tau-w2", "test", "tau-host", false],
 ]) {
@@ -186,7 +194,11 @@ for (const [name, directory, specifier, allowed] of [
 		);
 		const hostStore = {
 			...store,
-			exports: { ...store.exports, "./host": "./dist/src/host.js" },
+			exports: {
+				...store.exports,
+				"./host": "./dist/src/host.js",
+				"./testing": "./dist/src/testing.js",
+			},
 		};
 		const extension = {
 			name,
@@ -232,11 +244,11 @@ for (const name of ["tau-w2", "tau-store"]) {
 			const { root, put, store } = await fixture(t);
 			await put("packages/store/package.json", {
 				...store,
-				exports: { ...store.exports, "./host": "./dist/src/host.js" },
+				exports: { ...store.exports, "./testing": "./dist/src/testing.js" },
 			});
 			await put("boundaries.json", {
 				"tau-store": {},
-				"tau-w2": { testOnly: { "tau-store": ["./host"] } },
+				"tau-w2": { testOnly: { "tau-store": ["./testing"] } },
 			});
 			const pkg = name === "tau-w2" ? "w2" : "store";
 			if (pkg === "w2") {
@@ -251,7 +263,7 @@ for (const name of ["tau-w2", "tau-store"]) {
 			}
 			await put(
 				`packages/${pkg}/test/helper.ts`,
-				'export * from "tau-store/host";',
+				'export * from "tau-store/testing";',
 			);
 			await put(
 				`packages/${pkg}/${directory}/index.ts`,

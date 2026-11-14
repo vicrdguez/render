@@ -31,7 +31,7 @@ Create its directory under `packages/` with a `package.json` and `tsconfig.json`
 Add the package to the root `tsconfig.json` references and to `boundaries.json`.
 Update the lock with `npm install --package-lock-only`.
 Tests live in `<pkg>/test/*.test.ts`; nested directories under `test/` are allowed.
-A test of an extension may import `tau-store/host` through its explicit `testOnly` allowance. Source under `src/` may not.
+A test of an extension may import `tau-store/testing` through its explicit `testOnly` allowance. Source under `src/` may not.
 Declare test-only dependencies in `devDependencies`.
 
 ## Rules

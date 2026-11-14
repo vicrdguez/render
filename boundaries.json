@@ -8,21 +8,21 @@
 		"tau-store": ["."],
 		"tau-kit": ["."],
 		"testOnly": {
-			"tau-store": ["./host"]
+			"tau-store": ["./testing"]
 		}
 	},
 	"tau-w2": {
 		"tau-store": ["."],
 		"tau-kit": ["."],
 		"testOnly": {
-			"tau-store": ["./host"]
+			"tau-store": ["./testing"]
 		}
 	},
 	"tau-w1": {
 		"tau-store": ["."],
 		"tau-kit": ["."],
 		"testOnly": {
-			"tau-store": ["./host"]
+			"tau-store": ["./testing"]
 		}
 	},
 	"tau": {

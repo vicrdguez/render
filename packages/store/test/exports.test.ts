@@ -13,6 +13,14 @@ test("the root exports exactly the five extension functions", async () => {
 	assert.equal("answer" in root, false);
 });
 
+test("the testing entry exports only fauxAnswer and the same openStore", async () => {
+	const testing = await import("tau-store/testing");
+	const host = await import("tau-store/host");
+	assert.deepEqual(Object.keys(testing).sort(), ["fauxAnswer", "openStore"]);
+	assert.equal("answer" in testing, false);
+	assert.equal(testing.openStore, host.openStore);
+});
+
 test("the host entry exports openStore, answer, and watchOpen", async () => {
 	const host = await import("tau-store/host");
 	assert.deepEqual(Object.keys(host).sort(), [
