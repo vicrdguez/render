@@ -6,6 +6,7 @@ import {
 	mkdir,
 	mkdtemp,
 	readdir,
+	readFile,
 	stat,
 	symlink,
 	writeFile,
@@ -348,6 +349,10 @@ console.log(JSON.stringify({ modules: Object.keys(scan.modules), failures: scan.
 	for (const f of result.failures) {
 		assert.match(f.message, /tau-extension/);
 		assert.match(f.message, /node_modules/);
+		assert.match(
+			f.message,
+			/Install tau-extension beside the Tau server, then start it again\./,
+		);
 	}
 });
 
@@ -389,6 +394,176 @@ test("a syntax error, a top-level throw and a mismatched name are left out and t
 		assert.equal(stderr.length, 3, JSON.stringify(stderr));
 	} finally {
 		await s.close();
+	}
+});
+
+test("only canonical tau-extension specifiers load, including dynamic imports and re-exports", async (t) => {
+	const manifest = JSON.parse(
+		await readFile(path.join(root, "packages/extension/package.json"), "utf8"),
+	);
+	const canonical = Object.keys(manifest.exports).map(
+		(key) => `tau-extension${key.slice(1)}`,
+	);
+	const spellings = [
+		"tau-extension/../testing.js",
+		"tau-extension/schema/../testing.js",
+		"tau-extension/testing/../../extension/dist/src/testing.js",
+		"tau-extension/./testing",
+		"tau-extension/testing.js",
+		"tau-extension/dist/src/testing.js",
+		"tau-extension//testing",
+		"tau-extension-extra",
+	];
+	for (const specifier of spellings) {
+		for (const form of ["import", "dynamic", "export"]) {
+			await t.test(`${form} ${specifier}`, async () => {
+				const literal = JSON.stringify(specifier);
+				const code =
+					form === "import"
+						? `import * as got from ${literal}; export { got };`
+						: form === "dynamic"
+							? `export const got = await import(${literal});`
+							: `export * from ${literal};`;
+				const dir = await directory({
+					bad: {
+						"index.ts": plain("bad", `export * from './nested.ts';`),
+						"nested.ts": code,
+					},
+					good: { "index.ts": plain("good") },
+				});
+				const scan = await fromDirectory(dir)();
+				assert.deepEqual(Object.keys(scan.modules), ["good"]);
+				const message = failure(scan, "bad").message;
+				assert.ok(message.includes(specifier), message);
+				for (const entry of canonical)
+					assert.ok(message.includes(entry), message);
+			});
+		}
+	}
+});
+
+test("every production entry in the exports map gives the host's own values", async () => {
+	const manifest = JSON.parse(
+		await readFile(path.join(root, "packages/extension/package.json"), "utf8"),
+	);
+	const entries = Object.entries(manifest.exports).filter(
+		([key]) => key !== "./testing",
+	);
+	const imports = entries
+		.map(
+			([key], i) =>
+				`import * as a${i} from ${JSON.stringify(`tau-extension${key.slice(1)}`)};`,
+		)
+		.join("\n");
+	const dir = await directory({
+		same: {
+			"index.ts": plain(
+				"same",
+				`${imports}\nexport const got = [${entries.map((_, i) => `a${i}`).join(",")}];`,
+			),
+		},
+	});
+	const script = `import assert from 'node:assert/strict';
+const {fromDirectory} = await import(${JSON.stringify(new URL("../src/loader.js", import.meta.url).href)});
+const entries = ${JSON.stringify(entries)};
+const scan = await fromDirectory(${JSON.stringify(dir)})();
+assert.deepEqual(scan.failures, []);
+let checked = 0;
+for (const [i, [key, target]] of entries.entries()) {
+ const expected = await import(new URL(target.import, ${JSON.stringify(pathToFileURL(path.join(root, "packages/extension/")).href)}));
+ for (const [name, value] of Object.entries(expected)) {
+  assert.equal(scan.modules.same.got[i][name], value, key + '.' + name);
+  checked++;
+ }
+}
+console.log(checked);`;
+	const child = spawnSync(
+		process.execPath,
+		["--input-type=module", "--eval", script],
+		{ encoding: "utf8" },
+	);
+	assert.equal(child.status, 0, child.stderr);
+	assert.ok(Number(child.stdout.trim()) > 0, child.stdout);
+});
+
+test("the first sorted folder owns a shared task even with integer names on every start", async (t) => {
+	const task = `import {defineExtension, defineTask} from 'tau-extension/durable';
+const Task = defineTask({name:'shared.task',version:1,initial:()=>({phase:'run'}),phases:{run:async()=>{}},abort:async()=>{}});`;
+	const dir = await directory(
+		Object.fromEntries(
+			["2", "10"].map((name) => [
+				name,
+				{
+					"index.ts": `${task}export const extension = defineExtension({name:'${name}',tasks:[Task]});`,
+				},
+			]),
+		),
+	);
+	const messages: string[] = [];
+	t.mock.method(process.stderr, "write", (chunk: string) => {
+		messages.push(String(chunk));
+		return true;
+	});
+	for (let i = 0; i < 2; i++) {
+		const s = await start({ source: fromDirectory(dir) });
+		try {
+			const items = (await s.call("extensions", {})).body.result.items;
+			assert.deepEqual(
+				items.map((item: { name: string }) => item.name),
+				["10"],
+			);
+			assert.match(
+				messages.at(-1) ?? "",
+				/Task shared.task of extension 2 is already installed by extension 10/,
+			);
+		} finally {
+			await s.close();
+		}
+	}
+});
+
+test("a second folder with the same real target fails and names the first", async () => {
+	const dir = await directory({
+		alpha: {
+			"index.ts": plain(
+				"alpha",
+				`import {appendFileSync} from 'node:fs'; appendFileSync(import.meta.dirname + '/ran', 'x');`,
+			),
+		},
+	});
+	await symlink(path.join(dir, "alpha"), path.join(dir, "beta"));
+	const scan = await fromDirectory(dir)();
+	assert.deepEqual(Object.keys(scan.modules), ["alpha"]);
+	assert.match(failure(scan, "beta").message, /alpha/);
+	assert.equal(await readFile(path.join(dir, "alpha/ran"), "utf8"), "x");
+});
+
+test("a ts-named symlink to external JavaScript fails for helpers and index files", async () => {
+	const outside = await write(await scratch(), {
+		"native.js": `export const extension = {name:'index'}; export const value = 1;`,
+	});
+	const dir = await directory({
+		helper: {
+			"index.ts": plain("helper", `export {value} from './helper.ts';`),
+		},
+		index: { "README.md": "" },
+	});
+	await symlink(
+		path.join(outside, "native.js"),
+		path.join(dir, "helper/helper.ts"),
+	);
+	await symlink(
+		path.join(outside, "native.js"),
+		path.join(dir, "index/index.ts"),
+	);
+	const scan = await fromDirectory(dir)();
+	assert.deepEqual(scan.modules, {});
+	for (const name of ["helper", "index"]) {
+		assert.equal(failure(scan, name).stage, "files");
+		assert.match(
+			failure(scan, name).message,
+			/JavaScript.*Only TypeScript is read again on reload/,
+		);
 	}
 });
 
