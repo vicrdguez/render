@@ -20,6 +20,7 @@ import {
 	compile,
 	int,
 	map,
+	num,
 	obj,
 	oneOf,
 	opt,
@@ -535,7 +536,7 @@ export const calls: Readonly<Record<string, Call>> = {
 				obj({
 					text: str(),
 					range: opt(
-						obj({ start: int({ minimum: 0 }), end: int({ minimum: 0 }) }),
+						obj({ start: num(), end: num() }),
 					),
 				}),
 			),
