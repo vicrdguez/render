@@ -44,7 +44,8 @@ export function piLogins(file: string): CredentialStore {
 		};
 		try {
 			check();
-			const logins = JSON.parse(await readFile(resolved, "utf8"));
+			const text = (await readFile(resolved, "utf8")).replace(/^\uFEFF/, "");
+			const logins = text.trim() === "" ? {} : JSON.parse(text);
 			const result = await work(logins, resolved, check);
 			check();
 			return result;
