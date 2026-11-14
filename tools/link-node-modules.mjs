@@ -53,9 +53,7 @@ for await (const name of glob(["*", "@*/*"], { cwd: modules })) {
 	if (links.has(name)) continue;
 	const link = path.join(modules, name);
 	if (!(await lstat(link)).isSymbolicLink()) continue;
-	const target = await readlink(link);
-	if (target.startsWith(path.resolve("packages") + path.sep))
-		await unlink(link);
+	await unlink(link);
 }
 for (const [name, target] of links) {
 	const link = path.join(modules, name);

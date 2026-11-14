@@ -407,6 +407,42 @@ for (const name of ["exa", "tavily"] as const) {
 	});
 }
 
+for (const name of ["exa", "tavily"] as const) {
+	test(`${name} leaves three matching key characters alone and redacts four`, async (t) => {
+		const p = await provider(t);
+		const f = await harness(
+			t,
+			createSearchExtension({ exa: p.url, tavily: p.url }),
+		);
+		await f.h.commit(
+			(tx) => module.options.set(tx, { provider: name, apiKey: KEY }),
+			context,
+		);
+		p.respond({
+			images: [],
+			results: [
+				{
+					title: "Unrelated",
+					url: "https://example.test/one",
+					text: "Only sk- is ordinary text.",
+					content: "Only sk- is ordinary text.",
+				},
+				{
+					title: "Echo",
+					url: "https://example.test/two",
+					text: "Here is sk-u text.",
+					content: "Here is sk-u text.",
+				},
+			],
+		});
+		const out = await search(f, await f.create());
+		assert.notEqual(out.result.isError, true, out.text);
+		const results = JSON.parse(out.text).results;
+		assert.equal(results[0].snippet, "Only sk- is ordinary text.");
+		assert.equal(results[1].snippet, "[redacted]");
+	});
+}
+
 test("empty search succeeds without fallback and malformed provider results become safe errors", async (t) => {
 	const p = await provider(t);
 	const f = await harness(t, createSearchExtension({ exa: p.url }));
