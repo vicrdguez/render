@@ -87,6 +87,14 @@ test("an open decision reaches the inbox, and answer maps every row of the store
 			assert.equal(refused.status, 409, code);
 			assert.equal(refused.body.refused?.code, code);
 		}
+		for (const start of [-1, 0.5]) {
+			const before = (await s.call("history", { project: "p", conversation: d })).body.result.items;
+			const refused = await answer(s, "flow:k#1", { basis, annotations: [{ text: "x", range: { start, end: 1 } }] });
+			assert.equal(refused.status, 409);
+			assert.equal(refused.body.refused?.code, "bad_annotation");
+			assert.deepEqual((await s.call("history", { project: "p", conversation: d })).body.result.items, before);
+			assert.equal((await s.call("decision", { project: "p", decision: "flow:k#1" })).body.result.decision.status, "open");
+		}
 		const none = await answer(s, "flow:x#1", { basis });
 		assert.equal(none.status, 404);
 		assert.equal(none.body.refused?.code, "unknown_decision");
