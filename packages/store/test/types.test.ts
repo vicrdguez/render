@@ -6,6 +6,7 @@ import type {
 } from "@earendil-works/pi-durable";
 import { defineEntry, defineTask } from "@earendil-works/pi-durable";
 import { type DecisionInput, emit, request } from "tau-store";
+import { type AnswerInput, fauxAnswer, type Store } from "tau-store/testing";
 
 // tsc checks these cases. An `@ts-expect-error` line that compiles fails the build.
 const DesignAnswer = defineTask<
@@ -19,12 +20,17 @@ const DesignAnswer = defineTask<
 	phases: { run: async () => {} },
 	abort: async () => {},
 });
+declare const store: Store;
+declare const input: AnswerInput;
 declare const tx: Tx;
 declare const conversation: ConversationId;
 declare const design: TypedEntry<{ text: string; replies: string[] }>;
 declare const commit: TypedEntry<{ sha: string }>;
 
 export async function cases() {
+	void fauxAnswer(store, "test:k#1", input);
+	// @ts-expect-error Tests cannot supply a device identity.
+	void fauxAnswer(store, "test:k#1", input, "phone");
 	const draft = {
 		subject: "w1:7:design",
 		title: "Design v2",

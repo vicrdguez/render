@@ -28,7 +28,7 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { compile, type JsonSchema, obj } from "@earendil-works/pi-schema";
 import { eventLog } from "tau-store";
-import { openStore } from "tau-store/host";
+import { openStore } from "tau-store/testing";
 import * as module from "../src/index.js";
 import { createSearchExtension } from "../src/web-search.js";
 

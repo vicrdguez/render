@@ -4,6 +4,7 @@ import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { test } from "node:test";
+import { Devices } from "../src/devices.js";
 import { requestAdmin, startServer } from "../src/index.js";
 import { faux, start } from "./helpers.js";
 
@@ -51,6 +52,40 @@ test("a pairing code has eight characters, works once, and leaves only a hash", 
 		assert.equal(expired.body.refused?.code, "unauthorized");
 		const extra = await s.call("pair", { code: late.code, device: "x" }, "");
 		assert.equal(extra.body.refused?.code, "bad_request");
+	} finally {
+		await s.close();
+	}
+});
+
+test("!test cannot pair or authenticate as a device", async () => {
+	const s = await start();
+	try {
+		const reply = await requestAdmin(s.home, {
+			command: "pair",
+			device: "!test",
+		});
+		assert.ok("error" in reply);
+		const token = await s.pair("phone");
+		for (const name of ["!test", "%21test", "phone.!test", "!test.phone"]) {
+			const forged = token.replace("tau.phone.", `tau.${name}.`);
+			const refused = await s.call("projects", {}, forged);
+			assert.equal(refused.status, 401, name);
+			assert.equal(refused.body.refused?.code, "unauthorized", name);
+		}
+		assert.equal((await s.call("projects", {}, token)).status, 200);
+		const list = await requestAdmin(s.home, { command: "list" });
+		assert.ok("devices" in list);
+		assert.deepEqual(
+			list.devices.map((d) => d.device),
+			["laptop", "phone"],
+		);
+		// Bypass admin validation so a matching stored secret cannot mask a permissive token parser.
+		const devices = await Devices.load(s.home, Date.now);
+		const issued = devices.issue("!test");
+		assert.ok("code" in issued);
+		const invalid = await devices.pair(issued.code);
+		assert.ok(invalid);
+		assert.equal(devices.authenticate(`Bearer ${invalid.token}`), undefined);
 	} finally {
 		await s.close();
 	}

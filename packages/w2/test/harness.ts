@@ -22,7 +22,7 @@ import {
 	type TaskId,
 } from "@earendil-works/pi-durable";
 import { type DecisionId, decision, eventLog } from "tau-store";
-import { answer, openStore, type Store } from "tau-store/host";
+import { fauxAnswer, openStore, type Store } from "tau-store/testing";
 import { entry, extension, options } from "../src/index.js";
 
 export { context };
@@ -205,11 +205,10 @@ export async function open(
 	const respond = async (id: DecisionId, choice: string) => {
 		const d = await read(id);
 		assert.ok(d);
-		const result = await answer(
+		const result = await fauxAnswer(
 			store,
 			id,
 			{ basis: d.basis, choice, annotations: [] },
-			"phone",
 			context,
 		);
 		assert.equal(result.kind, "answered", JSON.stringify(result));
