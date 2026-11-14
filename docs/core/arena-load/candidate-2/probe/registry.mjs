@@ -1,0 +1,51 @@
+import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import { setImmediate } from 'node:timers/promises';
+const checkout=process.argv[2];
+const imp=p=>import(pathToFileURL(path.join(checkout,p)).href);
+const {createRegistry,defineExtension,defineTask,Harness,MemoryStorage}=await imp('node_modules/@earendil-works/pi-durable/dist/index.js');
+const {BACKGROUND_CONTEXT:ctx}=await imp('node_modules/@earendil-works/chord/dist/context/index.js');
+const {createModels}=await imp('node_modules/@earendil-works/pi-ai/dist/models.js');
+console.log('environment', JSON.stringify({node:process.version,platform:process.platform,arch:process.arch}));
+const done={status:'terminal',outcome:{status:'completed',result:null}};
+const task=(name,version=1,extra={})=>defineTask({name,version,initial:()=>({phase:'sleep'}),phases:{sleep:(t,r,c)=>r.sleepUntil(10000,{phase:'wake'},c),wake:(_t,r,c)=>r.commit(()=>done,c)},...extra});
+const a=defineExtension({name:'a',tasks:[task('a.timer')]});
+const b=defineExtension({name:'b',tasks:[task('b.timer')]});
+const reg=createRegistry(); reg.install(a); reg.install(b);
+const before=reg.snapshot();
+try{reg.install(defineExtension({name:'a',tasks:[task('b.timer')]}));assert.fail('collision accepted');}catch(e){console.log('collision',JSON.stringify({message:e.message,snapshotUnchanged:reg.snapshot()===before,oldA:reg.snapshot().extension('a')===a}));assert.equal(reg.snapshot(),before);}
+const poisoned=createRegistry();poisoned.install(a);poisoned.subscribe(()=>{throw Error('subscriber failure')});
+const replacement=defineExtension({name:'a',tasks:[task('a.timer',2)]});
+assert.throws(()=>poisoned.install(replacement),/subscriber failure/);
+console.log('subscriber throw',JSON.stringify({publishedDespiteThrow:poisoned.snapshot().extension('a')===replacement}));
+assert.equal(poisoned.snapshot().extension('a'),replacement);
+
+let now=0;let timers=[];
+const registry=createRegistry();registry.install(a);
+const reports=[];
+const h=await Harness.open(new MemoryStorage(),{registry,models:createModels(),now:()=>now,setTimer:(cb,delay)=>{const t={cb,at:now+delay};timers.push(t);return()=>{timers=timers.filter(x=>x!==t)}},onReport:r=>reports.push(r)},ctx);
+try{
+ const conv=await h.root(ctx);
+ const id=await h.commit(tx=>tx.createTask(a.tasks[0],{}, {ownership:{kind:'conversation'},conversationId:conv.id,background:true}),ctx);
+ h.resume();
+ const wait=async(fn,pred)=>{for(let i=0;i<500;i++){const value=await fn();if(pred(value))return value;await setImmediate()}throw Error('condition not met')};
+ await wait(()=>h.getTask(id,ctx),t=>t?.state.status==='sleeping');
+ const row=async()=>{const inspected=await h.inspect(ctx);return inspected.tasks.find(x=>x.record.id===id)};
+ console.log('v1 sleeping inspection',JSON.stringify(await row()));
+ registry.install(replacement);
+ console.log('v2 missing migrate before due',JSON.stringify(await row()));
+ now=10000;for(const t of [...timers])if(t.at<=now)t.cb();
+ const blocked=await wait(row,t=>t?.state.kind==='blocked');
+ console.log('v2 missing migrate after due',JSON.stringify(blocked,(_k,v)=>v instanceof Error?{name:v.name,message:v.message}:v));
+ assert.equal(blocked.state.reason,'migration_failed');
+ let migrations=0;
+ registry.install(defineExtension({name:'a',tasks:[task('a.timer',2,{migrate:(input,checkpoint,fromVersion)=>{migrations++;return{input,checkpoint}}})]}));
+ await wait(()=>h.getTask(id,ctx),t=>t?.state.status==='terminal');
+ console.log('replacement migrator repairs',JSON.stringify({migrations,stored:await h.getTask(id,ctx),liveTasks:(await h.inspect(ctx)).tasks.length}));
+ assert.equal(migrations,1);
+ assert.equal((await h.getTask(id,ctx)).state.outcome.status,'completed');
+ assert.equal((await h.getTask(id,ctx)).version,2);
+ console.log('reports',JSON.stringify(reports,(_k,v)=>v instanceof Error?{name:v.name,message:v.message}:v));
+}finally{await h.close(ctx)}
+console.log('PASS');

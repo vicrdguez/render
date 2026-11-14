@@ -1,0 +1,3 @@
+same version {"installMs":0.193,"commitsDuringInstallAnd100ms":0,"inspected":[{"kind":"probe.sleep","version":1,"state":"sleeping"},{"kind":"probe.later","version":1,"state":"sleeping"}]}
+v2 with migrate {"installMs":0.056,"commitsDuringInstallAnd100ms":0,"inspected":[{"kind":"probe.sleep","version":1,"state":"sleeping"},{"kind":"probe.later","version":1,"state":"sleeping"}]}
+v2 without migrate {"installMs":0.034,"commitsDuringInstallAnd100ms":0,"inspected":[{"kind":"probe.sleep","version":1,"state":"sleeping"},{"kind":"probe.later","version":1,"state":"sleeping"}]}

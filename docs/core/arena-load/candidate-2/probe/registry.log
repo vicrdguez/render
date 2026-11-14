@@ -1,0 +1,9 @@
+environment {"node":"v24.22.1","platform":"darwin","arch":"arm64"}
+collision {"message":"Task b.timer of extension b is already installed","snapshotUnchanged":true,"oldA":true}
+subscriber throw {"publishedDespiteThrow":true}
+v1 sleeping inspection {"record":{"id":7,"conversationId":1,"kind":"a.timer","version":1,"input":{},"background":true,"abortRequested":false,"state":{"status":"sleeping","checkpoint":{"phase":"wake"},"until":10000},"startedAt":0},"state":{"kind":"sleeping","until":10000}}
+v2 missing migrate before due {"record":{"id":7,"conversationId":1,"kind":"a.timer","version":1,"input":{},"background":true,"abortRequested":false,"state":{"status":"sleeping","checkpoint":{"phase":"wake"},"until":10000},"startedAt":0},"state":{"kind":"sleeping","until":10000}}
+v2 missing migrate after due {"record":{"id":7,"conversationId":1,"kind":"a.timer","version":1,"input":{},"background":true,"abortRequested":false,"state":{"status":"sleeping","checkpoint":{"phase":"wake"},"until":10000},"startedAt":0},"state":{"kind":"blocked","reason":"migration_failed","error":{"name":"Error","message":"Task a.timer version 2 has no migration from 1"}}}
+replacement migrator repairs {"migrations":1,"stored":{"id":7,"conversationId":1,"kind":"a.timer","version":2,"input":{},"background":true,"abortRequested":false,"state":{"status":"terminal","outcome":{"status":"completed","result":null}},"startedAt":0,"endedAt":10000},"liveTasks":0}
+reports [{"kind":"migration_failed","task":{"id":7,"kind":"a.timer","conversationId":1},"extension":"a","error":{"name":"Error","message":"Task a.timer version 2 has no migration from 1"}}]
+PASS
