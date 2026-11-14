@@ -13,11 +13,14 @@ import {
 	union,
 } from "@earendil-works/pi-schema";
 import { DEVICE, type Devices } from "./devices.js";
+import type { Outcome } from "./refusals.js";
+import { ReloadReport } from "./reload.js";
 
 const Request = union([
 	obj({ command: lit("pair"), device: str({ pattern: DEVICE }) }),
 	obj({ command: lit("revoke"), device: str() }),
 	obj({ command: lit("list") }),
+	obj({ command: lit("extension_reload") }),
 ]);
 const Result = union([
 	obj({ code: str(), expiresAt: num() }),
@@ -27,12 +30,14 @@ const Result = union([
 		),
 	}),
 	obj({ done: lit(true) }),
+	obj({ reload: ReloadReport }),
 	obj({ error: str() }),
 ]);
 export type AdminRequest =
 	| { command: "pair"; device: string }
 	| { command: "revoke"; device: string }
-	| { command: "list" };
+	| { command: "list" }
+	| { command: "extension_reload" };
 export type AdminResult = Static<typeof Result>;
 const checkRequest = compile(Request);
 const checkResult = compile(Result);
@@ -85,7 +90,11 @@ export async function refuseRunning(file: string): Promise<void> {
 	});
 }
 
-async function handle(devices: Devices, line: string): Promise<AdminResult> {
+async function handle(
+	devices: Devices,
+	reload: () => Promise<Outcome<ReloadReport>>,
+	line: string,
+): Promise<AdminResult> {
 	let body: unknown;
 	try {
 		body = JSON.parse(line);
@@ -98,6 +107,12 @@ async function handle(devices: Devices, line: string): Promise<AdminResult> {
 			error: `The request does not fit: ${JSON.stringify(parsed.errors)}`,
 		};
 	const request = parsed.value;
+	if (request.command === "extension_reload") {
+		const report = await reload();
+		return "result" in report
+			? { reload: report.result }
+			: { error: report.refused.message };
+	}
 	if (request.command === "pair") return devices.issue(request.device);
 	if (request.command === "revoke") return devices.revoke(request.device);
 	return { devices: devices.list() };
@@ -106,6 +121,7 @@ async function handle(devices: Devices, line: string): Promise<AdminResult> {
 export async function listenAdmin(
 	file: string,
 	devices: Devices,
+	reload: () => Promise<Outcome<ReloadReport>>,
 ): Promise<net.Server> {
 	const server = net.createServer({ allowHalfOpen: true }, (socket) => {
 		let line = "";
@@ -113,9 +129,11 @@ export async function listenAdmin(
 		const answer = async () => {
 			if (answered) return;
 			answered = true;
-			const reply = await handle(devices, line.split("\n")[0] ?? "").catch(
-				(error: unknown) => ({ error: String(error) }),
-			);
+			const reply = await handle(
+				devices,
+				reload,
+				line.split("\n")[0] ?? "",
+			).catch((error: unknown) => ({ error: String(error) }));
 			socket.end(`${JSON.stringify(reply)}\n`);
 		};
 		socket.setEncoding("utf8");

@@ -1,8 +1,34 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { lstat, mkdir, stat, unlink } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { lstat, mkdir, readlink, rename, stat, unlink } from "node:fs/promises";
+import net from "node:net";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+
+async function reload(socketPath) {
+	return new Promise((resolve, reject) => {
+		const socket = net.connect(socketPath);
+		let reply = "";
+		socket.setEncoding("utf8");
+		socket.on("data", (chunk) => {
+			reply += chunk;
+		});
+		socket.on("end", () => {
+			try {
+				resolve(JSON.parse(reply));
+			} catch (error) {
+				reject(error);
+			}
+		});
+		socket.on("error", (error) => {
+			if (error.code === "ENOENT" || error.code === "ECONNREFUSED")
+				resolve(undefined);
+			else reject(error);
+		});
+		socket.end(`${JSON.stringify({ command: "extension_reload" })}\n`);
+	});
+}
 
 const names = JSON.parse(process.argv[2]);
 let args;
@@ -57,16 +83,50 @@ if (name === undefined) {
 		process.stderr.write(`Refusing to replace ${kind} at ${link}.\n`);
 		process.exit(1);
 	}
-	for (const flags of [["--no-link"], ["--out-link", link]]) {
-		const build = spawnSync("nix", ["build", `.#extension-${name}`, ...flags], {
-			stdio: "inherit",
+	const temporary = join(directory, `.${name}-${randomUUID()}`);
+	try {
+		const build = spawnSync(
+			"nix",
+			["build", `.#extension-${name}`, "--out-link", temporary],
+			{ stdio: "inherit" },
+		);
+		if (build.error) throw build.error;
+		if (build.status !== 0) process.exitCode = build.status ?? 1;
+		else {
+			const target = await readlink(temporary);
+			await rename(temporary, link);
+			// Nix's indirect root records the out-link's path, so a rename alone loses it.
+			const root = spawnSync(
+				"nix-store",
+				["--add-root", link, "--indirect", "--realise", target],
+				{ stdio: "inherit" },
+			);
+			if (root.error) throw root.error;
+			if (root.status !== 0)
+				throw new Error(
+					`Could not register the garbage-collection root at ${link}.`,
+				);
+			process.stdout.write(`Installed ${name} at ${link}.\n`);
+			const result = await reload(join(directory, "..", "admin.sock"));
+			if (result === undefined)
+				process.stdout.write(
+					"No Tau server is running. The extension loads at the next start.\n",
+				);
+			else {
+				process.stdout.write(`${JSON.stringify(result)}\n`);
+				if (result.error || result.reload?.status !== "applied")
+					process.exitCode = 1;
+				else if (
+					result.reload.tasks.length ||
+					result.reload.skipped.length ||
+					result.reload.extensions.some((e) => e.status === "kept")
+				)
+					process.exitCode = 3;
+			}
+		}
+	} finally {
+		await unlink(temporary).catch((error) => {
+			if (error.code !== "ENOENT") throw error;
 		});
-		if (build.error) process.stderr.write(`${build.error.message}\n`);
-		if (build.status !== 0) process.exit(build.status ?? 1);
-		if (flags[0] === "--no-link" && existing?.isSymbolicLink())
-			await unlink(link);
 	}
-	process.stdout.write(
-		`Installed ${name} at ${link}.\nRestart tau to load the installed extension.\n`,
-	);
 }

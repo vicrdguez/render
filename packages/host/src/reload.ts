@@ -1,3 +1,12 @@
+import {
+	arr,
+	lit,
+	obj,
+	opt,
+	type Static,
+	str,
+	union,
+} from "@earendil-works/pi-schema";
 import { Catalogue } from "./catalogue.js";
 import {
 	type ExtensionFailure,
@@ -6,26 +15,25 @@ import {
 } from "./extensions.js";
 import type { ServerOptions } from "./index.js";
 import type { Projects } from "./projects.js";
+import { inspectTasks, TaskWarning } from "./task-reports.js";
 
-export type ReloadReport = {
-	readonly status: "applied" | "refused" | "restart_required";
-	readonly extensions: readonly {
-		readonly name: string;
-		readonly status: "added" | "replaced" | "kept";
-		readonly projects: readonly string[];
-	}[];
-	readonly skipped: readonly {
-		readonly project: string;
-		readonly reason: string;
-	}[];
-	readonly failures: readonly {
-		readonly name: string;
-		readonly path?: string;
-		readonly stage: string;
-		readonly message: string;
-	}[];
-	readonly reached?: { readonly project: string; readonly extension: string };
-};
+export const ReloadReport = obj({
+	status: union([lit("applied"), lit("refused"), lit("restart_required")]),
+	extensions: arr(
+		obj({
+			name: str(),
+			status: union([lit("added"), lit("replaced"), lit("kept")]),
+			projects: arr(str()),
+		}),
+	),
+	tasks: arr(TaskWarning),
+	skipped: arr(obj({ project: str(), reason: str() })),
+	failures: arr(
+		obj({ name: str(), path: opt(str()), stage: str(), message: str() }),
+	),
+	reached: opt(obj({ project: str(), extension: str() })),
+});
+export type ReloadReport = Static<typeof ReloadReport>;
 
 export async function reload(
 	projects: Projects,
@@ -98,7 +106,13 @@ export async function reload(
 				)[0] ?? "Unknown error",
 		}));
 	if (failures.length > 0)
-		return { status: "refused", extensions: [], skipped, failures: describe() };
+		return {
+			status: "refused",
+			extensions: [],
+			tasks: [],
+			skipped,
+			failures: describe(),
+		};
 	const catalogue = new Catalogue(loaded.modules, loaded.options);
 	const found = new Set(Object.keys(scan.modules));
 	let installed: Map<string, string[]>;
@@ -118,6 +132,7 @@ export async function reload(
 		return {
 			status: "restart_required",
 			extensions: [],
+			tasks: [],
 			skipped,
 			failures: describe(),
 			...(reached === undefined ? {} : { reached }),
@@ -132,5 +147,11 @@ export async function reload(
 				: ("replaced" as const),
 		projects: installed.get(name) ?? [],
 	}));
-	return { status: "applied", extensions, skipped, failures: [] };
+	return {
+		status: "applied",
+		extensions,
+		tasks: await inspectTasks(projects),
+		skipped,
+		failures: [],
+	};
 }

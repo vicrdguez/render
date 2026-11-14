@@ -17,7 +17,7 @@ export function fromDirectory(directory: string): ExtensionSource {
 	return async () => {
 		const names = await list(directory).catch((error: Error) => {
 			throw new Error(
-				`The extension directory ${directory} is unsafe or unreadable. The server does not start until the directory's permissions are fixed. Run chmod 700 on ${directory}: ${error.message}`,
+				`The extension directory ${directory} is unsafe or unreadable. The server does not start until the directory's permissions are fixed: ${error.message}`,
 				{ cause: error },
 			);
 		});
@@ -82,10 +82,18 @@ async function list(directory: string): Promise<string[]> {
 		await mkdir(directory, { recursive: true, mode: 0o700 });
 		return [];
 	}
-	if (!info.isDirectory()) throw new Error("it is not a folder");
+	if (!info.isDirectory())
+		throw new Error(
+			"it is not a folder. Replace it with an owner-controlled folder",
+		);
 	if (info.uid !== process.getuid?.())
-		throw new Error("it is not owned by the server's user");
-	if (writable(info.mode)) throw new Error("it is writable by group or others");
+		throw new Error(
+			"it is not owned by the server's user. Ask its owner to transfer ownership, or choose a folder owned by the server's user",
+		);
+	if (writable(info.mode))
+		throw new Error(
+			`it is writable by group or others. Run chmod 700 on ${directory}`,
+		);
 	return (await readdir(directory))
 		.filter((name) => visible(name) && name !== "node_modules")
 		.sort();

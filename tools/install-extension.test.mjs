@@ -71,7 +71,7 @@ test("install-extension lists repository extensions and marks an installed link"
 	assert.equal(f.run().stdout, "w1\nw2 (installed)\nwebsearch\n");
 });
 
-test("install-extension builds an out-link, replaces it and tells the owner to restart", async (t) => {
+test("install-extension replaces a link atomically and reports that it loads at the next start", async (t) => {
 	const f = await fixture(t);
 	const installed = f.run(["w2"]);
 	assert.equal(installed.status, 0, installed.stderr);
