@@ -14,7 +14,8 @@ import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { arr, compile, obj, str } from "@earendil-works/pi-schema";
 import { eventLog } from "tau-store";
 import { openStore, type Store } from "tau-store/host";
-import type { ExtensionModule, ServerOptions } from "./index.js";
+import type { Catalogue } from "./catalogue.js";
+import type { ServerOptions } from "./index.js";
 import { acquireLock } from "./lock.js";
 import { type Outcome, refuse } from "./refusals.js";
 
@@ -75,7 +76,7 @@ export class Projects {
 	readonly skipped: { project: string; reason: string }[] = [];
 	readonly #root: string;
 	readonly #options: ServerOptions;
-	readonly #modules: Readonly<Record<string, ExtensionModule>>;
+	catalogue: Catalogue;
 	readonly #open = new Map<
 		string,
 		OpenProject & { selection: Opened["selection"]; lock: Opened["lock"] }
@@ -83,16 +84,14 @@ export class Projects {
 	readonly #queues = new Map<string, Promise<unknown>>();
 	readonly #joined = new Set<(project: OpenProject) => void>();
 
-	constructor(
-		options: ServerOptions,
-		modules: Readonly<Record<string, ExtensionModule>>,
-	) {
+	constructor(options: ServerOptions, catalogue: Catalogue) {
 		this.#root = path.join(options.home, "projects");
 		this.#options = options;
-		this.#modules = modules;
+		this.catalogue = catalogue;
 	}
 
 	async start(): Promise<void> {
+		const catalogue = this.catalogue;
 		const names = await readdir(this.#root).catch((error) => {
 			if (error.code === "ENOENT") return [];
 			throw error;
@@ -118,7 +117,7 @@ export class Projects {
 				});
 				continue;
 			}
-			await this.#finish(opened, found);
+			await this.#finish(opened, found, catalogue);
 		}
 	}
 
@@ -134,29 +133,31 @@ export class Projects {
 		return this.all().map((open) => this.view(open.record));
 	}
 
-	view(record: Project): ProjectView {
+	view(record: Project, catalogue = this.catalogue): ProjectView {
 		return {
 			project: record.project,
 			workdir: record.workdir,
 			extensions: [...record.extensions],
 			missing: record.extensions.filter(
-				(name) => !Object.hasOwn(this.#modules, name),
+				(name) => catalogue.get(name) === undefined,
 			),
 		};
 	}
 
 	bind(
 		input: Project,
+		catalogue = this.catalogue,
 	): Promise<Outcome<{ project: ProjectView; repeated: boolean }>> {
 		return this.#serial(input.project, async () => {
 			const known = this.#open.get(input.project);
-			if (known !== undefined) return this.#compare(known.record, input);
+			if (known !== undefined)
+				return this.#compare(known.record, input, catalogue);
 			const opened = await this.#openDirectory(input.project);
 			try {
 				const found = await readProject(opened.store);
 				if (found !== undefined && !same(found, input)) {
 					await shut(opened);
-					return this.#compare(found, input);
+					return this.#compare(found, input, catalogue);
 				}
 				if (found === undefined) {
 					await opened.store.harness.commit(async (tx) => {
@@ -167,10 +168,13 @@ export class Projects {
 						});
 					}, context);
 				}
-				const open = await this.#finish(opened, input);
+				const open = await this.#finish(opened, input, catalogue);
 				for (const join of this.#joined) join(open);
 				return {
-					result: { project: this.view(input), repeated: found !== undefined },
+					result: {
+						project: this.view(input, catalogue),
+						repeated: found !== undefined,
+					},
 				};
 			} catch (error) {
 				if (!this.#open.has(input.project)) await shut(opened).catch(() => {});
@@ -179,7 +183,11 @@ export class Projects {
 		});
 	}
 
-	addExtensions(name: string, names: readonly string[]): Promise<ProjectView> {
+	addExtensions(
+		name: string,
+		names: readonly string[],
+		catalogue = this.catalogue,
+	): Promise<ProjectView> {
 		return this.#serial(name, async () => {
 			const open = this.#open.get(name);
 			if (open === undefined) throw new Error(`${name} is not open`);
@@ -192,9 +200,9 @@ export class Projects {
 					(await tx.doc(ProjectDoc)).extensions = [...extensions];
 				}, context);
 				open.record = { ...open.record, extensions };
-				this.#install(open);
+				this.#install(open, catalogue);
 			}
-			return this.view(open.record);
+			return this.view(open.record, catalogue);
 		});
 	}
 
@@ -213,11 +221,12 @@ export class Projects {
 	#compare(
 		stored: Project,
 		input: Project,
+		catalogue: Catalogue,
 	): Outcome<{ project: ProjectView; repeated: boolean }> {
 		return same(stored, input)
-			? { result: { project: this.view(stored), repeated: true } }
+			? { result: { project: this.view(stored, catalogue), repeated: true } }
 			: refuse("conflict", `${input.project} is bound with other fields.`, {
-					project: this.view(stored),
+					project: this.view(stored, catalogue),
 				});
 	}
 
@@ -259,33 +268,24 @@ export class Projects {
 		}
 	}
 
-	async #finish(opened: Opened, record: Project) {
+	async #finish(opened: Opened, record: Project, catalogue: Catalogue) {
 		const log = await opened.store.harness.commit(
 			(tx) => eventLog(tx),
 			context,
 		);
 		const open = { ...opened, log, record };
 		opened.registry.install(CodingTools);
-		this.#install(open);
+		this.#install(open, catalogue);
 		opened.store.harness.resume();
 		this.#open.set(opened.name, open);
 		return open;
 	}
 
-	#install(open: Opened & { record: Project }) {
-		const modules = open.record.extensions.flatMap((name) => {
-			const module = this.#modules[name];
-			return Object.hasOwn(this.#modules, name) && module !== undefined
-				? [module]
-				: [];
-		});
+	#install(open: Opened & { record: Project }, catalogue: Catalogue) {
 		const installed = open.registry.snapshot();
-		for (const module of modules)
+		for (const { module } of catalogue.selected(open.record.extensions))
 			if (installed.extension(module.extension.name) === undefined)
 				open.registry.install(module.extension);
-		open.selection.defaults = [
-			CodingTools,
-			...modules.filter((m) => m.entry === undefined).map((m) => m.extension),
-		];
+		open.selection.defaults = catalogue.defaults(open.record.extensions);
 	}
 }

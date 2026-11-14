@@ -11,10 +11,12 @@ import type {
 } from "@earendil-works/pi-durable";
 import type { JsonSchema } from "@earendil-works/pi-schema";
 import { adminSocket, listenAdmin, refuseRunning } from "./admin.js";
+import { Catalogue } from "./catalogue.js";
 import { Devices } from "./devices.js";
 import { type ExtensionSource, loadExtensions } from "./extensions.js";
 import { handler } from "./http.js";
 import { Projects } from "./projects.js";
+import { StructuralQueue } from "./structural.js";
 
 export type { AdminRequest, AdminResult } from "./admin.js";
 export { requestAdmin } from "./admin.js";
@@ -71,7 +73,11 @@ export async function startServer(options: ServerOptions): Promise<Server> {
 	const socket = adminSocket(options.home);
 	const models = options.models;
 	const current = typeof models === "function" ? models : () => models;
-	const projects = new Projects(options, loaded.modules);
+	const projects = new Projects(
+		options,
+		new Catalogue(loaded.modules, loaded.options),
+	);
+	const structural = new StructuralQueue();
 	let admin: NetServer | undefined;
 	try {
 		const devices = await Devices.load(options.home, options.now ?? Date.now);
@@ -81,9 +87,8 @@ export async function startServer(options: ServerOptions): Promise<Server> {
 		const host = {
 			projects,
 			devices,
-			modules: loaded.modules,
 			models: current,
-			options: loaded.options,
+			structural,
 		};
 		const http = createServer(handler(host, options.allowedHosts ?? []));
 		await new Promise<void>((resolve, reject) => {
@@ -100,6 +105,7 @@ export async function startServer(options: ServerOptions): Promise<Server> {
 			skipped: projects.skipped,
 			close: () => {
 				closing ??= (async () => {
+					await structural.close();
 					devices.endAll("stopping");
 					await new Promise((resolve) => {
 						http.close(resolve);
