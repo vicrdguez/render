@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type {
 	ConversationId,
 	Tx,
@@ -31,6 +32,8 @@ export async function cases() {
 	void fauxAnswer(store, "test:k#1", input);
 	// @ts-expect-error Tests cannot supply a device identity.
 	void fauxAnswer(store, "test:k#1", input, "phone");
+	// @ts-expect-error Tests cannot override identity after supplying context.
+	void fauxAnswer(store, "test:k#1", input, BACKGROUND_CONTEXT, "phone");
 	const draft = {
 		subject: "w1:7:design",
 		title: "Design v2",

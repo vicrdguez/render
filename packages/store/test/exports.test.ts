@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
+
+test("the store exposes exactly the root, host, and testing entries", () => {
+	const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+	assert.deepEqual(Object.keys(manifest.exports).sort(), [".", "./host", "./testing"]);
+});
 
 test("the root exports exactly the five extension functions", async () => {
 	const root = await import("tau-store");

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { modelRef } from "tau-kit";
+import { modelRef } from "tau-extension";
 
 test("modelRef cuts at the first slash and keeps the rest of the model ID", () => {
 	assert.deepEqual(modelRef("provider/model"), {
