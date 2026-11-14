@@ -6,6 +6,7 @@ Each build unit writes its own file. A line names the place in the design, the t
 
 | File | Unit |
 | --- | --- |
+| [Attention](attention.md) | What a reviewer on another model flagged for the owner. Read this first. |
 | [Coordinator](coordinator.md) | Choices the coordinator made across units |
 | [Unit 0b](unit-0b.md) | The TypeScript workspace and the gate |
 | [Unit 1](unit-1-store.md) | The store layer |
