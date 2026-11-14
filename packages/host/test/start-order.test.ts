@@ -9,7 +9,10 @@ import { faux, start, until } from "./helpers.js";
 
 test("invalid device configuration refuses startup before any due task runs", async () => {
 	let clock = Date.UTC(2026, 10, 14);
-	const s = await start({ modules, now: () => clock });
+	const s = await start({
+		source: () => ({ modules, failures: [] }),
+		now: () => clock,
+	});
 	try {
 		await s.call("bind", {
 			project: "p",
@@ -49,14 +52,17 @@ test("invalid device configuration refuses startup before any due task runs", as
 		await assert.rejects(
 			startServer({
 				home: s.home,
-				modules,
+				source: () => ({ modules, failures: [] }),
 				models: faux().models,
 				port: 0,
 				now: () => clock,
 			}),
 		);
 		await writeFile(file, good);
-		const missing = await s.restart({ modules: {}, now: () => clock });
+		const missing = await s.restart({
+			source: () => ({ modules: {}, failures: [] }),
+			now: () => clock,
+		});
 		try {
 			const history = await missing.call("history", {
 				project: "p",

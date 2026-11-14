@@ -42,7 +42,7 @@ const answer = (s: Running, decision: string, fields: object, as?: string) =>
 	);
 
 test("an open decision reaches the inbox, and answer maps every row of the store's table", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		const d = await designer(s);
 		const inbox = s.watch("inbox", {});
@@ -166,7 +166,7 @@ test("an open decision reaches the inbox, and answer maps every row of the store
 });
 
 test("faults lists each faulted task of an installed kind, with the decision whose then task it is", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		const d = await designer(s);
 		await run(s, d, "explode", {});
@@ -244,7 +244,9 @@ test("faults lists each faulted task of an installed kind, with the decision who
 			await restarted.close();
 		}
 
-		const without = await s.restart({ modules: {} });
+		const without = await s.restart({
+			source: () => ({ modules: {}, failures: [] }),
+		});
 		try {
 			assert.deepEqual(
 				(await without.call("projects", {})).body.result.items[0].missing,
@@ -269,7 +271,9 @@ test("faults lists each faulted task of an installed kind, with the decision who
 
 for (const limit of [2, undefined]) {
 	test(`fault pagination at limit ${limit ?? "default"} stays anchored across arrivals and restart`, async () => {
-		const s = await start({ modules });
+		const s = await start({
+			source: () => ({ modules, failures: [] }),
+		});
 		try {
 			const d = await designer(s);
 			const count = (limit ?? 50) + 2;
@@ -333,7 +337,7 @@ for (const limit of [2, undefined]) {
 }
 
 test("answer refuses with extension_not_loaded when the server lacks the then task", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		const d = await designer(s);
 		await run(s, d, "ask", { key: "k" });
@@ -341,7 +345,9 @@ test("answer refuses with extension_not_loaded when the server lacks the then ta
 			project: "p",
 			decision: "flow:k#1",
 		});
-		const without = await s.restart({ modules: {} });
+		const without = await s.restart({
+			source: () => ({ modules: {}, failures: [] }),
+		});
 		try {
 			const refused = await answer(without, "flow:k#1", {
 				basis: shown.body.result.decision.basis,

@@ -69,7 +69,12 @@ test("a server killed mid-run comes back: the decision is still open, the run co
 	models.faux.setResponses([
 		fauxAssistantMessage("Continued after the restart."),
 	]);
-	const s = await start({ home, modules, models, token: phone });
+	const s = await start({
+		home,
+		source: () => ({ modules, failures: [] }),
+		models,
+		token: phone,
+	});
 	try {
 		const inbox = s.watch("inbox", {});
 		await inbox.until((w) => w.value !== undefined);
@@ -119,7 +124,10 @@ test("a server killed mid-run comes back: the decision is still open, the run co
 
 test("a timer that came due while the server was down runs once the start installs its extension", async () => {
 	let clock = Date.UTC(2026, 10, 14);
-	const s = await start({ modules, now: () => clock });
+	const s = await start({
+		source: () => ({ modules, failures: [] }),
+		now: () => clock,
+	});
 	try {
 		await s.call("bind", { project: "p", workdir: "/p", extensions: ["flow"] });
 		await s.call("setOptions", {

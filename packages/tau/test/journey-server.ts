@@ -37,16 +37,19 @@ const models = createModels();
 models.setProvider(faux.provider);
 const server = await startServer({
 	home,
-	modules:
-		config.searchUrl === undefined
-			? modules
-			: {
-					...modules,
-					websearch: {
-						...modules.websearch,
-						extension: createSearchExtension({ exa: config.searchUrl }),
+	source: () => ({
+		modules:
+			config.searchUrl === undefined
+				? modules
+				: {
+						...modules,
+						websearch: {
+							...modules.websearch,
+							extension: createSearchExtension({ exa: config.searchUrl }),
+						},
 					},
-				},
+		failures: [],
+	}),
 	models,
 	port: 0,
 	...(now === undefined ? {} : { now: () => now }),

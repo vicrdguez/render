@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { defineExtension } from "@earendil-works/pi-durable";
 import { obj } from "@earendil-works/pi-schema";
-import type { ExtensionModule } from "../src/index.js";
 import { Flow, modules, Notes, WEEK } from "./extensions.js";
-import { start, until } from "./helpers.js";
+import { newHome, start, until } from "./helpers.js";
 
 const valid = { extension: Notes };
 const options = {
@@ -71,7 +71,7 @@ const refusals: [string, string, unknown, string][] = [
 				schema: {
 					type: "object",
 					additionalProperties: false,
-					properties: { x: { type: "not-a-type" } },
+					properties: { x: 3 },
 				},
 			},
 		},
@@ -108,7 +108,10 @@ for (const [what, name, module, stage] of refusals) {
 			return true;
 		});
 		const s = await start({
-			modules: { flow: modules.flow, [name]: module as ExtensionModule },
+			source: () => ({
+				modules: { flow: modules.flow, [name]: module },
+				failures: [],
+			}),
 		});
 		try {
 			const reply = await s.call("bind", {
@@ -141,23 +144,23 @@ test("startup calls an async source once and reports its failures once", async (
 		return true;
 	});
 	let scans = 0;
+	const home = await newHome();
+	const file = path.join(home, "gone", "index.ts");
 	const s = await start({
-		port: 0,
-		...{
-			source: async () => {
-				scans++;
-				return {
-					modules: { notes: valid },
-					failures: [
-						{
-							name: "gone",
-							path: "/outside/gone/index.ts",
-							stage: "import",
-							error: new Error("broken import\nprivate stack"),
-						},
-					],
-				};
-			},
+		home,
+		source: async () => {
+			scans++;
+			return {
+				modules: { notes: valid },
+				failures: [
+					{
+						name: "gone",
+						path: file,
+						stage: "import",
+						error: new Error("broken import\nprivate stack"),
+					},
+				],
+			};
 		},
 	});
 	try {
@@ -173,7 +176,7 @@ test("startup calls an async source once and reports its failures once", async (
 		}
 		assert.equal(scans, 1);
 		assert.deepEqual(stderr, [
-			"tau: extension gone /outside/gone/index.ts [import]: broken import\n",
+			`tau: extension gone ${file} [import]: broken import\n`,
 		]);
 	} finally {
 		await s.close();
@@ -192,14 +195,17 @@ test("startup checks do not execute entry, get, set, or migrations", async () =>
 		})),
 	};
 	const s = await start({
-		modules: {
-			flow: {
-				extension,
-				entry: called,
-				options: { ...options, get: called, set: called },
+		source: () => ({
+			modules: {
+				flow: {
+					extension,
+					entry: called,
+					options: { ...options, get: called, set: called },
+				},
+				notes: { ...valid, entry: {} },
 			},
-			notes: { ...valid, entry: {} },
-		},
+			failures: [],
+		}),
 	});
 	try {
 		assert.deepEqual(
@@ -225,7 +231,10 @@ test("startup checks do not execute entry, get, set, or migrations", async () =>
 
 test("a task of a broken extension waits and runs after restart with good code", async (t) => {
 	let clock = Date.UTC(2026, 10, 14);
-	const s = await start({ modules, now: () => clock });
+	const s = await start({
+		source: () => ({ modules, failures: [] }),
+		now: () => clock,
+	});
 	t.after(() => s.close());
 	await s.call("bind", { project: "p", workdir: s.home, extensions: ["flow"] });
 	await s.call("setOptions", {
@@ -260,7 +269,10 @@ test("a task of a broken extension waits and runs after restart with good code",
 		return true;
 	});
 	const broken = await s.restart({
-		modules: { flow: { extension: { ...Flow, name: "wrong" } } },
+		source: () => ({
+			modules: { flow: { extension: { ...Flow, name: "wrong" } } },
+			failures: [],
+		}),
 	});
 	t.after(() => broken.close());
 	assert.deepEqual(
@@ -274,6 +286,7 @@ test("a task of a broken extension waits and runs after restart with good code",
 			(e: { kind: string }) => e.kind === "flow.woke",
 		),
 	);
+	await broken.close();
 	const ready = await s.restart();
 	t.after(() => ready.close());
 	await until("the restored task wakes", async () =>
@@ -291,22 +304,25 @@ test("cross-extension tool collisions use the last Project selection without a w
 	});
 	const tool = Notes.tools![0]!;
 	const s = await start({
-		modules: {
-			notes: valid,
-			other: {
-				extension: defineExtension({
-					name: "other",
-					tools: [
-						{
-							...tool,
-							execute: async () => ({
-								output: [{ type: "text", text: "other won" }],
-							}),
-						},
-					],
-				}),
+		source: () => ({
+			modules: {
+				notes: valid,
+				other: {
+					extension: defineExtension({
+						name: "other",
+						tools: [
+							{
+								...tool,
+								execute: async () => ({
+									output: [{ type: "text", text: "other won" }],
+								}),
+							},
+						],
+					}),
+				},
 			},
-		},
+			failures: [],
+		}),
 	});
 	try {
 		for (const [project, extensions, expected] of [

@@ -10,7 +10,7 @@ const models = createModels();
 models.setProvider(faux.provider);
 const server = await startServer({
 	home,
-	modules,
+	source: () => ({ modules, failures: [] }),
 	models,
 	port: 0,
 	env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? home }),

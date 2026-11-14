@@ -51,7 +51,7 @@ async function serve(
 		process.env.PI_CODING_AGENT_DIR ?? path.join(homedir(), ".pi", "agent");
 	const server = await startServer({
 		home,
-		modules,
+		source: () => ({ modules, failures: [] }),
 		models: builtinModels({
 			credentials: piLogins(path.join(agentDir, "auth.json")),
 		}),

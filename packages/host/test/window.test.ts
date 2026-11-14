@@ -40,7 +40,9 @@ test("open starts at 50 entries, keeps 100, and drops to 50 only past 100", asyn
 			}),
 		],
 	});
-	const s = await start({ modules: { window: { extension } } });
+	const s = await start({
+		source: () => ({ modules: { window: { extension } }, failures: [] }),
+	});
 	try {
 		await s.call("bind", {
 			project: "p",

@@ -34,7 +34,7 @@ async function kill(process: ChildProcess) {
 }
 
 test("bind checks the name and the working directory before it creates anything", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		for (const body of [
 			{ project: "Bad", workdir: "/srv/p", extensions: [] },
@@ -55,7 +55,7 @@ test("bind checks the name and the working directory before it creates anything"
 });
 
 test("bind stores the project, repeats on equal fields, and refuses others with conflict", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		const body = {
 			project: "p",
@@ -123,7 +123,10 @@ test("start skips a store that a killed bind left without Project, and a resent 
 	} finally {
 		await kill(half.process);
 	}
-	const s = await start({ home, modules });
+	const s = await start({
+		home,
+		source: () => ({ modules, failures: [] }),
+	});
 	try {
 		assert.deepEqual(
 			s.server.skipped.map((x) => x.project),
@@ -163,7 +166,7 @@ test("start skips a store that a killed bind left without Project, and a resent 
 });
 
 test("addExtensions appends new names once and survives a restart", async () => {
-	const s = await start({ modules });
+	const s = await start({ source: () => ({ modules, failures: [] }) });
 	try {
 		await s.call("bind", { project: "p", workdir: "/p", extensions: ["flow"] });
 		const added = await s.call("addExtensions", {
@@ -190,7 +193,13 @@ test("addExtensions appends new names once and survives a restart", async () => 
 		assert.equal(unknown.body.refused?.code, "unknown_project");
 		await s.close();
 		const again = await s.restart({
-			modules: { ...modules, gone: { extension: { ...Notes, name: "gone" } } },
+			source: () => ({
+				modules: {
+					...modules,
+					gone: { extension: { ...Notes, name: "gone" } },
+				},
+				failures: [],
+			}),
 		});
 		try {
 			assert.deepEqual((await again.call("projects", {})).body.result.items, [
@@ -210,7 +219,9 @@ test("a module map key that differs from its extension name is reported and left
 		stderr.push(String(chunk));
 		return true;
 	});
-	const s = await start({ modules: { search: modules.notes } });
+	const s = await start({
+		source: () => ({ modules: { search: modules.notes }, failures: [] }),
+	});
 	try {
 		const reply = await s.call("bind", {
 			project: "p",
