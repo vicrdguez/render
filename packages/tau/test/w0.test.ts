@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { journey, until } from "./journey.js";
+import { until } from "./journey.js";
+import { processJourney } from "./process-journey.js";
 
 test("W0: leave, restart, fill the history gap from a second device, and continue", {
 	timeout: 20_000,
 }, async () => {
-	const j = await journey();
+	const j = await processJourney();
 	try {
 		const extensions = await j.ok("extensions", {});
 		assert.deepEqual(
@@ -54,6 +55,7 @@ test("W0: leave, restart, fill the history gap from a second device, and continu
 			);
 		}
 		await j.restart();
+		assert.deepEqual(j.exits, [[null, "SIGKILL"]]);
 		const second = await j.watch(
 			"open",
 			{ project: "p", conversation, after },

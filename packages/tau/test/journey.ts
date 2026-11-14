@@ -153,7 +153,11 @@ export async function journey(changes: Partial<ServerOptions> = {}) {
 }
 export type Journey = Awaited<ReturnType<typeof journey>>;
 
-export async function decision(j: Journey, id: string, project = "p") {
+export async function decision(
+	j: Pick<Journey, "call" | "phone">,
+	id: string,
+	project = "p",
+) {
 	let found: any;
 	await until(`decision ${id}`, async () => {
 		const reply = await j.call("decision", { project, decision: id }, j.phone);

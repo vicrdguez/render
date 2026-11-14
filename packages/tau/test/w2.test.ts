@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { modules } from "../src/modules.js";
 import { decision, journey, until } from "./journey.js";
+import { processJourney } from "./process-journey.js";
 
 const WEEK = 604_800_000;
 const publish = (name: string, key: string, due: number, p = 0.7) =>
@@ -23,7 +24,7 @@ test("W2: overdue restart reaches the phone inbox, scores, defers, withdraws on 
 	timeout: 15_000,
 }, async () => {
 	let clock = Date.UTC(2026, 10, 14);
-	const j = await journey({ now: () => clock });
+	const j = await processJourney({ now: () => clock });
 	try {
 		await j.ok("bind", { project: "p", workdir: j.root, extensions: ["w2"] });
 		await j.ok("setOptions", {
@@ -56,6 +57,7 @@ test("W2: overdue restart reaches the phone inbox, scores, defers, withdraws on 
 		clock += 2000;
 		const calls = j.faux.state.callCount;
 		await j.restart();
+		assert.deepEqual(j.exits, [[null, "SIGKILL"]]);
 		const inbox = await j.watch("inbox", {}, j.phone);
 		const subject = `w2:${conversation}:release`;
 		await until(
@@ -117,6 +119,10 @@ test("W2: overdue restart reaches the phone inbox, scores, defers, withdraws on 
 		await j.stop();
 		clock += WEEK + 1;
 		await j.restart();
+		assert.deepEqual(j.exits, [
+			[null, "SIGKILL"],
+			[null, "SIGKILL"],
+		]);
 		const again = await j.watch("inbox", {}, j.phone);
 		await until("deferred round", () => again.value.p[laterSubject]);
 		const old = await decision(j, again.value.p[laterSubject].id);

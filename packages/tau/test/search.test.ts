@@ -3,14 +3,12 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { createSearchExtension } from "tau-websearch/testing";
-import { modules } from "../src/modules.js";
-import { journey, until } from "./journey.js";
+import { until } from "./journey.js";
+import { processJourney } from "./process-journey.js";
 
 test("search: project default calls the local provider and no device surface or log reveals the key", {
 	timeout: 15_000,
 }, async (t) => {
-	const create = createSearchExtension;
 	const key = "sk-integration-secret-never-return";
 	let requests = 0;
 	const provider = createServer(async (request, response) => {
@@ -44,19 +42,8 @@ test("search: project default calls the local provider and no device surface or 
 	);
 	const address = provider.address();
 	assert.ok(address && typeof address !== "string");
-	const logs: string[] = [];
-	for (const method of ["log", "warn", "error", "info", "debug"] as const)
-		t.mock.method(console, method, (...args: unknown[]) =>
-			logs.push(JSON.stringify(args)),
-		);
-	const j = await journey({
-		modules: {
-			...modules,
-			websearch: {
-				...modules.websearch,
-				extension: create({ exa: `http://127.0.0.1:${address.port}` }),
-			},
-		},
+	const j = await processJourney({
+		searchUrl: `http://127.0.0.1:${address.port}`,
 	});
 	try {
 		await j.ok("bind", {
@@ -84,18 +71,11 @@ test("search: project default calls the local provider and no device surface or 
 		const timeline = await j.watch("timeline", { project: "p" }, j.phone);
 		const inbox = await j.watch("inbox", {}, j.phone);
 		j.faux.setResponses([
-			(request) => {
-				assert.ok(JSON.stringify(request).includes('"web_search"'));
-				return fauxAssistantMessage(
-					[fauxToolCall("web_search", { query: "Tau durability" })],
-					{ stopReason: "toolUse" },
-				);
-			},
-			(request) => {
-				assert.ok(JSON.stringify(request).includes("LOCAL-CONTENT"));
-				assert.ok(!JSON.stringify(request).includes(key));
-				return fauxAssistantMessage("Search finished.");
-			},
+			fauxAssistantMessage(
+				[fauxToolCall("web_search", { query: "Tau durability" })],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage("Search finished."),
 		]);
 		await j.ok("input", {
 			project: "p",
@@ -107,6 +87,9 @@ test("search: project default calls the local provider and no device surface or 
 			JSON.stringify(open.value.entries).includes("Search finished."),
 		);
 		assert.equal(requests, 1);
+		assert.ok(JSON.stringify(j.requests[0]).includes('"web_search"'));
+		assert.ok(JSON.stringify(j.requests[1]).includes("LOCAL-CONTENT"));
+		assert.ok(!JSON.stringify(j.requests).includes(key));
 		await j.ok("history", { project: "p", conversation, limit: 1000 }, j.phone);
 		await j.restart();
 		assert.equal(
@@ -114,12 +97,15 @@ test("search: project default calls the local provider and no device surface or 
 			true,
 		);
 		await j.ok("history", { project: "p", conversation, limit: 1000 }, j.phone);
+		await j.stop();
+		assert.ok(j.stdout.length > 0, "the child stdout was captured");
 		for (const surface of [
 			...j.wire,
 			...open.frames,
 			...timeline.frames,
 			...inbox.frames,
-			...logs,
+			...j.stdout,
+			...j.stderr,
 		])
 			assert.ok(!surface.includes(key), surface);
 		assert.ok(JSON.stringify(open.value.entries).includes("LOCAL-CONTENT"));
