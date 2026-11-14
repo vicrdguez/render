@@ -79,7 +79,9 @@ test("row 19: the owner's hand-over command checks out the reviewed blob despite
 		const { k, s } = await approved(w);
 		await w.open(s.merge(1));
 		const R = await named(w, "reviewing");
-		const reviewed = (await toolResults(w, R)).find((r) => r.tool === "show_file");
+		const reviewed = (await toolResults(w, R)).find(
+			(r) => r.tool === "show_file",
+		);
 		assert.equal(reviewed?.text, "REVIEWED");
 		const path = plannedPath(w.repo, k);
 		const blob = git(path, "rev-parse", "HEAD:export.js");
