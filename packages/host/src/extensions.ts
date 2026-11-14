@@ -102,5 +102,5 @@ export async function loadExtensions(
 			`tau: extension ${failure.name}${failure.path === undefined ? "" : ` ${failure.path}`} [${failure.stage}]: ${message.split(/[\r\n]/, 1)[0]}\n`,
 		);
 	}
-	return { modules, options };
+	return { modules, options, failures };
 }

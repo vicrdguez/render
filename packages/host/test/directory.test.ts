@@ -448,8 +448,15 @@ test("only canonical tau-extension specifiers load, including dynamic imports an
 test("a dependency whose name starts with tau-extension is allowed", async () => {
 	const dir = await directory({
 		good: {
-			"index.ts": plain("good", 'import { value } from "tau-extension-helpers"; export { value };'),
-			"node_modules/tau-extension-helpers/package.json": JSON.stringify({ name: "tau-extension-helpers", type: "module", exports: "./index.js" }),
+			"index.ts": plain(
+				"good",
+				'import { value } from "tau-extension-helpers"; export { value };',
+			),
+			"node_modules/tau-extension-helpers/package.json": JSON.stringify({
+				name: "tau-extension-helpers",
+				type: "module",
+				exports: "./index.js",
+			}),
 			"node_modules/tau-extension-helpers/index.js": "export const value = 42;",
 		},
 	});
