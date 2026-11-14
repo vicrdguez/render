@@ -17,7 +17,7 @@ export function fromDirectory(directory: string): ExtensionSource {
 	return async () => {
 		const names = await list(directory).catch((error: Error) => {
 			throw new Error(
-				`The extension directory ${directory} is unsafe or unreadable, so no extension loads: ${error.message}`,
+				`The extension directory ${directory} is unsafe or unreadable. The server does not start until the directory's permissions are fixed. Run chmod 700 on ${directory}: ${error.message}`,
 				{ cause: error },
 			);
 		});
@@ -116,7 +116,43 @@ async function check(folder: string, relative: string): Promise<void> {
 
 // jiti aliases are prefixes. Check literal module specifiers before they can traverse a target.
 function canonicalImports(alias: Record<string, string>) {
+	const checkSpecifier = (specifier: string) => {
+		if (
+			(specifier === "tau-extension" ||
+				specifier.startsWith("tau-extension/")) &&
+			!Object.hasOwn(alias, specifier)
+		)
+			throw new Error(
+				`Invalid import ${specifier}. Use a canonical entry: ${Object.keys(alias).join(", ")}.`,
+			);
+	};
 	return {
+		pre(file: { path: { traverse(visitor: object): void } }) {
+			// jiti wraps a template import in an IIFE before ordinary visitors see it.
+			file.path.traverse({
+				Import({
+					parent,
+				}: {
+					parent: {
+						arguments: {
+							type: string;
+							expressions?: unknown[];
+							quasis?: { value: { cooked: string | null } }[];
+						}[];
+					};
+				}) {
+					const argument = parent.arguments[0];
+					if (
+						argument?.type === "TemplateLiteral" &&
+						argument.expressions?.length === 0
+					) {
+						const specifier = argument.quasis?.[0]?.value.cooked;
+						if (specifier !== undefined && specifier !== null)
+							checkSpecifier(specifier);
+					}
+				},
+			});
+		},
 		visitor: {
 			StringLiteral({
 				node,
@@ -133,17 +169,9 @@ function canonicalImports(alias: Record<string, string>) {
 				const call =
 					parent.type === "CallExpression" &&
 					parent.arguments?.[0] === node &&
-					(parent.callee?.type === "Import" ||
-						parent.callee?.name === "require" ||
+					(parent.callee?.name === "require" ||
 						parent.callee?.name === "jitiImport");
-				if (
-					(parent.source === node || call) &&
-					node.value.startsWith("tau-extension") &&
-					!Object.hasOwn(alias, node.value)
-				)
-					throw new Error(
-						`Invalid import ${node.value}. Use a canonical entry: ${Object.keys(alias).join(", ")}.`,
-					);
+				if (parent.source === node || call) checkSpecifier(node.value);
 			},
 		},
 	};

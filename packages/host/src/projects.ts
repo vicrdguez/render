@@ -125,7 +125,7 @@ export class Projects {
 		return this.#open.get(name);
 	}
 
-	all(): OpenProject[] {
+	all() {
 		return [...this.#open.values()].sort((a, b) => (a.name < b.name ? -1 : 1));
 	}
 
@@ -146,7 +146,7 @@ export class Projects {
 
 	bind(
 		input: Project,
-		catalogue = this.catalogue,
+		catalogue: Catalogue,
 	): Promise<Outcome<{ project: ProjectView; repeated: boolean }>> {
 		return this.#serial(input.project, async () => {
 			const known = this.#open.get(input.project);
@@ -186,7 +186,7 @@ export class Projects {
 	addExtensions(
 		name: string,
 		names: readonly string[],
-		catalogue = this.catalogue,
+		catalogue: Catalogue,
 	): Promise<ProjectView> {
 		return this.#serial(name, async () => {
 			const open = this.#open.get(name);
@@ -210,6 +210,29 @@ export class Projects {
 	onBind(join: (project: OpenProject) => void): () => void {
 		this.#joined.add(join);
 		return () => this.#joined.delete(join);
+	}
+
+	publish(
+		catalogue: Catalogue,
+		found: ReadonlySet<string>,
+		reaching: (project: string, extension: string) => void,
+	): Map<string, string[]> {
+		const installed = new Map<string, string[]>();
+		for (const open of this.all()) {
+			for (const name of open.record.extensions) {
+				if (!found.has(name)) continue;
+				const loaded = catalogue.get(name);
+				if (loaded === undefined) continue;
+				reaching(open.name, name);
+				open.registry.install(loaded.module.extension);
+				const projects = installed.get(name) ?? [];
+				projects.push(open.name);
+				installed.set(name, projects);
+			}
+			open.selection.defaults = catalogue.defaults(open.record.extensions);
+		}
+		this.catalogue = catalogue;
+		return installed;
 	}
 
 	async close(): Promise<void> {

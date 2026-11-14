@@ -157,6 +157,11 @@ for (const mode of [0o770, 0o707, 0o730]) {
 			async () => fromDirectory(dir)(),
 			(error: Error) => {
 				assert.match(error.message, /writable by group or others/);
+				assert.match(
+					error.message,
+					/server does not start until.*permissions are fixed/i,
+				);
+				assert.match(error.message, /chmod 700/);
 				assert.ok(error.message.includes(dir), error.message);
 				return true;
 			},
@@ -412,10 +417,9 @@ test("only canonical tau-extension specifiers load, including dynamic imports an
 		"tau-extension/testing.js",
 		"tau-extension/dist/src/testing.js",
 		"tau-extension//testing",
-		"tau-extension-extra",
 	];
 	for (const specifier of spellings) {
-		for (const form of ["import", "dynamic", "export"]) {
+		for (const form of ["import", "dynamic", "export", "require", "template"]) {
 			await t.test(`${form} ${specifier}`, async () => {
 				const literal = JSON.stringify(specifier);
 				const code =
@@ -423,7 +427,11 @@ test("only canonical tau-extension specifiers load, including dynamic imports an
 						? `import * as got from ${literal}; export { got };`
 						: form === "dynamic"
 							? `export const got = await import(${literal});`
-							: `export * from ${literal};`;
+							: form === "require"
+								? `export const got = require(${literal});`
+								: form === "template"
+									? `export const got = await import(\`${specifier}\`);`
+									: `export * from ${literal};`;
 				const dir = await directory({
 					bad: {
 						"index.ts": plain("bad", `export * from './nested.ts';`),
@@ -440,6 +448,26 @@ test("only canonical tau-extension specifiers load, including dynamic imports an
 			});
 		}
 	}
+});
+
+test("a dependency whose name starts with tau-extension is allowed", async () => {
+	const dir = await directory({
+		good: {
+			"index.ts": plain(
+				"good",
+				'import { value } from "tau-extension-helpers"; export { value };',
+			),
+			"node_modules/tau-extension-helpers/package.json": JSON.stringify({
+				name: "tau-extension-helpers",
+				type: "module",
+				exports: "./index.js",
+			}),
+			"node_modules/tau-extension-helpers/index.js": "export const value = 42;",
+		},
+	});
+	const scan = await fromDirectory(dir)();
+	assert.deepEqual(scan.failures, []);
+	assert.equal((scan.modules.good as { value: number }).value, 42);
 });
 
 test("every production entry in the exports map gives the host's own values", async () => {

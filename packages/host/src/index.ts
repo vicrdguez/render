@@ -16,6 +16,8 @@ import { Devices } from "./devices.js";
 import { type ExtensionSource, loadExtensions } from "./extensions.js";
 import { handler } from "./http.js";
 import { Projects } from "./projects.js";
+import type { Outcome } from "./refusals.js";
+import { type ReloadReport, reload } from "./reload.js";
 import { StructuralQueue } from "./structural.js";
 
 export type { AdminRequest, AdminResult } from "./admin.js";
@@ -27,6 +29,7 @@ export type {
 	ExtensionSource,
 } from "./extensions.js";
 export { fromDirectory } from "./loader.js";
+export type { ReloadReport } from "./reload.js";
 
 // docs/core/host.md, "Options per project".
 export type ExtensionModule = {
@@ -62,6 +65,7 @@ export type Server = {
 		readonly project: string;
 		readonly reason: string;
 	}[];
+	reload(): Promise<Outcome<ReloadReport>>;
 	/** Ends every stream with `stopping`, then closes each store and releases its lock. */
 	close(): Promise<void>;
 };
@@ -100,9 +104,26 @@ export async function startServer(options: ServerOptions): Promise<Server> {
 			typeof address === "object" && address !== null ? address.port : 0;
 		const adminServer = admin;
 		let closing: Promise<void> | undefined;
-		return {
+		let failure: Error | undefined;
+		const server: Server = {
 			address: { host: "127.0.0.1", port },
 			skipped: projects.skipped,
+			reload: () =>
+				structural.run(async () => {
+					const report = await reload(projects, options);
+					if (report.status === "restart_required") {
+						failure = new Error(
+							report.failures[0]?.message ??
+								"Restart required after publication failed.",
+						);
+						void server
+							.close()
+							.catch((error) =>
+								process.stderr.write(`tau: ${String(error)}\n`),
+							);
+					}
+					return { result: report };
+				}),
 			close: () => {
 				closing ??= (async () => {
 					await structural.close();
@@ -113,10 +134,12 @@ export async function startServer(options: ServerOptions): Promise<Server> {
 					});
 					await new Promise((resolve) => adminServer.close(resolve));
 					await projects.close();
+					if (failure !== undefined) throw failure;
 				})();
 				return closing;
 			},
 		};
+		return server;
 	} catch (error) {
 		await new Promise((resolve) =>
 			admin ? admin.close(resolve) : resolve(undefined),
