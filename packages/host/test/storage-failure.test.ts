@@ -15,7 +15,7 @@ test("a real Storage rejection over HTTP has only unknown storage_failed with st
 			},
 		});
 	};
-	const s = await start({ ...{ storage } });
+	const s = await start({ modules: {}, ...{ storage } });
 	try {
 		await s.call("bind", { project: "p", workdir: "/tmp", extensions: [] });
 		assert.equal((await s.call("conversations", { project: "p" })).status, 200);
