@@ -1,6 +1,6 @@
-import type { ModelRef } from "@earendil-works/pi-durable";
-import { CodingTools } from "@earendil-works/pi-durable/tools";
-import { prose, type RoleSettings } from "tau-kit";
+import { prose, type RoleSettings } from "tau-extension";
+import type { ModelRef } from "tau-extension/durable";
+import { CodingTools } from "tau-extension/durable";
 import { W1 } from "./extension.js";
 import { publishBuild, publishReview, showDiff, showFile } from "./tools.js";
 

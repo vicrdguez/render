@@ -10,13 +10,6 @@
 		}
 	},
 	"dependencies": {
-		"@earendil-works/chord": "1.5.2",
-		"@earendil-works/pi-durable": "1.5.2",
-		"@earendil-works/pi-schema": "1.5.2",
-		"tau-kit": "0.0.0",
-		"tau-store": "0.0.0"
-	},
-	"devDependencies": {
-		"@earendil-works/pi-ai": "1.5.2"
+		"tau-extension": "0.0.0"
 	}
 }

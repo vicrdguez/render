@@ -1,4 +1,13 @@
-import type { Context } from "@earendil-works/chord/context";
+import {
+	type DecisionInput,
+	decision,
+	emit,
+	modelRef,
+	request,
+	role,
+	withdraw,
+} from "tau-extension";
+import type { Context } from "tau-extension/chord";
 import {
 	AgentDoc,
 	type ConversationId,
@@ -12,15 +21,7 @@ import {
 	runEndTask,
 	type TaskRuntime,
 	type Tx,
-} from "@earendil-works/pi-durable";
-import { modelRef, role } from "tau-kit";
-import {
-	type DecisionInput,
-	decision,
-	emit,
-	request,
-	withdraw,
-} from "tau-store";
+} from "tau-extension/durable";
 import { branchHead, commitOf, ensureWorktree } from "./git.js";
 import {
 	buildInput,

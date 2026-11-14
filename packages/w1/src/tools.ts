@@ -1,12 +1,11 @@
-import type { Context } from "@earendil-works/chord/context";
+import { emit, modelRef, request, role } from "tau-extension";
+import type { Context } from "tau-extension/chord";
 import {
 	defineTool,
 	type ToolExecutionApi,
 	type ToolExecutionResult,
-} from "@earendil-works/pi-durable";
-import { arr, int, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
-import { modelRef, role } from "tau-kit";
-import { emit, request } from "tau-store";
+} from "tau-extension/durable";
+import { arr, int, obj, oneOf, opt, str } from "tau-extension/schema";
 import { diffAt, fileAt, publishedHead } from "./git.js";
 import { reviewer } from "./roles.js";
 import { designAnswer, fixStart, handoff, reviewStart } from "./tasks.js";

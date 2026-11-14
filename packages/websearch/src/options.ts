@@ -1,5 +1,5 @@
-import { obj, oneOf, str } from "@earendil-works/pi-schema";
-import { options as defineOptions } from "tau-kit";
+import { options as defineOptions } from "tau-extension";
+import { obj, oneOf, str } from "tau-extension/schema";
 
 export const options = defineOptions(
 	"websearch",

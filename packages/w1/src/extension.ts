@@ -1,4 +1,4 @@
-import { defineExtension } from "@earendil-works/pi-durable";
+import { defineExtension } from "tau-extension/durable";
 import {
 	designAnswer,
 	ensureHandoff,

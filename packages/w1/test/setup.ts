@@ -3,17 +3,17 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import { createModels } from "@earendil-works/pi-ai/models";
 import {
-	type FauxResponseStep,
-	fauxAssistantMessage,
-	fauxProvider,
-	fauxText,
-	fauxToolCall,
-} from "@earendil-works/pi-ai/providers/faux";
+	type Annotation,
+	type Decision,
+	type DecisionId,
+	decision,
+	eventLog,
+} from "tau-extension";
+import { BACKGROUND_CONTEXT as context } from "tau-extension/chord";
 import {
 	type Agent,
+	CodingTools,
 	type Conversation,
 	type ConversationId,
 	configure,
@@ -27,23 +27,25 @@ import {
 	type HarnessOptions,
 	type JsonObject,
 	MemoryStorage,
+	NodeExecutionEnv,
 	type Storage,
 	type Submission,
 	type SubmissionDraft,
 	type TaskRecord,
 	type ToolRegistration,
-} from "@earendil-works/pi-durable";
-import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { CodingTools } from "@earendil-works/pi-durable/tools";
-import { obj, str } from "@earendil-works/pi-schema";
+} from "tau-extension/durable";
+import { obj, str } from "tau-extension/schema";
 import {
-	type Annotation,
-	type Decision,
-	type DecisionId,
-	decision,
-	eventLog,
-} from "tau-store";
-import { fauxAnswer, openStore, type Store } from "tau-store/testing";
+	createModels,
+	type FauxResponseStep,
+	fauxAnswer,
+	fauxAssistantMessage,
+	fauxProvider,
+	fauxText,
+	fauxToolCall,
+	openStore,
+	type Store,
+} from "tau-extension/testing";
 import * as W1 from "../src/index.js";
 
 export { context, W1 };

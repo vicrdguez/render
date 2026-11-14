@@ -1,7 +1,7 @@
 import { existsSync, writeSync } from "node:fs";
 import { join } from "node:path";
-import type { ConversationId, Storage } from "@earendil-works/pi-durable";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import type { ConversationId, Storage } from "tau-extension/durable";
+import { openNodeSqliteStorage } from "tau-extension/durable";
 import {
 	answered,
 	call,

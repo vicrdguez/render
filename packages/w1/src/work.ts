@@ -1,19 +1,19 @@
-import type { Draft } from "@earendil-works/chord/delta";
+import {
+	type Annotation,
+	type DecisionId,
+	decision,
+	type EventData,
+	options,
+} from "tau-extension";
+import type { Draft } from "tau-extension/chord";
 import {
 	type ConversationId,
 	defineDoc,
 	defineEntry,
 	type EntryId,
 	type Tx,
-} from "@earendil-works/pi-durable";
-import { obj, str } from "@earendil-works/pi-schema";
-import { options } from "tau-kit";
-import {
-	type Annotation,
-	type DecisionId,
-	decision,
-	type EventData,
-} from "tau-store";
+} from "tau-extension/durable";
+import { obj, str } from "tau-extension/schema";
 
 export const W1Options = options(
 	"w1",

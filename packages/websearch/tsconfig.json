@@ -6,12 +6,5 @@
 		"tsBuildInfoFile": "dist/build.tsbuildinfo"
 	},
 	"include": ["src/**/*.ts", "test/**/*.ts"],
-	"references": [
-		{
-			"path": "../kit"
-		},
-		{
-			"path": "../store"
-		}
-	]
+	"references": [{ "path": "../extension" }]
 }

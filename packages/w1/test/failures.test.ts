@@ -10,11 +10,11 @@ import {
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+	CodingTools as Coding,
 	type ConversationId,
 	configure,
 	LiveDoc,
-} from "@earendil-works/pi-durable";
-import { CodingTools as Coding } from "@earendil-works/pi-durable/tools";
+} from "tau-extension/durable";
 import { Work } from "../src/work.js";
 import {
 	answered,
