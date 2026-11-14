@@ -22,7 +22,7 @@ It does not type-check author code. Missing nested tool execute functions, bad t
 
 ## Test inventory
 
-Before, the normal test command passed 283 tests. The prescribed top-level name filter saved 249 names in `/tmp/r4-before.txt`.
+After merging today's origin/render-core at 4f76fe5, its normal test command passed 296 tests. The prescribed top-level name filter saved 262 names in `/tmp/r4-before.txt`. The baseline was run in a detached checkout at `/tmp/r4-baseline-current`.
 
 The only removed name is `a module map key that differs from its extension name stops the start`. Its replacement is `a module map key that differs from its extension name is reported and left out`. The owner changed startup from fatal to best effort.
 
@@ -59,18 +59,14 @@ The other four names are:
 
 The tests were committed before production changes. The initial focused run had 29 tests, 7 passed and 22 failed. See `/tmp/r4-red.log`. The two already-supported protections, no author callback invocation and Project-order tool selection, passed before the change.
 
-Three independent source mutations were emitted and tested, then restored. Reversing the extension-name comparison failed 23 tests. Skipping Options construction failed 2 tests. Skipping the scratch install failed 3 tests. Logs are `/tmp/r4-mutant-name.log`, `/tmp/r4-mutant-options.log` and `/tmp/r4-mutant-install.log`. The restored source suite passed 23 tests in 411.801167 ms. This is test-runner duration, not a startup benchmark.
+Three independent source mutations were rerun after the merge, then restored. The mutations reverse the extension-name comparison, skip Options construction, and skip the scratch install. Each normal focused test command exits 1. Logs are `/tmp/r4-takeover-mutant-name.log`, `/tmp/r4-takeover-mutant-options.log` and `/tmp/r4-takeover-mutant-install.log`. The restored source and devices suites pass 31 tests in 461.393625 ms. This is test-runner duration, not a startup benchmark.
 
-The last full emitted-runtime run passed 306 tests, with 272 top-level names. `/tmp/r4-after-runtime.txt` differs from the before inventory only by the named replacement and the 23 additions. `/tmp/r4-after-runtime.log` holds the output. The real command and W0, W1, W2 and search journeys pass. No test assertion in those journeys changed.
+The full normal test command now passes 319 tests, with 285 top-level names. `/tmp/r4-after.txt` differs from today's before inventory only by the named replacement and the 23 additions. `/tmp/r4-after-current.log` holds the output. The real command and W0, W1, W2 and search journeys pass. No test assertion in those journeys changed.
 
-## Scope blocker
+## Takeover repair
 
-`packages/host/test/devices.test.ts:227` calls `startServer` with `modules`. R1 owns that file and the unit brief forbids touching it. R4 migrated every other caller. The owner was asked to have R1 change that call to `source: () => ({ modules: {}, failures: [] })` or authorize the one-line edit.
+The owner authorized the remaining devices test migration after R1 merged. Its second start now supplies `source: () => ({ modules: {}, failures: [] })`. The rejection assertion also requires `a Tau server is already running on `, so a missing source or another unrelated error cannot satisfy it.
 
-Typecheck currently stops only at that call:
+The strengthened assertion was run before migrating the call. It failed in `/tmp/r4-lock-red.log`; that red run was stopped after 120 seconds because the failed test leaves its first server open. After the migration, the same test passes. Typecheck also passes through the normal test command. Repository search found no remaining startServer call with the old modules option.
 
-```text
-packages/host/test/devices.test.ts(227,31): error TS2353: Object literal may only specify known properties, and 'modules' does not exist in type 'ServerOptions'.
-```
-
-The 306-test runtime result is not a green normal test command or acceptance gate. It used `node tools/tests.mjs` on emitted output after TypeScript emitted with that error. The direct devices call currently rejects for a missing source, so that assertion is not valid evidence of the home-lock refusal until R1 migrates the call. No compatibility API was added to hide the blocker.
+Fresh-checkout acceptance and forced-check output are recorded on PR 106 at the final head. No compatibility API was added.
