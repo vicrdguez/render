@@ -1,49 +1,62 @@
-import { readFile, rename, writeFile } from "node:fs/promises";
-import type { Credential, CredentialStore } from "@earendil-works/pi-ai";
+import { mkdir, open, readFile, realpath, writeFile } from "node:fs/promises";
+import path from "node:path";
+import type { AuthOperationOptions, Credential, CredentialStore } from "@earendil-works/pi-ai";
+import lockfile from "proper-lockfile";
 
-/** pi's own login file, `auth.json`: one credential per provider. The server reads it at each use, so a login the
- * owner makes with pi reaches it without a restart, and it writes back a refreshed OAuth token. */
+/** Shares pi's resolved auth.json lock for the entire read, refresh, and write. */
 export function piLogins(file: string): CredentialStore {
-	const read = async (): Promise<Record<string, Credential>> => {
+	const locked = async <T>(
+		work: (logins: Record<string, Credential>, resolved: string, check: () => void) => Promise<T>,
+		options?: AuthOperationOptions,
+	): Promise<T> => {
+		options?.signal?.throwIfAborted();
+		await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
 		try {
-			return JSON.parse(await readFile(file, "utf8"));
+			const created = await open(file, "wx", 0o600);
+			try { await created.writeFile("{}"); } finally { await created.close(); }
 		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-			throw new Error(`${file} cannot be read`);
+			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+		}
+		const resolved = await realpath(file);
+		let compromised: Error | undefined;
+		const release = await lockfile.lock(resolved, {
+			stale: 30_000,
+			retries: { retries: 20, minTimeout: 10, maxTimeout: 2_000 },
+			onCompromised: (error) => { compromised = error; },
+		});
+		const check = () => {
+			if (compromised !== undefined) throw compromised;
+			options?.signal?.throwIfAborted();
+		};
+		try {
+			check();
+			const logins = JSON.parse(await readFile(resolved, "utf8"));
+			const result = await work(logins, resolved, check);
+			check();
+			return result;
+		} finally {
+			if (compromised === undefined) await release();
 		}
 	};
-	const write = async (logins: Record<string, Credential>) => {
-		const temporary = `${file}.tau.tmp`;
-		await writeFile(temporary, JSON.stringify(logins, null, 2), {
-			mode: 0o600,
-		});
-		await rename(temporary, file);
-	};
-	let queue: Promise<unknown> = Promise.resolve();
-	const serial = <T>(work: () => Promise<T>) => {
-		const next = queue.then(work);
-		queue = next.catch(() => {});
+	const update = async (
+		provider: string,
+		change: (current: Credential | undefined) => Promise<Credential | undefined>,
+		options?: AuthOperationOptions,
+	) => locked(async (logins, resolved, check) => {
+		const next = await change(logins[provider]);
+		check();
+		if (next === undefined) return logins[provider];
+		await writeFile(resolved, JSON.stringify({ ...logins, [provider]: next }, null, 2), { mode: 0o600 });
 		return next;
-	};
+	}, options);
 	return {
-		read: async (provider) => (await read())[provider],
-		list: async () =>
-			Object.entries(await read()).map(([providerId, credential]) => ({
-				providerId,
-				type: credential.type,
-			})),
-		modify: (provider, change) =>
-			serial(async () => {
-				const logins = await read();
-				const next = await change(logins[provider]);
-				if (next === undefined) return logins[provider];
-				await write({ ...logins, [provider]: next });
-				return next;
-			}),
-		delete: (provider) =>
-			serial(async () => {
-				const { [provider]: _gone, ...rest } = await read();
-				await write(rest);
-			}),
+		read: (provider, options) => locked(async (logins) => logins[provider], options),
+		list: (options) => locked(async (logins) => Object.entries(logins).map(([providerId, credential]) => ({ providerId, type: credential.type })), options),
+		modify: update,
+		delete: (provider, options) => locked(async (logins, resolved, check) => {
+			check();
+			delete logins[provider];
+			await writeFile(resolved, JSON.stringify(logins, null, 2), { mode: 0o600 });
+		}, options),
 	};
 }
