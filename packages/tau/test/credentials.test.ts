@@ -38,6 +38,21 @@ for (const contents of [
 	});
 }
 
+test("forty-five concurrent provider reads share pi's lock within this process", async () => {
+	const home = await mkdtemp(path.join(tmpdir(), "tau-logins-"));
+	try {
+		const file = path.join(home, "auth.json");
+		await writeFile(file, JSON.stringify({ anthropic: key("latest") }));
+		const stores = [piLogins(file), piLogins(file)];
+		const results = await Promise.all(
+			Array.from({ length: 45 }, (_, i) => stores[i % 2]!.read("anthropic")),
+		);
+		assert.deepEqual(results, Array.from({ length: 45 }, () => key("latest")));
+	} finally {
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
 for (const old of [false, true]) {
 	test(`reading logins waits for pi's ${old ? "15 second old" : "current"} lock`, async () => {
 		const home = await mkdtemp(path.join(tmpdir(), "tau-logins-"));
