@@ -6,7 +6,7 @@ import { type AdminRequest, requestAdmin, startServer } from "tau-host";
 import { piLogins } from "./credentials.js";
 import { modules } from "./modules.js";
 
-const USAGE = `usage: tau [--allow-host NAME]...  start the server on ~/.tau and 127.0.0.1:6283
+const USAGE = `usage: tau [--port PORT] [--allow-host NAME]...  start the server on ~/.tau and 127.0.0.1:6283
        tau device pair NAME             print a pairing code for a new device
        tau device revoke NAME           refuse that device from now on
        tau device list                  list the paired devices
@@ -23,18 +23,20 @@ function parse(argv: readonly string[]): AdminRequest | undefined {
 
 const when = (ms: number) => new Date(ms).toISOString();
 
-/** The host names a proxy forwards with, or undefined when the arguments are not a serve command. */
-function hosts(argv: readonly string[]): string[] | undefined {
-	const names: string[] = [];
+export function serverConfig(argv: readonly string[]): { port: number; allowedHosts: string[] } | undefined {
+	const allowedHosts: string[] = [];
+	let port = 6283;
 	for (let i = 0; i < argv.length; i += 2) {
-		const name = argv[i + 1];
-		if (argv[i] !== "--allow-host" || name === undefined) return undefined;
-		names.push(name);
+		const value = argv[i + 1];
+		if (value === undefined) return undefined;
+		if (argv[i] === "--allow-host") allowedHosts.push(value);
+		else if (argv[i] === "--port" && /^\d+$/.test(value) && Number(value) <= 65535) port = Number(value);
+		else return undefined;
 	}
-	return names;
+	return { port, allowedHosts };
 }
 
-async function serve(home: string, allowedHosts: string[]): Promise<number> {
+async function serve(home: string, config: { port: number; allowedHosts: string[] }): Promise<number> {
 	const agentDir =
 		process.env.PI_CODING_AGENT_DIR ?? path.join(homedir(), ".pi", "agent");
 	const server = await startServer({
@@ -44,7 +46,7 @@ async function serve(home: string, allowedHosts: string[]): Promise<number> {
 			credentials: piLogins(path.join(agentDir, "auth.json")),
 		}),
 		env: (target) => new NodeExecutionEnv({ cwd: target.cwd ?? process.cwd() }),
-		allowedHosts,
+		...config,
 	});
 	for (const { project, reason } of server.skipped)
 		process.stderr.write(`tau: skipped ${project}: ${reason}\n`);
@@ -67,8 +69,8 @@ async function serve(home: string, allowedHosts: string[]): Promise<number> {
 /** `tau` with no argument serves; `tau device …` reaches the running server through its admin socket. */
 export async function run(argv: readonly string[]): Promise<number> {
 	const home = path.join(homedir(), ".tau");
-	const allowed = argv[0] === "device" ? undefined : hosts(argv);
-	if (allowed !== undefined) return serve(home, allowed);
+	const config = argv[0] === "device" ? undefined : serverConfig(argv);
+	if (config !== undefined) return serve(home, config);
 	const request = parse(argv);
 	if (request === undefined) {
 		process.stderr.write(USAGE);
