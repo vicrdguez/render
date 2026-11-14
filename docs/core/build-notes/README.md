@@ -7,5 +7,12 @@ Each build unit writes its own file. A line names the place in the design, the t
 | File | Unit |
 | --- | --- |
 | [Coordinator](coordinator.md) | Choices the coordinator made across units |
+| [Unit 0b](unit-0b.md) | The TypeScript workspace and the gate |
+| [Unit 1](unit-1-store.md) | The store layer |
+| [Kit](unit-k-kit.md) | The kit |
+| [Unit 2](unit-2-host.md) | The host layer, the protocol, and the `tau` command |
+| [Unit 3](unit-3-websearch.md) | Web search |
+| [Unit 4](unit-4-w2.md) | W2 |
+| [Unit 5](unit-5-w1.md) | W1 |
 
 `../build-log.tsv` is the decision trail of the whole run, one row per decision.
