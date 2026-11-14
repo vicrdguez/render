@@ -20,12 +20,12 @@ Model the Domain shaped the typed report and paired catalogue. Laziness Protocol
 
 ## Publication
 
-Projects.publish is a non-async method returning void. It installs through the same registries and updates the same default-selection objects. It neither opens stores nor replaces harnesses, locks or streams. Catalogue assignment is last. A callback records the attempted project and extension before each install because a subscriber may throw after pi has changed that registry. No rollback or subsequent install follows a throw.
+Projects.publish is a non-async method returning a map from extension names to the projects where installation completed. It installs through the same registries and updates the same default-selection objects. It neither opens stores nor replaces harnesses, locks or streams. Catalogue assignment is last. A callback records the attempted project and extension before each install because a subscriber may throw after pi has changed that registry. No rollback or subsequent install follows a throw.
 
 A TypeScript AST walk over the actual method reports:
 
 ```text
-Projects.publish is synchronous, returns void, and contains 0 AwaitExpression nodes.
+Projects.publish is synchronous and contains 0 AwaitExpression nodes.
 ```
 
 The inspected calls are synchronous all, catalogue.get, registry.install, catalogue.defaults, and the synchronous reach callback. Server.reload enters structural.run before scanning. On partial failure, calling close sets the queue's closing flag before its first await. The reload callback does not await close, so draining the queue cannot wait on itself.
@@ -112,6 +112,65 @@ two reloads scan in order and a bind waits for the new catalogue
 ```
 
 One host run before passed 134 tests in 2782.225542 ms. One after passed 166 in 3117.457209 ms. Node times the test process, not the preceding TypeScript build. Both runs include real process-restart tests. The new timer case waits about one second but runs beside other files. These are suite runtime observations, not a performance comparison. At inspection this 12-CPU machine had load averages 3.85, 5.64 and 5.90. The test runner was read before reporting the numbers.
+
+## Verifier follow-up
+
+The follow-up merged origin/render-core at f2f9fc7 before editing. Its baseline is that commit, not the earlier inventory. Tests were committed first in abf319f.
+
+Publication now returns `Map<string, string[]>`. Each successful registry installation records its project under the extension name. Reload builds the report from that result, not from project listings. A retained extension has no installations in this reload, so its projects list is empty. The attempted-install callback still identifies a subscriber throw. The catalogue assignment stays last.
+
+The successful reload test opens p and q listing demo and r not listing it. It checks each registry and default selection. The report test temporarily limits only publication's project enumeration to p, then restores enumeration before reporting. It requires projects `["p"]`, not `["p", "q"]`. This exercises the real publisher, registries, stores and report without adding a production test hook.
+
+The subscriber-throw test now checks exact old catalogue identity. Unsafe-directory tests require the startup consequence and chmod 700 instruction. Startup behavior is unchanged.
+
+Real pre-fix output in /tmp/r7-review-red.log:
+
+```text
+ℹ tests 76
+ℹ pass 71
+ℹ fail 5
+```
+
+The report test and retained-name test failed on inaccurate project lists. Three directory-mode cases failed on the old message. Real focused green output in /tmp/r7-review-green.log:
+
+```text
+ℹ tests 76
+ℹ pass 76
+ℹ fail 0
+```
+
+Each mutation was compiled, run and reverted:
+
+| Mutation | Test | Real output |
+| --- | --- | --- |
+| Limit publish to this.all().slice(0, 1). | reload installs in every listed project and leaves unlisted projects untouched | 1 fail. q still has the old module. The report test passes and reports only p. |
+| Move catalogue assignment to the top of publish. | a subscriber throw stops publication and requires restart on the same home | 1 fail. Catalogue objects are not reference-equal. |
+| Derive reported projects from listings instead of the publication result. | reload reports only the projects publication installed in | 1 fail. The report falsely includes q. |
+
+Logs are /tmp/r7-review-mutant-reach.log, /tmp/r7-review-mutant-order.log and /tmp/r7-review-mutant-report.log. The first command runs two tests and yields 1 pass and 1 fail. The other commands each run one test and yield 0 pass and 1 fail.
+
+The fresh origin/render-core inventory is /tmp/r7-review-before.txt. It has 352 top-level names and 410 tests. The final inventory is /tmp/r7-review-after.txt. It has 375 top-level names and 444 tests. No top-level name was removed or renamed. The 21 earlier additions above remain, with two more:
+
+```text
+reload installs in every listed project and leaves unlisted projects untouched
+reload reports only the projects publication installed in
+```
+
+The nested canonical-import replacements remain as accounted for above. Full-suite output is /tmp/r7-review-before-output.txt and /tmp/r7-review-after-output.txt:
+
+```text
+before: tests 410, pass 410, fail 0, duration_ms 16896.820916
+after:  tests 444, pass 444, fail 0, duration_ms 17354.009
+```
+
+Host-only runs are /tmp/r7-review-host-before.log and /tmp/r7-review-host-after.log:
+
+```text
+before: tests 134, pass 134, fail 0, duration_ms 3656.254375
+after:  tests 168, pass 168, fail 0, duration_ms 3804.829459
+```
+
+These are single-run test-process observations, not a performance comparison. The two host runs ran concurrently. A fresh TypeScript AST walk reports `Projects.publish AwaitExpression nodes: 0 async: false`. Fresh-checkout acceptance and all five forced-check results for the pushed head are recorded on PR 112.
 
 ## Limits
 

@@ -216,7 +216,8 @@ export class Projects {
 		catalogue: Catalogue,
 		found: ReadonlySet<string>,
 		reaching: (project: string, extension: string) => void,
-	): void {
+	): Map<string, string[]> {
+		const installed = new Map<string, string[]>();
 		for (const open of this.all()) {
 			for (const name of open.record.extensions) {
 				if (!found.has(name)) continue;
@@ -224,10 +225,14 @@ export class Projects {
 				if (loaded === undefined) continue;
 				reaching(open.name, name);
 				open.registry.install(loaded.module.extension);
+				const projects = installed.get(name) ?? [];
+				projects.push(open.name);
+				installed.set(name, projects);
 			}
 			open.selection.defaults = catalogue.defaults(open.record.extensions);
 		}
 		this.catalogue = catalogue;
+		return installed;
 	}
 
 	async close(): Promise<void> {

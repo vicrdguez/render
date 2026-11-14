@@ -414,7 +414,9 @@ test("reload installs in every listed project and leaves unlisted projects untou
 		await bind(s);
 		await bind(s, "q");
 		await bind(s, "r", []);
-		const r = get().all().find((project) => project.name === "r");
+		const r = get()
+			.all()
+			.find((project) => project.name === "r");
 		assert.ok(r);
 		const registry = r.registry.snapshot();
 		const defaults = [...r.selection.defaults];
@@ -422,9 +424,14 @@ test("reload installs in every listed project and leaves unlisted projects untou
 		const report = await reload(s);
 		assert.equal(report.result?.status, "applied");
 		for (const name of ["p", "q"]) {
-			const project = get().all().find((project) => project.name === name);
+			const project = get()
+				.all()
+				.find((project) => project.name === name);
 			assert.ok(project);
-			assert.equal(project.registry.snapshot().extension("demo"), next.module.extension);
+			assert.equal(
+				project.registry.snapshot().extension("demo"),
+				next.module.extension,
+			);
 			assert.ok(project.selection.defaults.includes(next.module.extension));
 			assert.ok(!project.selection.defaults.includes(old.module.extension));
 		}
@@ -443,15 +450,19 @@ test("reload reports only the projects publication installed in", async (t) => {
 	const next = version("new");
 	let current = old.module;
 	const publish = Projects.prototype.publish;
-	t.mock.method(Projects.prototype, "publish", function (this: Projects, ...args: Parameters<typeof publish>) {
-		const originalAll = this.all.bind(this);
-		const all = t.mock.method(this, "all", () => originalAll().slice(0, 1));
-		try {
-			return publish.apply(this, args);
-		} finally {
-			all.mock.restore();
-		}
-	});
+	t.mock.method(
+		Projects.prototype,
+		"publish",
+		function (this: Projects, ...args: Parameters<typeof publish>) {
+			const originalAll = this.all.bind(this);
+			const all = t.mock.method(this, "all", () => originalAll().slice(0, 1));
+			try {
+				return publish.apply(this, args);
+			} finally {
+				all.mock.restore();
+			}
+		},
+	);
 	const s = await start({
 		source: () => ({ modules: { demo: current }, failures: [] }),
 	});

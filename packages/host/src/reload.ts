@@ -101,21 +101,10 @@ export async function reload(
 		return { status: "refused", extensions: [], skipped, failures: describe() };
 	const catalogue = new Catalogue(loaded.modules, loaded.options);
 	const found = new Set(Object.keys(scan.modules));
-	const extensions = catalogue.entries().map(([name]) => ({
-		name,
-		status: !found.has(name)
-			? ("kept" as const)
-			: current.get(name) === undefined
-				? ("added" as const)
-				: ("replaced" as const),
-		projects: projects
-			.all()
-			.filter((p) => p.record.extensions.includes(name))
-			.map((p) => p.name),
-	}));
+	let installed: Map<string, string[]>;
 	let reached: ReloadReport["reached"];
 	try {
-		projects.publish(catalogue, found, (project, extension) => {
+		installed = projects.publish(catalogue, found, (project, extension) => {
 			reached = { project, extension };
 		});
 	} catch (error) {
@@ -134,5 +123,14 @@ export async function reload(
 			...(reached === undefined ? {} : { reached }),
 		};
 	}
+	const extensions = catalogue.entries().map(([name]) => ({
+		name,
+		status: !found.has(name)
+			? ("kept" as const)
+			: current.get(name) === undefined
+				? ("added" as const)
+				: ("replaced" as const),
+		projects: installed.get(name) ?? [],
+	}));
 	return { status: "applied", extensions, skipped, failures: [] };
 }
