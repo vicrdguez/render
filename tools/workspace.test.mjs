@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
+	glob,
 	lstat,
 	mkdir,
 	mkdtemp,
@@ -9,11 +10,45 @@ import {
 	rm,
 	writeFile,
 } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
 const tools = import.meta.dirname;
+test("every declared workspace dependency is installed at its declared version", async () => {
+	const root = path.resolve(tools, "..");
+	const manifest = JSON.parse(
+		await readFile(path.join(root, "package.json"), "utf8"),
+	);
+	for await (const directory of glob(manifest.workspaces, { cwd: root })) {
+		const file = path.join(root, directory, "package.json");
+		const pkg = JSON.parse(await readFile(file, "utf8"));
+		const require = createRequire(file);
+		for (const [name, version] of Object.entries({
+			...pkg.dependencies,
+			...pkg.devDependencies,
+		})) {
+			let installed;
+			for (const modules of require.resolve.paths(name) ?? []) {
+				try {
+					installed = JSON.parse(
+						await readFile(path.join(modules, name, "package.json"), "utf8"),
+					);
+					break;
+				} catch (error) {
+					if (error.code !== "ENOENT") throw error;
+				}
+			}
+			assert.ok(installed, `${pkg.name}: dependency ${name} is not installed`);
+			assert.equal(
+				installed.version,
+				version,
+				`${pkg.name}: dependency ${name} version`,
+			);
+		}
+	}
+});
 const { NODE_TEST_CONTEXT: _testContext, ...env } = process.env;
 async function fixture(t) {
 	const root = await realpath(
