@@ -233,7 +233,7 @@ export class Projects {
 			const registry = createRegistry();
 			const selection: Opened["selection"] = { defaults: [] };
 			const { models, env, now } = this.#options;
-			const storage = await openNodeSqliteStorage(
+			const storage = await (this.#options.storage ?? openNodeSqliteStorage)(
 				path.join(directory, "store.sqlite"),
 			);
 			const store = await openStore(

@@ -6,6 +6,7 @@ import type {
 	Extension,
 	HarnessOptions,
 	JsonObject,
+	Storage,
 	Tx,
 } from "@earendil-works/pi-durable";
 import type { JsonSchema } from "@earendil-works/pi-schema";
@@ -38,6 +39,8 @@ export type ServerOptions = {
 	readonly models: HarnessOptions["models"];
 	readonly env?: HarnessOptions["env"];
 	readonly now?: () => number;
+	/** Opens each project's storage. Defaults to Node SQLite at the given file. */
+	readonly storage?: (file: string) => Promise<Storage>;
 	/** Default 6283. 0 asks the system for a free port. */
 	readonly port?: number;
 	/** Host names a proxy forwards with, beside the loopback names. */
