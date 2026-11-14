@@ -3,6 +3,7 @@
 	"references": [
 		{ "path": "packages/store" },
 		{ "path": "packages/kit" },
+		{ "path": "packages/w1" },
 		{ "path": "packages/websearch" },
 		{ "path": "packages/w2" },
 		{ "path": "packages/host" },
