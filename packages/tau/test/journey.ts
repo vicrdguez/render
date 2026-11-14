@@ -65,8 +65,11 @@ export async function watch(
 		let pending = "";
 		for await (const chunk of stream.pipeThrough(new TextDecoderStream())) {
 			pending += chunk;
-			let end: number;
-			while ((end = pending.indexOf("\n\n")) >= 0) {
+			for (
+				let end = pending.indexOf("\n\n");
+				end >= 0;
+				end = pending.indexOf("\n\n")
+			) {
 				const line = pending.slice(0, end);
 				pending = pending.slice(end + 2);
 				if (line.startsWith(":")) continue;
