@@ -54,6 +54,23 @@ W1 is built in `packages/w1` as the package `tau-w1`. These rows record where th
 
 The new reader and head regressions failed before the production fix. The original combined run reported 17 failures across W1, host and tools. A later focused run also failed the new publish regression. After the fixes, the four focused test files passed all 95 tests in 8647.506 ms. That is one test-runner sample including the tool fixtures, not a speed comparison. Removing replacement protection again made the reader, publish and hand-over regressions fail. The mutant was reverted. The first full gate failed the existing HTTP crash test because its Git wrapper requires the subcommand first. The final implementation uses the permitted environment alternative instead of global flags, so that crash test can still pause the continuation.
 
+## Owner merge command
+
+| Where | Readings | Taken | Why |
+| --- | --- | --- | --- |
+| Walk row 19, the owner's merge | Refuse any shared replace ref, or give the owner a command that ignores replacements. | The hand-over says `git --no-replace-objects merge --ff-only <sha>`. | The owner checks out the same objects the reviewer read. This needs no new refusal or decision, and also ignores a replacement installed after hand-over. |
+
+A real Git test runs W1 through review, adds a blob replacement from the implementer's worktree before final approval, and executes the command in the hand-over text in the owner's repository. The owner's Git environment has no `GIT_NO_REPLACE_OBJECTS`. Before the fix, the checked-out file was `MALICIOUS` instead of `REVIEWED`.
+
+The package runs passed 65 W1 tests in 3302.830792 ms and 24 Tau tests in 5022.320167 ms. These are test-runner durations, not speed comparisons. Three temporary mutants failed and were reverted. Removing the command's replacement flag checked out `MALICIOUS`. Handing over the base SHA checked out the old CSV file. Reversing the head comparison failed both the new test and the moved-head test.
+
+| Failure | Test | File |
+| --- | --- | --- |
+| The owner's merge uses a shared blob replacement instead of the reviewed file. | `row 19: the owner's hand-over command checks out the reviewed blob despite a shared replacement` | `packages/w1/test/failures.test.ts` |
+| The hand-over prints the old command. | `rows 18 and 19: approve hands over S2 and lists the annotation as not acted on, and nothing merged` and the HTTP W1 journey | `packages/w1/test/walk.test.ts`, `packages/tau/test/w1.test.ts` |
+
+This does not make the owner's merge safe from the implementer's shell. The merge still runs with whatever hooks and configuration are in the shared `.git`. A `post-merge` hook through `core.hooksPath` is as cheap as a replace ref. The design trusts the implementer's shell in that repository. It is not sandboxed.
+
 ## Closure verification
 
 `nix flake check -L` passed all five named checks on macOS. The test check reported 282 tests, 282 passes and zero failures. All six unchanged design spikes and the installed executable check passed. `nix develop -c check` also exited zero in 25.0 seconds wall time. These are single runtime samples, not performance comparisons.
