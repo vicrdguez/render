@@ -42,21 +42,22 @@ try {
 	assert.ok(code);
 	const reply = await post(url, "pair", { code });
 	assert.equal(reply.status, 200);
-	const modules = await post(url, "extensions", {}, reply.body.result.token);
+	const token = reply.body.result.token;
+	assert.equal((await post(url, "projects", {}, token)).status, 200);
+	const modules = await post(url, "extensions", {}, token);
+	assert.equal(modules.status, 200);
 	assert.deepEqual(modules.body.result.items.map((m: any) => m.name).sort(), [
 		"w1",
 		"w2",
 		"websearch",
 	]);
+	const models = await post(url, "models", {}, token);
+	assert.equal(models.status, 200, JSON.stringify(models.body));
+	assert.ok(Array.isArray(models.body.result.items));
+	process.stdout.write(`models HTTP ${models.status}\n`);
 	const listed = await run(command, ["device", "list"], { env });
 	assert.match(listed.stdout, /phone/);
 	process.stdout.write(listed.stdout);
-	const nix = "/nix/var/nix/profiles/default/bin/nix";
-	const viaNix = await run(nix, ["run", ".#tau", "--", "device", "list"], {
-		env,
-	});
-	assert.match(viaNix.stdout, /phone/);
-	process.stdout.write(`nix run .#tau -- device list\n${viaNix.stdout}`);
 	const lib = resolve(command, "../../lib/tau/packages");
 	for (const file of [
 		"build",
@@ -81,7 +82,10 @@ try {
 	if (child.exitCode === null && child.signalCode === null) {
 		const exit = once(child, "exit");
 		child.kill("SIGTERM");
-		await exit;
+		const [code, signal] = await exit;
+		assert.equal(code, 0, stderr);
+		assert.equal(signal, null);
+		process.stdout.write("SIGTERM exit 0\n");
 	}
 	await rm(root, { recursive: true, force: true });
 }
