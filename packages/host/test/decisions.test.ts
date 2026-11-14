@@ -267,42 +267,70 @@ test("faults lists each faulted task of an installed kind, with the decision who
 	}
 });
 
-test("fault pagination stays anchored when a new fault arrives between pages and across restart", async () => {
-	const s = await start({ modules });
-	try {
-		const d = await designer(s);
-		await run(s, d, "explode", {});
-		await run(s, d, "explode", {});
-		const faults = async () =>
-			(await s.call("faults", { project: "p" })).body.result.items;
-		await until("two faults", async () => (await faults()).length === 2);
-		const original = await faults();
-		const first = (await s.call("faults", { project: "p", limit: 1 })).body
-			.result;
-		assert.equal(first.items[0].task, original[0].task);
-		await run(s, d, "explode", {});
-		await until("a new fault", async () => (await faults()).length === 3);
-		const again = await s.restart();
+for (const limit of [2, undefined]) {
+	test(`fault pagination at limit ${limit ?? "default"} stays anchored across arrivals and restart`, async () => {
+		const s = await start({ modules });
 		try {
-			const rest = (
-				await again.call("faults", {
+			const d = await designer(s);
+			const count = (limit ?? 50) + 2;
+			for (let i = 0; i < count; i++) await run(s, d, "explode", {});
+			const faults = async () =>
+				(await s.call("faults", { project: "p", limit: 1000 })).body.result
+					.items;
+			await until("all faults", async () => (await faults()).length === count);
+			const original = await faults();
+			const first = (
+				await s.call("faults", {
 					project: "p",
-					cursor: first.next,
-					limit: 5,
+					...(limit === undefined ? {} : { limit }),
 				})
 			).body.result;
-			assert.deepEqual(
-				rest.items.map((f: { task: number }) => f.task),
-				[original[1].task],
+			assert.equal(first.items.length, limit ?? 50);
+			assert.ok(
+				first.items.every((f: { kind: string }) => f.kind === "flow.broken"),
 			);
-			assert.equal(rest.next, undefined);
+			await run(s, d, "explode", {});
+			await until(
+				"a new fault",
+				async () => (await faults()).length === count + 1,
+			);
+			const again = await s.restart();
+			try {
+				const seen: number[] = first.items.map((f: { task: number }) => f.task);
+				let cursor = first.next;
+				for (let pages = 0; cursor !== undefined; pages++) {
+					assert.ok(pages < count, "pagination terminates");
+					const rest = (
+						await again.call("faults", {
+							project: "p",
+							cursor,
+							...(limit === undefined ? {} : { limit }),
+						})
+					).body.result;
+					for (const fault of rest.items) {
+						assert.ok(!seen.includes(fault.task), "no fault appears twice");
+						seen.push(fault.task);
+					}
+					cursor = rest.next;
+				}
+				assert.deepEqual(
+					seen,
+					original.map((f: { task: number }) => f.task),
+					"no original fault is missed; newer arrivals belong to a fresh scan",
+				);
+				assert.equal(
+					(await again.call("faults", { project: "p", limit: 1000 })).body
+						.result.items.length,
+					count + 1,
+				);
+			} finally {
+				await again.close();
+			}
 		} finally {
-			await again.close();
+			await s.close();
 		}
-	} finally {
-		await s.close();
-	}
-});
+	});
+}
 
 test("answer refuses with extension_not_loaded when the server lacks the then task", async () => {
 	const s = await start({ modules });

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { calls } from "../src/calls.js";
 import { requestAdmin } from "../src/index.js";
 import { gate, modules } from "./extensions.js";
 import { type Running, start, until } from "./helpers.js";
@@ -46,6 +47,38 @@ test("a clean stop ends each stream with stopping, and a revoke ends only that d
 		assert.equal(mine.end, "stopping");
 	} finally {
 		gate.release();
+		await s.close();
+	}
+});
+
+test("a stream refused by the revoke recheck stops its opened watch", async (t) => {
+	const s = await start();
+	const phone = await s.pair("phone");
+	const inbox = calls.inbox;
+	assert.ok(inbox?.stream);
+	const dispatch = inbox.dispatch;
+	let stopped = 0;
+	t.mock.method(
+		inbox,
+		"dispatch",
+		async (...args: Parameters<typeof dispatch>) => {
+			const opened = await dispatch(...args);
+			assert.ok("result" in opened);
+			const stop = opened.result.stop.bind(opened.result);
+			t.mock.method(opened.result, "stop", async () => {
+				stopped++;
+				await stop();
+			});
+			await requestAdmin(s.home, { command: "revoke", device: "phone" });
+			return opened;
+		},
+	);
+	try {
+		const reply = await s.call("inbox", {}, phone);
+		assert.equal(reply.status, 401);
+		assert.equal(reply.body.refused?.code, "unauthorized");
+		assert.equal(stopped, 1, "the unconsumed watch is stopped");
+	} finally {
 		await s.close();
 	}
 });
