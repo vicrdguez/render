@@ -8,6 +8,7 @@ import {
 	LiveDoc,
 } from "@earendil-works/pi-durable";
 import { CodingTools as Coding } from "@earendil-works/pi-durable/tools";
+import { Work } from "../src/work.js";
 import {
 	answered,
 	approved,
@@ -55,6 +56,26 @@ async function toMergeReview(w: World) {
 	const I = await named(w, "building");
 	return { k, s, I, path: plannedPath(w.repo, k) };
 }
+
+test("row 19: an approved SHA that is not the reviewed candidate hands nothing over even when the branch matches", () =>
+	using(async (w) => {
+		const { k, s, path } = await toMergeReview(w);
+		const approvedSha = git(path, "rev-parse", "HEAD");
+		const differentSha = git(w.repo, "rev-parse", "main");
+		assert.notEqual(approvedSha, differentSha);
+		await w.harness.commit(async (tx) => {
+			const work = await tx.doc(Work, k);
+			assert.ok(work.candidate?.review);
+			work.candidate.sha = differentSha;
+		}, context);
+		answered(await w.reply(s.merge(1), "approve"));
+		await w.settle();
+		assert.equal(git(path, "rev-parse", "HEAD"), approvedSha);
+		const events = await w.events();
+		assert.ok(!events.some((event) => event.stage === "handed_over"));
+		assert.equal(events.at(-1)?.stage, "fixing");
+		assert.deepEqual((await w.open(s.stuck(1))).choices, ["retry", "abort"]);
+	}));
 
 test("row 19: a moved head hands nothing over, names both SHAs, sets fixing, and retry sends the new head to review", () =>
 	using(async (w) => {
