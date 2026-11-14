@@ -19,13 +19,23 @@
 | Revising a settled forecast | `unit-4-w2.md`, `packages/w2/src/forecast.ts:30-43` | The walk allows a revision. It does not forbid one after the score. | A revision needs an unsettled forecast, and a record needs a new key. | Allow a new version after the score and keep the old score. |
 | A test-only export of web search | `unit-6-integration.md` | An extension module has `extension`, `options`, and `entry`. | `tau-websearch/testing` exports the constructor that takes a provider address. Only tests of `tau` may import it. | Test at a lower seam with no export. |
 
+## Found last, and not fixed
+
+**Reported.** The verifier of the last fix round (PR 102) passed it and listed these. None is fixed. Each needs the owner's choice.
+
+| What | Where | Why it matters | The smallest fix |
+| --- | --- | --- | --- |
+| The merge command W1 gives the owner honours replace refs | `packages/w1/src/tasks.ts`, the hand-over text | W1's own Git calls now ignore replace refs. The owner's Git does not. An implementer can publish a harmless commit, add a replace ref, and the owner's `git merge --ff-only <sha>` checks out other content. A hook left in the shared `.git` does the same. | Refuse the hand-over when `refs/replace/` or `info/grafts` exists, or print `git --no-replace-objects merge --ff-only <sha>`. |
+| W1 now ignores the server account's global Git configuration | `packages/w1/src/git.ts:15` | With a global `core.excludesFile`, the owner's `git status` is clean and W1 still refuses the publish as dirty. A global `safe.directory` is dropped too. Neither is set on this machine today. | Pass the global `core.excludesFile` to `status`, or keep global configuration for `status` and `worktree add`. |
+| The key filter only looks for the first four characters | `packages/websearch/src/web-search.ts:89-90` | An echo of the key without its first four characters gets through, for example the key without its `sk-` start. | Record it, or match more than the start. |
+
 Two smaller ones: `{ cwd, ...entry }` lets a workflow's `entry` replace the project's working directory, as the example in [Host](../host.md) is written; and W1 stores three stage names the walk does not have.
 
 ## Merges without a fresh verdict
 
 The coordinator set itself the rule that each unit merges on an independent pass at its head. Seven merges broke it. Each had an independent FAIL on an earlier head, then a fix round, then a merge on the coordinator's own reading of the fix: PR 90, 93, 94, 95, 96, 97, and 98. PR 89 and PR 99 merged on an independent pass. The fix diffs were between 26 and 210 lines of the unit's own code.
 
-After the reviewer flagged this, two more verifiers were asked for the missing verdicts on today's `render-core`. Their results are in `../build-log.tsv`.
+After the reviewer flagged this, two more verifiers gave the missing verdicts on `render-core`. PR 90, 93, 95, 96, and 98 passed. PR 94 and PR 97 failed, each on one real defect. PR 101 and PR 102 fixed those, and both merged on an independent pass.
 
 ## Where the trail is weaker than it reads
 
