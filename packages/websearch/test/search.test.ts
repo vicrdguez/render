@@ -239,7 +239,7 @@ test("interrupted unsafe search returns an interruption after SIGKILL without re
 	assert.equal(requests, 1);
 });
 
-test("module exports only extension and options and fits ExtensionModule", () => {
+test("module exports extension, options and the provider constructor and fits ExtensionModule", () => {
 	const contract: {
 		extension: Extension;
 		options?: {
@@ -249,7 +249,11 @@ test("module exports only extension and options and fits ExtensionModule", () =>
 		};
 		entry?: AgentChange | ((tx: Tx) => Promise<AgentChange>);
 	} = module;
-	assert.deepEqual(Object.keys(module).sort(), ["extension", "options"]);
+	assert.deepEqual(Object.keys(module).sort(), [
+		"createSearchExtension",
+		"extension",
+		"options",
+	]);
 	assert.equal(contract.extension.name, "websearch");
 	assert.deepEqual(
 		contract.extension.tools?.map((tool) => tool.name),
