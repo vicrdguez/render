@@ -42,7 +42,9 @@ export function fromDirectory(directory: string): ExtensionSource {
 			moduleCache: false,
 			fsCache: false,
 			alias,
+			transformOptions: { babel: { plugins: [() => canonicalImports(alias)] } },
 		});
+		const folders = new Map<string, string>();
 		for (const name of names) {
 			const entry = path.join(directory, name);
 			let stage = "find";
@@ -52,6 +54,10 @@ export function fromDirectory(directory: string): ExtensionSource {
 					throw new Error(
 						`${name} is not a folder. An extension is a folder that holds index.ts.`,
 					);
+				const first = folders.get(folder);
+				if (first !== undefined)
+					throw new Error(`${name} resolves to the same folder as ${first}`);
+				folders.set(folder, name);
 				const index = path.join(folder, "index.ts");
 				if (!(await stat(index).catch(() => undefined))?.isFile())
 					throw new Error(`${folder} holds no index.ts`);
@@ -94,7 +100,9 @@ async function check(folder: string, relative: string): Promise<void> {
 	if (writable(info.mode))
 		throw new Error(`${shown} is writable by group or others`);
 	if (!info.isDirectory()) {
-		if (JAVASCRIPT.has(path.extname(relative)))
+		if (
+			JAVASCRIPT.has(path.extname(await realpath(path.join(folder, relative))))
+		)
 			throw new Error(
 				`${relative} is JavaScript. Only TypeScript is read again on reload and sees the aliases.`,
 			);
@@ -104,6 +112,41 @@ async function check(folder: string, relative: string): Promise<void> {
 	const names = await readdir(path.join(folder, relative));
 	for (const name of names.filter(visible).sort())
 		await check(folder, path.join(relative, name));
+}
+
+// jiti aliases are prefixes. Check literal module specifiers before they can traverse a target.
+function canonicalImports(alias: Record<string, string>) {
+	return {
+		visitor: {
+			StringLiteral({
+				node,
+				parent,
+			}: {
+				node: { value: string };
+				parent: {
+					type: string;
+					source?: unknown;
+					callee?: { type: string; name?: string };
+					arguments?: unknown[];
+				};
+			}) {
+				const call =
+					parent.type === "CallExpression" &&
+					parent.arguments?.[0] === node &&
+					(parent.callee?.type === "Import" ||
+						parent.callee?.name === "require" ||
+						parent.callee?.name === "jitiImport");
+				if (
+					(parent.source === node || call) &&
+					node.value.startsWith("tau-extension") &&
+					!Object.hasOwn(alias, node.value)
+				)
+					throw new Error(
+						`Invalid import ${node.value}. Use a canonical entry: ${Object.keys(alias).join(", ")}.`,
+					);
+			},
+		},
+	};
 }
 
 /** One alias per entry of tau-extension's exports map, found from the host's own location. */

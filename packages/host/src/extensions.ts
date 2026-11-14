@@ -66,7 +66,8 @@ export async function loadExtensions(
 	const registry = createRegistry();
 	registry.install(CodingTools);
 	const owners = new Map<string, string>();
-	for (const [name, value] of Object.entries(found.modules)) {
+	for (const name of Object.keys(found.modules).sort()) {
+		const value = found.modules[name];
 		let stage = "shape";
 		try {
 			const module = check(name, value);
