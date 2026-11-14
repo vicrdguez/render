@@ -5,9 +5,9 @@ import { access, readdir, rename } from "node:fs/promises";
 import path from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { requestAdmin, startServer } from "../src/index.js";
+import { requestAdmin } from "../src/index.js";
 import { modules, Notes } from "./extensions.js";
-import { faux, newHome, send, start } from "./helpers.js";
+import { newHome, send, start } from "./helpers.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const exists = (file: string) =>
@@ -204,16 +204,27 @@ test("addExtensions appends new names once and survives a restart", async () => 
 	}
 });
 
-test("a module map key that differs from its extension name stops the start", async () => {
-	await assert.rejects(
-		startServer({
-			home: await newHome(),
-			modules: { search: modules.notes },
-			models: faux().models,
-			port: 0,
-		}),
-		/notes/,
-	);
+test("a module map key that differs from its extension name is reported and left out", async (t) => {
+	const stderr: string[] = [];
+	t.mock.method(process.stderr, "write", (chunk: string) => {
+		stderr.push(String(chunk));
+		return true;
+	});
+	const s = await start({ modules: { search: modules.notes } });
+	try {
+		const reply = await s.call("bind", {
+			project: "p",
+			workdir: s.home,
+			extensions: ["search"],
+		});
+		assert.equal(reply.status, 200);
+		assert.deepEqual(reply.body.result.project.missing, ["search"]);
+		assert.deepEqual((await s.call("extensions", {})).body.result.items, []);
+		assert.equal(stderr.length, 1);
+		assert.match(stderr[0] ?? "", /search.*shape.*notes/);
+	} finally {
+		await s.close();
+	}
 });
 
 test("a second server process is refused while the first holds the lock, and SIGKILL frees it", async () => {
