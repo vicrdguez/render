@@ -15,8 +15,78 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { check } from "./check-boundaries.mjs";
+import { selectPackages, workspaces } from "./workspaces.mjs";
 
 const tools = import.meta.dirname;
+
+test("every source workspace references its emitted dependency", async () => {
+	for (const directory of [
+		"extensions/w1",
+		"extensions/w2",
+		"extensions/websearch",
+		"journeys",
+	]) {
+		const config = JSON.parse(
+			await readFile(
+				path.join(tools, "..", directory, "tsconfig.json"),
+				"utf8",
+			),
+		);
+		assert.deepEqual(config.references, [
+			{
+				path:
+					directory === "journeys"
+						? "../extension-package"
+						: "../../extension-package",
+			},
+		]);
+	}
+});
+
+test("journeys reject relative JavaScript and direct extension source imports", async (t) => {
+	const { root, put } = await fixture(t);
+	await put("journeys/package.json", { name: "tau-journeys" });
+	await put("journeys/tsconfig.json", {});
+	await put("tsconfig.json", {
+		references: [{ path: "core" }, { path: "journeys" }],
+	});
+	await put(
+		"boundaries.json",
+		JSON.parse(await readFile(path.join(tools, "../boundaries.json"), "utf8")),
+	);
+	for (const [specifier, diagnostic] of [
+		["./helper.js", /relative imports must end in \.ts/],
+		["../../extensions/w1/src/index.ts", /cross-package relative import/],
+	]) {
+		await put("journeys/test/access.ts", `import "${specifier}";`);
+		assert.match((await check(root)).join("\n"), diagnostic);
+	}
+});
+
+test("side selection runs extension tests without unrelated packages", async (t) => {
+	const { root, put } = await fixture(t);
+	await put("core/test/no.test.ts", "");
+	await put("core/dist/test/no.test.js", 'throw new Error("core ran");');
+	for (const name of ["w1", "w2"]) {
+		await put(`extensions/${name}/package.json`, {
+			name: `tau-${name}`,
+			type: "module",
+		});
+		await put(`extensions/${name}/tsconfig.json`, {
+			compilerOptions: { noEmit: true },
+		});
+		await put(
+			`extensions/${name}/test/ok.test.ts`,
+			`import { test } from "node:test"; test("${name} selected", () => {});`,
+		);
+	}
+	const result = run("tests.mjs", root, "extensions");
+	assert.equal(result.status, 0, result.stderr);
+	assert.match(result.stdout, /w1 selected/);
+	assert.match(result.stdout, /w2 selected/);
+	assert.doesNotMatch(result.stdout, /core ran/);
+});
+
 test("every declared workspace dependency is installed at its declared version", async () => {
 	const root = path.resolve(tools, "..");
 	const manifest = JSON.parse(
@@ -66,7 +136,7 @@ async function fixture(t) {
 	const manifest = {
 		devDependencies: { typescript: "5.9.3" },
 		name: "tau-workspace",
-		workspaces: ["core", "packages/*"],
+		workspaces: ["core", "extension-package", "extensions/*", "journeys"],
 	};
 	const store = {
 		exports: { ".": "./dist/src/index.js" },
@@ -92,6 +162,7 @@ async function extensionFixture(t) {
 	const policy = {
 		tau: {},
 		"tau-extension": {},
+		"tau-private": {},
 		"tau-w1": { extension: true },
 		"tau-w2": {
 			extension: true,
@@ -107,12 +178,21 @@ async function extensionFixture(t) {
 	await put("boundaries.json", policy);
 	await put("tsconfig.json", {
 		references: ["core", "extension", "w2", "w1"].map((name) => ({
-			path: name === "core" ? name : `packages/${name}`,
+			path:
+				name === "core"
+					? name
+					: name === "extension"
+						? "extension-package"
+						: `extensions/${name}`,
 		})),
 	});
-	for (const name of ["extension", "w2", "w1"])
-		await put(`packages/${name}/tsconfig.json`, {});
-	await put("packages/extension/package.json", {
+	for (const directory of [
+		"extension-package",
+		"extensions/w2",
+		"extensions/w1",
+	])
+		await put(`${directory}/tsconfig.json`, {});
+	await put("extension-package/package.json", {
 		exports: Object.fromEntries(
 			[".", "./durable", "./schema", "./chord", "./testing"].map((entry) => [
 				entry,
@@ -121,11 +201,11 @@ async function extensionFixture(t) {
 		),
 		name: "tau-extension",
 	});
-	await put("packages/w1/package.json", {
+	await put("extensions/w1/package.json", {
 		exports: { ".": "./dist/src/index.js" },
 		name: "tau-w1",
 	});
-	await put("packages/w2/package.json", extension);
+	await put("extensions/w2/package.json", extension);
 	return { ...result, extension, policy };
 }
 
@@ -163,7 +243,7 @@ test("tau-extension cannot import tau/server", async (t) => {
 		exports: { "./server": "./dist/src/server.js" },
 		name: "tau",
 	});
-	await put("packages/extension/package.json", {
+	await put("extension-package/package.json", {
 		dependencies: { tau: "0.0.0" },
 		name: "tau-extension",
 	});
@@ -173,7 +253,7 @@ test("tau-extension cannot import tau/server", async (t) => {
 		"tau-w1": {},
 		"tau-w2": {},
 	});
-	await put("packages/extension/src/access.ts", 'import "tau/server";');
+	await put("extension-package/src/access.ts", 'import "tau/server";');
 	assert.match(
 		(await check(root)).join("\n"),
 		/access.ts: tau\/server: forbidden workspace capability/,
@@ -191,7 +271,7 @@ for (const statement of [
 	test(`extensions require .ts relative specifiers: ${statement}`, async (t) => {
 		const { root, put } = await extensionFixture(t);
 		for (const directory of ["src", "test"]) {
-			await put(`packages/w2/${directory}/access.ts`, statement);
+			await put(`extensions/w2/${directory}/access.ts`, statement);
 			assert.match(
 				(await check(root)).join("\n"),
 				new RegExp(
@@ -204,13 +284,15 @@ for (const statement of [
 
 test("source extensions reject tests outside the runner's discovery pattern", async (t) => {
 	const { root, put } = await extensionFixture(t);
-	await put("packages/w2/tsconfig.json", { compilerOptions: { noEmit: true } });
+	await put("extensions/w2/tsconfig.json", {
+		compilerOptions: { noEmit: true },
+	});
 	for (const file of [
 		"src/lost.test.ts",
 		"test/lost.spec.ts",
 		"test/lost.test.mts",
 	]) {
-		await put(`packages/w2/${file}`, 'throw new Error("must not be lost");');
+		await put(`extensions/w2/${file}`, 'throw new Error("must not be lost");');
 		assert.ok(
 			(await check(root)).some(
 				(error) => error.includes(file) && error.includes("tests must live"),
@@ -270,16 +352,18 @@ test("source first", () => {
 
 test("assets preserve emitted prose and leave noEmit packages without dist", async (t) => {
 	const { root, put } = await extensionFixture(t);
-	await put("packages/w2/tsconfig.json", { compilerOptions: { noEmit: true } });
-	await put("packages/w2/src/agent.md", "source prose");
-	await put("packages/w2/test/nested/fixture.md", "source fixture");
+	await put("extensions/w2/tsconfig.json", {
+		compilerOptions: { noEmit: true },
+	});
+	await put("extensions/w2/src/agent.md", "source prose");
+	await put("extensions/w2/test/nested/fixture.md", "source fixture");
 	await put("core/src/agent.md", "emitted prose");
 	assert.equal(run("assets.mjs", root).status, 0);
 	assert.equal(
 		await readFile(path.join(root, "core/dist/src/agent.md"), "utf8"),
 		"emitted prose",
 	);
-	await assert.rejects(lstat(path.join(root, "packages/w2/dist")), {
+	await assert.rejects(lstat(path.join(root, "extensions/w2/dist")), {
 		code: "ENOENT",
 	});
 });
@@ -294,7 +378,7 @@ for (const name of ["websearch", "w2", "w1"]) {
 			const { root, put } = await fixture(t);
 			const config = JSON.parse(
 				await readFile(
-					path.join(tools, `../packages/${name}/tsconfig.json`),
+					path.join(tools, `../extensions/${name}/tsconfig.json`),
 					"utf8",
 				),
 			);
@@ -306,7 +390,9 @@ for (const name of ["websearch", "w2", "w1"]) {
 					types: [],
 				},
 				extends: path.join(tools, "../tsconfig.base.json"),
-				references: [{ path: path.join(tools, "../packages/extension") }],
+				references: config.references.map((reference) => ({
+					path: path.resolve(tools, `../extensions/${name}`, reference.path),
+				})),
 			});
 			await put("core/src/index.ts", source);
 			const result = spawnSync(
@@ -338,7 +424,7 @@ for (const [specifier, replacement] of [
 	["tau/dist/src/store/decisions.js", "tau-extension"],
 	["tau/server", "tau-extension"],
 	["tau", "tau-extension"],
-	["tau-kit", "tau-extension"],
+	["tau-private", "tau-extension"],
 	["tau-w1", "tau-extension"],
 	["tau-w2", "tau-extension"],
 ]) {
@@ -351,12 +437,15 @@ for (const [specifier, replacement] of [
 			specifier === name ? "." : `.${specifier.slice(name.length)}`;
 		policy["tau-w2"][name] = [subpath];
 		await put("boundaries.json", policy);
-		await put("packages/w2/package.json", {
+		await put("extensions/w2/package.json", {
 			...extension,
 			dependencies: { ...extension.dependencies, [name]: "0.0.0" },
 		});
 		for (const directory of ["src", "test"]) {
-			await put(`packages/w2/${directory}/access.ts`, `import "${specifier}";`);
+			await put(
+				`extensions/w2/${directory}/access.ts`,
+				`import "${specifier}";`,
+			);
 			const errors = await check(root);
 			assert.ok(
 				errors.some(
@@ -375,10 +464,8 @@ for (const [specifier, replacement] of [
 }
 
 for (const [label, name] of [
-	["core store", "tau"],
-	["core host", "tau"],
 	["tau", "tau"],
-	["tau-kit", "tau-kit"],
+	["tau-private", "tau-private"],
 	["tau-w1", "tau-w1"],
 	["@earendil-works/pi-durable", "@earendil-works/pi-durable"],
 ]) {
@@ -392,7 +479,7 @@ for (const [label, name] of [
 			"peerDependencies",
 			"optionalDependencies",
 		]) {
-			await put("packages/w2/package.json", {
+			await put("extensions/w2/package.json", {
 				...extension,
 				[field]: { ...extension[field], [name]: "0.0.0" },
 			});
@@ -411,9 +498,9 @@ for (const [label, name] of [
 
 test("extensions accept only canonical facade entries with testing limited to tests", async (t) => {
 	const { root, put, policy } = await extensionFixture(t);
-	await put("packages/w2/src/local.ts", "export const value = 1;");
+	await put("extensions/w2/src/local.ts", "export const value = 1;");
 	await put(
-		"packages/w2/src/index.ts",
+		"extensions/w2/src/index.ts",
 		[
 			"./local.ts",
 			"node:fs",
@@ -429,7 +516,7 @@ test("extensions accept only canonical facade entries with testing limited to te
 			.join("\n"),
 	);
 	await put(
-		"packages/w2/test/access.ts",
+		"extensions/w2/test/access.ts",
 		'import "tau-extension/testing"; import "test-helper"; import "../src/local.ts";',
 	);
 	assert.deepEqual(await check(root), []);
@@ -445,8 +532,8 @@ test("extensions accept only canonical facade entries with testing limited to te
 		["test", "tau-extension/dist/src/index.js"],
 		["test", "tau-extension/schema/../testing"],
 	]) {
-		await put("packages/w2/src/index.ts", "");
-		await put(`packages/w2/${directory}/index.ts`, `import "${specifier}";`);
+		await put("extensions/w2/src/index.ts", "");
+		await put(`extensions/w2/${directory}/index.ts`, `import "${specifier}";`);
 		const errors = await check(root);
 		assert.ok(
 			errors.some(
@@ -466,7 +553,7 @@ test("extension source pi-ai diagnostics reserve pi-ai for tests", async (t) => 
 		"@earendil-works/pi-ai",
 		"@earendil-works/pi-ai/models",
 	]) {
-		await put("packages/w2/src/index.ts", `import "${specifier}";`);
+		await put("extensions/w2/src/index.ts", `import "${specifier}";`);
 		const errors = (await check(root)).join("\n");
 		assert.match(errors, /pi-ai is for tests only/);
 		assert.doesNotMatch(errors, /use tau-extension\/testing/);
@@ -477,7 +564,7 @@ test("extension deep facade diagnostics name the public entry", async (t) => {
 	const { root, put } = await extensionFixture(t);
 	for (const entry of ["durable", "schema", "chord"]) {
 		await put(
-			"packages/w2/src/index.ts",
+			"extensions/w2/src/index.ts",
 			`import "tau-extension/dist/src/${entry}.js";`,
 		);
 		assert.match(
@@ -490,7 +577,7 @@ test("extension deep facade diagnostics name the public entry", async (t) => {
 test("extensions require declared runtime dependencies and reserve devDependencies for tests", async (t) => {
 	const { root, put } = await extensionFixture(t);
 	for (const specifier of ["undeclared", "test-helper"]) {
-		await put("packages/w2/src/index.ts", `import "${specifier}";`);
+		await put("extensions/w2/src/index.ts", `import "${specifier}";`);
 		assert.match(
 			(await check(root)).join("\n"),
 			/undeclared external dependency/,
@@ -502,20 +589,20 @@ test("boundaries reject privileged, relative, and forbidden core imports", async
 	const { root, put, store } = await fixture(t);
 	await put("boundaries.json", {
 		tau: {},
-		"tau-kit": {},
+		"tau-private": {},
 		"tau-w2": { tau: ["."] },
 	});
 	await put("tsconfig.base.json", {});
 	await put("core/tsconfig.json", {});
-	await put("packages/w2/tsconfig.json", {});
+	await put("extensions/w2/tsconfig.json", {});
 	await put("tsconfig.json", {
-		references: [{ path: "core" }, { path: "packages/w2" }],
+		references: [{ path: "core" }, { path: "extensions/w2" }],
 	});
-	await put("packages/w2/package.json", {
+	await put("extensions/w2/package.json", {
 		dependencies: { tau: "0.0.0" },
 		name: "tau-w2",
 	});
-	await put("packages/w2/src/index.ts", 'import "tau";\n');
+	await put("extensions/w2/src/index.ts", 'import "tau";\n');
 	assert.equal(run("check-boundaries.mjs", root).status, 0);
 	for (const [source, message] of [
 		['import "tau/server";', /forbidden workspace capability/],
@@ -525,17 +612,17 @@ test("boundaries reject privileged, relative, and forbidden core imports", async
 			/forbidden workspace capability/,
 		],
 	]) {
-		await put("packages/w2/src/index.ts", source);
+		await put("extensions/w2/src/index.ts", source);
 		const result = run("check-boundaries.mjs", root);
 		assert.equal(result.status, 1);
 		assert.match(result.stderr, message);
 	}
-	await put("packages/w2/src/index.ts", 'import "tau";\n');
+	await put("extensions/w2/src/index.ts", 'import "tau";\n');
 	await put("core/package.json", {
 		...store,
-		dependencies: { "tau-kit": "0.0.0" },
+		dependencies: { "tau-private": "0.0.0" },
 	});
-	await put("core/src/index.ts", 'import "tau-kit";\n');
+	await put("core/src/index.ts", 'import "tau-private";\n');
 	const result = run("check-boundaries.mjs", root);
 	assert.equal(result.status, 1);
 	assert.match(result.stderr, /forbidden.*(capability|dependency)/);
@@ -543,8 +630,8 @@ test("boundaries reject privileged, relative, and forbidden core imports", async
 
 test("boundaries reject a package omitted from root project references", async (t) => {
 	const { root, put } = await fixture(t);
-	await put("packages/forgotten/package.json", { name: "tau-forgotten" });
-	await put("packages/forgotten/tsconfig.json", {});
+	await put("extensions/forgotten/package.json", { name: "tau-forgotten" });
+	await put("extensions/forgotten/tsconfig.json", {});
 	await put("boundaries.json", { tau: {}, "tau-forgotten": {} });
 	const result = run("check-boundaries.mjs", root);
 	assert.equal(result.status, 1);
@@ -594,67 +681,64 @@ for (const [name, directory, specifier, allowed] of [
 	["tau-websearch", "src", "tau/testing", false],
 	["tau-w2", "src", "tau/testing", false],
 	["tau-w1", "src", "tau/testing", false],
-	["tau-websearch", "test", "tau-kit", false],
-	["tau-websearch", "src", "tau-kit", false],
-	["tau-w2", "test", "tau-kit", false],
+	["tau-websearch", "test", "tau-extension/private", false],
+	["tau-websearch", "src", "tau-extension/testing", false],
+	["tau-w2", "test", "tau-extension/private", false],
 	["tau-w2", "test", "tau", false],
+
+	["tau-extension", "src", "tau/server", false],
+	["tau-websearch", "src", "tau", false],
+	["tau-w2", "src", "tau", false],
+	["tau-w1", "src", "tau", false],
+	["tau-websearch", "test", "tau", false],
+	["tau-w1", "test", "tau", false],
+	["tau-websearch", "test", "tau/testing", false],
+	["tau-w2", "test", "tau/testing", false],
+	["tau-w1", "test", "tau/testing", false],
+	["tau-journeys", "test", "tau", false],
+	["tau-journeys", "test", "tau/testing", false],
+	["tau-journeys", "test", "tau/server", true],
+	["tau-journeys", "test", "tau-w1", false],
 ]) {
 	test(`${name} ${directory} import of ${specifier} is ${allowed ? "allowed" : "forbidden"}`, async (t) => {
-		const { root, put, manifest, store } = await fixture(t);
-		await put(
+		const { root, put } = await fixture(t);
+		const repository = path.resolve(tools, "..");
+		for (const file of [
+			"package.json",
 			"boundaries.json",
-			await readFile(path.join(tools, "../boundaries.json"), "utf8"),
+			"tsconfig.json",
+			"tsconfig.base.json",
+		])
+			await put(file, await readFile(path.join(repository, file), "utf8"));
+		const manifest = JSON.parse(
+			await readFile(path.join(repository, "package.json"), "utf8"),
 		);
-		const hostStore = {
-			...store,
-			exports: {
-				...store.exports,
-				"./server": "./dist/src/server.js",
-				"./testing": "./dist/src/testing.js",
-			},
-			name: "tau",
-		};
-		const dependency = specifier.split("/")[0];
-		const extension = {
-			dependencies: { [dependency]: "0.0.0" },
-			name,
-		};
-		const facade = {
-			exports: { "./testing": "./dist/src/testing.js" },
-			name: "tau-extension",
-		};
-		await put("packages/facade/package.json", facade);
-		await put("packages/facade/tsconfig.json", {});
-		await put("core/package.json", hostStore);
-		await put("packages/extension/package.json", extension);
-		await put("packages/extension/tsconfig.json", {});
-
-		await put("tsconfig.json", {
-			references: ["core", "extension", "facade"].map((dir) => ({
-				path: dir === "core" ? dir : `packages/${dir}`,
-			})),
-		});
-		await put("package-lock.json", {
-			lockfileVersion: 3,
-			packages: {
-				"": manifest,
-				core: hostStore,
-				"packages/extension": extension,
-				"packages/facade": facade,
-			},
-		});
-		await put(
-			`packages/extension/${directory}/${directory === "test" ? "access.test.ts" : "access.ts"}`,
-			`import "${specifier}";`,
-		);
-		const result = run("check-boundaries.mjs", root);
-		assert.equal(result.status, allowed ? 0 : 1, result.stderr);
-		if (!allowed)
-			assert.match(
-				result.stderr,
-				/forbidden extension import.*use tau-extension/,
+		let target;
+		for await (const workspace of glob(manifest.workspaces, {
+			cwd: repository,
+		})) {
+			const pkg = JSON.parse(
+				await readFile(
+					path.join(repository, workspace, "package.json"),
+					"utf8",
+				),
 			);
-		assert.equal(run("check-lock.mjs", root).status, 0);
+			await put(`${workspace}/package.json`, pkg);
+			await put(
+				`${workspace}/tsconfig.json`,
+				await readFile(
+					path.join(repository, workspace, "tsconfig.json"),
+					"utf8",
+				),
+			);
+			if (pkg.name === name) target = workspace;
+		}
+		assert.ok(target);
+		await put(`${target}/${directory}/access.ts`, `import "${specifier}";`);
+		const errors = (await check(root)).join("\n");
+		if (allowed) assert.equal(errors, "");
+		else
+			assert.match(errors, /forbidden (extension import|workspace capability)/);
 	});
 }
 
@@ -671,14 +755,19 @@ for (const layer of ["store", "host", "command"]) {
 				dependencies: { "tau-extension": "0.0.0" },
 				name,
 			});
-			await put("packages/extension/package.json", {
+			await put("extension-package/package.json", {
 				exports: { ".": "./dist/src/index.js" },
 				name: "tau-extension",
 			});
-			await put("packages/extension/tsconfig.json", {});
+			await put("extension-package/tsconfig.json", {});
 			await put("tsconfig.json", {
 				references: ["core", "extension"].map((dir) => ({
-					path: dir === "core" ? dir : `packages/${dir}`,
+					path:
+						dir === "core"
+							? dir
+							: dir === "extension"
+								? "extension-package"
+								: `extensions/${dir}`,
 				})),
 			});
 			await put(
@@ -705,15 +794,15 @@ for (const name of ["tau-w2", "tau"]) {
 				tau: {},
 				"tau-w2": { testOnly: { tau: ["./testing"] } },
 			});
-			const pkg = name === "tau-w2" ? "packages/w2" : "core";
-			if (pkg === "packages/w2") {
-				await put("packages/w2/package.json", {
+			const pkg = name === "tau-w2" ? "extensions/w2" : "core";
+			if (pkg === "extensions/w2") {
+				await put("extensions/w2/package.json", {
 					devDependencies: { tau: "0.0.0" },
 					name,
 				});
-				await put("packages/w2/tsconfig.json", {});
+				await put("extensions/w2/tsconfig.json", {});
 				await put("tsconfig.json", {
-					references: [{ path: "core" }, { path: "packages/w2" }],
+					references: [{ path: "core" }, { path: "extensions/w2" }],
 				});
 			}
 			await put(`${pkg}/test/helper.ts`, 'export * from "tau/testing";');
@@ -907,6 +996,48 @@ test("test selection accepts package names and source files and rejects unknown 
 	assert.equal(result.status, 0, result.stderr);
 	assert.match(result.stdout, /selected first/);
 	assert.doesNotMatch(result.stdout, /selected second/);
+	for (const [label, caller, selection, count] of [
+		["relative file", "core", "test/first.test.ts", 1],
+		["parent path", "extensions/w2", "../../core/test/first.test.ts", 1],
+		["directory", "core", "test", 2],
+		["missing path", "core", "test/absent.test.ts", 0],
+	]) {
+		await t.test(label, async (row) => {
+			const invocation = path.join(root, caller);
+			const previous = process.env.TAU_INVOCATION_DIR;
+			process.env.TAU_INVOCATION_DIR = invocation;
+			row.after(() => {
+				if (previous === undefined) delete process.env.TAU_INVOCATION_DIR;
+				else process.env.TAU_INVOCATION_DIR = previous;
+			});
+			const packages = await workspaces(root);
+			if (count === 0)
+				assert.throws(
+					() => selectPackages(packages, [selection], root),
+					/no package selected/,
+				);
+			else
+				assert.deepEqual(
+					selectPackages(packages, [selection], root).map(
+						(pkg) => pkg.manifest.name,
+					),
+					["tau"],
+				);
+			const result = spawnSync(
+				process.execPath,
+				[path.join(tools, "tests.mjs"), selection],
+				{
+					cwd: root,
+					encoding: "utf8",
+					env: { ...env, TAU_INVOCATION_DIR: invocation },
+				},
+			);
+			assert.equal(result.status, count ? 0 : 1, result.stderr);
+			if (count) assert.match(result.stdout, /selected first/);
+			if (count === 2) assert.match(result.stdout, /selected second/);
+			else assert.doesNotMatch(result.stdout, /selected second/);
+		});
+	}
 	assert.equal(run("tests.mjs", root, "missing").status, 1);
 	assert.equal(run("tests.mjs", root, "store", "missing").status, 1);
 });

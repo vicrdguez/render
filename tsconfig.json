@@ -2,9 +2,10 @@
 	"files": [],
 	"references": [
 		{ "path": "core" },
-		{ "path": "packages/extension" },
-		{ "path": "packages/w1" },
-		{ "path": "packages/websearch" },
-		{ "path": "packages/w2" }
+		{ "path": "extension-package" },
+		{ "path": "extensions/w1" },
+		{ "path": "extensions/websearch" },
+		{ "path": "extensions/w2" },
+		{ "path": "journeys" }
 	]
 }

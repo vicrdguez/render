@@ -4,7 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { JsonObject } from "@earendil-works/pi-durable";
-import { decision, type Journey, until } from "./journey.js";
+import { decision, type Journey, until } from "./journey.ts";
 
 export const identity = {
 	GIT_AUTHOR_NAME: "Tau Journey",

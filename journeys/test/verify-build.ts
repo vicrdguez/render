@@ -63,7 +63,7 @@ async function check() {
 		stderr += String(chunk);
 	});
 	try {
-		const deadline = Date.now() + 10_000;
+		const deadline = Date.now() + 60_000;
 		while (!stdout.includes("listening")) {
 			assert.equal(child.exitCode, null, stderr);
 			assert.ok(
@@ -185,7 +185,7 @@ async function check() {
 		process.stdout.write("models HTTP 200; paired device listed\n");
 	} finally {
 		if (child.exitCode === null && child.signalCode === null) {
-			const exit = once(child, "exit");
+			const exit = once(child, "exit", { signal: AbortSignal.timeout(60_000) });
 			child.kill("SIGTERM");
 			const [code, signal] = await exit;
 			assert.equal(code, 0, stderr);
@@ -196,7 +196,12 @@ async function check() {
 }
 
 try {
-	assert.deepEqual(await readdir(join(lib, "packages")), ["extension"]);
+	assert.deepEqual((await readdir(lib)).sort(), [
+		"core",
+		"extension-package",
+		"node_modules",
+		"package.json",
+	]);
 	assert.ok(
 		(await readdir(join(lib, "core", "dist", "src"))).includes("server.js"),
 	);

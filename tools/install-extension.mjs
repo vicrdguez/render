@@ -149,7 +149,7 @@ if (name === undefined) {
 	}
 	const untracked = execFileSync(
 		"git",
-		["ls-files", "--others", "--exclude-standard", "--", `packages/${name}/`],
+		["ls-files", "--others", "--exclude-standard", "--", `extensions/${name}/`],
 		{ encoding: "utf8" },
 	).trim();
 	if (untracked)
@@ -169,6 +169,12 @@ if (name === undefined) {
 	}
 	const previous = existing ? await readlink(link) : undefined;
 	const temporary = join(directory, `.${name}-${randomUUID()}`);
+	const previousRoot =
+		previous !== undefined &&
+		resolve(directory, previous).startsWith("/nix/store/")
+			? join(directory, `.${name}-${randomUUID()}`)
+			: undefined;
+	const temporaryRoots = [temporary, ...(previousRoot ? [previousRoot] : [])];
 	let child;
 	for (const [signal, code] of [
 		["SIGTERM", 143],
@@ -176,10 +182,12 @@ if (name === undefined) {
 	])
 		process.once(signal, () => {
 			child?.kill(signal);
-			try {
-				unlinkSync(temporary);
-			} catch (error) {
-				if (error.code !== "ENOENT") throw error;
+			for (const root of temporaryRoots) {
+				try {
+					unlinkSync(root);
+				} catch (error) {
+					if (error.code !== "ENOENT") throw error;
+				}
 			}
 			process.exit(code);
 		});
@@ -196,6 +204,8 @@ if (name === undefined) {
 		if (status !== 0) process.exitCode = status ?? 1;
 		else {
 			const target = await readlink(temporary);
+			if (previousRoot)
+				registerRoot(previousRoot, resolve(directory, previous));
 			await rename(temporary, link);
 			registerRoot(link, target);
 			const result = await reload(join(directory, "..", "admin.sock"));
@@ -223,8 +233,9 @@ if (name === undefined) {
 			}
 		}
 	} finally {
-		await unlink(temporary).catch((error) => {
-			if (error.code !== "ENOENT") throw error;
-		});
+		for (const root of temporaryRoots)
+			await unlink(root).catch((error) => {
+				if (error.code !== "ENOENT") throw error;
+			});
 	}
 }

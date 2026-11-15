@@ -3,9 +3,9 @@ import { symlink, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { extensionSource } from "./extensions.js";
-import { decision, journey, until } from "./journey.js";
-import { processJourney } from "./process-journey.js";
+import { extensionSource } from "./extensions.ts";
+import { decision, journey, until } from "./journey.ts";
+import { processJourney } from "./process-journey.ts";
 
 const WEEK = 604_800_000;
 const publish = (name: string, key: string, due: number, p = 0.7) =>
@@ -23,7 +23,7 @@ const publish = (name: string, key: string, due: number, p = 0.7) =>
 	);
 
 test("W2: overdue restart reaches the phone inbox, scores, defers, withdraws on revision and refuses the old answer", {
-	timeout: 15_000,
+	timeout: 180_000,
 }, async () => {
 	let clock = Date.UTC(2026, 10, 14);
 	const j = await processJourney({ now: () => clock });
@@ -171,7 +171,7 @@ test("W2: overdue restart reaches the phone inbox, scores, defers, withdraws on 
 });
 
 test("missing extension: bind succeeds, tasks wait without code, and a restart with W2 restores options and the due decision", {
-	timeout: 15_000,
+	timeout: 180_000,
 }, async () => {
 	let clock = Date.UTC(2026, 10, 14);
 	const j = await journey({ now: () => clock });

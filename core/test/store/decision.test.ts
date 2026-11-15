@@ -741,7 +741,7 @@ test("two answers at once: one lands, the other is refused or repeated, and one 
 });
 
 test("a storage failure rejects answer, and an equal resend after reopen converges", async () => {
-	const dir = await mkdtemp(path.join(tmpdir(), "tau-store-answer-"));
+	const dir = await mkdtemp(path.join(tmpdir(), "tau-storage-answer-"));
 	for (const when of ["before", "after"] as const) {
 		const file = path.join(dir, `${when}.sqlite`);
 		const real = await openNodeSqliteStorage(file);

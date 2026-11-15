@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
 	chmod,
 	lstat,
@@ -23,6 +24,87 @@ const installer = fileURLToPath(
 );
 const names = JSON.stringify(["w1", "w2", "websearch"]);
 
+for (const status of ["applied", "refused"]) {
+	test(`install-extension roots the previous store output during ${status} reload and removes the temporary root`, async (t) => {
+		const f = await fixture(t);
+		const directory = join(f.home, "extensions");
+		await mkdir(directory, { recursive: true });
+		const link = join(directory, "w2");
+		const previous = `/nix/store/${randomUUID()}-previous`;
+		await symlink(previous, link);
+		let observation;
+		const server = net.createServer({ allowHalfOpen: true }, (socket) => {
+			socket.resume();
+			socket.on("end", async () => {
+				const roots = (await readFile(f.roots, "utf8"))
+					.trim()
+					.split("\n")
+					.map(JSON.parse);
+				const rooted = roots.find(
+					(args) => args.at(-1) === previous && args[1] !== link,
+				);
+				observation = {
+					current: await readlink(link),
+					protected: rooted ? await readlink(rooted[1]) : undefined,
+				};
+				socket.end(
+					JSON.stringify({
+						reload: {
+							status,
+							extensions: [],
+							tasks: [],
+							skipped: [],
+							failures: [],
+						},
+					}) + "\n",
+				);
+			});
+		});
+		await new Promise((resolve) =>
+			server.listen(join(f.home, "admin.sock"), resolve),
+		);
+		try {
+			const result = await new Promise((resolve) =>
+				execFile(
+					process.execPath,
+					[installer, names, "--home", f.home, "w2"],
+					{
+						cwd: f.root,
+						env: {
+							...process.env,
+							PATH: `${join(f.root, "bin")}${delimiter}${process.env.PATH}`,
+						},
+					},
+					(error, stdout, stderr) =>
+						resolve({ code: error?.code ?? 0, stdout, stderr }),
+				),
+			);
+			assert.equal(result.code, status === "applied" ? 0 : 1, result.stderr);
+			assert.deepEqual(observation, { current: f.target, protected: previous });
+			assert.equal(
+				await readlink(link),
+				status === "applied" ? f.target : previous,
+			);
+			assert.deepEqual(await readdir(directory), ["w2"]);
+		} finally {
+			await new Promise((resolve) => server.close(resolve));
+		}
+	});
+}
+
+test("install-extension preserves the old store link if its temporary root cannot be registered", async (t) => {
+	const f = await fixture(t);
+	const directory = join(f.home, "extensions");
+	await mkdir(directory, { recursive: true });
+	const previous = `/nix/store/${randomUUID()}-previous`;
+	const link = join(directory, "w2");
+	await symlink(previous, link);
+	const result = f.run(["w2"], { FAIL_ROOT: "1" });
+	assert.equal(result.status, 1);
+	assert.equal(await readlink(link), previous);
+	assert.deepEqual(await readdir(directory), ["w2"]);
+});
+
 async function fixture(t) {
 	const root = await mkdtemp(join(tmpdir(), "tau-install-"));
 	t.after(() => rm(root, { recursive: true, force: true }));
@@ -40,7 +122,7 @@ async function fixture(t) {
 	await chmod(join(bin, "nix"), 0o755);
 	await writeFile(
 		join(bin, "nix-store"),
-		`#!${process.execPath}\nimport { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(roots)}, JSON.stringify(process.argv.slice(2)) + "\\n");\n`,
+		`#!${process.execPath}\nimport { appendFileSync, symlinkSync, lstatSync } from "node:fs";\nconst args = process.argv.slice(2);\nif (process.env.FAIL_ROOT) process.exit(1);\nappendFileSync(${JSON.stringify(roots)}, JSON.stringify(args) + "\\n");\ntry { lstatSync(args[1]); } catch (error) { if (error.code !== "ENOENT") throw error; symlinkSync(args.at(-1), args[1]); }\n`,
 	);
 	await chmod(join(bin, "nix-store"), 0o755);
 	execFileSync("git", ["init", "-q", root]);
@@ -162,14 +244,14 @@ test("install-extension refuses unknown names and malformed arguments without bu
 
 test("install-extension warns that untracked extension files are excluded by the flake", async (t) => {
 	const f = await fixture(t);
-	await mkdir(join(f.root, "packages/w2/src"), { recursive: true });
+	await mkdir(join(f.root, "extensions/w2/src"), { recursive: true });
 	await writeFile(
-		join(f.root, "packages/w2/src/new.ts"),
+		join(f.root, "extensions/w2/src/new.ts"),
 		"export const newFile = true;\n",
 	);
 	const result = f.run(["w2"]);
 	assert.equal(result.status, 0, result.stderr);
-	assert.match(result.stderr, /untracked.*packages\/w2\/src\/new.ts/s);
+	assert.match(result.stderr, /untracked.*extensions\/w2\/src\/new.ts/s);
 	assert.match(result.stderr, /flake.*tracked.*git add/s);
 });
 
@@ -249,6 +331,10 @@ for (const [status, tasks, expected] of [
 					: /install refused.*previous version.*installed/i,
 			);
 			assert.doesNotMatch(result.stdout, /"status"/);
+			if (expected === 3) {
+				assert.match(result.stdout, /will block when it next wakes/);
+				assert.doesNotMatch(result.stdout, /migration_failed/);
+			}
 			if (status === "refused") {
 				await assert.rejects(lstat(join(f.home, "extensions/w2")), {
 					code: "ENOENT",

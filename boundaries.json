@@ -1,5 +1,10 @@
 {
 	"tau": {},
+	"tau-journeys": {
+		"source": true,
+		"tau": ["./server"],
+		"testOnly": { "tau-extension": ["."] }
+	},
 	"tau-extension": {
 		"tau": [".", "./testing"]
 	},

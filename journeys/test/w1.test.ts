@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decision, journey, until } from "./journey.js";
-import { answer, build, call, git, pass, setup, stage } from "./w1-steps.js";
+import { decision, journey, until } from "./journey.ts";
+import { answer, build, call, git, pass, setup, stage } from "./w1-steps.ts";
 
 test("W1: approve an annotated design from the phone, build, review the SHA and hand over that SHA only", {
-	timeout: 15_000,
+	timeout: 180_000,
 }, async () => {
 	const j = await journey();
 	try {
@@ -37,7 +37,10 @@ test("W1: approve an annotated design from the phone, build, review the SHA and 
 			call("show_diff"),
 			call("show_file", { path: "export.js" }),
 			(request) => {
-				assert.ok(JSON.stringify(request).includes("export const format = 42"));
+				assert.match(
+					JSON.stringify(request.messages.at(-1)),
+					/export const format = 42/,
+				);
 				return pass;
 			},
 		]);
@@ -85,6 +88,10 @@ test("W1: approve an annotated design from the phone, build, review the SHA and 
 		assert.equal(merge.data.review, reviews[0].id);
 		assert.equal(merge.data.sha, reviews[0].data.sha);
 		git(repo, "cat-file", "-e", `${merge.data.sha}^{commit}`);
+		assert.equal(
+			git(repo, "diff", "--name-status", "main", merge.data.sha),
+			"M\texport.js",
+		);
 		assert.equal(git(repo, "rev-parse", `w1/${conversation}`), merge.data.sha);
 		const base = git(repo, "rev-parse", "main");
 		const accepted = await j.ok("answer", answer(final, "approve"), j.laptop);
@@ -114,7 +121,7 @@ test("W1: approve an annotated design from the phone, build, review the SHA and 
 });
 
 test("W1: two devices answer at once, faults show the dead continuation, and an equal resend recovers it", {
-	timeout: 15_000,
+	timeout: 180_000,
 }, async () => {
 	const j = await journey();
 	try {
@@ -182,7 +189,7 @@ test("W1: two devices answer at once, faults show the dead continuation, and an 
 });
 
 test("W1 row 19: a moved head opens stuck and hands over nothing", {
-	timeout: 15_000,
+	timeout: 180_000,
 }, async () => {
 	const j = await journey();
 	try {

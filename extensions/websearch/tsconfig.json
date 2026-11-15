@@ -5,8 +5,8 @@
 		"noEmit": true,
 		"allowImportingTsExtensions": true,
 		"erasableSyntaxOnly": true,
-		"tsBuildInfoFile": "../../node_modules/.cache/tau-w1.tsbuildinfo"
+		"tsBuildInfoFile": "../../node_modules/.cache/tau-websearch.tsbuildinfo"
 	},
 	"include": ["src/**/*.ts", "test/**/*.ts"],
-	"references": [{ "path": "../extension" }]
+	"references": [{ "path": "../../extension-package" }]
 }

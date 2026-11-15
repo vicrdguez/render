@@ -17,25 +17,51 @@
         let
           pkgs = import nixpkgs { inherit system; };
           nodejs = pkgs.nodejs_24;
+          lock = builtins.fromJSON (builtins.readFile ./package-lock.json);
+          workspaceManifests = lib.filterAttrs (
+            name: _: name != "" && !(lib.hasInfix "node_modules" name)
+          ) lock.packages;
           npmRootSrc = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
               ./package.json
               ./package-lock.json
-              ./core/package.json
-              (lib.fileset.fileFilter (file: file.name == "package.json") ./packages)
             ];
           };
+          sourceFor =
+            directories:
+            lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions (
+                [
+                  (lib.fileset.unions (
+                    map (name: ./. + "/${name}") (
+                      builtins.attrNames (lib.filterAttrs (_: type: type == "regular") (builtins.readDir ./.))
+                    )
+                  ))
+                  ./tools
+                ]
+                ++ map (directory: lib.fileset.maybeMissing (./. + "/${directory}")) directories
+                ++ map (directory: lib.fileset.maybeMissing (./. + "/${directory}/package.json")) (
+                  builtins.attrNames workspaceManifests
+                )
+              );
+            };
           npmDeps = pkgs.importNpmLock.buildNodeModules {
             npmRoot = npmRootSrc;
             inherit nodejs;
             derivationArgs = {
-              postPatch = "cp -R --no-preserve=mode ${npmRootSrc}/{core,packages} .";
-              postInstall = "find $out/node_modules -maxdepth 2 -type l \\( -lname '*packages/*' -o -lname '*core' \\) -delete";
+              postPatch = lib.concatStringsSep "\n" (
+                lib.mapAttrsToList (directory: manifest: ''
+                  mkdir -p "${directory}"
+                  cp ${pkgs.writeText "workspace-manifest.json" (builtins.toJSON manifest)} "${directory}/package.json"
+                '') workspaceManifests
+              );
+              postInstall = "find $out/node_modules -maxdepth 2 -type l \\( -lname '*extensions/*' -o -lname '*core' -o -lname '*extension-package' -o -lname '*journeys' \\) -delete";
             };
           };
           enterRoot = ''
-            TAU_INVOCATION_DIR="$(pwd -P)"
+            TAU_INVOCATION_DIR="''${TAU_INVOCATION_DIR:-$(pwd -P)}"
             export TAU_INVOCATION_DIR
             while [ ! -f flake.nix ] || [ ! -f package.json ]; do
               if [ "$PWD" = / ]; then
@@ -84,17 +110,18 @@
             '';
             lint = mkCommand "lint" [ pkgs.biome pkgs.nixfmt pkgs.findutils ] ''
               node tools/check-lock.mjs
+              node tools/check-boundaries.mjs
               biome check .
               ${nixFiles "--check"}
             '';
             typecheck = mkCommand "typecheck" [ ] ''
               node tools/check-lock.mjs
-              node tools/check-boundaries.mjs
-              node node_modules/typescript/bin/tsc -b
-              node tools/assets.mjs
+              node tools/check-boundaries.mjs "$@"
+              node tools/typecheck.mjs "$@"
+              node tools/assets.mjs "$@"
             '';
             test = mkCommand "test" [ pkgs.git ] ''
-              ${commands.typecheck}/bin/typecheck
+              ${commands.typecheck}/bin/typecheck "$@"
               node tools/tests.mjs "$@"
             '';
             spikes = mkCommand "spikes" [ ] ''
@@ -116,45 +143,111 @@
                 done
                 set -- "''${outputs[@]}"
               fi
-              ${commands.typecheck}/bin/typecheck
-              node core/dist/test/journeys/verify-build.js "$executable" "$@"
+              node journeys/test/verify-build.ts "$executable" "$@"
             '';
             check = mkCommand "check" [ ] ''
+              if [ "$#" -gt 0 ]; then
+                exec ${commands.test}/bin/test "$@"
+              fi
               ${commands.lint}/bin/lint
-              ${commands.typecheck}/bin/typecheck
-              ${commands.test}/bin/test "$@"
+              ${commands.test}/bin/test
               ${commands.spikes}/bin/spikes
               ${commands.verify-build}/bin/verify-build
             '';
           };
-          checks = lib.genAttrs [ "lint" "typecheck" "test" "spikes" "verify-build" ] (
+          checkSpecs = {
+            workspace = {
+              source = self;
+              run = ''
+                ${commands.lint}/bin/lint
+                node tools/tests.mjs tools
+              '';
+            };
+            core = {
+              source = sourceFor [ "core" ];
+              run = ''
+                node node_modules/typescript/bin/tsc -b core
+                node tools/assets.mjs core
+                node tools/tests.mjs core
+              '';
+            };
+            extension-package = {
+              source = sourceFor [
+                "core"
+                "extension-package"
+              ];
+              run = ''
+                node node_modules/typescript/bin/tsc -b extension-package
+                node tools/assets.mjs extension-package
+                node tools/tests.mjs extension-package
+              '';
+            };
+            journeys = {
+              source = self;
+              run = ''
+                node tools/typecheck.mjs journeys
+                node tools/assets.mjs extension-package
+                node tools/tests.mjs journeys
+              '';
+            };
+            spikes = {
+              source = self;
+              run = "${commands.spikes}/bin/spikes";
+            };
+            verify-build = {
+              source = sourceFor [ "journeys/test/verify-build.ts" ];
+              run = ''
+                node journeys/test/verify-build.ts ${tau}/bin/tau ${extensions.w1} ${extensions.w2} ${extensions.websearch}
+              '';
+            };
+          }
+          // lib.genAttrs [ "extension-websearch" "extension-w2" "extension-w1" ] (
             name:
+            let
+              directory = "extensions/${lib.removePrefix "extension-" name}";
+            in
+            {
+              source = sourceFor [
+                "core"
+                "extension-package"
+                directory
+              ];
+              run = ''
+                node node_modules/typescript/bin/tsc -b ${directory}
+                node tools/assets.mjs extension-package
+                node tools/tests.mjs ${directory}
+              '';
+            }
+          );
+          checks = lib.mapAttrs (
+            name: spec:
             pkgs.runCommand "tau-${name}"
               {
-                nativeBuildInputs = [ pkgs.coreutils ];
-                __darwinAllowLocalNetworking = builtins.elem name [
-                  "test"
-                  "spikes"
-                  "verify-build"
+                nativeBuildInputs = [
+                  nodejs
+                  pkgs.coreutils
+                  pkgs.git
                 ];
+                __darwinAllowLocalNetworking = true;
+                passthru.source = spec.source;
               }
               ''
-                cp -R ${self} source
+                cp -R ${spec.source} source
                 chmod -R u+w source
                 cd source
-                timeout --kill-after=10s 660s ${commands.${name}}/bin/${name} ${
-                  lib.optionalString (
-                    name == "verify-build"
-                  ) "${tau}/bin/tau ${extensions.w1} ${extensions.w2} ${extensions.websearch}"
-                }
+                timeout --kill-after=10s 660s ${pkgs.writeShellScript "check-${name}" ''
+                  set -euo pipefail
+                  ${linkModules}
+                  ${spec.run}
+                ''}
                 touch "$out"
               ''
-          );
+          ) checkSpecs;
           extensions = lib.genAttrs [ "w1" "w2" "websearch" ] (
             name:
             pkgs.runCommand "tau-extension-${name}" { } ''
               mkdir -p "$out"
-              cp -R ${./packages + "/${name}/src"}/. "$out/"
+              cp -R ${./extensions + "/${name}/src"}/. "$out/"
               ${lib.optionalString (name == "websearch") ''
                 mkdir "$out/node_modules"
                 ln -s ${npmDeps}/node_modules/webfox "$out/node_modules/webfox"
@@ -173,7 +266,7 @@
                 ./tools/link-node-modules.mjs
                 ./tools/assets.mjs
                 ./core
-                ./packages/extension
+                ./extension-package
               ];
             };
             nativeBuildInputs = [
@@ -183,14 +276,14 @@
             buildPhase = ''
               runHook preBuild
               node tools/link-node-modules.mjs ${npmDeps}/node_modules
-              node node_modules/typescript/bin/tsc -b core packages/extension
+              node node_modules/typescript/bin/tsc -b core extension-package
               runHook postBuild
             '';
             installPhase = ''
               runHook preInstall
               mkdir -p $out/lib/tau $out/bin
               cp package.json $out/lib/tau/
-              for directory in core packages/extension; do
+              for directory in core extension-package; do
                 mkdir -p "$out/lib/tau/$directory/dist"
                 cp "$directory/package.json" "$out/lib/tau/$directory/"
                 cp -R "$directory/dist/src" "$out/lib/tau/$directory/dist/"

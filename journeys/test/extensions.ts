@@ -2,7 +2,7 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 export function extensionSource(name: string) {
-	return resolve(import.meta.dirname, "../../../../packages", name, "src");
+	return resolve(import.meta.dirname, "../../extensions", name, "src");
 }
 
 export async function linkExtensions(home: string, searchUrl?: string) {

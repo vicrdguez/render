@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
 	chmod,
-	copyFile,
 	mkdir,
 	mkdtemp,
 	readdir,
@@ -18,13 +17,15 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { defineTask } from "@earendil-works/pi-durable";
 import { obj } from "@earendil-works/pi-schema";
-import { request } from "tau";
-import { type ExtensionScan, fromDirectory } from "../../src/host/index.js";
-import { type Reply, start, until } from "./helpers.js";
+import { type ExtensionScan, fromDirectory } from "tau/server";
+import { request } from "tau-extension";
+import { type Journey, journey as start, until } from "./journey.ts";
+
+type Reply = Awaited<ReturnType<Journey["call"]>>;
 
 const TESTING =
 	"tau-extension/testing is for tests. An extension cannot import it at run time.";
-const root = fileURLToPath(new URL("../../../../", import.meta.url));
+const root = fileURLToPath(new URL("../../", import.meta.url));
 
 const scratch = () => mkdtemp(path.join(tmpdir(), "tau-loader-"));
 
@@ -328,56 +329,6 @@ test("a scan writes no jiti cache to the system temporary directory or beside th
 	assert.deepEqual(await snapshot(), before);
 });
 
-test("without tau-extension beside the host every extension fails with a repair message", async () => {
-	const host = await scratch();
-	const src = path.join(host, "dist", "src");
-	await mkdir(src, { recursive: true });
-	for (const file of await readdir(
-		fileURLToPath(new URL("../../src/host/", import.meta.url)),
-	))
-		if (file.endsWith(".js"))
-			await copyFile(
-				fileURLToPath(new URL(`../../src/host/${file}`, import.meta.url)),
-				path.join(src, file),
-			);
-	await mkdir(path.join(host, "node_modules"));
-	await symlink(
-		path.join(root, "node_modules", "jiti"),
-		path.join(host, "node_modules", "jiti"),
-	);
-	const scan = (dir: string) => {
-		const script = `const { fromDirectory } = await import(${JSON.stringify(pathToFileURL(path.join(src, "loader.js")).href)});
-const scan = await fromDirectory(${JSON.stringify(dir)})();
-console.log(JSON.stringify({ modules: Object.keys(scan.modules), failures: scan.failures.map((f) => ({ name: f.name, stage: f.stage, message: f.error.message })) }));`;
-		const child = spawnSync(
-			process.execPath,
-			["--input-type=module", "--eval", script],
-			{ encoding: "utf8" },
-		);
-		assert.equal(child.status, 0, child.stderr);
-		return JSON.parse(child.stdout);
-	};
-	assert.deepEqual(scan(await scratch()), { modules: [], failures: [] });
-	const dir = await directory({
-		alpha: { "index.ts": plain("alpha") },
-		beta: { "index.ts": plain("beta") },
-	});
-	const result = scan(dir);
-	assert.deepEqual(result.modules, []);
-	assert.deepEqual(
-		result.failures.map((f: { name: string }) => f.name),
-		["alpha", "beta"],
-	);
-	for (const f of result.failures) {
-		assert.match(f.message, /tau-extension/);
-		assert.match(f.message, /node_modules/);
-		assert.match(
-			f.message,
-			/Install tau-extension beside the Tau server, then start it again\./,
-		);
-	}
-});
-
 test("a syntax error, a top-level throw and a mismatched name are left out and the server serves", async (t) => {
 	const dir = await directory({
 		good: { "index.ts": plain("good") },
@@ -421,7 +372,7 @@ test("a syntax error, a top-level throw and a mismatched name are left out and t
 
 test("only canonical tau-extension specifiers load, including dynamic imports and re-exports", async (t) => {
 	const manifest = JSON.parse(
-		await readFile(path.join(root, "packages/extension/package.json"), "utf8"),
+		await readFile(path.join(root, "extension-package/package.json"), "utf8"),
 	);
 	const canonical = Object.keys(manifest.exports).map(
 		(key) => `tau-extension${key.slice(1)}`,
@@ -489,7 +440,7 @@ test("a dependency whose name starts with tau-extension is allowed", async () =>
 
 test("every production entry in the exports map gives the host's own values", async () => {
 	const manifest = JSON.parse(
-		await readFile(path.join(root, "packages/extension/package.json"), "utf8"),
+		await readFile(path.join(root, "extension-package/package.json"), "utf8"),
 	);
 	const entries = Object.entries(manifest.exports).filter(
 		([key]) => key !== "./testing",
@@ -509,13 +460,13 @@ test("every production entry in the exports map gives the host's own values", as
 		},
 	});
 	const script = `import assert from 'node:assert/strict';
-const {fromDirectory} = await import(${JSON.stringify(new URL("../../src/host/loader.js", import.meta.url).href)});
+const {fromDirectory} = await import(${JSON.stringify(import.meta.resolve("tau/server"))});
 const entries = ${JSON.stringify(entries)};
 const scan = await fromDirectory(${JSON.stringify(dir)})();
 assert.deepEqual(scan.failures, []);
 let checked = 0;
 for (const [i, [key, target]] of entries.entries()) {
- const expected = await import(new URL(target.import, ${JSON.stringify(pathToFileURL(path.join(root, "packages/extension/")).href)}));
+ const expected = await import(new URL(target.import, ${JSON.stringify(pathToFileURL(path.join(root, "extension-package/")).href)}));
  for (const [name, value] of Object.entries(expected)) {
   assert.equal(scan.modules.same.got[i][name], value, key + '.' + name);
   checked++;

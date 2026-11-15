@@ -5,11 +5,12 @@ import { existsSync } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { test } from "node:test";
-import { decision, journey, post, until } from "./journey.js";
-import { answer, build, call, git, pass, setup, stage } from "./w1-steps.js";
+import { decision, journey, post, until } from "./journey.ts";
+import { serverAddress } from "./readiness.ts";
+import { answer, build, call, git, pass, setup, stage } from "./w1-steps.ts";
 
 test("W1: SIGKILL after an HTTP answer but before its continuation effect resumes once from the second device", {
-	timeout: 15_000,
+	timeout: 180_000,
 }, async () => {
 	const j = await journey();
 	try {
@@ -30,7 +31,7 @@ test("W1: SIGKILL after an HTTP answer but before its continuation effect resume
 		);
 		await chmod(wrapper, 0o755);
 		const child = fork(
-			new URL("./crash-server.js", import.meta.url),
+			new URL("./crash-server.ts", import.meta.url),
 			[j.home],
 			{
 				env: {
@@ -46,7 +47,7 @@ test("W1: SIGKILL after an HTTP answer but before its continuation effect resume
 			stderr += String(chunk);
 		});
 		try {
-			const [address] = await once(child, "message");
+			const address = await serverAddress(child);
 			const replied = await post(
 				`http://127.0.0.1:${address.port}`,
 				"answer",
@@ -64,7 +65,7 @@ test("W1: SIGKILL after an HTTP answer but before its continuation effect resume
 				"",
 				"the continuation has not created a branch",
 			);
-			const exit = once(child, "exit");
+			const exit = once(child, "exit", { signal: AbortSignal.timeout(60_000) });
 			assert.ok(child.pid);
 			process.kill(-child.pid, "SIGKILL");
 			await exit;

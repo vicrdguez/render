@@ -9,8 +9,9 @@ import {
 	fauxAssistantMessage,
 } from "@earendil-works/pi-ai";
 import { requestAdmin } from "tau/server";
-import { linkExtensions } from "./extensions.js";
-import { post, watch } from "./journey.js";
+import { linkExtensions } from "./extensions.ts";
+import { post, watch } from "./journey.ts";
+import { serverAddress } from "./readiness.ts";
 
 export async function processJourney(
 	config: { now?: () => number; searchUrl?: string } = {},
@@ -36,7 +37,7 @@ export async function processJourney(
 	};
 	async function start() {
 		child = fork(
-			new URL("./journey-server.js", import.meta.url),
+			new URL("./journey-server.ts", import.meta.url),
 			[
 				home,
 				JSON.stringify({ now: config.now?.(), searchUrl: config.searchUrl }),
@@ -60,17 +61,19 @@ export async function processJourney(
 				});
 			},
 		);
-		const address = await Promise.race([
-			once(child, "message").then(([message]) => message),
-			once(child, "exit").then(() => {
-				throw new Error(`Journey server exited: ${stderr.join("")}`);
-			}),
-		]);
+		const address = await serverAddress(child).catch((error) => {
+			child.kill("SIGKILL");
+			throw new Error(`Journey server failed to listen: ${stderr.join("")}`, {
+				cause: error,
+			});
+		});
 		url = `http://127.0.0.1:${address.port}`;
 	}
 	async function stop() {
 		if (child.exitCode !== null || child.signalCode !== null) return;
-		const exited = once(child, "close");
+		const exited = once(child, "close", {
+			signal: AbortSignal.timeout(60_000),
+		});
 		child.kill("SIGKILL");
 		const result = await exited;
 		exits.push(result);

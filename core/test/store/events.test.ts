@@ -50,7 +50,7 @@ async function ownerless(store: Store) {
 
 test("the first open creates exactly one ownerless event log, and a reopen reuses it", async () => {
 	const file = path.join(
-		await mkdtemp(path.join(tmpdir(), "tau-store-log-")),
+		await mkdtemp(path.join(tmpdir(), "tau-storage-log-")),
 		"store.sqlite",
 	);
 	const options = { models: createModels(), registry: createRegistry() };
@@ -181,7 +181,7 @@ test("request emits nothing and leaves table reads open in its commit", async ()
 
 test("events survive a SQLite close and reopen in their order", async () => {
 	const file = path.join(
-		await mkdtemp(path.join(tmpdir(), "tau-store-events-")),
+		await mkdtemp(path.join(tmpdir(), "tau-storage-events-")),
 		"store.sqlite",
 	);
 	const options = { models: createModels(), registry: createRegistry() };

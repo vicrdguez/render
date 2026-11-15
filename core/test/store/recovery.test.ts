@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { DEFAULT_RESTART_LIMIT } from "@earendil-works/pi-durable";
 
 const child = fileURLToPath(new URL("./fixtures/child.js", import.meta.url));
-const dir = await mkdtemp(path.join(tmpdir(), "tau-store-crash-"));
+const dir = await mkdtemp(path.join(tmpdir(), "tau-storage-crash-"));
 
 type Run = { signal: string | null; seen: Record<string, unknown> };
 

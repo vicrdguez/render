@@ -1,9 +1,12 @@
 import { copyFile, glob, mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { selectPackages, workspaces } from "./workspaces.mjs";
 
 // tsc does not copy prose. Preserve its module-relative path after emit.
-const manifest = JSON.parse(await readFile("package.json", "utf8"));
-for await (const directory of glob(manifest.workspaces)) {
+for (const { directory } of selectPackages(
+	await workspaces(),
+	process.argv.slice(2),
+)) {
 	const config = JSON.parse(
 		await readFile(`${directory}/tsconfig.json`, "utf8"),
 	);

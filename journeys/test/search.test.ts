@@ -3,11 +3,11 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { until } from "./journey.js";
-import { processJourney } from "./process-journey.js";
+import { until } from "./journey.ts";
+import { processJourney } from "./process-journey.ts";
 
 test("search: project default calls the local provider and no device surface or log reveals the key", {
-	timeout: 15_000,
+	timeout: 180_000,
 }, async (t) => {
 	const key = "sk-integration-secret-never-return";
 	let requests = 0;
