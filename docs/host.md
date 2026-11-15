@@ -2,6 +2,22 @@
 
 The Tau host opens projects and offers calls to clients. Use this reference with the [protocol](protocol.md) to build a client.
 
+## Run the server
+
+Run `tau` on the server machine. It uses `~/.tau` under the process home and has no `--home` flag. `--port PORT` selects a port from 0 through 65535. Port 0 asks the OS to choose one. Repeat `--allow-host NAME` to allow additional Host and Origin names. See [network access and pairing](protocol.md#devices-and-administration).
+
+With the server running, `tau device pair phone` prints a one-use code for a device named `phone`. Exchange it as described in [pairing](protocol.md#devices-and-administration).
+
+Log in to model providers through pi on the server machine. Tau reads `${PI_CODING_AGENT_DIR:-~/.pi/agent}/auth.json` and writes refreshed credentials there. No client call sets a login.
+
+## Data and backup
+
+Stop Tau before an ordinary file-copy backup. SQLite uses WAL, so copying only a live database file is unsafe. Preserve `~/.tau/projects/`, `~/.tau/devices.json`, extension code and dependencies or recoverable snapshot targets, provider credentials, and working repositories and worktrees. Extension links alone do not preserve their targets. Protect the backup because stores and credentials can contain secrets.
+
+## Restart
+
+All projects share one process interruption. Startup resumes durable work and overdue timers. Interrupted safe tools can replay. Unsafe tools return interruption errors instead of running again automatically. Five consecutive interruptions without durable progress fault ordinary tasks.
+
 ## Projects
 
 A project has a name, an absolute working directory on the server, and an ordered list of extension names. The name matches `^[a-z0-9][a-z0-9-]{0,62}$`. Each project has its own store, harness, and registry. Its SQLite store is `~/.tau/projects/<project>/store.sqlite`, with a lock beside it.
@@ -61,11 +77,11 @@ Each row gives fields in the JSON body and fields inside `result`. A question ma
 | `setModel` | `project, conversation, model, thinkingLevel?` | `{}` | `unknown_project`, `unknown_conversation`, `event_log`, `unknown_model` |
 | `inbox` | `{}` | stream | none |
 | `decision` | `project, decision` | `decision, text, then?` | `unknown_project`, `unknown_decision` |
-| `answer` | `project, decision, basis, choice, annotations` | `decision, repeated` | `unknown_project`, `unknown_decision`, `not_open`, `stale_basis`, `unknown_choice`, `bad_annotation`, `conflict` |
+| `answer` | `project, decision, basis, choice, annotations` | `decision, repeated` | `unknown_project`, `unknown_decision`, `not_open`, `stale_basis`, `unknown_choice`, `bad_annotation`, `conflict`, `extension_not_loaded` |
 | `timeline` | `project, after?` | stream | `unknown_project` |
 | `faults` | `project, cursor?, limit?` | page of faults | `unknown_project`, `bad_cursor` |
 
-`ProjectView` contains `project`, `workdir`, `extensions`, and `missing`. IDs for conversations and entries are positive integers. `after` is a nonnegative entry ID. `limit` is a positive integer. History `order` is `ascending` or `descending`. Each answer annotation has `text` and an optional `range` with numeric `start` and `end`.
+`ProjectView` contains `project`, `workdir`, `extensions`, and `missing`. IDs for conversations and entries are positive integers. `after` is a nonnegative entry ID. `limit` is a positive integer. History `order` is `ascending` or `descending`. Each answer annotation has `text` and an optional `range` with numeric `start` and `end`. All other body fields are strings except `extensions`, an array of strings, `patch`, a JSON object, and `basis`, a positive entry ID. `workflow` and `model` are mutually exclusive. See the [wire shapes](protocol.md#versions-and-owned-shapes) for records and result fields.
 
 ## Conversations
 
@@ -73,7 +89,9 @@ Each row gives fields in the JSON body and fields inside `result`. A question ma
 
 The default selection contains coding tools followed by available project extensions that have no `entry`. Workflows are not in the default selection. A conversation can use an explicit selection instead.
 
-`conversations` reports `running`, `failed`, or `idle` and omits the event log. `open` watches any conversation, including one created by a workflow. `input` submits text. `whenBusy` accepts `steer` or `followUp`; `whenIdle: "reject"` refuses input when no run is active. `continue` submits a continuation and refuses a busy conversation. `stop` aborts a run. A repeated stop can abort a newer run. `setModel` changes the model and optional `thinkingLevel`, one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`.
+`conversations` reports `running`, `failed`, or `idle` and omits the event log. `open` watches any conversation, including one created by a workflow. `input` submits text. `whenBusy` accepts `steer` or `followUp` and defaults to `followUp`. A steer joins at a tool boundary. A follow-up waits for another run. A steer to an idle conversation starts a run unless `whenIdle: "reject"` is set. `continue` submits a continuation and refuses a busy conversation.
+
+`stop` withdraws queued inputs and aborts ordinary work. It does not withdraw decisions or cancel background tasks. A repeated stop can abort a newer run. `setModel` changes the model and optional `thinkingLevel`, one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. The change affects the next model request, including one in a running conversation.
 
 ## Decisions, events, and faults
 
