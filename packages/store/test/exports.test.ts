@@ -2,19 +2,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-test("the store exposes exactly the root, host, and testing entries", () => {
+test("the core exposes exactly the root, server, and testing entries", () => {
 	const manifest = JSON.parse(
-		readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+		readFileSync(new URL("../../../package.json", import.meta.url), "utf8"),
 	);
 	assert.deepEqual(Object.keys(manifest.exports).sort(), [
 		".",
-		"./host",
+		"./server",
 		"./testing",
 	]);
 });
 
 test("the root exports exactly the five extension functions", async () => {
-	const root = await import("tau-store");
+	const root = await import("tau");
 	assert.deepEqual(Object.keys(root).sort(), [
 		"decision",
 		"emit",
@@ -25,19 +25,22 @@ test("the root exports exactly the five extension functions", async () => {
 	assert.equal("answer" in root, false);
 });
 
-test("the testing entry exports only fauxAnswer and the same openStore", async () => {
-	const testing = await import("tau-store/testing");
-	const host = await import("tau-store/host");
+test("the testing entry exports only fauxAnswer and openStore", async () => {
+	const testing = await import("tau/testing");
 	assert.deepEqual(Object.keys(testing).sort(), ["fauxAnswer", "openStore"]);
 	assert.equal("answer" in testing, false);
-	assert.equal(testing.openStore, host.openStore);
 });
 
-test("the host entry exports openStore, answer, and watchOpen", async () => {
-	const host = await import("tau-store/host");
-	assert.deepEqual(Object.keys(host).sort(), [
-		"answer",
-		"openStore",
-		"watchOpen",
+test("the server entry exports only startServer, fromDirectory, and requestAdmin", async () => {
+	const server = await import("tau/server");
+	assert.deepEqual(Object.keys(server).sort(), [
+		"fromDirectory",
+		"requestAdmin",
+		"startServer",
 	]);
+	assert.equal("answer" in server, false);
+	assert.equal("openStore" in server, false);
+	for (const specifier of ["tau/host", "tau/dist/src/store/decisions.js"]) {
+		await assert.rejects(import(specifier), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" });
+	}
 });

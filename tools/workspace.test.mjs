@@ -129,6 +129,35 @@ async function extensionFixture(t) {
 	return { ...result, policy, extension };
 }
 
+for (const [layer, targets] of [
+	["store", ["host", "command"]],
+	["host", ["command"]],
+]) {
+	test(`core ${layer} cannot import upper layers`, async (t) => {
+		const { root, put, manifest } = await fixture(t);
+		await put("package.json", { ...manifest, workspaces: ["core", "packages/*"] });
+		await put("core/package.json", { name: "tau", exports: { ".": "./dist/src/index.js", "./server": "./dist/src/server.js", "./testing": "./dist/src/testing.js" } });
+		await put("core/tsconfig.json", {});
+		await put("tsconfig.json", { references: [{ path: "core" }, { path: "packages/store" }] });
+		await put("boundaries.json", { tau: {}, "tau-store": {} });
+		for (const target of targets) {
+			await put(`core/src/${layer}/access.ts`, `export * from "../${target}/index.js";`);
+			assert.match((await check(root)).join("\n"), /forbidden core layer import/);
+		}
+		await put(`core/src/${layer}/access.ts`, 'import "./local.js";');
+		assert.deepEqual(await check(root), []);
+	});
+}
+
+test("tau-extension cannot import tau/server", async (t) => {
+	const { root, put } = await extensionFixture(t);
+	await put("packages/store/package.json", { name: "tau", exports: { "./server": "./dist/src/server.js" } });
+	await put("packages/extension/package.json", { name: "tau-extension", dependencies: { tau: "0.0.0" } });
+	await put("boundaries.json", { tau: {}, "tau-extension": { tau: [".", "./testing"] }, "tau-w2": {}, "tau-w1": {} });
+	await put("packages/extension/src/access.ts", 'import "tau/server";');
+	assert.match((await check(root)).join("\n"), /access.ts: tau\/server: forbidden workspace capability/);
+});
+
 for (const statement of [
 	'import "./local.js";',
 	'export { value } from "./local.js";',
