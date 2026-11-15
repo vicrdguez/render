@@ -36,7 +36,13 @@ test("the root exports exactly the five extension functions and four helpers", a
 test("the testing entry exports fauxAnswer, openStore, and the pi-ai test names", async () => {
 	const testing = await import("tau/testing");
 	assert.deepEqual(Object.keys(testing).sort(), [
-		"createModels", "fauxAnswer", "fauxAssistantMessage", "fauxProvider", "fauxText", "fauxToolCall", "openStore",
+		"createModels",
+		"fauxAnswer",
+		"fauxAssistantMessage",
+		"fauxProvider",
+		"fauxText",
+		"fauxToolCall",
+		"openStore",
 	]);
 	assert.equal("answer" in testing, false);
 });

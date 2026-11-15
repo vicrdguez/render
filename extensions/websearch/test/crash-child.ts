@@ -1,15 +1,11 @@
-import { BACKGROUND_CONTEXT as context } from "tau-extension/chord";
-import {
-	createRegistry,
-	Harness,
-	openNodeSqliteStorage,
-} from "tau-extension/durable";
+import { BACKGROUND_CONTEXT as context } from "tau/chord";
+import { createRegistry, Harness, openNodeSqliteStorage } from "tau/durable";
 import {
 	createModels,
 	fauxAssistantMessage,
 	fauxProvider,
 	fauxToolCall,
-} from "tau-extension/testing";
+} from "tau/testing";
 import { options } from "../src/index.ts";
 import { createSearchExtension } from "../src/web-search.ts";
 

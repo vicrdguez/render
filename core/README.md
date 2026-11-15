@@ -1,31 +1,33 @@
-# tau-extension
+# tau
 
 These names are re-exports. They do not shield an extension from a change in pi-durable's behaviour.
 
-`./helpers.js` denotes the local helper module, not a public package path. All other origins name their source package and subpath. Only tests import `tau-extension/testing`.
+`./helpers.js` denotes the local helper module, not a public package path. Other relative origins name internal modules. Package origins name their source package and subpath. Only tests import `tau/testing`. Only server launchers import `tau/server`.
 
-## `tau-extension`
+## `tau`
 
 | Name | Kind | Origin |
 | --- | --- | --- |
-| `Annotation` | type | `tau` |
-| `Decision` | type | `tau` |
-| `DecisionId` | type | `tau` |
-| `DecisionInput` | type | `tau` |
-| `EventData` | type | `tau` |
-| `RequestDraft` | type | `tau` |
+| `Annotation` | type | `../store/types.js` |
+| `Decision` | type | `../store/types.js` |
+| `DecisionId` | type | `../store/types.js` |
+| `DecisionInput` | type | `../store/decisions.js` |
+| `DeviceId` | type | `../store/types.js` |
+| `ExtensionModule` | type | `../host/index.js` |
+| `EventData` | type | `../store/types.js` |
+| `RequestDraft` | type | `../store/decisions.js` |
 | `RoleSettings` | type | `./helpers.js` |
-| `decision` | value | `tau` |
-| `emit` | value | `tau` |
-| `eventLog` | value | `tau` |
+| `decision` | value | `../store/decisions.js` |
+| `emit` | value | `../store/events.js` |
+| `eventLog` | value | `../store/events.js` |
 | `modelRef` | value | `./helpers.js` |
 | `options` | value | `./helpers.js` |
 | `prose` | value | `./helpers.js` |
-| `request` | value | `tau` |
+| `request` | value | `../store/decisions.js` |
 | `role` | value | `./helpers.js` |
-| `withdraw` | value | `tau` |
+| `withdraw` | value | `../store/decisions.js` |
 
-## `tau-extension/durable`
+## `tau/durable`
 
 | Name | Kind | Origin |
 | --- | --- | --- |
@@ -72,7 +74,7 @@ These names are re-exports. They do not shield an extension from a change in pi-
 | `openNodeSqliteStorage` | value | `@earendil-works/pi-durable/storage/sqlite/node` |
 | `runEndTask` | value | `@earendil-works/pi-durable` |
 
-## `tau-extension/schema`
+## `tau/schema`
 
 | Name | Kind | Origin |
 | --- | --- | --- |
@@ -87,7 +89,7 @@ These names are re-exports. They do not shield an extension from a change in pi-
 | `opt` | value | `@earendil-works/pi-schema` |
 | `str` | value | `@earendil-works/pi-schema` |
 
-## `tau-extension/chord`
+## `tau/chord`
 
 | Name | Kind | Origin |
 | --- | --- | --- |
@@ -95,18 +97,35 @@ These names are re-exports. They do not shield an extension from a change in pi-
 | `Context` | type | `@earendil-works/chord/context` |
 | `Draft` | type | `@earendil-works/chord/delta` |
 
-## `tau-extension/testing`
+## `tau/testing`
 
 | Name | Kind | Origin |
 | --- | --- | --- |
-| `AnswerInput` | type | `tau/testing` |
-| `AnswerResult` | type | `tau/testing` |
+| `AnswerInput` | type | `../store/testing.js` |
+| `AnswerResult` | type | `../store/testing.js` |
 | `FauxResponseStep` | type | `@earendil-works/pi-ai/providers/faux` |
-| `Store` | type | `tau/testing` |
+| `Store` | type | `../store/testing.js` |
 | `createModels` | value | `@earendil-works/pi-ai/models` |
-| `fauxAnswer` | value | `tau/testing` |
+| `fauxAnswer` | value | `../store/testing.js` |
 | `fauxAssistantMessage` | value | `@earendil-works/pi-ai/providers/faux` |
 | `fauxProvider` | value | `@earendil-works/pi-ai/providers/faux` |
 | `fauxText` | value | `@earendil-works/pi-ai/providers/faux` |
 | `fauxToolCall` | value | `@earendil-works/pi-ai/providers/faux` |
-| `openStore` | value | `tau/testing` |
+| `openStore` | value | `../store/testing.js` |
+
+## `tau/server`
+
+| Name | Kind | Origin |
+| --- | --- | --- |
+| `AdminRequest` | type | `./host/index.js` |
+| `AdminResult` | type | `./host/index.js` |
+| `DeviceInfo` | type | `./host/index.js` |
+| `ExtensionFailure` | type | `./host/index.js` |
+| `ExtensionScan` | type | `./host/index.js` |
+| `ExtensionSource` | type | `./host/index.js` |
+| `ReloadReport` | type | `./host/index.js` |
+| `Server` | type | `./host/index.js` |
+| `ServerOptions` | type | `./host/index.js` |
+| `fromDirectory` | value | `./host/loader.js` |
+| `requestAdmin` | value | `./host/admin.js` |
+| `startServer` | value | `./host/index.js` |

@@ -126,8 +126,7 @@ async function check(folder: string, relative: string): Promise<void> {
 function canonicalImports(alias: Record<string, string>) {
 	const checkSpecifier = (specifier: string) => {
 		if (
-			(specifier === "tau-extension" ||
-				specifier.startsWith("tau-extension/")) &&
+			(specifier === "tau" || specifier.startsWith("tau/")) &&
 			!Object.hasOwn(alias, specifier)
 		)
 			throw new Error(
@@ -185,25 +184,15 @@ function canonicalImports(alias: Record<string, string>) {
 	};
 }
 
-/** One alias per entry of tau-extension's exports map, found from the host's own location. */
+/** One alias per entry of the core's own exports map. */
 async function aliases(): Promise<Record<string, string>> {
-	for (let dir = here; ; dir = path.dirname(dir)) {
-		const root = path.join(dir, "node_modules", "tau-extension");
-		const text = await readFile(path.join(root, "package.json"), "utf8").catch(
-			() => undefined,
-		);
-		if (text !== undefined) {
-			const exports: Record<string, { import: string }> =
-				JSON.parse(text).exports;
-			const alias: Record<string, string> = {};
-			for (const [key, target] of Object.entries(exports))
-				alias[`tau-extension${key.slice(1)}`] = path.join(root, target.import);
-			alias["tau-extension/testing"] = path.join(here, "refused-testing.js");
-			return alias;
-		}
-		if (path.dirname(dir) === dir)
-			throw new Error(
-				`tau-extension is in no node_modules folder above ${here}. Install tau-extension beside the Tau server, then start it again.`,
-			);
-	}
+	const root = path.resolve(here, "../../..");
+	const { exports }: { exports: Record<string, { import: string }> } =
+		JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+	const alias: Record<string, string> = {};
+	for (const [key, target] of Object.entries(exports))
+		alias[`tau${key.slice(1)}`] = path.join(root, target.import);
+	alias["tau/testing"] = path.join(here, "refused-testing.js");
+	alias["tau/server"] = path.join(here, "refused-server.js");
+	return alias;
 }

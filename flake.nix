@@ -57,7 +57,7 @@
                   cp ${pkgs.writeText "workspace-manifest.json" (builtins.toJSON manifest)} "${directory}/package.json"
                 '') workspaceManifests
               );
-              postInstall = "find $out/node_modules -maxdepth 2 -type l \\( -lname '*extensions/*' -o -lname '*core' -o -lname '*extension-package' -o -lname '*journeys' \\) -delete";
+              postInstall = "find $out/node_modules -maxdepth 2 -type l \\( -lname '*extensions/*' -o -lname '*core' -o -lname '*journeys' \\) -delete";
             };
           };
           enterRoot = ''
@@ -171,22 +171,11 @@
                 node tools/tests.mjs core
               '';
             };
-            extension-package = {
-              source = sourceFor [
-                "core"
-                "extension-package"
-              ];
-              run = ''
-                node node_modules/typescript/bin/tsc -b extension-package
-                node tools/assets.mjs extension-package
-                node tools/tests.mjs extension-package
-              '';
-            };
             journeys = {
               source = self;
               run = ''
                 node tools/typecheck.mjs journeys
-                node tools/assets.mjs extension-package
+                node tools/assets.mjs core
                 node tools/tests.mjs journeys
               '';
             };
@@ -209,12 +198,11 @@
             {
               source = sourceFor [
                 "core"
-                "extension-package"
                 directory
               ];
               run = ''
                 node node_modules/typescript/bin/tsc -b ${directory}
-                node tools/assets.mjs extension-package
+                node tools/assets.mjs core
                 node tools/tests.mjs ${directory}
               '';
             }
@@ -245,7 +233,7 @@
           ) checkSpecs;
           extensions = lib.genAttrs [ "w1" "w2" "websearch" ] (
             name:
-            pkgs.runCommand "tau-extension-${name}" { } ''
+            pkgs.runCommand "tau-${name}-source" { } ''
               mkdir -p "$out"
               cp -R ${./extensions + "/${name}/src"}/. "$out/"
               ${lib.optionalString (name == "websearch") ''
@@ -266,7 +254,6 @@
                 ./tools/link-node-modules.mjs
                 ./tools/assets.mjs
                 ./core
-                ./extension-package
               ];
             };
             nativeBuildInputs = [
@@ -276,18 +263,16 @@
             buildPhase = ''
               runHook preBuild
               node tools/link-node-modules.mjs ${npmDeps}/node_modules
-              node node_modules/typescript/bin/tsc -b core extension-package
+              node node_modules/typescript/bin/tsc -b core
               runHook postBuild
             '';
             installPhase = ''
               runHook preInstall
               mkdir -p $out/lib/tau $out/bin
               cp package.json $out/lib/tau/
-              for directory in core extension-package; do
-                mkdir -p "$out/lib/tau/$directory/dist"
-                cp "$directory/package.json" "$out/lib/tau/$directory/"
-                cp -R "$directory/dist/src" "$out/lib/tau/$directory/dist/"
-              done
+              mkdir -p "$out/lib/tau/core/dist"
+              cp core/package.json "$out/lib/tau/core/"
+              cp -R core/dist/src "$out/lib/tau/core/dist/"
               linker="$PWD/tools/link-node-modules.mjs"
               (cd $out/lib/tau && node "$linker" ${npmDeps}/node_modules)
               makeWrapper ${nodejs}/bin/node $out/bin/tau --add-flags $out/lib/tau/core/dist/src/command/main.js

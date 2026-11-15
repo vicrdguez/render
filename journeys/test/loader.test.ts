@@ -260,20 +260,30 @@ test("an extension outside the repository gets the host's own request, defineTas
 
 test("an extension that imports tau/server fails with the server message", async () => {
 	const dir = await directory({
-		cheat: { "index.ts": 'import { startServer } from "tau/server"; export const used = startServer;' },
+		cheat: {
+			"index.ts":
+				'import { startServer } from "tau/server"; export const used = startServer;',
+		},
 	});
 	const scan = await fromDirectory(dir)();
 	assert.deepEqual(scan.modules, {});
 	assert.equal(failure(scan, "cheat").stage, "import");
-	assert.equal(failure(scan, "cheat").message,
-		"tau/server is for starting a server. An extension cannot import it at run time.");
+	assert.equal(
+		failure(scan, "cheat").message,
+		"tau/server is for starting a server. An extension cannot import it at run time.",
+	);
 });
 
 test("the four tau author entries give every host value to an outside extension", async () => {
 	const entries = ["tau", "tau/durable", "tau/schema", "tau/chord"];
-	const dir = await directory({ same: { "index.ts": entries.map((entry, i) =>
-		`import * as a${i} from ${JSON.stringify(entry)};`).join("\n") +
-		"\nexport const got = [a0, a1, a2, a3];" } });
+	const dir = await directory({
+		same: {
+			"index.ts":
+				entries
+					.map((entry, i) => `import * as a${i} from ${JSON.stringify(entry)};`)
+					.join("\n") + "\nexport const got = [a0, a1, a2, a3];",
+		},
+	});
 	const script = `import assert from 'node:assert/strict';
 const {fromDirectory} = await import('tau/server');
 const scan = await fromDirectory(${JSON.stringify(dir)})();
@@ -283,19 +293,29 @@ for (const [i, entry] of ${JSON.stringify(entries)}.entries()) {
  assert.deepEqual(Object.keys(scan.modules.same.got[i]).sort(), Object.keys(expected).sort());
  for (const [name, value] of Object.entries(expected)) assert.equal(scan.modules.same.got[i][name], value, entry + '.' + name);
 }`;
-	const child = spawnSync(process.execPath, ["--input-type=module", "--eval", script], { encoding: "utf8" });
+	const child = spawnSync(
+		process.execPath,
+		["--input-type=module", "--eval", script],
+		{ encoding: "utf8" },
+	);
 	assert.equal(child.status, 0, child.stderr);
 });
 
 test("tau-helpers as an extension dependency loads", async () => {
-	const dir = await directory({ good: {
-		"index.ts": 'import { value } from "tau-helpers"; export { value };',
-		"node_modules/tau-helpers/package.json": JSON.stringify({ name: "tau-helpers", type: "module", exports: "./index.js" }),
-		"node_modules/tau-helpers/index.js": "export const value = 42;",
-	} });
+	const dir = await directory({
+		good: {
+			"index.ts": 'import { value } from "tau-helpers"; export { value };',
+			"node_modules/tau-helpers/package.json": JSON.stringify({
+				name: "tau-helpers",
+				type: "module",
+				exports: "./index.js",
+			}),
+			"node_modules/tau-helpers/index.js": "export const value = 42;",
+		},
+	});
 	const scan = await fromDirectory(dir)();
 	assert.deepEqual(scan.failures, []);
-	assert.equal((scan.modules.good as {value: number}).value, 42);
+	assert.equal((scan.modules.good as { value: number }).value, 42);
 });
 
 test("an extension that imports tau/testing fails with the testing message", async () => {

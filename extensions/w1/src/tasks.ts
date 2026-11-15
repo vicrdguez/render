@@ -6,8 +6,8 @@ import {
 	request,
 	role,
 	withdraw,
-} from "tau-extension";
-import type { Context } from "tau-extension/chord";
+} from "tau";
+import type { Context } from "tau/chord";
 import {
 	AgentDoc,
 	type ConversationId,
@@ -21,7 +21,7 @@ import {
 	runEndTask,
 	type TaskRuntime,
 	type Tx,
-} from "tau-extension/durable";
+} from "tau/durable";
 import { branchHead, commitOf, ensureWorktree } from "./git.ts";
 import {
 	buildInput,

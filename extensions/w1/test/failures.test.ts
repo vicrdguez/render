@@ -14,7 +14,7 @@ import {
 	type ConversationId,
 	configure,
 	LiveDoc,
-} from "tau-extension/durable";
+} from "tau/durable";
 import { Work } from "../src/work.ts";
 import {
 	answered,

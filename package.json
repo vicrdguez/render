@@ -5,7 +5,6 @@
 	},
 	"workspaces": [
 		"core",
-		"extension-package",
 		"extensions/*",
 		"journeys"
 	],

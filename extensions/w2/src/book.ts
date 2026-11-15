@@ -1,10 +1,5 @@
-import type { DecisionId, EventData } from "tau-extension";
-import {
-	defineDoc,
-	defineEntry,
-	type EntryId,
-	type TaskId,
-} from "tau-extension/durable";
+import type { DecisionId, EventData } from "tau";
+import { defineDoc, defineEntry, type EntryId, type TaskId } from "tau/durable";
 
 export type ForecastData = {
 	text: string;

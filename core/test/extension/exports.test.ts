@@ -26,7 +26,9 @@ import ts from "typescript";
 import * as helpers from "../../src/extension/helpers.js";
 
 const directory = resolve(import.meta.dirname, "../../..");
-const manifest = JSON.parse(readFileSync(resolve(directory, "package.json"), "utf8"));
+const manifest = JSON.parse(
+	readFileSync(resolve(directory, "package.json"), "utf8"),
+);
 const entries = {
 	".": root,
 	"./durable": durable,
@@ -67,9 +69,7 @@ test("README tables match every emitted value, type, and origin exactly once", (
 	const checker = program.getTypeChecker();
 	const seen = new Set<string>();
 	assert.deepEqual(
-		[...readme.matchAll(/^## `(tau[^`]*)`$/gm)]
-			.map((match) => match[1])
-			.sort(),
+		[...readme.matchAll(/^## `(tau[^`]*)`$/gm)].map((match) => match[1]).sort(),
 		Object.keys(entries)
 			.map((entry) => `tau${entry.slice(1)}`)
 			.sort(),
@@ -80,11 +80,16 @@ test("README tables match every emitted value, type, and origin exactly once", (
 		for (const { name, origin } of documented) {
 			if (entry === ".")
 				assert.ok(
-					origin.startsWith("../store/") || origin === "../host/index.js" || origin === "./helpers.js",
+					origin.startsWith("../store/") ||
+						origin === "../host/index.js" ||
+						origin === "./helpers.js",
 					`${title}.${name}: root origin must be Tau-owned`,
 				);
 			if (entry === "./server") {
-				assert.ok(origin.startsWith("./host/"), `${title}.${name}: server origin must be host-owned`);
+				assert.ok(
+					origin.startsWith("./host/"),
+					`${title}.${name}: server origin must be host-owned`,
+				);
 			}
 			if (/^@earendil-works\/pi-ai(?:\/|$)/.test(origin))
 				assert.equal(
@@ -111,12 +116,21 @@ test("README tables match every emitted value, type, and origin exactly once", (
 			const target = checker.getAliasedSymbol(symbol);
 			if (entry === "./server") {
 				for (const declaration of target.declarations ?? [])
-					assert.ok(declaration.getSourceFile().fileName.startsWith(resolve(directory, "dist/src/host") + "/"),
-						`${title}.${symbol.name}: server must not re-export pi or helpers`);
+					assert.ok(
+						declaration
+							.getSourceFile()
+							.fileName.startsWith(resolve(directory, "dist/src/host") + "/"),
+						`${title}.${symbol.name}: server must not re-export pi or helpers`,
+					);
 			}
 			return {
 				name: symbol.name,
-				kind: target.flags & ts.SymbolFlags.Value ? "value" : "type",
+				kind:
+					!declaration.isTypeOnly &&
+					!statement.isTypeOnly &&
+					target.flags & ts.SymbolFlags.Value
+						? "value"
+						: "type",
 				origin: statement.moduleSpecifier.text,
 			};
 		});

@@ -1,4 +1,4 @@
-import { defineExtension } from "tau-extension/durable";
+import { defineExtension } from "tau/durable";
 import {
 	designAnswer,
 	ensureHandoff,

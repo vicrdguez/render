@@ -1,7 +1,7 @@
 import { existsSync, writeSync } from "node:fs";
 import { join } from "node:path";
-import type { ConversationId, Storage } from "tau-extension/durable";
-import { openNodeSqliteStorage } from "tau-extension/durable";
+import type { ConversationId, Storage } from "tau/durable";
+import { openNodeSqliteStorage } from "tau/durable";
 import {
 	answered,
 	call,

@@ -1,5 +1,5 @@
-import { modelRef } from "tau-extension";
-import type { AgentChange, Tx } from "tau-extension/durable";
+import { modelRef } from "tau";
+import type { AgentChange, Tx } from "tau/durable";
 import { designer } from "./roles.ts";
 import { W1Options } from "./work.ts";
 

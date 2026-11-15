@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { setImmediate } from "node:timers/promises";
-import { type DecisionId, decision, eventLog } from "tau-extension";
-import { BACKGROUND_CONTEXT as context } from "tau-extension/chord";
+import { type DecisionId, decision, eventLog } from "tau";
+import { BACKGROUND_CONTEXT as context } from "tau/chord";
 import {
 	type Conversation,
 	type ConversationId,
@@ -15,7 +15,7 @@ import {
 	type Registry,
 	type Storage,
 	type TaskId,
-} from "tau-extension/durable";
+} from "tau/durable";
 import {
 	createModels,
 	fauxAnswer,
@@ -24,7 +24,7 @@ import {
 	fauxToolCall,
 	openStore,
 	type Store,
-} from "tau-extension/testing";
+} from "tau/testing";
 import { entry, extension, options } from "../src/index.ts";
 
 export { context };
@@ -90,9 +90,7 @@ type Fixture = {
 		kind?: string,
 		conversation?: ConversationId,
 	): Promise<
-		Awaited<
-			ReturnType<import("tau-extension/durable").Tx["scanTasks"]>
-		>["items"]
+		Awaited<ReturnType<import("tau/durable").Tx["scanTasks"]>>["items"]
 	>;
 	sleeping(): ReturnType<Fixture["tasks"]>;
 	call(

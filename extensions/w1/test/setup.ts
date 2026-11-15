@@ -9,8 +9,8 @@ import {
 	type DecisionId,
 	decision,
 	eventLog,
-} from "tau-extension";
-import { BACKGROUND_CONTEXT as context } from "tau-extension/chord";
+} from "tau";
+import { BACKGROUND_CONTEXT as context } from "tau/chord";
 import {
 	type Agent,
 	CodingTools,
@@ -33,8 +33,8 @@ import {
 	type SubmissionDraft,
 	type TaskRecord,
 	type ToolRegistration,
-} from "tau-extension/durable";
-import { obj, str } from "tau-extension/schema";
+} from "tau/durable";
+import { obj, str } from "tau/schema";
 import {
 	createModels,
 	type FauxResponseStep,
@@ -45,7 +45,7 @@ import {
 	fauxToolCall,
 	openStore,
 	type Store,
-} from "tau-extension/testing";
+} from "tau/testing";
 import * as W1 from "../src/index.ts";
 
 export { context, W1 };

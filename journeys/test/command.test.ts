@@ -91,7 +91,7 @@ test("tau starts empty and discovers only the extensions placed in its home", as
 	await mkdir(folder, { recursive: true });
 	await writeFile(
 		path.join(folder, "index.ts"),
-		`import { defineExtension } from "tau-extension/durable";\nexport const extension = defineExtension({name: "local"});\n`,
+		`import { defineExtension } from "tau/durable";\nexport const extension = defineExtension({name: "local"});\n`,
 	);
 	const loaded = await serve(env);
 	try {
@@ -111,9 +111,9 @@ test("reload rereads prose, refuses syntax errors and keeps the old workflow wit
 	const server = await serve(env);
 	const folder = path.join(env.HOME, ".tau", "extensions", "local");
 	await mkdir(folder);
-	const source = `import { defineExtension } from "tau-extension/durable";
-import { options as defineOptions, prose } from "tau-extension";
-import { obj, str } from "tau-extension/schema";
+	const source = `import { defineExtension } from "tau/durable";
+import { options as defineOptions, prose } from "tau";
+import { obj, str } from "tau/schema";
 export const extension = defineExtension({name: "local"});
 export const options = defineOptions("local", obj({key: str({format: "secret"})}));
 const instructions = prose(import.meta.dirname, "agent.md", [])({});

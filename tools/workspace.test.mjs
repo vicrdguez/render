@@ -34,8 +34,7 @@ test("every source workspace references its emitted dependency", async () => {
 		);
 		assert.deepEqual(config.references, [
 			{
-				path:
-					directory === "journeys" ? "../core" : "../../core",
+				path: directory === "journeys" ? "../core" : "../../core",
 			},
 		]);
 	}
@@ -174,16 +173,17 @@ async function extensionFixture(t) {
 	};
 	await put("boundaries.json", policy);
 	await put("tsconfig.json", {
-		references: ["core", "extensions/w2", "extensions/w1"].map((path) => ({ path })),
+		references: ["core", "extensions/w2", "extensions/w1"].map((path) => ({
+			path,
+		})),
 	});
 	for (const directory of ["extensions/w2", "extensions/w1"])
 		await put(`${directory}/tsconfig.json`, {});
 	await put("core/package.json", {
 		exports: Object.fromEntries(
-			[".", "./durable", "./schema", "./chord", "./testing", "./server"].map((entry) => [
-				entry,
-				"./dist/src/index.js",
-			]),
+			[".", "./durable", "./schema", "./chord", "./testing", "./server"].map(
+				(entry) => [entry, "./dist/src/index.js"],
+			),
 		),
 		name: "tau",
 	});
@@ -235,7 +235,10 @@ for (const layer of ["store", "host", "command"]) {
 			'import "tau/durable";',
 		]) {
 			await put(`core/src/${layer}/access.ts`, statement);
-			assert.match((await check(root)).join("\n"), /forbidden core layer import/);
+			assert.match(
+				(await check(root)).join("\n"),
+				/forbidden core layer import/,
+			);
 		}
 		await put(`core/src/${layer}/access.ts`, 'import "./local.js";');
 		assert.deepEqual(await check(root), []);
@@ -245,7 +248,10 @@ for (const layer of ["store", "host", "command"]) {
 test("tau extensions cannot import tau/server", async (t) => {
 	const { root, put } = await extensionFixture(t);
 	await put("extensions/w2/src/access.ts", 'import "tau/server";');
-	assert.match((await check(root)).join("\n"), /access.ts: tau\/server: forbidden extension import/);
+	assert.match(
+		(await check(root)).join("\n"),
+		/access.ts: tau\/server: forbidden extension import/,
+	);
 });
 
 for (const statement of [
@@ -408,7 +414,7 @@ for (const [specifier, replacement] of [
 	["@earendil-works/chord/context", "tau/chord"],
 	["@earendil-works/pi-ai/providers/faux", "tau/testing"],
 	["@earendil-works/future", "tau"],
-		["tau/dist/src/store/decisions.js", "tau"],
+	["tau/dist/src/store/decisions.js", "tau"],
 	["tau/server", "tau"],
 	["tau-private", "tau"],
 	["tau-w1", "tau"],
@@ -714,8 +720,10 @@ for (const layer of ["store", "host", "command"]) {
 	for (const directory of ["src", "test"]) {
 		test(`tau ${layer} ${directory} cannot import tau author helpers`, async (t) => {
 			const { root, put } = await fixture(t);
-			await put(`core/${directory}/${layer}/index.ts`,
-				`import "../../src/extension/helpers.js";`);
+			await put(
+				`core/${directory}/${layer}/index.ts`,
+				`import "../../src/extension/helpers.js";`,
+			);
 			const result = run("check-boundaries.mjs", root);
 			assert.equal(result.status, 1, result.stderr);
 			assert.match(result.stderr, /forbidden core layer import/);

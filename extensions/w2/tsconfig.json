@@ -8,5 +8,5 @@
 		"tsBuildInfoFile": "../../node_modules/.cache/tau-w2.tsbuildinfo"
 	},
 	"include": ["src/**/*.ts", "test/**/*.ts"],
-	"references": [{ "path": "../../extension-package" }]
+	"references": [{ "path": "../../core" }]
 }

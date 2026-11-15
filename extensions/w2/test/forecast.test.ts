@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { emit } from "tau-extension";
-import { configure, defineEntry, defineExtension } from "tau-extension/durable";
-import { fauxAssistantMessage } from "tau-extension/testing";
+import { emit } from "tau";
+import { configure, defineEntry, defineExtension } from "tau/durable";
+import { fauxAssistantMessage } from "tau/testing";
 import { entry, extension, options } from "../src/index.ts";
 import { due, score } from "../src/tasks.ts";
 import { args, context, open, START, until, WEEK } from "./harness.ts";

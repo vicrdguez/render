@@ -198,7 +198,6 @@ async function check() {
 try {
 	assert.deepEqual((await readdir(lib)).sort(), [
 		"core",
-		"extension-package",
 		"node_modules",
 		"package.json",
 	]);
