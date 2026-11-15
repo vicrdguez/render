@@ -4,9 +4,10 @@
   inputs.nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0";
 
   outputs =
-    { self, nixpkgs }:
+    { nixpkgs, ... }:
     let
       inherit (nixpkgs) lib;
+      root = ./.;
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -17,316 +18,60 @@
         let
           pkgs = import nixpkgs { inherit system; };
           nodejs = pkgs.nodejs_24;
-          lock = builtins.fromJSON (builtins.readFile ./package-lock.json);
-          workspaceManifests = lib.filterAttrs (
-            name: _: name != "" && !(lib.hasInfix "node_modules" name)
-          ) lock.packages;
-          npmRootSrc = lib.fileset.toSource {
-            root = ./.;
-            fileset = lib.fileset.unions [
-              ./package.json
-              ./package-lock.json
-            ];
-          };
-          sourceFor =
-            directories:
-            lib.fileset.toSource {
-              root = ./.;
-              fileset = lib.fileset.unions (
-                [
-                  (lib.fileset.unions (
-                    map (name: ./. + "/${name}") (
-                      builtins.attrNames (lib.filterAttrs (_: type: type == "regular") (builtins.readDir ./.))
-                    )
-                  ))
-                  ./tools
-                ]
-                ++ map (directory: lib.fileset.maybeMissing (./. + "/${directory}")) directories
-                ++ map (directory: lib.fileset.maybeMissing (./. + "/${directory}/package.json")) (
-                  builtins.attrNames workspaceManifests
-                )
-              );
-            };
-          npmDeps = pkgs.importNpmLock.buildNodeModules {
-            npmRoot = npmRootSrc;
-            inherit nodejs;
-            derivationArgs = {
-              postPatch = lib.concatStringsSep "\n" (
-                lib.mapAttrsToList (directory: manifest: ''
-                  mkdir -p "${directory}"
-                  cp ${pkgs.writeText "workspace-manifest.json" (builtins.toJSON manifest)} "${directory}/package.json"
-                '') workspaceManifests
-              );
-              postInstall = "find $out/node_modules -maxdepth 2 -type l \\( -lname '*extensions/*' -o -lname '*core' -o -lname '*e2e' \\) -delete";
-            };
-          };
-          enterRoot = ''
-            TAU_INVOCATION_DIR="''${TAU_INVOCATION_DIR:-$(pwd -P)}"
-            export TAU_INVOCATION_DIR
-            while [ ! -f flake.nix ] || [ ! -f package.json ]; do
-              if [ "$PWD" = / ]; then
-                printf '%s\n' 'Run this command inside the Tau repository.' >&2
-                exit 1
-              fi
-              cd ..
-            done
-          '';
-          linkModules = ''
-            node tools/link-node-modules.mjs ${npmDeps}/node_modules
-          '';
-          nixFiles = flags: ''
-            find . -type d \( -name .git -o -path ./.direnv -o -path ./.worktrees \
-              -o -name node_modules -o -path ./docs -o -path ./.agents -o -name dist \) -prune \
-              -o -type f -name '*.nix' -exec nixfmt ${flags} {} +
-          '';
-          mkCommand =
-            name: runtimeInputs: text:
-            let
-              action = pkgs.writeShellApplication {
-                name = "tau-${name}";
-                runtimeInputs = [ nodejs ] ++ runtimeInputs;
-                inherit text;
-              };
-            in
-            pkgs.writeShellApplication {
-              inherit name;
-              runtimeInputs = [
-                nodejs
-                pkgs.coreutils
-              ];
-              text = ''
-                ${enterRoot}
-                timeout --kill-after=10s 60s ${pkgs.bash}/bin/bash -c '${linkModules}'
-                exec timeout --kill-after=10s 600s ${action}/bin/tau-${name} "$@"
-              '';
-            };
-          commands = {
-            install-extension = mkCommand "install-extension" [ pkgs.nix pkgs.git ] ''
-              exec node tools/install-extension.mjs '${builtins.toJSON (builtins.attrNames extensions)}' "$@"
-            '';
-            fmt = mkCommand "fmt" [ pkgs.biome pkgs.nixfmt pkgs.findutils ] ''
-              biome format --write .
-              ${nixFiles ""}
-            '';
-            lint = mkCommand "lint" [ pkgs.biome pkgs.nixfmt pkgs.findutils ] ''
-              node tools/check-lock.mjs
-              node tools/check-boundaries.mjs
-              biome check .
-              ${nixFiles "--check"}
-            '';
-            typecheck = mkCommand "typecheck" [ ] ''
-              node tools/check-lock.mjs
-              node tools/check-boundaries.mjs "$@"
-              node tools/typecheck.mjs "$@"
-              node tools/assets.mjs "$@"
-            '';
-            test = mkCommand "test" [ pkgs.git ] ''
-              ${commands.typecheck}/bin/typecheck "$@"
-              node tools/tests.mjs "$@"
-            '';
-            verify-build = mkCommand "verify-build" [ pkgs.nix ] ''
-              executable="''${1:-}"
-              if [ -z "$executable" ]; then
-                executable="$(nix build --no-link --print-out-paths .#tau)/bin/tau"
-              fi
-              shift "$(( $# > 0 ? 1 : 0 ))"
-              if [ "$#" -eq 0 ]; then
-                outputs=()
-                for name in w1 w2 websearch; do
-                  outputs+=("$(nix build --no-link --print-out-paths ".#extension-$name")")
-                done
-                set -- "''${outputs[@]}"
-              fi
-              node e2e/test/verify-build.ts "$executable" "$@"
-            '';
-            check = mkCommand "check" [ ] ''
-              if [ "$#" -gt 0 ]; then
-                exec ${commands.test}/bin/test "$@"
-              fi
-              ${commands.lint}/bin/lint
-              ${commands.test}/bin/test
-              ${commands.verify-build}/bin/verify-build
-            '';
-          };
-          checkSpecs = {
-            workspace = {
-              source = self;
-              run = ''
-                ${commands.lint}/bin/lint
-                node tools/tests.mjs tools
-              '';
-            };
-            core = {
-              source = sourceFor [ "core" ];
-              run = ''
-                node node_modules/typescript/bin/tsc -b core
-                node tools/assets.mjs core
-                node tools/tests.mjs core
-              '';
-            };
-            e2e = {
-              source = self;
-              run = ''
-                node tools/typecheck.mjs e2e
-                node tools/assets.mjs core
-                node tools/tests.mjs e2e
-              '';
-            };
-            verify-build = {
-              source = sourceFor [ "e2e/test/verify-build.ts" ];
-              run = ''
-                node e2e/test/verify-build.ts ${tau}/bin/tau ${extensions.w1} ${extensions.w2} ${extensions.websearch}
-              '';
-            };
-          }
-          // lib.genAttrs [ "extension-websearch" "extension-w2" "extension-w1" ] (
-            name:
-            let
-              directory = "extensions/${lib.removePrefix "extension-" name}";
-            in
-            {
-              source = sourceFor [
-                "core"
-                directory
-              ];
-              run = ''
-                node node_modules/typescript/bin/tsc -b ${directory}
-                node tools/assets.mjs core
-                node tools/tests.mjs ${directory}
-              '';
-            }
-          );
-          checks = lib.mapAttrs (
-            name: spec:
-            pkgs.runCommand "tau-${name}"
-              {
-                nativeBuildInputs = [
-                  nodejs
-                  pkgs.coreutils
-                  pkgs.git
-                ];
-                __darwinAllowLocalNetworking = true;
-                passthru.source = spec.source;
-              }
-              ''
-                cp -R ${spec.source} source
-                chmod -R u+w source
-                cd source
-                timeout --kill-after=10s 660s ${pkgs.writeShellScript "check-${name}" ''
-                  set -euo pipefail
-                  ${linkModules}
-                  ${spec.run}
-                ''}
-                touch "$out"
-              ''
-          ) checkSpecs;
-          extensions = lib.genAttrs [ "w1" "w2" "websearch" ] (
-            name:
-            pkgs.runCommand "tau-${name}-source" { } ''
-              mkdir -p "$out"
-              cp -R ${./extensions + "/${name}/src"}/. "$out/"
-              ${lib.optionalString (name == "websearch") ''
-                mkdir "$out/node_modules"
-                ln -s ${npmDeps}/node_modules/webfox "$out/node_modules/webfox"
-              ''}
-            ''
-          );
-          tau = pkgs.stdenvNoCC.mkDerivation {
-            pname = "tau";
-            version = "0.0.0";
-            src = lib.fileset.toSource {
-              root = ./.;
-              fileset = lib.fileset.unions [
-                ./package.json
-                ./tsconfig.json
-                ./tsconfig.base.json
-                ./tools/link-node-modules.mjs
-                ./tools/assets.mjs
-                ./core
-              ];
-            };
-            nativeBuildInputs = [
+          workspace = import ./nix/workspace.nix { inherit pkgs nodejs root; };
+          packages = import ./nix/packages.nix {
+            inherit
+              pkgs
               nodejs
-              pkgs.makeWrapper
-            ];
-            buildPhase = ''
-              runHook preBuild
-              node tools/link-node-modules.mjs ${npmDeps}/node_modules
-              node node_modules/typescript/bin/tsc -b core
-              runHook postBuild
-            '';
-            installPhase = ''
-              runHook preInstall
-              mkdir -p $out/lib/tau $out/bin
-              cp package.json $out/lib/tau/
-              mkdir -p "$out/lib/tau/core/dist"
-              cp core/package.json "$out/lib/tau/core/"
-              cp -R core/dist/src "$out/lib/tau/core/dist/"
-              linker="$PWD/tools/link-node-modules.mjs"
-              (cd $out/lib/tau && node "$linker" ${npmDeps}/node_modules)
-              makeWrapper ${nodejs}/bin/node $out/bin/tau --add-flags $out/lib/tau/core/dist/src/command/main.js
-              runHook postInstall
-            '';
+              root
+              workspace
+              ;
+          };
+          dev = import ./nix/dev.nix { inherit pkgs nodejs workspace; };
+          validation = import ./nix/checks.nix {
+            inherit
+              pkgs
+              nodejs
+              root
+              workspace
+              packages
+              ;
+            inherit (dev) lintAction;
           };
         in
         {
           inherit
-            commands
-            checks
-            tau
-            extensions
+            pkgs
+            packages
+            dev
+            validation
             ;
-          verifyBuildApp = pkgs.writeShellScript "verify-build" ''
-            exec ${commands.verify-build}/bin/verify-build ${tau}/bin/tau ${extensions.w1} ${extensions.w2} ${extensions.websearch} "$@"
-          '';
-          formatter = pkgs.nixfmt;
-          shell = pkgs.mkShellNoCC {
-            packages = [
-              nodejs
-              pkgs.git
-              pkgs.sqlite
-              pkgs.biome
-              pkgs.nixfmt
-            ]
-            ++ builtins.attrValues commands;
-            shellHook = ''
-              (
-                ${enterRoot}
-                ${linkModules}
-              ) || exit 1
-            '';
-          };
         }
       );
+      app = program: {
+        type = "app";
+        inherit program;
+      };
     in
     {
       apps = lib.mapAttrs (
         _: value:
-        lib.mapAttrs (name: command: {
-          type = "app";
-          program = "${command}/bin/${name}";
-        }) value.commands
+        lib.mapAttrs (name: command: app "${command}/bin/${name}") value.dev.commands
         // {
-          verify-build = {
-            type = "app";
-            program = "${value.verifyBuildApp}";
-          };
-          tau = {
-            type = "app";
-            program = "${value.tau}/bin/tau";
-          };
+          tau = app "${value.packages.tau}/bin/tau";
+          verify-build = app (lib.getExe value.validation.verifyBuild);
         }
       ) perSystem;
       packages = lib.mapAttrs (
         _: value:
         {
-          inherit (value) tau;
-          default = value.tau;
+          inherit (value.packages) tau;
+          default = value.packages.tau;
         }
-        // lib.mapAttrs' (name: output: lib.nameValuePair "extension-${name}" output) value.extensions
+        // lib.mapAttrs' (name: lib.nameValuePair "extension-${name}") value.packages.extensions
       ) perSystem;
-      devShells = lib.mapAttrs (_: value: { default = value.shell; }) perSystem;
-      checks = lib.mapAttrs (_: value: value.checks) perSystem;
-      formatter = lib.mapAttrs (_: value: value.formatter) perSystem;
+      devShells = lib.mapAttrs (_: value: { default = value.dev.shell; }) perSystem;
+      checks = lib.mapAttrs (_: value: value.validation.checks) perSystem;
+      formatter = lib.mapAttrs (_: value: value.pkgs.nixfmt) perSystem;
     };
 }

@@ -20,14 +20,15 @@ Choose the least complexity that satisfies the accepted scope, repository standa
 
 Run commands through `/nix/var/nix/profiles/default/bin/nix develop -c <command>` or `/nix/var/nix/profiles/default/bin/nix run .#<command>`.
 The shell manages root `node_modules`. Move an unmanaged directory aside first. No install step is needed.
-Use `fmt` for formatting and `lint` for workspace checks. `typecheck`, `test`, and `check` accept a side (`core`, `extensions`, `e2e`), package name, or test file. No argument selects everything. Use `env test` in an interactive shell to avoid its builtin.
-`check` without arguments includes `verify-build`, which exercises the installed server and extensions.
-The acceptance gate is `/nix/var/nix/profiles/default/bin/nix flake check -L`.
+Use `fmt` for formatting and `lint` for workspace checks. Use named checkout tasks such as `test-core`, `test-w2`, `test-e2e`, and `test-tools` for focused feedback. `typecheck` and `test` accept a side (`core`, `extensions`, `e2e`), package name, or test file. No argument selects everything. Run `test --help` or `test --list` to discover selectors. Use `env test` in an interactive shell to avoid its builtin.
+Build core with `nix build .#tau` and an extension with `nix build .#extension-w2`. Packaging an extension does not validate it. Use `nix run .#verify-build` to verify the current installed executable and extension artifacts. There is no shell `verify-build` or local `check` command.
+The acceptance gate is `/nix/var/nix/profiles/default/bin/nix flake check -L`. It includes workspace policy checks, package tests, real-server tests, and installed-build verification. Individual check builds do not replace this gate.
+Scope Nix inputs to each task's required source, configuration, tools, and runtime assets. Reserve whole-tree inputs for workspace lint and inspect dependencies when changing Nix to avoid unrelated rebuilds.
 Use `install-extension --home <temporary-directory> <name>` to try an extension without changing the user's Tau home. The flake sees only tracked files.
 
 ## Layout
 
-`core/` is the `tau` package. Its store, host, command, and author helpers live under `core/src/`. `extensions/` holds W1, W2, and web search. `e2e/` holds real-server tests. `tools/` holds development commands.
+`core/` is the `tau` package. Its store, host, command, and author helpers live under `core/src/`. `extensions/` holds W1, W2, and web search. `e2e/` holds real-server tests. `tools/` holds development commands. `nix/` separates dependency and source policy, artifact builds, acceptance checks, and checkout commands. Read [the Nix workflow design](nix/README.md) when changing build inputs, command behavior, or acceptance coverage.
 Read [the design](docs/design.md) for layer boundaries, [extensions](docs/extensions.md) for author and loader rules, and [the export tables](core/README.md) for public entries.
 
 ### Add an extension package
