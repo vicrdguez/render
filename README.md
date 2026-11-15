@@ -5,7 +5,7 @@ Tau is a small server on pi-durable for delegated agent work. It keeps decisions
 | Directory | Contents |
 | --- | --- |
 | `core/` | Store, host, command, and extension helpers |
-| `extensions/` | Sample extensions |
+| `extensions/` | [Sample extensions](docs/README.md) |
 | `e2e/` | End-to-end server tests |
 | `tools/` | Development commands |
 
