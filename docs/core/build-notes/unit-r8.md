@@ -15,7 +15,7 @@ Tau makes delegated work trustworthy enough that you can leave, reconnect elsewh
 | Partial publication and queue refusal | Say old code always runs, or distinguish the outcome. | Only preparation refusal says old code still runs. Partial publication says restart required. A closing queue returns its existing busy message. | Mixed publication is not rollback. |
 | Installer build | Keep two builds, or build the temporary out-link once. | One build creates a hidden out-link in the extensions directory. Rename it over the selected link only after success. | The first no-link build becomes redundant. Any out-link build failure preserves the old entry. Files and directories remain refused. |
 | GC root after rename | Assume the root follows the link, or measure it. | Register the final path with nix-store --add-root --indirect --realise after rename. | The measured indirect root records the temporary pathname. Rename alone loses root registration. No collection is run. |
-| Installer report | Require an emitted CLI helper, or print the socket's report. | The standalone installer prints the structured JSON report and follows exit codes 0, 3 and 1. | It runs without compiling the workspace. The CLI prints human-readable lines. |
+| Installer report | Require an emitted CLI helper, or format the socket report directly. | The standalone installer prints the same readable lines as the CLI and follows exit codes 0, 3 and 1. | It runs without compiling the workspace. The follow-up replaces the original JSON output. |
 | Installed verification | Restart after linking, or reload the same server. | The existing verify-build test links three outputs while the installed empty server runs. A second reload uses a Markdown-edited W2 copy. | This proves the installed admin command, not just startup discovery. No flake change is needed because its verify-build command already invokes this test. |
 | Review tools | Spawn reviewers, or review locally. | Review locally and use gh. | The unit rules forbid subagents and playbook execution. Origin is absent. |
 
@@ -134,6 +134,71 @@ startup reports a stored task newer than installed code
 The test runner was inspected before execution. The focused host and command run passed 209 tests in 6686.591584 ms. The later installer run passed 14 tests in 6326.312584 ms. The final cumulative run passed 479 tests in 18152.466792 ms. These are test-budget observations, not speed comparisons. Node reports test execution time, excluding the preceding typecheck. Real-process CLI cases and two one-second timers account for most new work. No fault loop or real model call was added. Lint also passed.
 
 Fresh-checkout acceptance and forced flake checks are recorded in the PR at the pushed head. Three earlier gate attempts at f48e0d5 hit existing journey timeouts under host load between 16 and 28. The last had 477 passes, zero assertion failures and two cancellations. All four non-test checks passed forced rebuilds at that head. No assertion or deadline was weakened. No spikes or concurrent R10 files changed.
+
+## Follow-up after independent verification
+
+Merged origin/render-core at b39de49 with a merge commit, not a rebase. The Commands conflict keeps R10's typecheck and source-test lines and R8's installer and verify-build lines. R8's journeys already load extension src folders. No emitted extension test assumption remains. The full suite includes R10's source runner and crash tests.
+
+| Where | Readings | Taken | Why |
+| --- | --- | --- | --- |
+| Refused installation | Leave the new link, or restore the previous link. | Save the old target, create the rollback symlink under the temporary name, rename it over the final link, and register that final root again. With no previous link, unlink the new entry. | A reboot must load the last accepted install. Refusal prints its reason and the previous-version outcome, never Installed. |
+| Applied warnings | Roll back every nonzero exit, or distinguish warnings. | Keep the new link for applied exit 3. | The running server has already published the new code. |
+| Installer interruption | Synchronous build, or let Node process signals during the build. | Spawn the build asynchronously. SIGTERM and SIGINT kill the child and unlink the temporary root. | The synchronous build prevented prompt cleanup. |
+| Stale output | Delete dot entries, or match only generated names. | Remove symbolic links whose name is exactly a known extension plus a UUID, on every invocation. | Other hidden files and links belong to the owner. The loader's dot-entry test includes a dangling installer link. |
+| Readable reports | Depend on emitted workspace code, or format the standalone report. | Keep a small direct formatter in the installer. | The installer runs before typecheck. Shipping a shared emitted helper would require unrelated packaging work. |
+| Sleeping task | Label a predicted failure as migration_failed, or describe the next wake. | Print will block when it next wakes and the missing migration versions. | It is not blocked yet. The wire schema stays unchanged. |
+| Kept extension | Report only newly published projects, or include projects still served. | List every open project selecting the kept extension. | Kept code is still installed there. |
+| Directory failure | Give every error permission advice, or show the specific cause. | Remove the blanket permissions preamble. Only the writable-mode error advises chmod. | A file must be replaced by a folder, not chmodded. |
+
+### Test-first evidence
+
+Tests landed in 493e754 before fixes in e1b61dd. The focused red run compiled and showed 104 pass, 10 fail, 114 total. Failures covered rollback with and without an old link, both signals, stale cleanup, installer JSON, sleeping wording, kept projects and the not-a-folder preamble. The fixed focused run showed 114 pass, 0 fail in 9445.846042 ms. Logs are /tmp/r8-followup-red.log and /tmp/r8-followup-green.log.
+
+Root registration and all-project inspection were already correct, so their new tests initially passed. Mutating them establishes the missing regression protection.
+
+| Broken line | Result | Log |
+| --- | --- | --- |
+| Remove registerRoot for the final link. | Atomic-install test fails, 0 pass and 1 fail. | /tmp/r8-followup-mutant-roots.log |
+| Inspect only projects.all().slice(0, 1). | Two-project inspection fails, 0 pass and 1 fail. | /tmp/r8-followup-mutant-projects.log |
+| Remove signal unlinkSync. | SIGTERM and SIGINT tests fail, 0 pass and 2 fail. | /tmp/r8-followup-mutant-signal.log |
+
+All mutations were restored. The fake nix-store records every argument. Assertions require --add-root, the final link, --indirect, --realise and the target, including the previous target after rollback. A separate naming regression first failed with 0 pass and 1 fail, then passed after matching the exact generated name. Its test commit is fc5e756 and fix is 6f50f38. Logs are /tmp/r8-stale-naming-red.log and /tmp/r8-installer-final.log. The final installer suite has 18 passing tests.
+
+### Installed restart evidence
+
+The real run is /tmp/r8-followup-real.mjs with output /tmp/r8-followup-real.log. It starts the installed tau in a temporary HOME on an ephemeral port, then runs the actual installer against Nix outputs while that server runs.
+
+```text
+GOOD INSTALL
+added w2; projects: none
+total: 1 extensions; 0 tasks; 0 skipped projects
+Installed w2 at /tmp/nix-shell.0uYLRO/r8-rollback-real-T8E0gF/.tau/extensions/w2.
+PROSE EDIT INSTALL
+replaced w2; projects: p
+total: 1 extensions; 0 tasks; 0 skipped projects
+link before syntax /nix/store/jmqggyd9fibdhf394k3c4xagbdri9m1a-tau-extension-w2
+SYNTAX ERROR INSTALL
+exit=1
+tau: reload refused; old code still runs.
+tau: w2 /tmp/nix-shell.0uYLRO/r8-rollback-real-T8E0gF/.tau/extensions/w2 import: ParseError: Unexpected token
+Install refused; the previous version is still installed.
+link after refusal /nix/store/jmqggyd9fibdhf394k3c4xagbdri9m1a-tau-extension-w2
+"/tmp/nix-shell.0uYLRO/r8-rollback-real-T8E0gF/.tau/extensions/w2" -> /nix/store/jmqggyd9fibdhf394k3c4xagbdri9m1a-tau-extension-w2
+old workflow {"result":{"conversation":13}}
+restarted workflow {"result":{"conversation":19}}
+```
+
+The root line comes from nix-store --gc --print-roots filtered by the temporary home. No collection was requested. After SIGTERM and restart the extensions response still lists w2 with workflow true and its model schema. The admin socket is 600. HTTP POST /v1/extension_reload still returns unknown_call. Both edited tracked source files were restored byte for byte.
+
+### Inventory and acceptance
+
+The new baseline is origin/render-core b39de49, not the old R8 baseline. It passes 473 tests in 18873.18575 ms. The final local run passes 502 with zero failures or cancellations in 21612.894375 ms. These are test-budget observations, not speed claims. The normalized inventories /tmp/r8-before.txt and /tmp/r8-after.txt contain 404 and 433 unique top-level names. One name is replaced and 29 are new. The removed name is install-extension builds an out-link, replaces it and tells the owner to restart. Its replacement is install-extension replaces a link atomically and reports that it loads at the next start, retaining the link and permission assertions.
+
+The 29 new names include the original R8 additions listed above and five follow-up names. They are the two signal cases, exact stale cleanup, rollback/root restoration, and inspection of every open project. The already-existing loader dot-entry test now includes an installer-named dangling link.
+
+The first fresh-checkout gate caught one import-order error in the installer tests. Fixed in 025f9bf. Fresh-checkout nix flake check -L --max-jobs 1 then passed. All five checks were forced sequentially with nix build --rebuild --no-link -L --max-jobs 1. Test output is 502 pass, 0 fail, 0 cancelled. verify-build prints the three added lines, replaced w2; projects: p and SIGTERM exit 0. Final-head acceptance is repeated after this notes update and recorded on PR 114. Logs are /tmp/r8-fresh-gate.log and /tmp/r8-forced-{lint,typecheck,test,spikes,verify-build}.log.
+
+The branch diff stays within the allowed paths. The spikes diff is empty. No Linux execution, destructive collection or real model call was performed.
 
 ## Limits
 
