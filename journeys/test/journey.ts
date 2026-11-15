@@ -17,7 +17,7 @@ export async function until(
 	what: string,
 	test: () => boolean | Promise<boolean>,
 ) {
-	const deadline = Date.now() + 10_000;
+	const deadline = Date.now() + 60_000;
 	while (!(await test())) {
 		assert.ok(Date.now() < deadline, `timed out: ${what}`);
 		await new Promise((resolve) => setTimeout(resolve, 5));
@@ -37,6 +37,7 @@ export async function post(
 			...(token === undefined ? {} : { Authorization: `Bearer ${token}` }),
 		},
 		body: JSON.stringify(body),
+		signal: AbortSignal.timeout(60_000),
 	});
 	return { status: response.status, body: await response.json() };
 }

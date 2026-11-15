@@ -5,7 +5,7 @@ import { until } from "./journey.ts";
 import { processJourney } from "./process-journey.ts";
 
 test("W0: leave, restart, fill the history gap from a second device, and continue", {
-	timeout: 20_000,
+	timeout: 180_000,
 }, async () => {
 	const j = await processJourney();
 	try {

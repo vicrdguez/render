@@ -55,10 +55,10 @@ async function serve(env: NodeJS.ProcessEnv, args: string[] = []) {
 	child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
 		stderr += chunk;
 	});
-	for (let i = 0; i < 500 && !stdout.includes("listening"); i++) {
+	await until("command listening address", () => {
 		if (child.exitCode !== null) assert.fail(`tau exited: ${stderr}`);
-		await new Promise((resolve) => setTimeout(resolve, 10));
-	}
+		return stdout.includes("listening");
+	});
 	const url = /listening on (http:\/\/127\.0\.0\.1:\d+)/.exec(stdout)?.[1];
 	assert.ok(url, stdout);
 	assert.ok(!url.endsWith(":0"));

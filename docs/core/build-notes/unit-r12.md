@@ -25,6 +25,29 @@ The baseline passed 505 tests. The full output is /tmp/r12-before.log and the re
 | Check source evidence | Infer the closure from a build log or expose the input path. | Each check has a source passthru. | A verifier can inspect exactly the files copied into that check. |
 | Retired names | Keep dead package names in negative fixtures or use a current private workspace fixture. | Rename tau-kit fixtures to tau-private and test private facade subpaths in the real-policy table. | The removed package is no longer a dependency capability. |
 
+## Split evidence
+
+The split gate passed all nine checks, then was pushed at e9f4b45. Its log is /tmp/r12-split-gate.log. The core check runs 197 tests with no author-package source. The syntax-error proof passed core and failed extension-w1. Removing both extensions and extension-package passed core and failed both owning checks with TS5083. Logs are /tmp/r12-core-syntax.log, /tmp/r12-w1-syntax.log, /tmp/r12-core-absent.log, and /tmp/r12-owners-absent.log.
+
+## Journey waits
+
+| Wait | Before | Event and bound now |
+| --- | --- | --- |
+| W0 journey | 20 seconds for two process starts and 57 replies. | 180 second outer budget. Each reply, history page and reconnect still has its existing assertions. |
+| W1 crash, W1 workflow, search and W2 journeys | 15 seconds for the whole journey. | 180 second outer budget. No assertion, crash or restart is removed. |
+| until helper | Poll a named condition for 10 seconds. | Poll the same condition for 60 seconds. It covers SSE snapshots, persisted replies, inbox decisions, score and revision events, workflow stages, and the paused Git marker. It never retries an operation. |
+| Child readiness | Treat the first IPC message as the address, with no local bound. | Wait for the listening address for at most 60 seconds. A resumed model request is not readiness. An early exit or process error fails the wait. Listeners are removed on every outcome. |
+| Child termination | Wait for close or exit with no local bound. | Wait for close or exit with a 60 second abort signal. SIGKILL assertions remain. |
+| HTTP calls | Fetch with no local deadline. | A 60 second abort signal bounds each request. |
+| Command journey readiness | 500 ten millisecond polls. | Wait for its listening-address output with the 60 second until helper. |
+| Installed verifier readiness and shutdown | 10 second readiness bound and unbounded exit. | 60 seconds for listening output and 60 seconds for exit. |
+
+Three concurrent journey runs passed while a full flake gate built beside them. Each ran 74 tests with zero failures. Node reported 6300.977 ms, 6308.588 ms and 6286.204 ms. These include concurrent startup, assertions and cleanup. They are verification durations, not a performance comparison. Logs are /tmp/r12-load-1.log through /tmp/r12-load-3.log. /tmp/r12-load-gate.log shows all nine checks passing.
+
+The readiness regression runs a real child that sends a model request before its listening address. The old first-message implementation failed that test. The other new cases cover exit before readiness and deadline cleanup. The readiness suite passed in 165 ms after the change.
+
+The installer now roots a previous Nix store output before replacing its link and drops the temporary root on completion or handled signals. Three new tests failed before the change and pass after it. They observe the root during applied and refused reloads, cleanup after each, and refusal to replace the old link when root registration fails. The warning case now asserts the future-block wording and absence of migration_failed. Installer logs are /tmp/r12-installer-red.log and /tmp/r12-installer-green.log.
+
 ## Failure inventory
 
 Moves can break module-relative prose, child process URLs, installed paths, workspace links, lock metadata, compiler references, test discovery, or the journey import boundary. Existing tests protect the move. New policy cases will pin journeys to tau/server, refuse extension imports, and hold the real policy and compiler references.

@@ -3,7 +3,7 @@ import { fork } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test, type TestContext } from "node:test";
+import { type TestContext, test } from "node:test";
 import { serverAddress } from "./readiness.ts";
 
 async function child(t: TestContext, source: string) {
@@ -19,14 +19,21 @@ async function child(t: TestContext, source: string) {
 }
 
 test("journey readiness ignores a resumed model request before the listening address", async (t) => {
-	const process = await child(t, `
+	const process = await child(
+		t,
+		`
 process.on("message", () => process.send({port: 12345}));
 process.send({id: 1, request: {messages: []}});
-`);
+`,
+	);
 	const address = serverAddress(process);
 	let resolved = false;
-	void address.then(() => { resolved = true; });
-	await new Promise<void>((resolve) => process.once("message", () => resolve()));
+	void address.then(() => {
+		resolved = true;
+	});
+	await new Promise<void>((resolve) =>
+		process.once("message", () => resolve()),
+	);
 	assert.equal(resolved, false);
 	process.send("listen");
 	assert.deepEqual(await address, { port: 12345 });

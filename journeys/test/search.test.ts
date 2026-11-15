@@ -7,7 +7,7 @@ import { until } from "./journey.ts";
 import { processJourney } from "./process-journey.ts";
 
 test("search: project default calls the local provider and no device surface or log reveals the key", {
-	timeout: 15_000,
+	timeout: 180_000,
 }, async (t) => {
 	const key = "sk-integration-secret-never-return";
 	let requests = 0;

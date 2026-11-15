@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
 import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
 	chmod,
 	lstat,
@@ -36,25 +36,55 @@ for (const status of ["applied", "refused"]) {
 		const server = net.createServer({ allowHalfOpen: true }, (socket) => {
 			socket.resume();
 			socket.on("end", async () => {
-				const roots = (await readFile(f.roots, "utf8")).trim().split("\n").map(JSON.parse);
-				const rooted = roots.find((args) => args.at(-1) === previous && args[1] !== link);
+				const roots = (await readFile(f.roots, "utf8"))
+					.trim()
+					.split("\n")
+					.map(JSON.parse);
+				const rooted = roots.find(
+					(args) => args.at(-1) === previous && args[1] !== link,
+				);
 				observation = {
 					current: await readlink(link),
 					protected: rooted ? await readlink(rooted[1]) : undefined,
 				};
-				socket.end(JSON.stringify({ reload: { status, extensions: [], tasks: [], skipped: [], failures: [] } }) + "\n");
+				socket.end(
+					JSON.stringify({
+						reload: {
+							status,
+							extensions: [],
+							tasks: [],
+							skipped: [],
+							failures: [],
+						},
+					}) + "\n",
+				);
 			});
 		});
-		await new Promise((resolve) => server.listen(join(f.home, "admin.sock"), resolve));
+		await new Promise((resolve) =>
+			server.listen(join(f.home, "admin.sock"), resolve),
+		);
 		try {
-			const result = await new Promise((resolve) => execFile(process.execPath,
-				[installer, names, "--home", f.home, "w2"],
-				{ cwd: f.root, env: { ...process.env, PATH: `${join(f.root, "bin")}${delimiter}${process.env.PATH}` } },
-				(error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }),
-			));
+			const result = await new Promise((resolve) =>
+				execFile(
+					process.execPath,
+					[installer, names, "--home", f.home, "w2"],
+					{
+						cwd: f.root,
+						env: {
+							...process.env,
+							PATH: `${join(f.root, "bin")}${delimiter}${process.env.PATH}`,
+						},
+					},
+					(error, stdout, stderr) =>
+						resolve({ code: error?.code ?? 0, stdout, stderr }),
+				),
+			);
 			assert.equal(result.code, status === "applied" ? 0 : 1, result.stderr);
 			assert.deepEqual(observation, { current: f.target, protected: previous });
-			assert.equal(await readlink(link), status === "applied" ? f.target : previous);
+			assert.equal(
+				await readlink(link),
+				status === "applied" ? f.target : previous,
+			);
 			assert.deepEqual(await readdir(directory), ["w2"]);
 		} finally {
 			await new Promise((resolve) => server.close(resolve));
@@ -74,7 +104,6 @@ test("install-extension preserves the old store link if its temporary root canno
 	assert.equal(await readlink(link), previous);
 	assert.deepEqual(await readdir(directory), ["w2"]);
 });
-
 
 async function fixture(t) {
 	const root = await mkdtemp(join(tmpdir(), "tau-install-"));
