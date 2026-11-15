@@ -1,57 +1,74 @@
 # Tau's design
 
-Tau makes delegated work trustworthy enough that you can leave, reconnect elsewhere, and continue. It runs a durable agent on a server and keeps requests for human decisions and a record of events. A client connects to that server to inspect and direct the work.
+Tau runs a durable agent on a server so you can leave, reconnect elsewhere, and continue delegated work. It records events and requests for human decisions. A client connects to inspect and direct that work.
 
-The core is the single `tau` package, built on pi-durable 1.5.2. Extensions sit beside the core and load at run time. The core knows no extension by name. A workflow is an extension. A client speaks the [protocol](protocol.md) and is not part of this repository.
+The core is the `tau` package, built on pi-durable 1.5.2. Extensions load at run time and supply workflows without the core knowing any extension by name. A client speaks the [protocol](protocol.md) and lives outside this repository.
 
 ## Core layers
 
-- The store opens a harness and adds [Decision and Event](primitives.md).
-- The host manages projects, devices, client calls, and extensions. See [Host](host.md).
-- The command starts and administers the server.
-- The extension author interface exports functions, helpers, and pi types. See [Extensions](extensions.md).
+Each core layer has a distinct job. The table also shows which of the other named core layers it may import.
 
-The store does not import the host or command. The host does not import the command. Store, host, and command do not import the extension author interface. Core code does not import an extension. Extensions import `tau` through its author entries, and their tests may also import `tau/testing`. The build enforces these boundaries.
+| Layer | Responsibility | Permitted core imports |
+| --- | --- | --- |
+| `core/src/store` | Opens a harness and adds [decisions and events](primitives.md). | None of the other named layers. |
+| `core/src/host` | Manages projects, devices, client calls, and extensions. See the [host reference](host.md). | Store. |
+| `core/src/command` | Starts and administers the server. | Store and host. |
+| `core/src/extension` | Exports the extension author API, including functions, helpers, and pi types. See the [extension guide](extensions.md). | Store, host, and command. |
+
+Core code stays independent of extension packages. Extensions import the extension author API through `tau`, `tau/durable`, `tau/schema`, and `tau/chord`. Their tests may also import `tau/testing`. The workspace [import policy](../boundaries.json) and [boundary checker](../tools/check-boundaries.mjs) enforce these rules as part of `lint` and the build checks.
+
+Arrows show permitted imports between the core layers and the extension author API, not runtime calls.
+
+```mermaid
+flowchart TB
+    packages["Extension packages"] --> author["extension (extension author API)"]
+    author --> command["command"]
+    author --> host["host"]
+    author --> store["store"]
+    command --> host
+    command --> store
+    host --> store
+```
 
 ## Admission to the core
 
-A proposal to add to the core must show all five checks:
+The core stays small so that workflows can change independently. The bare agent and the sample workflows [W1](../extensions/w1/README.md) and [W2](../extensions/w2/README.md) test the design. A proposal for a core addition must meet all five checks:
 
-1. **A real failure.** The bare agent or a proving workflow cannot do something. The proposal names it.
-2. **pi-durable does not provide it.** The proposal cites what was checked.
-3. **An extension cannot keep the promise.** The change guards who may act at the boundary to the human and the client. Or it is a record that every client and every extension must read the same way. The proposal includes the extension that was tried and where it fell short. Convenience fails this check.
-4. **Two unlike users.** Two extensions that do different jobs use it with the same meaning, or a client that knows no extension cannot work without it. A repair to the server's safety is the one exception.
-5. **A small shape that names no workflow concept.** It is a type and a few functions over a `Tx` or the host. It adds no scheduler, loop, background process, or storage engine. A particular role such as "the designer", a phase, and an artifact type are workflow concepts. A way to define roles is not one. Checks 1 to 4 judge it.
+1. **Show a real failure.** Name a task the bare agent, W1, or W2 cannot do.
+2. **Check pi-durable.** Cite the pi-durable functionality examined and show that it does not provide the feature.
+3. **Try an extension.** Show where an extension fell short. The feature must either control who may act at the interface with the human and client, or define a record that every client and extension must read with the same meaning. Convenience alone is insufficient.
+4. **Show two unlike users.** Two extensions that do different jobs must use the feature with the same meaning. Alternatively, show that a client which knows no extension cannot work without it. A server safety repair is the exception.
+5. **Keep the feature small and workflow-independent.** Express it as a type and a few functions over a `Tx` or the host, with no scheduler, loop, background process, or storage engine. A specific role such as "the designer", a phase, and an artifact type are workflow concepts. A way to define roles is not. Apply the first four checks to the proposed shape.
 
-When pi-durable gains a feature, the core's copy is deleted. A core part with fewer than two users goes back out, subject to the client and safety exceptions above.
+When pi-durable gains a feature that the core provides, remove the core's copy. Remove a core feature with fewer than two users, subject to the client and safety exceptions above.
 
 ## Admission of a helper
 
-A proposal for a helper exported to extension authors names its call sites and passes four checks:
+A proposal for a helper exported to extension authors must name its call sites and meet four checks:
 
-1. It has two call sites in the proving workflows. Both can be in one workflow.
-2. It adds no guarantee. It uses only the public API of pi-durable and the core. A workflow that writes the same calls loses nothing.
-3. It owns no stored name. It has no document, entry kind, task, or extension under a name of its own, and it makes no commit and starts no timer. It may write through the caller's `tx`. It may define a document for its caller when the caller's name is the document's name and the document holds only the caller's data.
-4. It names no workflow concept. A way to define roles passes. "The designer" does not.
+1. It has two call sites in W1 or W2. Both may be in one workflow.
+2. It uses the public APIs of pi-durable and the core without adding a guarantee. A workflow that makes the same calls itself loses nothing.
+3. It owns no stored name, makes no commit, and starts no timer. It has no document, entry kind, task, or extension under its own name. It may write through the caller's `tx` or define a document named for the caller that holds only the caller's data.
+4. It names no workflow concept. A way to define roles qualifies, but a specific role such as "the designer" does not.
 
-A helper goes out when it has fewer than two call sites or pi-durable gains it.
+Remove a helper when it has fewer than two call sites or pi-durable provides it.
 
 ## Limits
 
-Extensions are trusted code and are not sandboxed. An extension can end the server process or prevent startup by never finishing its top-level code. Changes to an extension's own dependencies require a restart.
+### Trust and secrets
 
-The [human answer boundary](primitives.md#who-can-answer) guards against mistakes, not an agent acting outside the extension interface.
+Extensions are trusted code, not sandboxed code. An extension can terminate the server process. If its top-level code never finishes, it can also prevent startup. Changes to an extension's own dependencies require a restart.
 
-SQLite uses `synchronous=NORMAL`, so a power failure can lose recent commits.
+The [answer interface](primitives.md#who-can-answer) prevents accidental answers by extensions. An agent with access outside that interface can still answer by other means. Option masking depends on the current schema, so removing an option's secret marking exposes its stored value in option replies.
 
-An upgrade can change the meaning of an open decision because the task is looked up when an answer arrives. Keep open decisions compatible with their task code, or withdraw them before an incompatible upgrade.
+### Recovery and upgrades
 
-A restart has no old task definitions to compare with the installed code. A stored task can fault if its phase was removed.
+SQLite uses `synchronous=NORMAL`, so a power failure can lose recent commits. An upgrade can also change an open decision's meaning because the store looks up its task when an answer arrives. Keep open decisions compatible with their task code, or withdraw them before an incompatible upgrade.
 
-Removing the secret marking from an option exposes its stored value in option replies because the current schema controls masking.
+On restart, Tau has no old task definitions to compare with the installed code. A stored task can fault if its phase was removed. Clients can inspect faulted tasks, but Tau has no general call to restart or delete them.
 
-When selected extensions provide tools with the same name, the last selected definition wins without a warning. Use distinct tool names to avoid running the wrong tool.
+### Clients and extensions
 
-Annotations travel with an answer. An unsent review stays on the device where it was written.
+When selected extensions provide tools with the same name, the last selected definition wins without a warning. Use distinct names to avoid running the wrong tool. Annotations travel with an answer, while an unsent review stays on the device where it was written.
 
-A repeated request to create a conversation can create another conversation. Tau offers no call to delete a conversation, unbind a project, or remove an extension from a project. A client can inspect faulted tasks, but Tau offers no general call to restart or delete them. See [Host](host.md).
+A repeated request to create a conversation can create another conversation. Tau has no call to delete a conversation, unbind a project, or remove an extension from a project. See the [host reference](host.md) for client calls.

@@ -1,6 +1,6 @@
-# Decision and Event
+# Decisions and events
 
-A Decision is a durable request for a human answer. An Event is an entry that a client can show in a timeline without knowing the extension that wrote it. Extensions use these records inside their own commits.
+A decision is a durable request for a human answer. An event is an entry that a client can show in a timeline without knowing which extension wrote it. Extensions create these records in their own commits.
 
 ## Decision
 
@@ -37,11 +37,11 @@ export type Decision<C extends string = string> = {
 );
 ```
 
-IDs are local to a store. A subject identifies the work under review. Use an extension name and key, such as `w2:forecast`. Each new decision for a subject gets an ID of the form `${subject}#${n}`. A subject has at most one open decision.
+A decision ID is local to its store. The subject identifies the work under review. A subject should combine an extension name and key, such as `w2:forecast`. Each new decision for a subject gets an ID of the form `${subject}#${n}`. A subject has at most one open decision.
 
-The basis is an entry whose data includes the `text` the human reviews. An annotation without a range applies to the whole basis. A range uses UTF-16 code units, as in `text.slice(start, end)`. Its endpoints must be integers with `0 <= start <= end <= text.length`.
+The basis is an entry whose data includes the `text` for human review. An annotation without a range applies to the whole basis. A range uses UTF-16 code units, as in `text.slice(start, end)`. Its endpoints must be integers with `0 <= start <= end <= text.length`.
 
-The store keeps decisions in documents and keeps an open list indexed by subject. Each open list item holds the ID, title, request time, and conversation.
+The store keeps decisions in documents and indexes the open list by subject. Each open list item holds the decision ID, title, request time, and conversation.
 
 ## Request, withdraw, and read
 
@@ -68,7 +68,7 @@ export type RequestDraft<
 };
 ```
 
-The caller supplies the time. The typed basis comes from an entry read or append. `request` stores its ID, not its text. An empty subject makes `request` throw `TypeError` before changing any documents.
+The caller supplies the time and a typed basis from an entry read or append. `request` stores the basis ID rather than its text. An empty subject makes `request` throw `TypeError` before it changes any documents.
 
 | Open decision for the subject | Result |
 | --- | --- |
@@ -78,7 +78,7 @@ The caller supplies the time. The typed basis comes from an entry read or append
 
 For comparison, `then` means the task's name and `basis` means the entry ID. A newly appended basis has a new ID even if its text matches. An identical request after an answer opens another decision.
 
-`request` reads and writes documents only, so it can run before or after table operations in a commit. `withdraw(tx, subject)` marks the open decision withdrawn and clears its slot without creating a task. If there is no open decision, it does nothing. `decision(tx, id)` reads a decision or returns `undefined` if the ID does not exist.
+`request` reads and writes only documents, so it can run before or after table operations in a commit. `withdraw(tx, subject)` marks the open decision withdrawn and clears its slot without creating a task. If the subject has no open decision, `withdraw` does nothing. `decision(tx, id)` returns the decision, or `undefined` if the ID does not exist.
 
 ## Answer
 
@@ -100,15 +100,25 @@ The store checks the rows in this order:
 | Open | The task is unavailable | Refuses with `extension_not_loaded`. The decision stays open. |
 | Open | All checks pass | Records the answer, creates the task, clears the open slot, and returns `repeated: false`. |
 
-An equal resend compares annotations in order, including their text and range. It keeps the original answering device and time. Only a `faulted` continuation causes a replacement. The replacement starts the task again with the same input.
+A resend matches only if its annotations have the same text and ranges in the same order. The stored answer keeps the original device and time. A replacement is created only for a `faulted` continuation and starts the task again with the same input.
 
-The answer and its task land in one commit. The store keeps the task's name in the decision and looks up the installed task when the answer lands. The task belongs to the decision's conversation and runs in the background, so stopping the conversation's agent does not abort it. Its input is `{ decision, choice }`. The `request` type checks the task against the decision's choice type.
+The store commits the answer and its continuation task together. It stores the task name in the decision and looks up the installed task when the answer arrives. The task belongs to the decision's conversation and runs in the background, so stopping that conversation's agent does not abort it. The task input is `{ decision, choice }`. The `request` type checks the task against the decision's choice type.
+
+The diagram shows how an open decision changes state.
+
+```mermaid
+stateDiagram-v2
+    [*] --> open: request
+    open --> answered: accepted answer
+    open --> superseded: request with changed field other than requestedAt
+    open --> withdrawn: withdraw
+```
 
 ## Who can answer
 
-The real `answer` is not exported from a package entry. The host reaches it through the authenticated client call, not through an extension function or an agent tool. A device is a paired client identity whose token authenticates calls. See [Protocol](protocol.md) for pairing and tokens.
+The host invokes `answer` through an authenticated client call, not through an extension function or an agent tool. No package entry exports the real `answer`. A device is a paired client identity whose token authenticates calls. The [protocol reference](protocol.md) describes pairing and tokens.
 
-This boundary prevents an extension from answering by mistake. It is not a sandbox. An agent with access to the server's account, store, or device tokens can act outside the extension interface.
+The answer interface prevents an extension from answering by mistake, but it is not a sandbox. An agent with access to the server's account, store, or device tokens can act outside the extension interface.
 
 ## Event
 
@@ -122,15 +132,15 @@ export type EventData = {
 };
 ```
 
-An extension defines an entry kind and calls `emit(tx, kind, data)`. The data includes text a client can display and a caller-supplied time. It can include extension-specific fields. Use the extension's name as a prefix for the kind.
+An extension defines an entry kind and calls `emit(tx, kind, data)`. The data includes displayable text and a caller-supplied time. It can also include extension-specific fields. The kind should use the extension's name as a prefix.
 
-`emit` appends the entry in the caller's commit. The event is committed with the change it describes. Each store has an ownerless conversation for its event log, created when the store opens. `eventLog(tx)` returns its ID. Extensions read entries from that conversation with pi-durable's entry reads.
+`emit` appends the event in the caller's commit, together with the change it describes. Each store has an ownerless conversation for its event log, created when the store opens. `eventLog(tx)` returns the conversation ID. Extensions use pi-durable entry reads to read that conversation.
 
 The core does not emit events for decisions. An extension can emit its own event in the same commit.
 
 ## Commit order
 
-Within a commit, perform table reads first, then at most one `submit(tx, draft)`, then table writes. `emit`, entry appends, task creation, and conversation creation are table writes. Document reads and writes can occur anywhere in that order. For example, submit first, append the basis entry, then call `request`.
+Within a commit, table reads come first, followed by at most one `submit(tx, draft)` and then table writes. `emit`, entry appends, task creation, and conversation creation are table writes. Document reads and writes can occur anywhere in that order. For example, a commit can submit first, append the basis entry, and then call `request`.
 
 ## Tests
 
