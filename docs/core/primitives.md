@@ -199,7 +199,7 @@ The core emits no events about decisions. See "Decision and Event do not depend 
 
 ### Only a human answers, and how far that holds
 
-`answer` is exported to the host only. The entry point for extensions does not have it, no tool wraps it, and an import check can enforce that.
+`answer` is exported from no entry point of the core. The host reaches it by a relative import inside the one core package. Tests get `fauxAnswer` from `tau-extension/testing`: the same logic with the fixed identity `!test`, which no paired device can have. The loader refuses that entry for a loaded extension. No tool wraps `answer`. The import check and the export tests enforce this.
 
 That stops mistakes. It does not stop an agent with a shell. The built-in `bash` tool passes the server's environment to the command by default (measured, `src/tools/bash.ts:84-86`), and a shell that runs as the server's OS user can read the store and any token file. In W1 the same shell can also merge the branch.
 
@@ -261,7 +261,7 @@ The cost is that a workflow that emits nothing has an empty timeline. Its decisi
 
 A Tau extension is a pi-durable `Extension` with no wrapper. It bundles tools, prompt sections, hooks, wraps, and tasks under a name (measured, `src/harness/types.ts:424-433`).
 
-It imports five functions from the core. Each takes the `tx` that the extension already holds, and the `tx` names the store. So nothing is injected, and no registration step exists.
+It imports five functions from `tau-extension`, which re-exports them from the core. Each takes the `tx` that the extension already holds, and the `tx` names the store. So nothing is injected, and no registration step exists.
 
 | Function | Does |
 | --- | --- |
@@ -283,7 +283,7 @@ An extension reads the events themselves with pi-durable's entry reads. A scan h
 
 ### How a project gets its extensions
 
-A project's `Project` document lists extension names, workflows among them. The client sets them when it binds the project (see [Host](host.md)). The host maps each name to a module through static imports, so TypeScript checks them. The host does not scan a project directory for code to run.
+A project's `Project` document lists extension names, workflows among them. The client sets them when it binds the project (see [Host](host.md)). The host maps each name to the module it loaded from `~/.tau/extensions/<name>/`. TypeScript checks an extension against `tau-extension` where the extension is written, not where it is loaded. The host scans only that one directory on the server's machine. It does not scan a project directory for code to run, and a client never names a path.
 
 Each project has its own registry, which holds `coding-tools` and exactly the project's extensions. [Extensions](extensions.md) says what an extension is, what makes one a workflow, and how an agent gets one.
 

@@ -1,12 +1,12 @@
 # The kit
 
-**Decided.** Tau has one kit beside the core, the package `tau-kit`. It holds helpers for people who write extensions: `prose()`, `role()`, and `options()`. The core never imports it, and an extension may skip it. If it grows enough, it can be split later.
+**Decided.** The helpers for people who write extensions, `prose()`, `role()`, `options()`, and `modelRef()`, are exported from the root of `tau-extension`, the one package an extension imports. The core never imports it. The owner changed this on 2026-11-15: before, the helpers were a package of their own, `tau-kit`, which an extension could skip. `tau-extension` also re-exports the core's five functions and a curated list of pi-durable, pi-schema, and chord names. Its README lists each re-export with the pi package it comes from. See [Layout, loading, and reload](load.md). The entry rule below still governs what becomes a helper.
 
 **Decided.** The shapes of `role()` and `options()`, and the rule for what enters the kit. The owner locked the design on 2026-11-13.
 
 **Decided.** `options()` defines a document. The entry rule as first written forbade that, and the owner agreed to reword it. See "What enters the kit".
 
-**The name.** These notes called it the standard library until 2026-11-13. The owner found that name pretentious for what it is, since it does not resemble a language's standard library, and chose `tau-kit`. The raw files of the arenas keep the old name.
+**The name.** These notes called it the standard library until 2026-11-13. The owner found that name pretentious for what it is, since it does not resemble a language's standard library, and chose `tau-kit`. On 2026-11-15 the package became `tau-extension`. The raw files of the arenas keep the old names.
 
 [Prose](prose.md) covers `prose()`. This file covers `role()`, `options()`, and the entry rule.
 

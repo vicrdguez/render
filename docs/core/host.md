@@ -28,7 +28,7 @@ Every call carries the device's token. Every call but the first three and the in
 
 | Call | The client sends | It gets back | Built on | A resend |
 | --- | --- | --- | --- | --- |
-| `extensions` | | For each extension the server has: its name, whether it is a workflow, and its options schema | The host's import map | Reads again |
+| `extensions` | | For each extension the server has: its name, whether it is a workflow, and its options schema | The extensions loaded from `~/.tau/extensions/` | Reads again |
 | `models` | | The models the server can use | pi-ai `getAvailable()` (measured, `packages/ai/src/models.ts:302`) | Reads again |
 | `projects` | | Each project: its name, its working directory, its extensions, and any extension the server no longer has | Each store's `Project` document | Reads again |
 | `bind` | A name, a working directory, extension names | The project | "Binding a project" below | Equal fields return it with `repeated`. Other fields give `conflict`. |
@@ -105,11 +105,11 @@ A workflow that is added changes no live work. It is never in the default, and a
 
 ### What the server reads at start
 
-1. Its own configuration: model logins and device tokens. The import map is code. The owner logs in to model providers on the server's machine, with pi's own login. No client call sets a login. That is decided for now.
+1. Its own configuration: model logins and device tokens. Then the extensions: each folder under `~/.tau/extensions/` that holds an `index.ts` is loaded with `jiti`. One that fails to load is left out and reported on stderr. See [Layout, loading, and reload](load.md). The owner logs in to model providers on the server's machine, with pi's own login. No client call sets a login. That is decided for now.
 2. The names under `~/.tau/projects/`.
 3. For each one: the lock, then the store, opened with an empty registry. pi-durable sets `running` tasks back to `pending` (measured, `src/harness/harness.ts:299`).
 4. `Project`. A store without one, or with another project's name in it, is skipped and reported.
-5. It installs `coding-tools` and each listed extension that the import map has, builds the default, and calls `resume()`. A listed extension that the server no longer has is reported in `projects`. Its tasks wait, and its tools are not offered.
+5. It installs `coding-tools` and each listed extension that loaded, builds the default, and calls `resume()`. A listed extension that did not load is reported in `projects`. Its tasks wait, and its tools are not offered.
 
 Nothing else is read. Options, decisions, and events are in the store, and code reads them when it uses them.
 
@@ -137,7 +137,7 @@ type ExtensionModule = {
 };
 ```
 
-The host never reads a key of the value, and it never decides which conversation an option governs. So it still knows no particular extension. It does not import the kit. `options()` in [Kit](kit.md) builds the three members in one call, and an extension may write them by hand.
+The host never reads a key of the value, and it never decides which conversation an option governs. So it still knows no particular extension. It does not import `tau-extension`. `options()` in [Kit](kit.md) builds the three members in one call, and an extension may write them by hand.
 
 Two names in a schema mean something to the host, both string formats.
 

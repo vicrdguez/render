@@ -8,7 +8,7 @@ The earlier notes were written around workflows. This file corrects that, and [H
 
 ## What an extension is
 
-An extension is a pi-durable `Extension` with no wrapper: a name with optional tools, prompt sections, hooks, wraps, and tasks (measured, `src/harness/types.ts:424-433`). The host knows one module for each name, from an import map that is code.
+An extension is a pi-durable `Extension` with no wrapper: a name with optional tools, prompt sections, hooks, wraps, and tasks (measured, `src/harness/types.ts:424-433`). The host knows one module for each name: the folder `~/.tau/extensions/<name>/`, loaded when the server starts and again at each `tau extension reload`. The owner changed this on 2026-11-15. Before, an import map in code named each extension. See [Layout, loading, and reload](load.md).
 
 ```ts
 type ExtensionModule = {

@@ -75,7 +75,7 @@ One check covers every workflow: each prose file loads against its declared slot
 
 ## Prose loads when the module loads
 
-Every `prose()` call sits at the top level of the extension's module. A missing file or a wrong slot then stops the server before the project opens.
+Every `prose()` call sits at the top level of the extension's module. A missing file or a wrong slot then fails the extension when it is loaded. At start that extension is left out and reported. At a reload the whole reload is refused and the old code keeps running.
 
 This is a rule and not a preference. A section must not load or check prose while it renders. pi-durable catches a section that throws, reports the error, and keeps the text it showed before (measured, `src/harness/prompt.ts:21-46`). The model would carry on with stale instructions, and nothing would stop the run. Candidate 2 found this.
 
