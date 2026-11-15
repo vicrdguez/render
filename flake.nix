@@ -57,7 +57,7 @@
                   cp ${pkgs.writeText "workspace-manifest.json" (builtins.toJSON manifest)} "${directory}/package.json"
                 '') workspaceManifests
               );
-              postInstall = "find $out/node_modules -maxdepth 2 -type l \\( -lname '*extensions/*' -o -lname '*core' -o -lname '*journeys' \\) -delete";
+              postInstall = "find $out/node_modules -maxdepth 2 -type l \\( -lname '*extensions/*' -o -lname '*core' -o -lname '*e2e' \\) -delete";
             };
           };
           enterRoot = ''
@@ -124,12 +124,6 @@
               ${commands.typecheck}/bin/typecheck "$@"
               node tools/tests.mjs "$@"
             '';
-            spikes = mkCommand "spikes" [ ] ''
-              export PI_MODULES="${npmDeps}/node_modules/@earendil-works"
-              for spike in substrate two-harnesses crash host ext wire; do
-                node "docs/core/spikes/$spike.mjs"
-              done
-            '';
             verify-build = mkCommand "verify-build" [ pkgs.nix ] ''
               executable="''${1:-}"
               if [ -z "$executable" ]; then
@@ -143,7 +137,7 @@
                 done
                 set -- "''${outputs[@]}"
               fi
-              node journeys/test/verify-build.ts "$executable" "$@"
+              node e2e/test/verify-build.ts "$executable" "$@"
             '';
             check = mkCommand "check" [ ] ''
               if [ "$#" -gt 0 ]; then
@@ -151,7 +145,6 @@
               fi
               ${commands.lint}/bin/lint
               ${commands.test}/bin/test
-              ${commands.spikes}/bin/spikes
               ${commands.verify-build}/bin/verify-build
             '';
           };
@@ -171,22 +164,18 @@
                 node tools/tests.mjs core
               '';
             };
-            journeys = {
+            e2e = {
               source = self;
               run = ''
-                node tools/typecheck.mjs journeys
+                node tools/typecheck.mjs e2e
                 node tools/assets.mjs core
-                node tools/tests.mjs journeys
+                node tools/tests.mjs e2e
               '';
             };
-            spikes = {
-              source = self;
-              run = "${commands.spikes}/bin/spikes";
-            };
             verify-build = {
-              source = sourceFor [ "journeys/test/verify-build.ts" ];
+              source = sourceFor [ "e2e/test/verify-build.ts" ];
               run = ''
-                node journeys/test/verify-build.ts ${tau}/bin/tau ${extensions.w1} ${extensions.w2} ${extensions.websearch}
+                node e2e/test/verify-build.ts ${tau}/bin/tau ${extensions.w1} ${extensions.w2} ${extensions.websearch}
               '';
             };
           }

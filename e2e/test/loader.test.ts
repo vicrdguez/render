@@ -154,57 +154,56 @@ test("a JavaScript file outside node_modules and dot folders fails its extension
 	}
 });
 
-for (const mode of [0o770, 0o707, 0o730]) {
-	test(`a directory with mode ${mode.toString(8)} refuses the whole scan`, async () => {
-		const dir = await directory({ alpha: { "index.ts": plain("alpha") } });
-		await chmod(dir, mode);
-		await assert.rejects(
-			async () => fromDirectory(dir)(),
-			(error: Error) => {
-				assert.match(error.message, /writable by group or others/);
-				assert.match(error.message, /writable by group or others/i);
-				assert.match(error.message, /chmod 700/);
-				assert.ok(error.message.includes(dir), error.message);
-				return true;
-			},
-		);
+test("a group- and other-writable extensions folder loads without changing its mode", async () => {
+	const dir = await directory({ alpha: { "index.ts": plain("alpha") } });
+	await chmod(dir, 0o777);
+	const scan = await fromDirectory(dir)();
+	assert.deepEqual(scan.failures, []);
+	assert.equal(extensionName(scan.modules.alpha), "alpha");
+	assert.equal((await stat(dir)).mode & 0o777, 0o777);
+});
+
+for (const kind of ["file", "unreadable folder"]) {
+	test(`an extensions path that is a ${kind} reports one failure and the server serves empty`, async (t) => {
+		const dir = path.join(await scratch(), "extensions");
+		if (kind === "file") await writeFile(dir, "");
+		else {
+			await mkdir(dir);
+			await chmod(dir, 0o000);
+			t.after(() => chmod(dir, 0o700));
+		}
+		const scan = await fromDirectory(dir)();
+		assert.deepEqual(scan.modules, {});
+		assert.equal(scan.failures.length, 1);
+		const f = failure(scan, "*");
+		assert.equal(f.path, dir);
+		assert.equal(f.stage, "scan");
+		assert.match(f.message, kind === "file" ? /not a folder/ : /EACCES/);
+		const stderr: string[] = [];
+		t.mock.method(process.stderr, "write", (chunk: string) => {
+			stderr.push(String(chunk));
+			return true;
+		});
+		const s = await start({ source: fromDirectory(dir) });
+		try {
+			assert.deepEqual((await s.ok("extensions", {})).items, []);
+			assert.equal(stderr.length, 1, JSON.stringify(stderr));
+			assert.ok(stderr[0]?.includes(dir), JSON.stringify(stderr));
+			assert.match(stderr[0]!, kind === "file" ? /not a folder/ : /EACCES/);
+		} finally {
+			await s.close();
+		}
 	});
 }
 
-test("a directory path that is a file refuses the scan and says so", async () => {
-	const file = path.join(await scratch(), "extensions");
-	await writeFile(file, "", { mode: 0o644 });
-	await assert.rejects(
-		async () => fromDirectory(file)(),
-		(error: Error) => {
-			assert.ok(error.message.includes(file), error.message);
-			assert.match(error.message, /extension directory/);
-			assert.match(error.message, /replace.*folder/i);
-			assert.doesNotMatch(error.message, /chmod|until.*permissions are fixed/);
-			return true;
-		},
-	);
-});
-
-test("a directory owned by another user asks for ownership repair, not chmod", async (t) => {
-	const dir = await scratch();
-	const uid = process.getuid!();
-	t.mock.method(process as { getuid(): number }, "getuid", () => uid + 1);
-	await assert.rejects(
-		async () => fromDirectory(dir)(),
-		(error: Error) => {
-			assert.match(error.message, /not owned.*transfer ownership/);
-			assert.doesNotMatch(error.message, /chmod/);
-			return true;
-		},
-	);
-});
-
-test("a folder or file writable by group or others fails that extension alone", async () => {
+test("group-writable extension folders and files load alongside other extensions", async () => {
 	const dir = await directory({
 		alpha: { "index.ts": plain("alpha") },
 		"loose-folder": { "index.ts": plain("loose-folder") },
-		"loose-file": { "index.ts": plain("loose-file"), "lib/a.ts": "" },
+		"loose-file": {
+			"index.ts": plain("loose-file", 'export { value } from "./lib/a.ts";'),
+			"lib/a.ts": "export const value = 42;",
+		},
 		"loose-modules": {
 			"index.ts": plain("loose-modules"),
 			"node_modules/dep/index.ts": "",
@@ -214,25 +213,41 @@ test("a folder or file writable by group or others fails that extension alone", 
 			"node_modules/dep/index.ts": "",
 		},
 	});
-	await chmod(path.join(dir, "loose-folder"), 0o775);
-	await chmod(path.join(dir, "loose-file", "lib", "a.ts"), 0o646);
+	await chmod(path.join(dir, "loose-folder"), 0o777);
+	await chmod(path.join(dir, "loose-file", "index.ts"), 0o664);
+	await chmod(path.join(dir, "loose-file", "lib", "a.ts"), 0o666);
 	await chmod(path.join(dir, "loose-modules", "node_modules"), 0o777);
 	await chmod(path.join(dir, "deep-modules", "node_modules", "dep"), 0o777);
 	const scan = await fromDirectory(dir)();
-	assert.deepEqual(Object.keys(scan.modules), ["alpha", "deep-modules"]);
-	assert.match(
-		failure(scan, "loose-folder").message,
-		/writable by group or others/,
-	);
-	assert.match(
-		failure(scan, "loose-file").message,
-		/lib\/a\.ts is writable by group or others/,
-	);
-	assert.match(
-		failure(scan, "loose-modules").message,
-		/node_modules is writable by group or others/,
-	);
-	assert.equal(scan.failures.length, 3);
+	assert.deepEqual(scan.failures, []);
+	assert.deepEqual(Object.keys(scan.modules), [
+		"alpha",
+		"deep-modules",
+		"loose-file",
+		"loose-folder",
+		"loose-modules",
+	]);
+	assert.equal((scan.modules["loose-file"] as { value: number }).value, 42);
+});
+
+test("the old tau-extension package name points authors to the four tau entries", async () => {
+	for (const specifier of ["tau-extension", "tau-extension/durable"]) {
+		const dir = await directory({
+			old: {
+				"index.ts": `import * as old from "${specifier}"; export { old };`,
+			},
+			good: { "index.ts": plain("good") },
+		});
+		const scan = await fromDirectory(dir)();
+		assert.deepEqual(Object.keys(scan.modules), ["good"]);
+		const f = failure(scan, "old");
+		assert.equal(f.stage, "import");
+		assert.ok(f.message.includes(specifier), f.message);
+		assert.match(
+			f.message,
+			/The package is now tau\. Use a canonical entry: tau, tau\/durable, tau\/schema, tau\/chord\./,
+		);
+	}
 });
 
 test("an extension outside the repository gets the host's own request, defineTask and obj", async (t) => {
@@ -434,9 +449,9 @@ test("only canonical tau specifiers load, including dynamic imports and re-expor
 	const manifest = JSON.parse(
 		await readFile(path.join(root, "core/package.json"), "utf8"),
 	);
-	const canonical = Object.keys(manifest.exports).map(
-		(key) => `tau${key.slice(1)}`,
-	);
+	const canonical = Object.keys(manifest.exports)
+		.filter((key) => key !== "./testing" && key !== "./server")
+		.map((key) => `tau${key.slice(1)}`);
 	const spellings = [
 		"tau/../testing.js",
 		"tau/schema/../testing.js",
@@ -471,8 +486,11 @@ test("only canonical tau specifiers load, including dynamic imports and re-expor
 				assert.deepEqual(Object.keys(scan.modules), ["good"]);
 				const message = failure(scan, "bad").message;
 				assert.ok(message.includes(specifier), message);
-				for (const entry of canonical)
-					assert.ok(message.includes(entry), message);
+				assert.equal(
+					/Use a canonical entry: ([^\r\n]*)/.exec(message)?.[1]?.trim(),
+					`${canonical.join(", ")}.`,
+					message,
+				);
 			});
 		}
 	}

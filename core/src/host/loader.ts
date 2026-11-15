@@ -6,21 +6,19 @@ import type { ExtensionFailure, ExtensionSource } from "./extensions.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const JAVASCRIPT = new Set([".js", ".mjs", ".cjs", ".jsx"]);
-const writable = (mode: number) => (mode & 0o022) !== 0;
 const visible = (name: string) => !name.startsWith(".");
 
-/**
- * Imports `<directory>/<name>/index.ts` for each extension folder, in name order, on every call.
- * Rejects only when the directory itself is unsafe or unreadable.
- */
 export function fromDirectory(directory: string): ExtensionSource {
 	return async () => {
-		const names = await list(directory).catch((error: Error) => {
-			throw new Error(
-				`The extension directory ${directory} is unsafe or unreadable. ${error.message}`,
-				{ cause: error },
-			);
-		});
+		let names: string[];
+		try {
+			names = await list(directory);
+		} catch (error) {
+			return {
+				modules: {},
+				failures: [{ name: "*", path: directory, stage: "scan", error }],
+			};
+		}
 		const loaded: [string, unknown][] = [];
 		const failures: ExtensionFailure[] = [];
 		if (names.length === 0) return { modules: {}, failures };
@@ -83,30 +81,14 @@ async function list(directory: string): Promise<string[]> {
 		return [];
 	}
 	if (!info.isDirectory())
-		throw new Error(
-			"it is not a folder. Replace it with an owner-controlled folder",
-		);
-	if (info.uid !== process.getuid?.())
-		throw new Error(
-			"it is not owned by the server's user. Ask its owner to transfer ownership, or choose a folder owned by the server's user",
-		);
-	if (writable(info.mode))
-		throw new Error(
-			`it is writable by group or others. Run chmod 700 on ${directory}`,
-		);
+		throw new Error("it is not a folder. Replace it with a folder");
 	return (await readdir(directory))
 		.filter((name) => visible(name) && name !== "node_modules")
 		.sort();
 }
 
-/** Root may own files so that the Nix store is admitted. A node_modules is checked at its top only. */
 async function check(folder: string, relative: string): Promise<void> {
-	const shown = relative || folder;
 	const info = await stat(path.join(folder, relative));
-	if (info.uid !== process.getuid?.() && info.uid !== 0)
-		throw new Error(`${shown} is owned by another user`);
-	if (writable(info.mode))
-		throw new Error(`${shown} is writable by group or others`);
 	if (!info.isDirectory()) {
 		if (
 			JAVASCRIPT.has(path.extname(await realpath(path.join(folder, relative))))
@@ -124,14 +106,20 @@ async function check(folder: string, relative: string): Promise<void> {
 
 // jiti aliases are prefixes. Check literal module specifiers before they can traverse a target.
 function canonicalImports(alias: Record<string, string>) {
+	const entries = Object.keys(alias).filter(
+		(entry) => entry !== "tau/testing" && entry !== "tau/server",
+	);
+	const guidance = `Use a canonical entry: ${entries.join(", ")}.`;
 	const checkSpecifier = (specifier: string) => {
+		if (specifier === "tau-extension" || specifier.startsWith("tau-extension/"))
+			throw new Error(
+				`Invalid import ${specifier}. The package is now tau. ${guidance}`,
+			);
 		if (
 			(specifier === "tau" || specifier.startsWith("tau/")) &&
 			!Object.hasOwn(alias, specifier)
 		)
-			throw new Error(
-				`Invalid import ${specifier}. Use a canonical entry: ${Object.keys(alias).join(", ")}.`,
-			);
+			throw new Error(`Invalid import ${specifier}. ${guidance}`);
 	};
 	return {
 		pre(file: { path: { traverse(visitor: object): void } }) {

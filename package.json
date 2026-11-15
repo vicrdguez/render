@@ -6,7 +6,7 @@
 	"workspaces": [
 		"core",
 		"extensions/*",
-		"journeys"
+		"e2e"
 	],
 	"scripts": {
 		"build": "typecheck",
@@ -14,7 +14,6 @@
 		"test": "env test",
 		"fmt": "fmt",
 		"lint": "lint",
-		"spikes": "spikes",
 		"check": "check"
 	},
 	"devDependencies": {

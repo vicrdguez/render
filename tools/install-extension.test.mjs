@@ -180,6 +180,17 @@ test("install-extension replaces a link atomically and reports that it loads at 
 	assert.equal(await readlink(link), f.target);
 });
 
+test("install-extension preserves an existing group- and other-writable extensions folder", async (t) => {
+	const f = await fixture(t);
+	const directory = join(f.home, "extensions");
+	await mkdir(directory, { recursive: true });
+	await chmod(directory, 0o777);
+	const result = f.run(["w2"]);
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(await readlink(join(directory, "w2")), f.target);
+	assert.equal((await lstat(directory)).mode & 0o777, 0o777);
+});
+
 test("install-extension uses a temporary HOME for its default Tau home", async (t) => {
 	const f = await fixture(t);
 	const result = f.run(["w2"], {}, true);

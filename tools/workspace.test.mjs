@@ -24,7 +24,7 @@ test("every source workspace references its emitted dependency", async () => {
 		"extensions/w1",
 		"extensions/w2",
 		"extensions/websearch",
-		"journeys",
+		"e2e",
 	]) {
 		const config = JSON.parse(
 			await readFile(
@@ -34,18 +34,18 @@ test("every source workspace references its emitted dependency", async () => {
 		);
 		assert.deepEqual(config.references, [
 			{
-				path: directory === "journeys" ? "../core" : "../../core",
+				path: directory === "e2e" ? "../core" : "../../core",
 			},
 		]);
 	}
 });
 
-test("journeys reject relative JavaScript and direct extension source imports", async (t) => {
+test("e2e rejects relative JavaScript and direct extension source imports", async (t) => {
 	const { root, put } = await fixture(t);
-	await put("journeys/package.json", { name: "tau-journeys" });
-	await put("journeys/tsconfig.json", {});
+	await put("e2e/package.json", { name: "tau-e2e" });
+	await put("e2e/tsconfig.json", {});
 	await put("tsconfig.json", {
-		references: [{ path: "core" }, { path: "journeys" }],
+		references: [{ path: "core" }, { path: "e2e" }],
 	});
 	await put(
 		"boundaries.json",
@@ -55,7 +55,7 @@ test("journeys reject relative JavaScript and direct extension source imports", 
 		["./helper.js", /relative imports must end in \.ts/],
 		["../../extensions/w1/src/index.ts", /cross-package relative import/],
 	]) {
-		await put("journeys/test/access.ts", `import "${specifier}";`);
+		await put("e2e/test/access.ts", `import "${specifier}";`);
 		assert.match((await check(root)).join("\n"), diagnostic);
 	}
 });
@@ -133,7 +133,7 @@ async function fixture(t) {
 	const manifest = {
 		devDependencies: { typescript: "5.9.3" },
 		name: "tau-workspace",
-		workspaces: ["core", "extensions/*", "journeys"],
+		workspaces: ["core", "extensions/*", "e2e"],
 	};
 	const store = {
 		exports: { ".": "./dist/src/index.js" },
@@ -669,10 +669,10 @@ for (const [name, directory, specifier, allowed] of [
 		[name, "src", "tau", true],
 		[name, "test", "tau", true],
 	]),
-	["tau-journeys", "test", "tau", true],
-	["tau-journeys", "test", "tau/testing", false],
-	["tau-journeys", "test", "tau/server", true],
-	["tau-journeys", "test", "tau-w1", false],
+	["tau-e2e", "test", "tau", true],
+	["tau-e2e", "test", "tau/testing", false],
+	["tau-e2e", "test", "tau/server", true],
+	["tau-e2e", "test", "tau-w1", false],
 ]) {
 	test(`${name} ${directory} import of ${specifier} is ${allowed ? "allowed" : "forbidden"}`, async (t) => {
 		const { root, put } = await fixture(t);
