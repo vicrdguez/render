@@ -27,11 +27,8 @@ export async function check(root, selections = []) {
 	const selected = new Set(
 		selectPackages(all, selections, root).map((pkg) => pkg.manifest.name),
 	);
-	for (const { directory: entry } of all) {
+	for (const { directory: entry, manifest } of all) {
 		const directory = await realpath(path.join(root, entry));
-		const manifest = JSON.parse(
-			await readFile(path.join(directory, "package.json"), "utf8"),
-		);
 		packages.push({ directory, manifest });
 		if (!selected.has(manifest.name)) continue;
 		if (!references.has(directory))

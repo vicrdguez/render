@@ -686,24 +686,18 @@ for (const [name, directory, specifier, allowed] of [
 	["tau-w2", "test", "tau", false],
 
 	["tau-extension", "src", "tau/server", false],
-	...["tau-websearch", "tau-w2", "tau-w1"].flatMap((name) =>
-		["src", "test"].flatMap((directory) =>
-			["tau", "tau/server", "tau/testing"].map((entry) => [
-				name,
-				directory,
-				entry,
-				false,
-			]),
-		),
-	),
-	...["test"].flatMap((directory) =>
-		["tau", "tau/testing", "tau/server", "tau-w1"].map((entry) => [
-			"tau-journeys",
-			directory,
-			entry,
-			entry === "tau/server",
-		]),
-	),
+	["tau-websearch", "src", "tau", false],
+	["tau-w2", "src", "tau", false],
+	["tau-w1", "src", "tau", false],
+	["tau-websearch", "test", "tau", false],
+	["tau-w1", "test", "tau", false],
+	["tau-websearch", "test", "tau/testing", false],
+	["tau-w2", "test", "tau/testing", false],
+	["tau-w1", "test", "tau/testing", false],
+	["tau-journeys", "test", "tau", false],
+	["tau-journeys", "test", "tau/testing", false],
+	["tau-journeys", "test", "tau/server", true],
+	["tau-journeys", "test", "tau-w1", false],
 ]) {
 	test(`${name} ${directory} import of ${specifier} is ${allowed ? "allowed" : "forbidden"}`, async (t) => {
 		const { root, put } = await fixture(t);

@@ -235,8 +235,11 @@
                 cp -R ${spec.source} source
                 chmod -R u+w source
                 cd source
-                ${linkModules}
-                ${spec.run}
+                timeout --kill-after=10s 660s ${pkgs.writeShellScript "check-${name}" ''
+                  set -euo pipefail
+                  ${linkModules}
+                  ${spec.run}
+                ''}
                 touch "$out"
               ''
           ) checkSpecs;

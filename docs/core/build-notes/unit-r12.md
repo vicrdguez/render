@@ -27,7 +27,7 @@ The baseline passed 505 tests. The full output is /tmp/r12-before.log and the re
 
 ## Split evidence
 
-The split gate passed all nine checks, then was pushed at e9f4b45. Its log is /tmp/r12-split-gate.log. The core check runs 197 tests with no author-package source. The syntax-error proof passed core and failed extension-w1. Removing both extensions and extension-package passed core and failed both owning checks with TS5083. Logs are /tmp/r12-core-syntax.log, /tmp/r12-w1-syntax.log, /tmp/r12-core-absent.log, and /tmp/r12-owners-absent.log.
+The split gate passed all nine checks, then was pushed at e9f4b45. Its log is /tmp/r12-split-gate.log. The core check runs 186 tests with no author-package source. The syntax-error proof passed core and failed extension-w1. Removing both extensions and extension-package passed core and failed both owning checks with TS5083. Logs are /tmp/r12-core-syntax.log, /tmp/r12-w1-syntax.log, /tmp/r12-core-absent.log, and /tmp/r12-owners-absent.log.
 
 ## Journey waits
 
@@ -47,6 +47,77 @@ Three concurrent journey runs passed while a full flake gate built beside them. 
 The readiness regression runs a real child that sends a model request before its listening address. The old first-message implementation failed that test. The other new cases cover exit before readiness and deadline cleanup. The readiness suite passed in 165 ms after the change.
 
 The installer now roots a previous Nix store output before replacing its link and drops the temporary root on completion or handled signals. Three new tests failed before the change and pass after it. They observe the root during applied and refused reloads, cleanup after each, and refusal to replace the old link when root registration fails. The warning case now asserts the future-block wording and absence of migration_failed. Installer logs are /tmp/r12-installer-red.log and /tmp/r12-installer-green.log.
+
+## Test inventory
+
+The final full run passed 525 tests, with zero failures, skips or cancellations. Node reported 17336.691 ms. The baseline passed 505 tests. The required top-level inventories hold 436 names before and 456 after. The complete inventories also preserve all nested names and three suite headings.
+
+Two duplicate tests were removed as instructed. The names extension manifests reject core store without an import and extension manifests reject core host without an import are both covered by extension manifests reject tau without an import. All three checked the same tau dependency in the same four manifest fields.
+
+Five names have replacements. No other existing name is absent.
+
+| Before | After | Reason |
+| --- | --- | --- |
+| extension imports reject tau-kit even when declared and permitted | extension imports reject tau-private even when declared and permitted | Keep a forbidden workspace fixture without naming a removed package. |
+| extension manifests reject tau-kit without an import | extension manifests reject tau-private without an import | Same manifest capability, current fixture name. |
+| tau-websearch test import of tau-kit is forbidden | tau-websearch test import of tau-extension/private is forbidden | Pin a private author entry instead of a removed package. |
+| tau-w2 test import of tau-kit is forbidden | tau-w2 test import of tau-extension/private is forbidden | Same private-entry rule for W2. |
+| tau-websearch src import of tau-kit is forbidden | tau-websearch src import of tau-extension/testing is forbidden | Pin the actual test-only capability in source. |
+
+There are 22 new names, apart from those replacements.
+
+- every source workspace references its emitted dependency.
+- journeys reject relative JavaScript and direct extension source imports.
+- side selection runs extension tests without unrelated packages.
+- tau-extension src import of tau/server is forbidden.
+- tau-journeys test import of tau is forbidden.
+- tau-journeys test import of tau/testing is forbidden.
+- tau-journeys test import of tau/server is allowed.
+- tau-journeys test import of tau-w1 is forbidden.
+- tau-websearch src import of tau is forbidden.
+- tau-w2 src import of tau is forbidden.
+- tau-w1 src import of tau is forbidden.
+- tau-websearch test import of tau is forbidden.
+- tau-w1 test import of tau is forbidden.
+- tau-websearch test import of tau/testing is forbidden.
+- tau-w2 test import of tau/testing is forbidden.
+- tau-w1 test import of tau/testing is forbidden.
+- install-extension roots the previous store output during applied reload and removes the temporary root.
+- install-extension roots the previous store output during refused reload and removes the temporary root.
+- install-extension preserves the old store link if its temporary root cannot be registered.
+- journey readiness ignores a resumed model request before the listening address.
+- journey readiness fails when the child exits before listening.
+- journey readiness has a bound and removes its listeners on expiry.
+
+The added readiness suite takes about 165 ms. Installer coverage adds two real child-process install simulations and one registration-failure case. All 21 installer tests take about 10.9 seconds in isolation. No new infrastructure or model call is used.
+
+## Mutation and command evidence
+
+Each mutation was restored before the next. All nine implementation mutations exited 1.
+
+| Mutated line | Failure |
+| --- | --- |
+| Remove journeys from the source-specifier rule. | Relative JavaScript regression fails. |
+| Remove side-directory selection. | extensions selects no package. |
+| Remove package-name selection. | tau selects no package. |
+| Do not allocate the previous store root. | No protection exists during reload. |
+| Omit the previous root from cleanup. | A temporary link remains. |
+| Root the new target instead of the previous target. | The previous output has no temporary root. |
+| Accept a child message without a port. | A model request resolves readiness. |
+| Resolve readiness on early exit. | Expected rejection is missing. |
+| Leave the exit listener after readiness. | Listener count remains one. |
+
+Widening the real tau-extension policy to tau/server fails its new table row. Removing W1's real compiler reference fails the source-workspace reference assertion. Logs are /tmp/r12-mutant-*.log.
+
+With a syntax error in W1, typecheck core and test tau-w2 passed. check extensions failed. After restoring W1, check extensions passed. The no-argument test command passed all 525 tests.
+
+The real installer listed w1, w2 and websearch, installed W2 twice into /tmp/r12-install.lL9nlW, and then marked w2 as installed. Nix printed the temporary previous root on the second install. Only the final w2 link remains. nix-store --gc --print-roots confirms that link roots /nix/store/50nzb443kayda9m00cinjfx8dhx8lxlp-tau-extension-w2. No garbage collection was requested.
+
+## Limits
+
+Only aarch64-darwin was executed. Linux, real providers, and an actual garbage collection during reload were not tested. The tests observe the root during the vulnerable interval and the real installer confirms root registration.
+
+Sequence work into verifiable units shaped the three green pushes. Model the Domain kept side selection on directory and manifest records shared by the tools. Laziness Protocol kept lint inside workspace and reused the existing lock and test runner.
 
 ## Failure inventory
 
