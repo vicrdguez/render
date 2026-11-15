@@ -1,23 +1,24 @@
 import { homedir } from "node:os";
 import path from "node:path";
-import { builtinModels } from "@earendil-works/pi-ai/providers/all";
-import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import {
 	type AdminRequest,
 	fromDirectory,
 	requestAdmin,
 	startServer,
 } from "tau-host";
-import { piLogins } from "./credentials.js";
+import { printReload } from "./reload.js";
 
 const USAGE = `usage: tau [--port PORT] [--allow-host NAME]...  start the server on ~/.tau and 127.0.0.1:6283
        tau device pair NAME             print a pairing code for a new device
        tau device revoke NAME           refuse that device from now on
        tau device list                  list the paired devices
+       tau extension reload             reload installed extensions
 `;
 
 function parse(argv: readonly string[]): AdminRequest | undefined {
 	const [group, command, device, ...rest] = argv;
+	if (group === "extension" && command === "reload" && argv.length === 2)
+		return { command: "extension_reload" };
 	if (group !== "device" || rest.length > 0) return undefined;
 	if (command === "list" && device === undefined) return { command };
 	if ((command === "pair" || command === "revoke") && device !== undefined)
@@ -51,6 +52,11 @@ async function serve(
 	home: string,
 	config: { port: number; allowedHosts: string[] },
 ): Promise<number> {
+	const { builtinModels } = await import("@earendil-works/pi-ai/providers/all");
+	const { NodeExecutionEnv } = await import(
+		"@earendil-works/pi-durable/env/node"
+	);
+	const { piLogins } = await import("./credentials.js");
 	const agentDir =
 		process.env.PI_CODING_AGENT_DIR ?? path.join(homedir(), ".pi", "agent");
 	const server = await startServer({
@@ -105,6 +111,7 @@ export async function run(argv: readonly string[]): Promise<number> {
 		process.stderr.write(`tau: ${result.error}\n`);
 		return 1;
 	}
+	if ("reload" in result) return printReload(result.reload);
 	if ("code" in result)
 		process.stdout.write(
 			`Pairing code: ${result.code}\nIt works once, until ${when(result.expiresAt)}.\n`,

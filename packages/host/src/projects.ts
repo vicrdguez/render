@@ -18,6 +18,7 @@ import type { Catalogue } from "./catalogue.js";
 import type { ServerOptions } from "./index.js";
 import { acquireLock } from "./lock.js";
 import { type Outcome, refuse } from "./refusals.js";
+import { safeMessage } from "./task-reports.js";
 
 export const PROJECT = "^[a-z0-9][a-z0-9-]{0,62}$";
 const NAME = new RegExp(PROJECT);
@@ -278,6 +279,15 @@ export class Projects {
 				{
 					models,
 					registry,
+					onReport: (report) => {
+						if (
+							report.kind === "migration_failed" ||
+							report.kind === "task_outdated"
+						)
+							process.stderr.write(
+								`tau: ${report.kind} ${name} task=${report.task.id} kind=${report.task.kind}: ${safeMessage(report.error)}\n`,
+							);
+					},
 					settings: () => ({ extensions: selection.defaults }),
 					...(env === undefined ? {} : { env }),
 					...(now === undefined ? {} : { now }),

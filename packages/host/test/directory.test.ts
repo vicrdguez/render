@@ -74,6 +74,10 @@ test("a directory source lists extension folders in sorted name order and skips 
 		node_modules: { "index.ts": "throw new Error('node_modules ran');\n" },
 	});
 	await writeFile(path.join(dir, ".notes"), "x", { mode: 0o644 });
+	await symlink(
+		"/missing-install-output",
+		path.join(dir, ".w2-00000000-0000-4000-8000-000000000000"),
+	);
 	const scan = await fromDirectory(dir)();
 	assert.deepEqual(scan.failures, []);
 	assert.deepEqual(Object.keys(scan.modules), ["alpha", "beta"]);
@@ -157,10 +161,7 @@ for (const mode of [0o770, 0o707, 0o730]) {
 			async () => fromDirectory(dir)(),
 			(error: Error) => {
 				assert.match(error.message, /writable by group or others/);
-				assert.match(
-					error.message,
-					/server does not start until.*permissions are fixed/i,
-				);
+				assert.match(error.message, /writable by group or others/i);
 				assert.match(error.message, /chmod 700/);
 				assert.ok(error.message.includes(dir), error.message);
 				return true;
@@ -177,6 +178,22 @@ test("a directory path that is a file refuses the scan and says so", async () =>
 		(error: Error) => {
 			assert.ok(error.message.includes(file), error.message);
 			assert.match(error.message, /extension directory/);
+			assert.match(error.message, /replace.*folder/i);
+			assert.doesNotMatch(error.message, /chmod|until.*permissions are fixed/);
+			return true;
+		},
+	);
+});
+
+test("a directory owned by another user asks for ownership repair, not chmod", async (t) => {
+	const dir = await scratch();
+	const uid = process.getuid!();
+	t.mock.method(process as { getuid(): number }, "getuid", () => uid + 1);
+	await assert.rejects(
+		async () => fromDirectory(dir)(),
+		(error: Error) => {
+			assert.match(error.message, /not owned.*transfer ownership/);
+			assert.doesNotMatch(error.message, /chmod/);
 			return true;
 		},
 	);

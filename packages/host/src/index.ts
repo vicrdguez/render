@@ -19,6 +19,7 @@ import { Projects } from "./projects.js";
 import type { Outcome } from "./refusals.js";
 import { type ReloadReport, reload } from "./reload.js";
 import { StructuralQueue } from "./structural.js";
+import { inspectTasks, taskLine } from "./task-reports.js";
 
 export type { AdminRequest, AdminResult } from "./admin.js";
 export { requestAdmin } from "./admin.js";
@@ -30,6 +31,7 @@ export type {
 } from "./extensions.js";
 export { fromDirectory } from "./loader.js";
 export type { ReloadReport } from "./reload.js";
+export { taskLine } from "./task-reports.js";
 
 // docs/core/host.md, "Options per project".
 export type ExtensionModule = {
@@ -86,8 +88,10 @@ export async function startServer(options: ServerOptions): Promise<Server> {
 	try {
 		const devices = await Devices.load(options.home, options.now ?? Date.now);
 		await projects.start();
+		for (const task of await inspectTasks(projects))
+			process.stderr.write(`tau: ${taskLine(task)}\n`);
 		await refuseRunning(socket);
-		admin = await listenAdmin(socket, devices);
+		admin = await listenAdmin(socket, devices, () => server.reload());
 		const host = {
 			projects,
 			devices,
