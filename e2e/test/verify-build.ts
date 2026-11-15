@@ -49,7 +49,7 @@ async function post(url: string, name: string, body: object, token?: string) {
 	return reply.result;
 }
 
-async function check() {
+async function check(initial: "empty" | "writable" | "file" = "empty") {
 	const child = spawn(command!, ["--port", "0"], {
 		env,
 		stdio: ["ignore", "pipe", "pipe"],
@@ -81,10 +81,27 @@ async function check() {
 		assert.ok(code);
 		const { token } = await post(url, "pair", { code });
 		assert.deepEqual(
-			(await post(url, "extensions", {}, token)).items,
-			[],
+			(await post(url, "extensions", {}, token)).items.map(
+				(item: { name: string }) => item.name,
+			),
+			initial === "writable" ? ["w2"] : [],
 			stderr,
 		);
+		if (initial === "file") {
+			assert.ok(stderr.includes(join(home, "extensions")), stderr);
+			assert.match(stderr, /not a folder/);
+			process.stdout.write(
+				"extensions path is a file; reported on stderr; extensions []\n",
+			);
+			return;
+		}
+		if (initial === "writable") {
+			assert.equal(stderr, "");
+			process.stdout.write(
+				"extensions mode 0777; copied W2 files mode 0664; loaded w2\n",
+			);
+			return;
+		}
 		process.stdout.write("empty extensions []\n");
 		for (const [i, name] of ["w1", "w2", "websearch"].entries()) {
 			const output = outputs[i]!;
@@ -166,9 +183,9 @@ async function check() {
 		}
 		const changed = join(root, "changed-w2");
 		await cp(outputs[1]!, changed, { recursive: true, dereference: false });
-		await chmod(changed, 0o700);
+		await chmod(changed, 0o777);
 		const prose = join(changed, "agent.md");
-		await chmod(prose, 0o644);
+		await chmod(prose, 0o664);
 		await writeFile(
 			prose,
 			(await readFile(prose, "utf8")) + "\nRELOADED-MARKDOWN.\n",
@@ -220,8 +237,23 @@ try {
 			file,
 		);
 	}
-	await mkdir(join(home, "extensions"), { recursive: true, mode: 0o700 });
+	const directory = join(home, "extensions");
+	await mkdir(directory, { recursive: true });
+	await chmod(directory, 0o777);
 	await check();
+	await rm(home, { recursive: true });
+	await mkdir(directory, { recursive: true });
+	await chmod(directory, 0o777);
+	const copied = join(directory, "w2");
+	await cp(outputs[1]!, copied, { recursive: true });
+	await chmod(copied, 0o775);
+	for await (const file of glob("**/*.{ts,md}", { cwd: copied }))
+		await chmod(join(copied, file), 0o664);
+	await check("writable");
+	await rm(home, { recursive: true });
+	await mkdir(home);
+	await writeFile(directory, "");
+	await check("file");
 	for (const file of [
 		"build",
 		"designer",
