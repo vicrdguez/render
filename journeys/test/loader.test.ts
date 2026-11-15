@@ -18,13 +18,13 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { defineTask } from "@earendil-works/pi-durable";
 import { obj } from "@earendil-works/pi-schema";
 import { type ExtensionScan, fromDirectory } from "tau/server";
-import { request } from "tau-extension";
+import { request } from "tau";
 import { type Journey, journey as start, until } from "./journey.ts";
 
 type Reply = Awaited<ReturnType<Journey["call"]>>;
 
 const TESTING =
-	"tau-extension/testing is for tests. An extension cannot import it at run time.";
+	"tau/testing is for tests. An extension cannot import it at run time.";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 
 const scratch = () => mkdtemp(path.join(tmpdir(), "tau-loader-"));
@@ -42,7 +42,7 @@ async function write(
 }
 
 const plain = (name: string, extra = "") =>
-	`import { defineExtension } from "tau-extension/durable";\nexport const extension = defineExtension({ name: ${JSON.stringify(name)} });\n${extra}`;
+	`import { defineExtension } from "tau/durable";\nexport const extension = defineExtension({ name: ${JSON.stringify(name)} });\n${extra}`;
 
 async function directory(
 	extensions: Readonly<Record<string, Readonly<Record<string, string>>>>,
@@ -240,7 +240,7 @@ test("an extension outside the repository gets the host's own request, defineTas
 		same: {
 			"index.ts": plain(
 				"same",
-				`import { request } from "tau-extension";\nimport { defineTask } from "tau-extension/durable";\nimport { obj } from "tau-extension/schema";\nexport const got = { request, defineTask, obj };\n`,
+				`import { request } from "tau";\nimport { defineTask } from "tau/durable";\nimport { obj } from "tau/schema";\nexport const got = { request, defineTask, obj };\n`,
 			),
 		},
 	});
@@ -258,12 +258,52 @@ test("an extension outside the repository gets the host's own request, defineTas
 	assert.equal(got.obj, obj);
 });
 
-test("an extension that imports tau-extension/testing fails with the testing message", async () => {
+test("an extension that imports tau/server fails with the server message", async () => {
+	const dir = await directory({
+		cheat: { "index.ts": 'import { startServer } from "tau/server"; export const used = startServer;' },
+	});
+	const scan = await fromDirectory(dir)();
+	assert.deepEqual(scan.modules, {});
+	assert.equal(failure(scan, "cheat").stage, "import");
+	assert.equal(failure(scan, "cheat").message,
+		"tau/server is for starting a server. An extension cannot import it at run time.");
+});
+
+test("the four tau author entries give every host value to an outside extension", async () => {
+	const entries = ["tau", "tau/durable", "tau/schema", "tau/chord"];
+	const dir = await directory({ same: { "index.ts": entries.map((entry, i) =>
+		`import * as a${i} from ${JSON.stringify(entry)};`).join("\n") +
+		"\nexport const got = [a0, a1, a2, a3];" } });
+	const script = `import assert from 'node:assert/strict';
+const {fromDirectory} = await import('tau/server');
+const scan = await fromDirectory(${JSON.stringify(dir)})();
+assert.deepEqual(scan.failures, []);
+for (const [i, entry] of ${JSON.stringify(entries)}.entries()) {
+ const expected = await import(entry);
+ assert.deepEqual(Object.keys(scan.modules.same.got[i]).sort(), Object.keys(expected).sort());
+ for (const [name, value] of Object.entries(expected)) assert.equal(scan.modules.same.got[i][name], value, entry + '.' + name);
+}`;
+	const child = spawnSync(process.execPath, ["--input-type=module", "--eval", script], { encoding: "utf8" });
+	assert.equal(child.status, 0, child.stderr);
+});
+
+test("tau-helpers as an extension dependency loads", async () => {
+	const dir = await directory({ good: {
+		"index.ts": 'import { value } from "tau-helpers"; export { value };',
+		"node_modules/tau-helpers/package.json": JSON.stringify({ name: "tau-helpers", type: "module", exports: "./index.js" }),
+		"node_modules/tau-helpers/index.js": "export const value = 42;",
+	} });
+	const scan = await fromDirectory(dir)();
+	assert.deepEqual(scan.failures, []);
+	assert.equal((scan.modules.good as {value: number}).value, 42);
+});
+
+test("an extension that imports tau/testing fails with the testing message", async () => {
 	const dir = await directory({
 		cheat: {
 			"index.ts": plain(
 				"cheat",
-				`import { fauxAnswer } from "tau-extension/testing";\nexport const used = fauxAnswer;\n`,
+				`import { fauxAnswer } from "tau/testing";\nexport const used = fauxAnswer;\n`,
 			),
 		},
 	});
@@ -370,21 +410,21 @@ test("a syntax error, a top-level throw and a mismatched name are left out and t
 	}
 });
 
-test("only canonical tau-extension specifiers load, including dynamic imports and re-exports", async (t) => {
+test("only canonical tau specifiers load, including dynamic imports and re-exports", async (t) => {
 	const manifest = JSON.parse(
-		await readFile(path.join(root, "extension-package/package.json"), "utf8"),
+		await readFile(path.join(root, "core/package.json"), "utf8"),
 	);
 	const canonical = Object.keys(manifest.exports).map(
-		(key) => `tau-extension${key.slice(1)}`,
+		(key) => `tau${key.slice(1)}`,
 	);
 	const spellings = [
-		"tau-extension/../testing.js",
-		"tau-extension/schema/../testing.js",
-		"tau-extension/testing/../../extension/dist/src/testing.js",
-		"tau-extension/./testing",
-		"tau-extension/testing.js",
-		"tau-extension/dist/src/testing.js",
-		"tau-extension//testing",
+		"tau/../testing.js",
+		"tau/schema/../testing.js",
+		"tau/testing/../../extension/dist/src/testing.js",
+		"tau/./testing",
+		"tau/testing.js",
+		"tau/dist/src/testing.js",
+		"tau//testing",
 	];
 	for (const specifier of spellings) {
 		for (const form of ["import", "dynamic", "export", "require", "template"]) {
@@ -418,19 +458,19 @@ test("only canonical tau-extension specifiers load, including dynamic imports an
 	}
 });
 
-test("a dependency whose name starts with tau-extension is allowed", async () => {
+test("a dependency whose name starts with tau is allowed", async () => {
 	const dir = await directory({
 		good: {
 			"index.ts": plain(
 				"good",
-				'import { value } from "tau-extension-helpers"; export { value };',
+				'import { value } from "tau-helpers"; export { value };',
 			),
-			"node_modules/tau-extension-helpers/package.json": JSON.stringify({
-				name: "tau-extension-helpers",
+			"node_modules/tau-helpers/package.json": JSON.stringify({
+				name: "tau-helpers",
 				type: "module",
 				exports: "./index.js",
 			}),
-			"node_modules/tau-extension-helpers/index.js": "export const value = 42;",
+			"node_modules/tau-helpers/index.js": "export const value = 42;",
 		},
 	});
 	const scan = await fromDirectory(dir)();
@@ -440,15 +480,15 @@ test("a dependency whose name starts with tau-extension is allowed", async () =>
 
 test("every production entry in the exports map gives the host's own values", async () => {
 	const manifest = JSON.parse(
-		await readFile(path.join(root, "extension-package/package.json"), "utf8"),
+		await readFile(path.join(root, "core/package.json"), "utf8"),
 	);
 	const entries = Object.entries(manifest.exports).filter(
-		([key]) => key !== "./testing",
+		([key]) => key !== "./testing" && key !== "./server",
 	);
 	const imports = entries
 		.map(
 			([key], i) =>
-				`import * as a${i} from ${JSON.stringify(`tau-extension${key.slice(1)}`)};`,
+				`import * as a${i} from ${JSON.stringify(`tau${key.slice(1)}`)};`,
 		)
 		.join("\n");
 	const dir = await directory({
@@ -466,7 +506,7 @@ const scan = await fromDirectory(${JSON.stringify(dir)})();
 assert.deepEqual(scan.failures, []);
 let checked = 0;
 for (const [i, [key, target]] of entries.entries()) {
- const expected = await import(new URL(target.import, ${JSON.stringify(pathToFileURL(path.join(root, "extension-package/")).href)}));
+ const expected = await import(new URL(target.import, ${JSON.stringify(pathToFileURL(path.join(root, "core/")).href)}));
  for (const [name, value] of Object.entries(expected)) {
   assert.equal(scan.modules.same.got[i][name], value, key + '.' + name);
   checked++;
@@ -482,7 +522,7 @@ assert.ok(checked > 0);`;
 });
 
 test("the first sorted folder owns a shared task even with integer names on every start", async (t) => {
-	const task = `import {defineExtension, defineTask} from 'tau-extension/durable';
+	const task = `import {defineExtension, defineTask} from 'tau/durable';
 const Task = defineTask({name:'shared.task',version:1,initial:()=>({phase:'run'}),phases:{run:async()=>{}},abort:async()=>{}});`;
 	const dir = await directory(
 		Object.fromEntries(
@@ -562,9 +602,9 @@ test("a ts-named symlink to external JavaScript fails for helpers and index file
 	}
 });
 
-const DEMO = `import { request } from "tau-extension";
-import { defineExtension, defineTask, defineTool } from "tau-extension/durable";
-import { obj } from "tau-extension/schema";
+const DEMO = `import { request } from "tau";
+import { defineExtension, defineTask, defineTool } from "tau/durable";
+import { obj } from "tau/schema";
 
 type Choice = "ship" | "hold";
 const Then = defineTask<{ choice: Choice }, { phase: string }, string>({

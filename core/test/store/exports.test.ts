@@ -3,32 +3,41 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-test("the core exposes exactly the root, server, and testing entries", () => {
+test("the core exposes exactly the six tau entries", () => {
 	const manifest = JSON.parse(
 		readFileSync(new URL("../../../package.json", import.meta.url), "utf8"),
 	);
 	assert.deepEqual(Object.keys(manifest.exports).sort(), [
 		".",
+		"./chord",
+		"./durable",
+		"./schema",
 		"./server",
 		"./testing",
 	]);
 });
 
-test("the root exports exactly the five extension functions", async () => {
+test("the root exports exactly the five extension functions and four helpers", async () => {
 	const root = await import("tau");
 	assert.deepEqual(Object.keys(root).sort(), [
 		"decision",
 		"emit",
 		"eventLog",
+		"modelRef",
+		"options",
+		"prose",
 		"request",
+		"role",
 		"withdraw",
 	]);
 	assert.equal("answer" in root, false);
 });
 
-test("the testing entry exports only fauxAnswer and openStore", async () => {
+test("the testing entry exports fauxAnswer, openStore, and the pi-ai test names", async () => {
 	const testing = await import("tau/testing");
-	assert.deepEqual(Object.keys(testing).sort(), ["fauxAnswer", "openStore"]);
+	assert.deepEqual(Object.keys(testing).sort(), [
+		"createModels", "fauxAnswer", "fauxAssistantMessage", "fauxProvider", "fauxText", "fauxToolCall", "openStore",
+	]);
 	assert.equal("answer" in testing, false);
 });
 

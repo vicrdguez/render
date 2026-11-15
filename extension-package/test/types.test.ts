@@ -14,8 +14,8 @@ import {
 	type Schema,
 	str,
 } from "@earendil-works/pi-schema";
-import type { RoleSettings } from "tau-extension";
-import * as kit from "../src/helpers.js";
+import type { RoleSettings } from "tau";
+import * as kit from "../../src/extension/helpers.js";
 
 type ExpectedRoleSettings = AgentChange & {
 	readonly model: ModelRef;

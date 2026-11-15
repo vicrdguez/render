@@ -10,38 +10,42 @@ import * as nodeEnv from "@earendil-works/pi-durable/env/node";
 import * as sqlite from "@earendil-works/pi-durable/storage/sqlite/node";
 import * as durableTools from "@earendil-works/pi-durable/tools";
 import * as piSchema from "@earendil-works/pi-schema";
-import * as store from "tau";
-import * as storeTesting from "tau/testing";
-import * as root from "tau-extension";
-import * as chord from "tau-extension/chord";
-import * as durable from "tau-extension/durable";
-import * as schema from "tau-extension/schema";
-import * as testing from "tau-extension/testing";
+import * as decisions from "../../src/store/decisions.js";
+import * as events from "../../src/store/events.js";
+import * as admin from "../../src/host/admin.js";
+import * as host from "../../src/host/index.js";
+import * as loader from "../../src/host/loader.js";
+import * as storeTesting from "../../src/store/testing.js";
+import * as server from "tau/server";
+import * as root from "tau";
+import * as chord from "tau/chord";
+import * as durable from "tau/durable";
+import * as schema from "tau/schema";
+import * as testing from "tau/testing";
 import ts from "typescript";
-import * as helpers from "../src/helpers.js";
+import * as helpers from "../../src/extension/helpers.js";
 
-const directory = resolve(import.meta.dirname, "..");
+const directory = resolve(import.meta.dirname, "../../..");
+const manifest = JSON.parse(readFileSync(resolve(directory, "package.json"), "utf8"));
 const entries = {
 	".": root,
 	"./durable": durable,
 	"./schema": schema,
 	"./chord": chord,
 	"./testing": testing,
+	"./server": server,
 };
 
-test("tau-extension exposes exactly five package entries", () => {
-	const manifest = JSON.parse(
-		readFileSync(resolve(directory, "../package.json"), "utf8"),
-	);
+test("tau exposes exactly six package entries", () => {
 	assert.deepEqual(
 		Object.keys(manifest.exports).sort(),
 		Object.keys(entries).sort(),
 	);
 });
 
-const readme = readFileSync(resolve(directory, "../README.md"), "utf8");
+const readme = readFileSync(resolve(directory, "README.md"), "utf8");
 function rows(entry: string) {
-	const title = `tau-extension${entry.slice(1)}`;
+	const title = `tau${entry.slice(1)}`;
 	const section = readme.split(`## \`${title}\``)[1]?.split("\n## ")[0];
 	assert.ok(section, title);
 	return [
@@ -54,11 +58,7 @@ function rows(entry: string) {
 
 test("README tables match every emitted value, type, and origin exactly once", () => {
 	const declarations = Object.keys(entries).map((entry) =>
-		resolve(
-			directory,
-			"src",
-			`${entry === "." ? "index" : entry.slice(2)}.d.ts`,
-		),
+		resolve(directory, manifest.exports[entry].types),
 	);
 	const program = ts.createProgram(declarations, {
 		module: ts.ModuleKind.NodeNext,
@@ -67,22 +67,25 @@ test("README tables match every emitted value, type, and origin exactly once", (
 	const checker = program.getTypeChecker();
 	const seen = new Set<string>();
 	assert.deepEqual(
-		[...readme.matchAll(/^## `(tau-extension[^`]*)`$/gm)]
+		[...readme.matchAll(/^## `(tau[^`]*)`$/gm)]
 			.map((match) => match[1])
 			.sort(),
 		Object.keys(entries)
-			.map((entry) => `tau-extension${entry.slice(1)}`)
+			.map((entry) => `tau${entry.slice(1)}`)
 			.sort(),
 	);
 	for (const [index, [entry, values]] of Object.entries(entries).entries()) {
-		const title = `tau-extension${entry.slice(1)}`;
+		const title = `tau${entry.slice(1)}`;
 		const documented = rows(entry);
 		for (const { name, origin } of documented) {
 			if (entry === ".")
 				assert.ok(
-					origin === "tau" || origin === "./helpers.js",
-					`${title}.${name}: root origin must be tau or ./helpers.js`,
+					origin.startsWith("../store/") || origin === "../host/index.js" || origin === "./helpers.js",
+					`${title}.${name}: root origin must be Tau-owned`,
 				);
+			if (entry === "./server") {
+				assert.ok(origin.startsWith("./host/"), `${title}.${name}: server origin must be host-owned`);
+			}
 			if (/^@earendil-works\/pi-ai(?:\/|$)/.test(origin))
 				assert.equal(
 					entry,
@@ -106,6 +109,11 @@ test("README tables match every emitted value, type, and origin exactly once", (
 					ts.isStringLiteral(statement.moduleSpecifier),
 			);
 			const target = checker.getAliasedSymbol(symbol);
+			if (entry === "./server") {
+				for (const declaration of target.declarations ?? [])
+					assert.ok(declaration.getSourceFile().fileName.startsWith(resolve(directory, "dist/src/host") + "/"),
+						`${title}.${symbol.name}: server must not re-export pi or helpers`);
+			}
 			return {
 				name: symbol.name,
 				kind: target.flags & ts.SymbolFlags.Value ? "value" : "type",
@@ -137,8 +145,12 @@ test("README tables match every emitted value, type, and origin exactly once", (
 test("extension re-exports preserve Tau and pi object identity", () => {
 	const origins: Record<string, Record<string, unknown>> = {
 		"./helpers.js": helpers,
-		tau: store,
-		"tau/testing": storeTesting,
+		"../store/decisions.js": decisions,
+		"../store/events.js": events,
+		"../store/testing.js": storeTesting,
+		"./host/admin.js": admin,
+		"./host/index.js": host,
+		"./host/loader.js": loader,
 		"@earendil-works/chord/context": chordContext,
 		"@earendil-works/pi-ai/models": aiModels,
 		"@earendil-works/pi-ai/providers/faux": aiFaux,
