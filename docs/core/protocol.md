@@ -248,7 +248,7 @@ The three designs walked eleven steps. Merged:
 
 ## Not verified
 
-- No Tau code exists. `spikes/wire.mjs` is a stand-in server for `pair`, `input`, `history`, `open`, and `inbox`. The other calls did not travel.
+- When this note was written no Tau code existed, and `spikes/wire.mjs` was a stand-in server for `pair`, `input`, `history`, `open`, and `inbox`. The host's tests and the journeys now send all 20 calls to the real server.
 - Everything ran on loopback. No TLS, proxy, HTTP/2, browser, or phone ran, and that a proxy passes an event stream unbuffered is inferred.
 - The slow client stopped reading. A real slow link was not measured.
 - The heartbeat, the 60-second cut, the limit on wrong codes, the admin socket, and the `Host` and `Origin` checks did not run.
