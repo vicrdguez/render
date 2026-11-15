@@ -358,8 +358,10 @@ test("install-extension removes only its own stale temporary links at startup", 
 	const stale = ".w2-00000000-0000-4000-8000-000000000000";
 	await symlink(f.target, join(dir, stale));
 	await symlink(f.target, join(dir, ".w2-not-ours"));
+	const unrelated = ".w2-custom-00000000-0000-4000-8000-000000000000";
+	await symlink(f.target, join(dir, unrelated));
 	assert.equal(f.run().status, 0);
-	assert.deepEqual(await readdir(dir), [".w2-not-ours"]);
+	assert.deepEqual(await readdir(dir), [unrelated, ".w2-not-ours"]);
 });
 
 for (const signal of ["SIGTERM", "SIGINT"])
