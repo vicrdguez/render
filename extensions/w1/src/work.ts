@@ -4,16 +4,16 @@ import {
 	decision,
 	type EventData,
 	options,
-} from "tau-extension";
-import type { Draft } from "tau-extension/chord";
+} from "tau";
+import type { Draft } from "tau/chord";
 import {
 	type ConversationId,
 	defineDoc,
 	defineEntry,
 	type EntryId,
 	type Tx,
-} from "tau-extension/durable";
-import { obj, str } from "tau-extension/schema";
+} from "tau/durable";
+import { obj, str } from "tau/schema";
 
 export const W1Options = options(
 	"w1",

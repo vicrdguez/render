@@ -57,24 +57,23 @@ export async function check(root, selections = []) {
 	function forbiddenExtensionDependency(name) {
 		return (
 			name.startsWith("@earendil-works/") ||
-			name === "tau" ||
-			(name !== "tau-extension" && Object.hasOwn(policy, name))
+			(name !== "tau" && Object.hasOwn(policy, name))
 		);
 	}
 	function extensionEntry(name, spec = name) {
-		if (spec === "tau/testing") return "tau-extension/testing";
+		if (spec === "tau/server")
+			return "tau at its author entries; tau/server is for starting a server";
+		if (spec === "tau/testing") return "tau/testing in test/ only";
 		const deepEntry =
-			/^tau-extension\/dist\/src\/(durable|schema|chord|testing)\.js$/.exec(
-				spec,
-			);
-		if (deepEntry) return `tau-extension/${deepEntry[1]}`;
+			/^tau\/dist\/src\/(durable|schema|chord|testing)\.js$/.exec(spec);
+		if (deepEntry) return `tau/${deepEntry[1]}`;
 		return (
 			{
-				"@earendil-works/pi-durable": "tau-extension/durable",
-				"@earendil-works/pi-schema": "tau-extension/schema",
-				"@earendil-works/chord": "tau-extension/chord",
-				"@earendil-works/pi-ai": "tau-extension/testing",
-			}[name] ?? "tau-extension"
+				"@earendil-works/pi-durable": "tau/durable",
+				"@earendil-works/pi-schema": "tau/schema",
+				"@earendil-works/chord": "tau/chord",
+				"@earendil-works/pi-ai": "tau/testing",
+			}[name] ?? "tau"
 		);
 	}
 	function inspectSpecifier(pkg, file, spec) {
@@ -84,12 +83,21 @@ export async function check(root, selections = []) {
 		if (pkg.manifest.name === "tau") {
 			const source = path.join(pkg.directory, "src");
 			const from = path.relative(source, file).split(path.sep)[0];
+			const layer = path
+				.relative(path.join(pkg.directory, isTest ? "test" : "src"), file)
+				.split(path.sep)[0];
 			const target =
-				spec === "tau/server"
-					? path.join(source, "host", "index.ts")
-					: spec.startsWith(".")
-						? path.resolve(path.dirname(file), spec)
-						: undefined;
+				!isTest &&
+				(spec === "tau" ||
+					["tau/durable", "tau/schema", "tau/chord", "tau/testing"].includes(
+						spec,
+					))
+					? path.join(source, "extension", "index.ts")
+					: spec === "tau/server"
+						? path.join(source, "host", "index.ts")
+						: spec.startsWith(".")
+							? path.resolve(path.dirname(file), spec)
+							: undefined;
 			const to =
 				target === undefined
 					? undefined
@@ -97,7 +105,8 @@ export async function check(root, selections = []) {
 			if (
 				(from === "store" &&
 					["host", "server.js", "server.ts", "command"].includes(to)) ||
-				(from === "host" && to === "command")
+				(from === "host" && to === "command") ||
+				(["store", "host", "command"].includes(layer) && to === "extension")
 			)
 				errors.push(`${label}: forbidden core layer import`);
 		}
@@ -139,14 +148,14 @@ export async function check(root, selections = []) {
 		if (
 			permissions?.extension &&
 			(forbiddenExtensionDependency(name) ||
-				(name === "tau-extension" &&
+				(name === "tau" &&
 					![".", "./durable", "./schema", "./chord"].includes(subpath) &&
 					!(isTest && subpath === "./testing")))
 		) {
 			const guidance =
 				name === "@earendil-works/pi-ai" && !isTest
 					? "pi-ai is for tests only"
-					: `use ${extensionEntry(name, spec)}${spec === "tau-extension/testing" ? "/testing in test/ only" : ""}`;
+					: `use ${extensionEntry(name, spec)}`;
 			errors.push(`${label}: forbidden extension import; ${guidance}`);
 			return;
 		}

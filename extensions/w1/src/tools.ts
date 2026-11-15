@@ -1,11 +1,11 @@
-import { emit, modelRef, request, role } from "tau-extension";
-import type { Context } from "tau-extension/chord";
+import { emit, modelRef, request, role } from "tau";
+import type { Context } from "tau/chord";
 import {
 	defineTool,
 	type ToolExecutionApi,
 	type ToolExecutionResult,
-} from "tau-extension/durable";
-import { arr, int, obj, oneOf, opt, str } from "tau-extension/schema";
+} from "tau/durable";
+import { arr, int, obj, oneOf, opt, str } from "tau/schema";
 import { diffAt, fileAt, publishedHead } from "./git.ts";
 import { reviewer } from "./roles.ts";
 import { designAnswer, fixStart, handoff, reviewStart } from "./tasks.ts";

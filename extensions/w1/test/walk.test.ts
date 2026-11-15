@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
-import type { DecisionId } from "tau-extension";
-import type { ConversationId, EntryRecord } from "tau-extension/durable";
+import type { DecisionId } from "tau";
+import type { ConversationId, EntryRecord } from "tau/durable";
 import {
 	answered,
 	call,

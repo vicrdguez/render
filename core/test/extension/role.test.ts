@@ -16,7 +16,7 @@ import {
 	ReadAfterWrite,
 } from "@earendil-works/pi-durable";
 import { obj } from "@earendil-works/pi-schema";
-import { type RoleSettings, role } from "tau-extension";
+import { type RoleSettings, role } from "tau";
 import { context, fixture } from "./fixture.js";
 
 const settings = {

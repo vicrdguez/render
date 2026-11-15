@@ -1,4 +1,4 @@
-import { prose } from "tau-extension";
+import { prose } from "tau";
 
 export const instructions = prose(import.meta.dirname, "instructions.md", [
 	"pass",

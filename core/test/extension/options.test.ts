@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { defineDoc, type JsonObject } from "@earendil-works/pi-durable";
 import { arr, bool, int, obj, str } from "@earendil-works/pi-schema";
-import { options } from "tau-extension";
+import { options } from "tau";
 import { context, fixture } from "./fixture.js";
 
 test("options isolate stores and caller document names", async (t) => {

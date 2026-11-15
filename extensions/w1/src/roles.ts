@@ -1,6 +1,6 @@
-import { prose, type RoleSettings } from "tau-extension";
-import type { ModelRef } from "tau-extension/durable";
-import { CodingTools } from "tau-extension/durable";
+import { prose, type RoleSettings } from "tau";
+import type { ModelRef } from "tau/durable";
+import { CodingTools } from "tau/durable";
 import { W1 } from "./extension.ts";
 import { publishBuild, publishReview, showDiff, showFile } from "./tools.ts";
 

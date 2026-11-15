@@ -6,8 +6,8 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { eventLog } from "tau-extension";
-import { BACKGROUND_CONTEXT as context } from "tau-extension/chord";
+import { eventLog } from "tau";
+import { BACKGROUND_CONTEXT as context } from "tau/chord";
 import {
 	type AgentChange,
 	type Conversation,
@@ -20,15 +20,15 @@ import {
 	openNodeSqliteStorage,
 	type Storage,
 	type Tx,
-} from "tau-extension/durable";
-import { compile, type JsonSchema, obj } from "tau-extension/schema";
+} from "tau/durable";
+import { compile, type JsonSchema, obj } from "tau/schema";
 import {
 	createModels,
 	fauxAssistantMessage,
 	fauxProvider,
 	fauxToolCall,
 	openStore,
-} from "tau-extension/testing";
+} from "tau/testing";
 import * as module from "../src/index.ts";
 import { createSearchExtension } from "../src/web-search.ts";
 

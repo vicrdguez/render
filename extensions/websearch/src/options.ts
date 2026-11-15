@@ -1,5 +1,5 @@
-import { options as defineOptions } from "tau-extension";
-import { obj, oneOf, str } from "tau-extension/schema";
+import { options as defineOptions } from "tau";
+import { obj, oneOf, str } from "tau/schema";
 
 export const options = defineOptions(
 	"websearch",

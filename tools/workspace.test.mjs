@@ -34,10 +34,7 @@ test("every source workspace references its emitted dependency", async () => {
 		);
 		assert.deepEqual(config.references, [
 			{
-				path:
-					directory === "journeys"
-						? "../extension-package"
-						: "../../extension-package",
+				path: directory === "journeys" ? "../core" : "../../core",
 			},
 		]);
 	}
@@ -136,7 +133,7 @@ async function fixture(t) {
 	const manifest = {
 		devDependencies: { typescript: "5.9.3" },
 		name: "tau-workspace",
-		workspaces: ["core", "extension-package", "extensions/*", "journeys"],
+		workspaces: ["core", "extensions/*", "journeys"],
 	};
 	const store = {
 		exports: { ".": "./dist/src/index.js" },
@@ -161,45 +158,34 @@ async function extensionFixture(t) {
 	const { put } = result;
 	const policy = {
 		tau: {},
-		"tau-extension": {},
 		"tau-private": {},
 		"tau-w1": { extension: true },
 		"tau-w2": {
 			extension: true,
-			"tau-extension": [".", "./durable", "./schema", "./chord"],
-			testOnly: { "tau-extension": ["./testing"] },
+			tau: [".", "./durable", "./schema", "./chord"],
+			testOnly: { tau: ["./testing"] },
 		},
 	};
 	const extension = {
-		dependencies: { "tau-extension": "0.0.0", webfox: "4.11.0" },
+		dependencies: { tau: "0.0.0", webfox: "4.11.0" },
 		devDependencies: { "test-helper": "1.0.0" },
 		name: "tau-w2",
 	};
 	await put("boundaries.json", policy);
 	await put("tsconfig.json", {
-		references: ["core", "extension", "w2", "w1"].map((name) => ({
-			path:
-				name === "core"
-					? name
-					: name === "extension"
-						? "extension-package"
-						: `extensions/${name}`,
+		references: ["core", "extensions/w2", "extensions/w1"].map((path) => ({
+			path,
 		})),
 	});
-	for (const directory of [
-		"extension-package",
-		"extensions/w2",
-		"extensions/w1",
-	])
+	for (const directory of ["extensions/w2", "extensions/w1"])
 		await put(`${directory}/tsconfig.json`, {});
-	await put("extension-package/package.json", {
+	await put("core/package.json", {
 		exports: Object.fromEntries(
-			[".", "./durable", "./schema", "./chord", "./testing"].map((entry) => [
-				entry,
-				"./dist/src/index.js",
-			]),
+			[".", "./durable", "./schema", "./chord", "./testing", "./server"].map(
+				(entry) => [entry, "./dist/src/index.js"],
+			),
 		),
-		name: "tau-extension",
+		name: "tau",
 	});
 	await put("extensions/w1/package.json", {
 		exports: { ".": "./dist/src/index.js" },
@@ -237,26 +223,34 @@ for (const [layer, targets] of [
 	});
 }
 
-test("tau-extension cannot import tau/server", async (t) => {
+for (const layer of ["store", "host", "command"]) {
+	test(`core ${layer} cannot import the extension author directory`, async (t) => {
+		const { root, put } = await fixture(t);
+		for (const statement of [
+			'import { options } from "../extension/helpers.js";',
+			'export * from "../extension/durable.js";',
+			'const value = import("../extension/schema.js");',
+			'type Value = import("../extension/chord.js").Context;',
+			'import "tau";',
+			'import "tau/durable";',
+		]) {
+			await put(`core/src/${layer}/access.ts`, statement);
+			assert.match(
+				(await check(root)).join("\n"),
+				/forbidden core layer import/,
+			);
+		}
+		await put(`core/src/${layer}/access.ts`, 'import "./local.js";');
+		assert.deepEqual(await check(root), []);
+	});
+}
+
+test("tau extensions cannot import tau/server", async (t) => {
 	const { root, put } = await extensionFixture(t);
-	await put("core/package.json", {
-		exports: { "./server": "./dist/src/server.js" },
-		name: "tau",
-	});
-	await put("extension-package/package.json", {
-		dependencies: { tau: "0.0.0" },
-		name: "tau-extension",
-	});
-	await put("boundaries.json", {
-		tau: {},
-		"tau-extension": { tau: [".", "./testing"] },
-		"tau-w1": {},
-		"tau-w2": {},
-	});
-	await put("extension-package/src/access.ts", 'import "tau/server";');
+	await put("extensions/w2/src/access.ts", 'import "tau/server";');
 	assert.match(
 		(await check(root)).join("\n"),
-		/access.ts: tau\/server: forbidden workspace capability/,
+		/access.ts: tau\/server: forbidden extension import/,
 	);
 });
 
@@ -415,18 +409,16 @@ for (const name of ["websearch", "w2", "w1"]) {
 }
 
 for (const [specifier, replacement] of [
-	["@earendil-works/pi-durable/tools", "tau-extension/durable"],
-	["@earendil-works/pi-schema", "tau-extension/schema"],
-	["@earendil-works/chord/context", "tau-extension/chord"],
-	["@earendil-works/pi-ai/providers/faux", "tau-extension/testing"],
-	["@earendil-works/future", "tau-extension"],
-	["tau/testing", "tau-extension/testing"],
-	["tau/dist/src/store/decisions.js", "tau-extension"],
-	["tau/server", "tau-extension"],
-	["tau", "tau-extension"],
-	["tau-private", "tau-extension"],
-	["tau-w1", "tau-extension"],
-	["tau-w2", "tau-extension"],
+	["@earendil-works/pi-durable/tools", "tau/durable"],
+	["@earendil-works/pi-schema", "tau/schema"],
+	["@earendil-works/chord/context", "tau/chord"],
+	["@earendil-works/pi-ai/providers/faux", "tau/testing"],
+	["@earendil-works/future", "tau"],
+	["tau/dist/src/store/decisions.js", "tau"],
+	["tau/server", "tau"],
+	["tau-private", "tau"],
+	["tau-w1", "tau"],
+	["tau-w2", "tau"],
 ]) {
 	test(`extension imports reject ${specifier} even when declared and permitted`, async (t) => {
 		const { root, put, policy, extension } = await extensionFixture(t);
@@ -464,7 +456,6 @@ for (const [specifier, replacement] of [
 }
 
 for (const [label, name] of [
-	["tau", "tau"],
 	["tau-private", "tau-private"],
 	["tau-w1", "tau-w1"],
 	["@earendil-works/pi-durable", "@earendil-works/pi-durable"],
@@ -488,7 +479,7 @@ for (const [label, name] of [
 				errors.some(
 					(error) =>
 						error.includes(`forbidden dependency ${name}`) &&
-						error.includes("use tau-extension"),
+						error.includes("use tau"),
 				),
 				errors.join("\n"),
 			);
@@ -507,30 +498,30 @@ test("extensions accept only canonical facade entries with testing limited to te
 			"path",
 			"webfox",
 			"webfox/subpath",
-			"tau-extension",
-			"tau-extension/durable",
-			"tau-extension/schema",
-			"tau-extension/chord",
+			"tau",
+			"tau/durable",
+			"tau/schema",
+			"tau/chord",
 		]
 			.map((specifier) => `import "${specifier}";`)
 			.join("\n"),
 	);
 	await put(
 		"extensions/w2/test/access.ts",
-		'import "tau-extension/testing"; import "test-helper"; import "../src/local.ts";',
+		'import "tau/testing"; import "test-helper"; import "../src/local.ts";',
 	);
 	assert.deepEqual(await check(root), []);
-	policy["tau-w2"]["tau-extension"].push(
+	policy["tau-w2"]["tau"].push(
 		"./testing",
 		"./dist/src/index.js",
 		"./schema/../testing",
 	);
 	await put("boundaries.json", policy);
 	for (const [directory, specifier] of [
-		["src", "tau-extension/testing"],
-		["src", "tau-extension/dist/src/index.js"],
-		["test", "tau-extension/dist/src/index.js"],
-		["test", "tau-extension/schema/../testing"],
+		["src", "tau/testing"],
+		["src", "tau/dist/src/index.js"],
+		["test", "tau/dist/src/index.js"],
+		["test", "tau/schema/../testing"],
 	]) {
 		await put("extensions/w2/src/index.ts", "");
 		await put(`extensions/w2/${directory}/index.ts`, `import "${specifier}";`);
@@ -540,7 +531,7 @@ test("extensions accept only canonical facade entries with testing limited to te
 				(error) =>
 					error.includes(`${directory}/index.ts`) &&
 					error.includes("forbidden extension import") &&
-					error.includes("use tau-extension"),
+					error.includes("use tau"),
 			),
 			errors.join("\n"),
 		);
@@ -556,7 +547,7 @@ test("extension source pi-ai diagnostics reserve pi-ai for tests", async (t) => 
 		await put("extensions/w2/src/index.ts", `import "${specifier}";`);
 		const errors = (await check(root)).join("\n");
 		assert.match(errors, /pi-ai is for tests only/);
-		assert.doesNotMatch(errors, /use tau-extension\/testing/);
+		assert.doesNotMatch(errors, /use tau\/testing/);
 	}
 });
 
@@ -565,11 +556,11 @@ test("extension deep facade diagnostics name the public entry", async (t) => {
 	for (const entry of ["durable", "schema", "chord"]) {
 		await put(
 			"extensions/w2/src/index.ts",
-			`import "tau-extension/dist/src/${entry}.js";`,
+			`import "tau/dist/src/${entry}.js";`,
 		);
 		assert.match(
 			(await check(root)).join("\n"),
-			new RegExp(`use tau-extension/${entry}(?:$|\\n)`),
+			new RegExp(`use tau/${entry}(?:$|\\n)`),
 		);
 	}
 });
@@ -669,33 +660,16 @@ test("boundaries accept nested test files and ignore generated tests", async (t)
 });
 
 for (const [name, directory, specifier, allowed] of [
-	["tau-websearch", "src", "tau/server", false],
-	["tau-w2", "src", "tau/server", false],
-	["tau-w1", "src", "tau/server", false],
-	["tau-websearch", "test", "tau/server", false],
-	["tau-w2", "test", "tau/server", false],
-	["tau-w1", "test", "tau/server", false],
-	["tau-websearch", "test", "tau-extension/testing", true],
-	["tau-w2", "test", "tau-extension/testing", true],
-	["tau-w1", "test", "tau-extension/testing", true],
-	["tau-websearch", "src", "tau/testing", false],
-	["tau-w2", "src", "tau/testing", false],
-	["tau-w1", "src", "tau/testing", false],
-	["tau-websearch", "test", "tau-extension/private", false],
-	["tau-websearch", "src", "tau-extension/testing", false],
-	["tau-w2", "test", "tau-extension/private", false],
-	["tau-w2", "test", "tau", false],
-
-	["tau-extension", "src", "tau/server", false],
-	["tau-websearch", "src", "tau", false],
-	["tau-w2", "src", "tau", false],
-	["tau-w1", "src", "tau", false],
-	["tau-websearch", "test", "tau", false],
-	["tau-w1", "test", "tau", false],
-	["tau-websearch", "test", "tau/testing", false],
-	["tau-w2", "test", "tau/testing", false],
-	["tau-w1", "test", "tau/testing", false],
-	["tau-journeys", "test", "tau", false],
+	...["tau-websearch", "tau-w2", "tau-w1"].flatMap((name) => [
+		[name, "src", "tau/server", false],
+		[name, "test", "tau/server", false],
+		[name, "test", "tau/testing", true],
+		[name, "src", "tau/testing", false],
+		[name, "test", "tau/private", false],
+		[name, "src", "tau", true],
+		[name, "test", "tau", true],
+	]),
+	["tau-journeys", "test", "tau", true],
 	["tau-journeys", "test", "tau/testing", false],
 	["tau-journeys", "test", "tau/server", true],
 	["tau-journeys", "test", "tau-w1", false],
@@ -743,41 +717,16 @@ for (const [name, directory, specifier, allowed] of [
 }
 
 for (const layer of ["store", "host", "command"]) {
-	const name = "tau";
 	for (const directory of ["src", "test"]) {
-		test(`tau ${layer} ${directory} cannot import tau-extension`, async (t) => {
+		test(`tau ${layer} ${directory} cannot import tau author helpers`, async (t) => {
 			const { root, put } = await fixture(t);
 			await put(
-				"boundaries.json",
-				await readFile(path.join(tools, "../boundaries.json"), "utf8"),
-			);
-			await put("core/package.json", {
-				dependencies: { "tau-extension": "0.0.0" },
-				name,
-			});
-			await put("extension-package/package.json", {
-				exports: { ".": "./dist/src/index.js" },
-				name: "tau-extension",
-			});
-			await put("extension-package/tsconfig.json", {});
-			await put("tsconfig.json", {
-				references: ["core", "extension"].map((dir) => ({
-					path:
-						dir === "core"
-							? dir
-							: dir === "extension"
-								? "extension-package"
-								: `extensions/${dir}`,
-				})),
-			});
-			await put(
 				`core/${directory}/${layer}/index.ts`,
-				'import "tau-extension";',
+				`import "../../src/extension/helpers.js";`,
 			);
 			const result = run("check-boundaries.mjs", root);
 			assert.equal(result.status, 1, result.stderr);
-			assert.match(result.stderr, /forbidden workspace capability/);
-			assert.match(result.stderr, /forbidden dependency tau-extension/);
+			assert.match(result.stderr, /forbidden core layer import/);
 		});
 	}
 }

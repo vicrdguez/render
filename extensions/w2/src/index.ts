@@ -1,10 +1,6 @@
-import { options as defineOptions, modelRef, prose } from "tau-extension";
-import {
-	type AgentChange,
-	defineExtension,
-	type Tx,
-} from "tau-extension/durable";
-import { obj, str } from "tau-extension/schema";
+import { options as defineOptions, modelRef, prose } from "tau";
+import { type AgentChange, defineExtension, type Tx } from "tau/durable";
+import { obj, str } from "tau/schema";
 import { calibration, recordForecast, reviseForecast } from "./forecast.ts";
 import { due, score } from "./tasks.ts";
 

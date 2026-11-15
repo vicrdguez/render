@@ -4,6 +4,6 @@
 	"private": true,
 	"type": "module",
 	"dependencies": {
-		"tau-extension": "0.0.0"
+		"tau": "0.0.0"
 	}
 }

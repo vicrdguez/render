@@ -1,5 +1,5 @@
-import { type DecisionInput, decision, emit, request } from "tau-extension";
-import { defineTask, type EntryId } from "tau-extension/durable";
+import { type DecisionInput, decision, emit, request } from "tau";
+import { defineTask, type EntryId } from "tau/durable";
 import {
 	Asked,
 	Book,

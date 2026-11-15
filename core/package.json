@@ -8,16 +8,28 @@
 	},
 	"exports": {
 		".": {
-			"types": "./dist/src/index.d.ts",
-			"import": "./dist/src/index.js"
+			"types": "./dist/src/extension/index.d.ts",
+			"import": "./dist/src/extension/index.js"
 		},
 		"./server": {
 			"types": "./dist/src/server.d.ts",
 			"import": "./dist/src/server.js"
 		},
 		"./testing": {
-			"types": "./dist/src/testing.d.ts",
-			"import": "./dist/src/testing.js"
+			"types": "./dist/src/extension/testing.d.ts",
+			"import": "./dist/src/extension/testing.js"
+		},
+		"./durable": {
+			"types": "./dist/src/extension/durable.d.ts",
+			"import": "./dist/src/extension/durable.js"
+		},
+		"./schema": {
+			"types": "./dist/src/extension/schema.d.ts",
+			"import": "./dist/src/extension/schema.js"
+		},
+		"./chord": {
+			"types": "./dist/src/extension/chord.d.ts",
+			"import": "./dist/src/extension/chord.js"
 		}
 	},
 	"dependencies": {
@@ -29,6 +41,7 @@
 		"proper-lockfile": "4.1.2"
 	},
 	"devDependencies": {
-		"@types/proper-lockfile": "4.1.4"
+		"@types/proper-lockfile": "4.1.4",
+		"typescript": "5.9.3"
 	}
 }

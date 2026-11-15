@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { prose } from "tau-extension";
+import { prose } from "tau";
 
 test("prose renders emitted Markdown in one pass and preserves Markdown", async () => {
 	assert.ok(import.meta.dirname.includes("/dist/"));
@@ -31,7 +31,7 @@ test("prose loads once and accepts a file with no slots", (t) => {
 test("missing files and differing slot sets stop a child module at import", (t) => {
 	const directory = mkdtempSync(join(tmpdir(), "tau-prose-load-"));
 	t.after(() => rmSync(directory, { recursive: true, force: true }));
-	const kit = new URL("../src/index.js", import.meta.url).href;
+	const kit = new URL("../../src/extension/index.js", import.meta.url).href;
 	const cases = [
 		{ name: "missing", slots: [] },
 		{ name: "undeclared", body: "{{extra}}", slots: [] },
