@@ -312,7 +312,9 @@ for (const migrate of [false, true])
 		const old = definition(1);
 		let task = old;
 		const root = await newHome();
+		let now = Date.now();
 		let s = await start({
+			now: () => now,
 			home: path.join(root, ".tau"),
 			source: () => ({
 				modules: {
@@ -351,7 +353,6 @@ for (const migrate of [false, true])
 					(t) => t.record.id === id && t.state.kind === "sleeping",
 				),
 			);
-			await new Promise((resolve) => setTimeout(resolve, 1100));
 			task = definition(2, migrate);
 			const report = (await requestAdmin(s.home, {
 				command: "extension_reload",
@@ -395,6 +396,7 @@ for (const migrate of [false, true])
 					stderr,
 					/migration-needed-on-reservation p task=.*kind=timer.due.*version=1->2/,
 				);
+				now += 2000;
 				await until("blocked", async () =>
 					(await p.store.harness.inspect(context)).tasks.some(
 						(t) => t.record.id === id && t.state.kind === "blocked",
@@ -435,6 +437,7 @@ for (const migrate of [false, true])
 				task = definition(2, true);
 				await requestAdmin(s.home, { command: "extension_reload" } as never);
 			}
+			now += 2000;
 			await until(
 				"completed",
 				async () =>

@@ -1,5 +1,40 @@
 # Unit R12
 
+## Verifier repair
+
+The takeover merged origin/render-core at 1a859c7 without rebasing. The owner asked for caller-relative command selection, restoration of the W1 fixture, two load-sensitive core tests, and an explicit record of the unresolved sandbox failure.
+
+The selection data remains the existing workspace directory and manifest records. The shared shell wrapper was overwriting TAU_INVOCATION_DIR when test called typecheck and when check called test. It now preserves the original caller. File selections already consulted that variable. Existing paths are now required before a path selects a package, and directory selections run the tests below that directory.
+
+Before the fix, from core, `nix develop -c env test test/store/decision.test.ts` exited 1 with `Error: no package selected by test/store/decision.test.ts`. The selection table's directory row failed with `no tests selected by test`; its missing-path row failed with `Missing expected exception`. Relative-file and parent-path rows passed at the JavaScript boundary, which exposed the shell wrapper as the first failing boundary.
+
+After the fix, the four selection rows pass. All 24 real command runs below were performed with `/nix/var/nix/profiles/default/bin/nix develop -c`. Each cell gives the actual exit status and test total where applicable. Full output is in /tmp/r12-real-runs.log.
+
+| Caller | Selection | env test | typecheck | check |
+| --- | --- | --- | --- | --- |
+| core | test/store/decision.test.ts | 0, 24 passed | 0 | 0, 24 passed |
+| core | ../extensions/w2/test/forecast.test.ts | 0, 11 passed | 0 | 0, 11 passed |
+| core | test/store | 0, 43 passed | 0 | 0, 43 passed |
+| core | test/store/absent.test.ts | 1, refused | 1, refused | 1, refused |
+| extensions/w2 | test/forecast.test.ts | 0, 11 passed | 0 | 0, 11 passed |
+| extensions/w2 | ../../core/test/store/decision.test.ts | 0, 24 passed | 0 | 0, 24 passed |
+| extensions/w2 | test | 0, 17 passed | 0 | 0, 17 passed |
+| extensions/w2 | test/absent.test.ts | 1, refused | 1, refused | 1, refused |
+
+Three restored mutations each exited 1. Overwriting the caller again broke the real core-relative CLI run. Removing the existence check broke the missing-path row. Removing descendant test selection broke the directory row. Logs are /tmp/r12-finish-mutant-1.log through /tmp/r12-finish-mutant-3.log.
+
+The W1 test now checks the last model message, the show_file result, rather than searching the whole request where show_diff could satisfy the assertion. It also asserts that the build modifies export.js instead of adding it. This strengthened journey failed before the fixture fix, then all three W1 journeys passed. Both the starting file and show_file path are export.js again. The complete comparison of every pre-move core/test/journeys file with journeys/test found only two other non-import .js to .ts changes: the crash-server and journey-server child-process URLs. Both correctly target source files now. No other fixture filename, Git path, or assertion needed repair. The comparison is /tmp/r12-js-comparison.log. The loader and command tests moved from host and command also retain their fixture names.
+
+The failure-list links now name core/test/store/types.test.ts and core/test/store/exports.test.ts.
+
+Controlled scheduling delays reproduced the core test failures before the timing fix. Holding the queued reload for 5100 ms exceeded its 5000 ms bound. Delaying the sleeping-task inspection by 1100 ms let the task complete under version 1 and broke both migration cases. With a 180000 ms reload bound and an injected clock advanced only after sleeping-state inspection, all three tests passed with those same delays. The temporary delays were then removed so the normal suite pays no extra waiting cost. No assertion or retry was removed or added. Logs are /tmp/r12-timing-red.log and /tmp/r12-timing-green.log.
+
+At a load average of 50 to 60, the independent verifier saw three W1 journeys fail with `fetch failed ... ECONNRESET` after 17 to 36 seconds, inside the sandboxed check and well within the new bounds. At a load average of 36 to 45 they passed. The cause was not found. This repair adds no retry and does not claim to fix those resets.
+
+A new baseline from origin/render-core passed 505 tests with exit 0. The repaired tree passed 529 tests with exit 0, no failures, cancellations, or skips. The top-level inventories contain 436 names before and 456 after. The complete name diff retains the five named replacements and two duplicate removals documented below, and adds the four selection subtests relative file, parent path, directory, and missing path. No other old name is absent. There are 26 new tests in the unit apart from the five renamed tests. The full outputs and inventories are /tmp/r12-finish-before.log, /tmp/r12-finish-after.log, /tmp/r12-finish-before.txt, /tmp/r12-finish-after.txt, and /tmp/r12-finish-inventory.log. The full repaired suite took 18902.453 ms on this run; this is verification time, not a performance claim.
+
+Fresh-checkout and sequential forced-check results for the pushed repair head are recorded in the PR 116 evidence comment. The earlier sections below describe the original implementation evidence, not a new verification of that earlier head.
+
 Tau makes delegated work trustworthy enough that you can leave, reconnect elsewhere, and continue.
 
 ## Delivery checkpoints

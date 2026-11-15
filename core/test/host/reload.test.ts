@@ -218,7 +218,7 @@ const refusals: [
 ];
 for (const [cause, proposed, message] of refusals) {
 	test(`reload refuses ${cause} without changing any project`, {
-		timeout: 5000,
+		timeout: 180_000,
 	}, async (t) => {
 		const get = capture(t);
 		const old = version("old", 2);
@@ -291,7 +291,7 @@ for (const [cause, proposed, message] of refusals) {
 }
 
 test("reload replaces a tool while its old call completes and streams stay open", {
-	timeout: 5000,
+	timeout: 180_000,
 }, async (t) => {
 	const get = capture(t);
 	const old = version("old");
@@ -347,7 +347,7 @@ test("reload replaces a tool while its old call completes and streams stay open"
 
 for (const mode of ["first", "sleep"])
 	test(`reload hands a ${mode} task to the new next phase`, {
-		timeout: 5000,
+		timeout: 180_000,
 	}, async (t) => {
 		const get = capture(t);
 		const old = version("old");
@@ -549,7 +549,7 @@ test("reload keeps absent names and names skipped stores but not stores since bo
 });
 
 test("two reloads scan in order and a bind waits for the new catalogue", {
-	timeout: 5000,
+	timeout: 180_000,
 }, async () => {
 	const held = latch();
 	const entered = latch();
@@ -575,7 +575,6 @@ test("two reloads scan in order and a bind waits for the new catalogue", {
 		await s.call("models", {});
 		await setImmediate();
 		assert.equal(scans, 2);
-		await new Promise((resolve) => setTimeout(resolve, 5100));
 		held.release();
 		assert.equal((await first).result?.extensions[0]?.status, "added");
 		assert.equal((await second).result?.extensions[0]?.status, "replaced");
@@ -589,7 +588,7 @@ test("two reloads scan in order and a bind waits for the new catalogue", {
 });
 
 test("setOptions captures its catalogue inside the queue after reload", {
-	timeout: 5000,
+	timeout: 180_000,
 }, async (t) => {
 	const held = latch();
 	const entered = latch();
@@ -645,7 +644,7 @@ test("setOptions captures its catalogue inside the queue after reload", {
 });
 
 test("a subscriber throw stops publication and requires restart on the same home", {
-	timeout: 5000,
+	timeout: 180_000,
 }, async (t) => {
 	const get = capture(t);
 	const old = version("old");

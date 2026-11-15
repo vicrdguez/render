@@ -35,7 +35,7 @@ test("W1: approve an annotated design from the phone, build, review the SHA and 
 				replies: [{ annotation: 0, text: "The export name stays format." }],
 			}),
 			call("show_diff"),
-			call("show_file", { path: "export.ts" }),
+			call("show_file", { path: "export.js" }),
 			(request) => {
 				assert.match(
 					JSON.stringify(request.messages.at(-1)),

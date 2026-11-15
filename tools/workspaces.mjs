@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { glob, readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -20,17 +21,22 @@ export function selectPackages(packages, selections, root = process.cwd()) {
 	const selected = new Set();
 	for (const selection of selections) {
 		if (selection === "tools" || selection.startsWith("tools/")) continue;
-		const candidates = [root, process.env.TAU_INVOCATION_DIR ?? root].map(
-			(base) => path.resolve(base, selection),
-		);
+		const candidates = [root, process.env.TAU_INVOCATION_DIR ?? root]
+			.map((base) => path.resolve(base, selection))
+			.filter((candidate) => existsSync(candidate));
 		const matches = packages.filter(
 			({ directory, manifest }) =>
 				selection === manifest.name ||
 				selection === path.basename(directory) ||
 				selection === directory ||
 				directory.startsWith(`${selection}/`) ||
-				candidates.some((candidate) =>
-					candidate.startsWith(`${path.resolve(root, directory)}${path.sep}`),
+				candidates.some(
+					(candidate) =>
+						candidate === path.resolve(root, directory) ||
+						candidate.startsWith(
+							`${path.resolve(root, directory)}${path.sep}`,
+						) ||
+						path.resolve(root, directory).startsWith(`${candidate}${path.sep}`),
 				),
 		);
 		if (!matches.length) throw new Error(`no package selected by ${selection}`);

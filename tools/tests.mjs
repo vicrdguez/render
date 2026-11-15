@@ -45,7 +45,10 @@ for (const selection of selected) {
 			selection === test.packageName ||
 			selection === path.basename(test.directory) ||
 			candidates.includes(path.resolve(test.source)) ||
-			candidates.includes(path.resolve(test.runnable)),
+			candidates.includes(path.resolve(test.runnable)) ||
+			candidates.some((candidate) =>
+				path.resolve(test.source).startsWith(`${candidate}${path.sep}`),
+			),
 	);
 	if (!matches.length) throw new Error(`no tests selected by ${selection}`);
 	for (const test of matches) files.add(test.runnable);

@@ -33,7 +33,7 @@ export async function setup(j: Journey, base = "main") {
 	const repo = join(j.root, "repo");
 	await mkdir(repo);
 	git(repo, "init", "-q", "-b", "main");
-	await writeFile(join(repo, "export.ts"), "export const format = 1;\n");
+	await writeFile(join(repo, "export.js"), "export const format = 1;\n");
 	git(repo, "add", "-A");
 	git(repo, "commit", "-qm", "Initial");
 	await j.ok("bind", { project: "p", workdir: repo, extensions: ["w1"] });

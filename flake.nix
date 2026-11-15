@@ -61,7 +61,7 @@
             };
           };
           enterRoot = ''
-            TAU_INVOCATION_DIR="$(pwd -P)"
+            TAU_INVOCATION_DIR="''${TAU_INVOCATION_DIR:-$(pwd -P)}"
             export TAU_INVOCATION_DIR
             while [ ! -f flake.nix ] || [ ! -f package.json ]; do
               if [ "$PWD" = / ]; then

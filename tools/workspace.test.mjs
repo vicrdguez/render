@@ -1012,14 +1012,26 @@ test("test selection accepts package names and source files and rejects unknown 
 			});
 			const packages = await workspaces(root);
 			if (count === 0)
-				assert.throws(() => selectPackages(packages, [selection], root), /no package selected/);
+				assert.throws(
+					() => selectPackages(packages, [selection], root),
+					/no package selected/,
+				);
 			else
-				assert.deepEqual(selectPackages(packages, [selection], root).map((pkg) => pkg.manifest.name), ["tau"]);
-			const result = spawnSync(process.execPath, [path.join(tools, "tests.mjs"), selection], {
-				cwd: root,
-				encoding: "utf8",
-				env: { ...env, TAU_INVOCATION_DIR: invocation },
-			});
+				assert.deepEqual(
+					selectPackages(packages, [selection], root).map(
+						(pkg) => pkg.manifest.name,
+					),
+					["tau"],
+				);
+			const result = spawnSync(
+				process.execPath,
+				[path.join(tools, "tests.mjs"), selection],
+				{
+					cwd: root,
+					encoding: "utf8",
+					env: { ...env, TAU_INVOCATION_DIR: invocation },
+				},
+			);
 			assert.equal(result.status, count ? 0 : 1, result.stderr);
 			if (count) assert.match(result.stdout, /selected first/);
 			if (count === 2) assert.match(result.stdout, /selected second/);
