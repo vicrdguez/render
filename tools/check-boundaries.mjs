@@ -22,11 +22,11 @@ export async function check(root) {
 	);
 	const packages = [];
 	const errors = [];
-	for (const entry of await readdir(path.join(root, "packages"), {
-		withFileTypes: true,
-	})) {
-		if (!entry.isDirectory()) continue;
-		const directory = await realpath(path.join(root, "packages", entry.name));
+	const workspace = JSON.parse(
+		await readFile(path.join(root, "package.json"), "utf8"),
+	);
+	for await (const entry of glob(workspace.workspaces, { cwd: root })) {
+		const directory = await realpath(path.join(root, entry));
 		const manifest = JSON.parse(
 			await readFile(path.join(directory, "package.json"), "utf8"),
 		);
@@ -62,7 +62,7 @@ export async function check(root) {
 		);
 	}
 	function extensionEntry(name, spec = name) {
-		if (spec === "tau-store/testing") return "tau-extension/testing";
+		if (spec === "tau/testing") return "tau-extension/testing";
 		const deepEntry =
 			/^tau-extension\/dist\/src\/(durable|schema|chord|testing)\.js$/.exec(
 				spec,
@@ -81,6 +81,26 @@ export async function check(root) {
 		const label = `${path.relative(root, file)}: ${spec}`;
 		const isTest = file.startsWith(path.join(pkg.directory, "test") + path.sep);
 		const permissions = policy[pkg.manifest.name];
+		if (pkg.manifest.name === "tau") {
+			const source = path.join(pkg.directory, "src");
+			const from = path.relative(source, file).split(path.sep)[0];
+			const target =
+				spec === "tau/server"
+					? path.join(source, "host", "index.ts")
+					: spec.startsWith(".")
+						? path.resolve(path.dirname(file), spec)
+						: undefined;
+			const to =
+				target === undefined
+					? undefined
+					: path.relative(source, target).split(path.sep)[0];
+			if (
+				(from === "store" &&
+					["host", "server.js", "server.ts", "command"].includes(to)) ||
+				(from === "host" && to === "command")
+			)
+				errors.push(`${label}: forbidden core layer import`);
+		}
 		if (
 			spec.startsWith(".") ||
 			path.isAbsolute(spec) ||

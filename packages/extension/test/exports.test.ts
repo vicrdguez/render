@@ -10,13 +10,13 @@ import * as nodeEnv from "@earendil-works/pi-durable/env/node";
 import * as sqlite from "@earendil-works/pi-durable/storage/sqlite/node";
 import * as durableTools from "@earendil-works/pi-durable/tools";
 import * as piSchema from "@earendil-works/pi-schema";
+import * as store from "tau";
+import * as storeTesting from "tau/testing";
 import * as root from "tau-extension";
 import * as chord from "tau-extension/chord";
 import * as durable from "tau-extension/durable";
 import * as schema from "tau-extension/schema";
 import * as testing from "tau-extension/testing";
-import * as store from "tau-store";
-import * as storeTesting from "tau-store/testing";
 import ts from "typescript";
 import * as helpers from "../src/helpers.js";
 
@@ -80,8 +80,8 @@ test("README tables match every emitted value, type, and origin exactly once", (
 		for (const { name, origin } of documented) {
 			if (entry === ".")
 				assert.ok(
-					origin === "tau-store" || origin === "./helpers.js",
-					`${title}.${name}: root origin must be tau-store or ./helpers.js`,
+					origin === "tau" || origin === "./helpers.js",
+					`${title}.${name}: root origin must be tau or ./helpers.js`,
 				);
 			if (/^@earendil-works\/pi-ai(?:\/|$)/.test(origin))
 				assert.equal(
@@ -137,8 +137,8 @@ test("README tables match every emitted value, type, and origin exactly once", (
 test("extension re-exports preserve Tau and pi object identity", () => {
 	const origins: Record<string, Record<string, unknown>> = {
 		"./helpers.js": helpers,
-		"tau-store": store,
-		"tau-store/testing": storeTesting,
+		tau: store,
+		"tau/testing": storeTesting,
 		"@earendil-works/chord/context": chordContext,
 		"@earendil-works/pi-ai/models": aiModels,
 		"@earendil-works/pi-ai/providers/faux": aiFaux,
