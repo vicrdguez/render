@@ -117,10 +117,13 @@ for (const entry of await readdir(directory).catch((error) => {
 	if (error.code !== "ENOENT") throw error;
 	return [];
 })) {
-	if (!names.some((name) => entry.startsWith(`.${name}-`))) continue;
 	if (
-		!/^\.[a-z0-9-]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
-			entry,
+		!names.some(
+			(name) =>
+				entry.startsWith(`.${name}-`) &&
+				/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+					entry.slice(name.length + 2),
+				),
 		)
 	)
 		continue;
