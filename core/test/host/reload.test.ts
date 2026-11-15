@@ -575,6 +575,7 @@ test("two reloads scan in order and a bind waits for the new catalogue", {
 		await s.call("models", {});
 		await setImmediate();
 		assert.equal(scans, 2);
+		await new Promise((resolve) => setTimeout(resolve, 5100));
 		held.release();
 		assert.equal((await first).result?.extensions[0]?.status, "added");
 		assert.equal((await second).result?.extensions[0]?.status, "replaced");

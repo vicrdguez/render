@@ -351,6 +351,7 @@ for (const migrate of [false, true])
 					(t) => t.record.id === id && t.state.kind === "sleeping",
 				),
 			);
+			await new Promise((resolve) => setTimeout(resolve, 1100));
 			task = definition(2, migrate);
 			const report = (await requestAdmin(s.home, {
 				command: "extension_reload",
