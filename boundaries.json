@@ -1,5 +1,8 @@
 {
 	"tau": {},
+	"tau-journeys": {
+		"tau": ["./server"]
+	},
 	"tau-extension": {
 		"tau": [".", "./testing"]
 	},

@@ -421,7 +421,7 @@ test("a syntax error, a top-level throw and a mismatched name are left out and t
 
 test("only canonical tau-extension specifiers load, including dynamic imports and re-exports", async (t) => {
 	const manifest = JSON.parse(
-		await readFile(path.join(root, "packages/extension/package.json"), "utf8"),
+		await readFile(path.join(root, "extension-package/package.json"), "utf8"),
 	);
 	const canonical = Object.keys(manifest.exports).map(
 		(key) => `tau-extension${key.slice(1)}`,
@@ -489,7 +489,7 @@ test("a dependency whose name starts with tau-extension is allowed", async () =>
 
 test("every production entry in the exports map gives the host's own values", async () => {
 	const manifest = JSON.parse(
-		await readFile(path.join(root, "packages/extension/package.json"), "utf8"),
+		await readFile(path.join(root, "extension-package/package.json"), "utf8"),
 	);
 	const entries = Object.entries(manifest.exports).filter(
 		([key]) => key !== "./testing",
@@ -515,7 +515,7 @@ const scan = await fromDirectory(${JSON.stringify(dir)})();
 assert.deepEqual(scan.failures, []);
 let checked = 0;
 for (const [i, [key, target]] of entries.entries()) {
- const expected = await import(new URL(target.import, ${JSON.stringify(pathToFileURL(path.join(root, "packages/extension/")).href)}));
+ const expected = await import(new URL(target.import, ${JSON.stringify(pathToFileURL(path.join(root, "extension-package/")).href)}));
  for (const [name, value] of Object.entries(expected)) {
   assert.equal(scan.modules.same.got[i][name], value, key + '.' + name);
   checked++;

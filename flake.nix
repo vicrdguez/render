@@ -23,15 +23,17 @@
               ./package.json
               ./package-lock.json
               ./core/package.json
-              (lib.fileset.fileFilter (file: file.name == "package.json") ./packages)
+              ./extension-package/package.json
+              ./journeys/package.json
+              (lib.fileset.fileFilter (file: file.name == "package.json") ./extensions)
             ];
           };
           npmDeps = pkgs.importNpmLock.buildNodeModules {
             npmRoot = npmRootSrc;
             inherit nodejs;
             derivationArgs = {
-              postPatch = "cp -R --no-preserve=mode ${npmRootSrc}/{core,packages} .";
-              postInstall = "find $out/node_modules -maxdepth 2 -type l \\( -lname '*packages/*' -o -lname '*core' \\) -delete";
+              postPatch = "cp -R --no-preserve=mode ${npmRootSrc}/{core,extension-package,extensions,journeys} .";
+              postInstall = "find $out/node_modules -maxdepth 2 -type l \\( -lname '*extensions/*' -o -lname '*core' -o -lname '*extension-package' -o -lname '*journeys' \\) -delete";
             };
           };
           enterRoot = ''
@@ -117,7 +119,7 @@
                 set -- "''${outputs[@]}"
               fi
               ${commands.typecheck}/bin/typecheck
-              node core/dist/test/journeys/verify-build.js "$executable" "$@"
+              node journeys/test/verify-build.ts "$executable" "$@"
             '';
             check = mkCommand "check" [ ] ''
               ${commands.lint}/bin/lint
@@ -154,7 +156,7 @@
             name:
             pkgs.runCommand "tau-extension-${name}" { } ''
               mkdir -p "$out"
-              cp -R ${./packages + "/${name}/src"}/. "$out/"
+              cp -R ${./extensions + "/${name}/src"}/. "$out/"
               ${lib.optionalString (name == "websearch") ''
                 mkdir "$out/node_modules"
                 ln -s ${npmDeps}/node_modules/webfox "$out/node_modules/webfox"
@@ -173,7 +175,7 @@
                 ./tools/link-node-modules.mjs
                 ./tools/assets.mjs
                 ./core
-                ./packages/extension
+                ./extension-package
               ];
             };
             nativeBuildInputs = [
@@ -183,14 +185,14 @@
             buildPhase = ''
               runHook preBuild
               node tools/link-node-modules.mjs ${npmDeps}/node_modules
-              node node_modules/typescript/bin/tsc -b core packages/extension
+              node node_modules/typescript/bin/tsc -b core extension-package
               runHook postBuild
             '';
             installPhase = ''
               runHook preInstall
               mkdir -p $out/lib/tau $out/bin
               cp package.json $out/lib/tau/
-              for directory in core packages/extension; do
+              for directory in core extension-package; do
                 mkdir -p "$out/lib/tau/$directory/dist"
                 cp "$directory/package.json" "$out/lib/tau/$directory/"
                 cp -R "$directory/dist/src" "$out/lib/tau/$directory/dist/"

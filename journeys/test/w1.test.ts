@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decision, journey, until } from "./journey.js";
-import { answer, build, call, git, pass, setup, stage } from "./w1-steps.js";
+import { decision, journey, until } from "./journey.ts";
+import { answer, build, call, git, pass, setup, stage } from "./w1-steps.ts";
 
 test("W1: approve an annotated design from the phone, build, review the SHA and hand over that SHA only", {
 	timeout: 15_000,
@@ -35,7 +35,7 @@ test("W1: approve an annotated design from the phone, build, review the SHA and 
 				replies: [{ annotation: 0, text: "The export name stays format." }],
 			}),
 			call("show_diff"),
-			call("show_file", { path: "export.js" }),
+			call("show_file", { path: "export.ts" }),
 			(request) => {
 				assert.ok(JSON.stringify(request).includes("export const format = 42"));
 				return pass;

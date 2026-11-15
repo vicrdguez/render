@@ -162,14 +162,14 @@ test("install-extension refuses unknown names and malformed arguments without bu
 
 test("install-extension warns that untracked extension files are excluded by the flake", async (t) => {
 	const f = await fixture(t);
-	await mkdir(join(f.root, "packages/w2/src"), { recursive: true });
+	await mkdir(join(f.root, "extensions/w2/src"), { recursive: true });
 	await writeFile(
-		join(f.root, "packages/w2/src/new.ts"),
+		join(f.root, "extensions/w2/src/new.ts"),
 		"export const newFile = true;\n",
 	);
 	const result = f.run(["w2"]);
 	assert.equal(result.status, 0, result.stderr);
-	assert.match(result.stderr, /untracked.*packages\/w2\/src\/new.ts/s);
+	assert.match(result.stderr, /untracked.*extensions\/w2\/src\/new.ts/s);
 	assert.match(result.stderr, /flake.*tracked.*git add/s);
 });
 

@@ -196,7 +196,12 @@ async function check() {
 }
 
 try {
-	assert.deepEqual(await readdir(join(lib, "packages")), ["extension"]);
+	assert.deepEqual((await readdir(lib)).sort(), [
+		"core",
+		"extension-package",
+		"node_modules",
+		"package.json",
+	]);
 	assert.ok(
 		(await readdir(join(lib, "core", "dist", "src"))).includes("server.js"),
 	);

@@ -11,7 +11,7 @@ import {
 	type ServerOptions,
 	startServer,
 } from "tau/server";
-import { linkExtensions } from "./extensions.js";
+import { linkExtensions } from "./extensions.ts";
 
 export async function until(
 	what: string,

@@ -7,7 +7,7 @@
 | A name is available through two entries. | exports.test.ts |
 | A re-export changes identity or its documented origin. | exports.test.ts |
 | A core package imports the extension package. | tools/workspace.test.mjs |
-| The faux answer accepts a trailing device identity. | packages/store/test/types.test.ts |
-| The store adds a fourth export path. | packages/store/test/exports.test.ts |
+| The faux answer accepts a trailing device identity. | extensions/store/test/types.test.ts |
+| The store adds a fourth export path. | extensions/store/test/exports.test.ts |
 
 The existing kit failure list and tests move here with the helpers.

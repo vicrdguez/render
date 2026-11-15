@@ -5,7 +5,9 @@
 	},
 	"workspaces": [
 		"core",
-		"packages/*"
+		"extension-package",
+		"extensions/*",
+		"journeys"
 	],
 	"scripts": {
 		"build": "typecheck",

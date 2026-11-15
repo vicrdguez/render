@@ -29,17 +29,17 @@ The shell creates a managed root `node_modules` directory. External dependencies
 ## Layout
 
 `core/` is the one core package, `tau`. Its store, host, and command live under `core/src/store/`, `core/src/host/`, and `core/src/command/`. The import checker keeps the store below the host and both below the command. Public entries are `tau`, `tau/server`, and `tau/testing`. None exports `answer`. Internal core imports use relative paths.
-`packages/extension/` is `tau-extension`. The three extensions remain in `packages/w1/`, `packages/w2/`, and `packages/websearch/`. The core tests live under `core/test/store/`, `core/test/host/`, and `core/test/command/`. Real-server journeys remain under `core/test/journeys/` until their separate move.
+`extension-package/` is `tau-extension`. The three extensions live in `extensions/w1/`, `extensions/w2/`, and `extensions/websearch/`. The core tests live under `core/test/store/`, `core/test/host/`, and `core/test/command/`. Real-server journeys live in the private `journeys/` workspace. They run from source, import the core only through `tau/server`, and load extensions through folders in a temporary home.
 
 ### Add a package
 
-Create its directory under `packages/` with a `package.json` and `tsconfig.json`.
+Create its directory under `extensions/` with a `package.json` and `tsconfig.json`.
 Add the package to the root `tsconfig.json` references and to `boundaries.json`.
 Update the lock inside `nix develop -c` with `npm install --package-lock-only --ignore-scripts --no-audit --no-fund`.
 Tests live in `<pkg>/test/*.test.ts`; nested directories under `test/` are allowed.
 Extensions import Tau and pi names only through `tau-extension`, `tau-extension/durable`, `tau-extension/schema`, and `tau-extension/chord`. Tests may also import `tau-extension/testing`. Other imports stay within the extension, Node built-ins, or its declared non-Tau, non-pi dependencies.
 Declare test-only dependencies in `devDependencies`.
-Extension `tsconfig.json` files set `noEmit`, `allowImportingTsExtensions`, and `erasableSyntaxOnly`, and reference `packages/extension`. Use erasable TypeScript, with explicit fields instead of constructor parameter properties and plain objects or unions instead of enums. Every relative import or re-export, including in tests, ends in `.ts`. Crash fixtures run as `.ts` files. Read Markdown beside the source module; no extension `dist/` is built or copied. Extensions are loaded by their `src/index.ts`, not a package export.
+Extension `tsconfig.json` files set `noEmit`, `allowImportingTsExtensions`, and `erasableSyntaxOnly`, and reference `extension-package`. Use erasable TypeScript, with explicit fields instead of constructor parameter properties and plain objects or unions instead of enums. Every relative import or re-export, including in tests, ends in `.ts`. Relative JSON and other file imports are not supported. No current extension needs them. Crash fixtures run as `.ts` files. Read Markdown beside the source module; no extension `dist/` is built or copied. Extensions are loaded by their `src/index.ts`, not a package export.
 
 ## Rules
 

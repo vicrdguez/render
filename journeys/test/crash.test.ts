@@ -5,8 +5,8 @@ import { existsSync } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { test } from "node:test";
-import { decision, journey, post, until } from "./journey.js";
-import { answer, build, call, git, pass, setup, stage } from "./w1-steps.js";
+import { decision, journey, post, until } from "./journey.ts";
+import { answer, build, call, git, pass, setup, stage } from "./w1-steps.ts";
 
 test("W1: SIGKILL after an HTTP answer but before its continuation effect resumes once from the second device", {
 	timeout: 15_000,
@@ -30,7 +30,7 @@ test("W1: SIGKILL after an HTTP answer but before its continuation effect resume
 		);
 		await chmod(wrapper, 0o755);
 		const child = fork(
-			new URL("./crash-server.js", import.meta.url),
+			new URL("./crash-server.ts", import.meta.url),
 			[j.home],
 			{
 				env: {

@@ -3,8 +3,8 @@ import { symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fromDirectory } from "tau/server";
-import { extensionSource } from "./extensions.js";
-import { journey } from "./journey.js";
+import { extensionSource } from "./extensions.ts";
+import { journey } from "./journey.ts";
 
 test("the directory loader reports a repeated extension folder instead of importing it twice", async () => {
 	const j = await journey();

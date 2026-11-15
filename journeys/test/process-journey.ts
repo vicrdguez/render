@@ -9,8 +9,8 @@ import {
 	fauxAssistantMessage,
 } from "@earendil-works/pi-ai";
 import { requestAdmin } from "tau/server";
-import { linkExtensions } from "./extensions.js";
-import { post, watch } from "./journey.js";
+import { linkExtensions } from "./extensions.ts";
+import { post, watch } from "./journey.ts";
 
 export async function processJourney(
 	config: { now?: () => number; searchUrl?: string } = {},
@@ -36,7 +36,7 @@ export async function processJourney(
 	};
 	async function start() {
 		child = fork(
-			new URL("./journey-server.js", import.meta.url),
+			new URL("./journey-server.ts", import.meta.url),
 			[
 				home,
 				JSON.stringify({ now: config.now?.(), searchUrl: config.searchUrl }),

@@ -149,7 +149,7 @@ if (name === undefined) {
 	}
 	const untracked = execFileSync(
 		"git",
-		["ls-files", "--others", "--exclude-standard", "--", `packages/${name}/`],
+		["ls-files", "--others", "--exclude-standard", "--", `extensions/${name}/`],
 		{ encoding: "utf8" },
 	).trim();
 	if (untracked)

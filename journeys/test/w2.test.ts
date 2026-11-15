@@ -3,9 +3,9 @@ import { symlink, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { extensionSource } from "./extensions.js";
-import { decision, journey, until } from "./journey.js";
-import { processJourney } from "./process-journey.js";
+import { extensionSource } from "./extensions.ts";
+import { decision, journey, until } from "./journey.ts";
+import { processJourney } from "./process-journey.ts";
 
 const WEEK = 604_800_000;
 const publish = (name: string, key: string, due: number, p = 0.7) =>
