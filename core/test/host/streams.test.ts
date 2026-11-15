@@ -152,6 +152,51 @@ test("a project bound after inbox dispatch but before stream start is included",
 	}
 });
 
+test("a project watch failure before inbox start ends the stream as failed", async (t) => {
+	const s = await start();
+	const onBind = Projects.prototype.onBind;
+	t.mock.method(
+		Projects.prototype,
+		"onBind",
+		function (this: Projects, join: Parameters<typeof onBind>[0]) {
+			return onBind.call(this, (open) => {
+				t.mock.method(open.store.harness, "watchDoc", async () => {
+					throw new Error("controlled project watch failure");
+				});
+				join(open);
+			});
+		},
+	);
+	const inboxCall = calls.inbox;
+	assert.ok(inboxCall?.stream);
+	const dispatch = inboxCall.dispatch;
+	t.mock.method(
+		inboxCall,
+		"dispatch",
+		async (...args: Parameters<typeof dispatch>) => {
+			const opened = await dispatch(...args);
+			assert.ok("result" in opened);
+			assert.equal(
+				(await s.call("bind", { project: "q", workdir: "/q", extensions: [] }))
+					.status,
+				200,
+			);
+			assert.equal((await opened.result.closed).kind, "failed");
+			return opened;
+		},
+	);
+	let inbox: ReturnType<Running["watch"]> | undefined;
+	try {
+		await s.call("bind", { project: "p", workdir: "/p", extensions: [] });
+		inbox = s.watch("inbox", {});
+		await inbox.until((w) => w.closed, "the failed stream to close");
+		assert.equal(inbox.end, "failed");
+	} finally {
+		inbox?.close();
+		await s.close();
+	}
+});
+
 test("a clean stop ends each stream with stopping, and a revoke ends only that device's", async () => {
 	const s = await start();
 	try {
