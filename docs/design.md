@@ -17,7 +17,7 @@ The store does not import the host or command. The host does not import the comm
 
 A proposal to add to the core must show all five checks:
 
-1. **A real failure.** The bare agent or a proving workflow cannot do something today. The proposal names it.
+1. **A real failure.** The bare agent or a proving workflow cannot do something. The proposal names it.
 2. **pi-durable does not provide it.** The proposal cites what was checked.
 3. **An extension cannot keep the promise.** The change guards who may act at the boundary to the human and the client. Or it is a record that every client and every extension must read the same way. The proposal includes the extension that was tried and where it fell short. Convenience fails this check.
 4. **Two unlike users.** Two extensions that do different jobs use it with the same meaning, or a client that knows no extension cannot work without it. A repair to the server's safety is the one exception.
@@ -40,9 +40,17 @@ A helper goes out when it has fewer than two call sites or pi-durable gains it.
 
 Extensions are trusted code and are not sandboxed. An extension can end the server process or prevent startup by never finishing its top-level code. Changes to an extension's own dependencies require a restart.
 
-The human answer boundary guards against mistakes, not an agent with access to the server's account, store, or device tokens. See [Decision and Event](primitives.md#who-can-answer).
+The [human answer boundary](primitives.md#who-can-answer) guards against mistakes, not an agent acting outside the extension interface.
 
-An upgrade can change the meaning of an open decision because the task is looked up when an answer arrives. A workflow must keep its open decisions compatible with its task code.
+SQLite uses `synchronous=NORMAL`, so a power failure can lose recent commits.
+
+An upgrade can change the meaning of an open decision because the task is looked up when an answer arrives. Keep open decisions compatible with their task code, or withdraw them before an incompatible upgrade.
+
+A restart has no old task definitions to compare with the installed code. A stored task can fault if its phase was removed.
+
+Removing the secret marking from an option exposes its stored value in option replies because the current schema controls masking.
+
+When selected extensions provide tools with the same name, the last selected definition wins without a warning. Use distinct tool names to avoid running the wrong tool.
 
 Annotations travel with an answer. An unsent review stays on the device where it was written.
 
