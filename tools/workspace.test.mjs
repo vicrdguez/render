@@ -17,6 +17,45 @@ import { test } from "node:test";
 import { check } from "./check-boundaries.mjs";
 
 const tools = import.meta.dirname;
+
+test("every source workspace references its emitted dependency", async () => {
+	for (const directory of ["extensions/w1", "extensions/w2", "extensions/websearch", "journeys"]) {
+		const config = JSON.parse(await readFile(path.join(tools, "..", directory, "tsconfig.json"), "utf8"));
+		assert.deepEqual(config.references, [{ path: directory === "journeys" ? "../core" : "../../extension-package" }]);
+	}
+});
+
+test("journeys reject relative JavaScript and direct extension source imports", async (t) => {
+	const { root, put } = await fixture(t);
+	await put("journeys/package.json", { name: "tau-journeys" });
+	await put("journeys/tsconfig.json", {});
+	await put("tsconfig.json", { references: [{ path: "core" }, { path: "journeys" }] });
+	await put("boundaries.json", JSON.parse(await readFile(path.join(tools, "../boundaries.json"), "utf8")));
+	for (const [specifier, diagnostic] of [
+		["./helper.js", /relative imports must end in \.ts/],
+		["../../extensions/w1/src/index.ts", /cross-package relative import/],
+	]) {
+		await put("journeys/test/access.ts", `import "${specifier}";`);
+		assert.match((await check(root)).join("\n"), diagnostic);
+	}
+});
+
+test("side selection runs extension tests without unrelated packages", async (t) => {
+	const { root, put } = await fixture(t);
+	await put("core/test/no.test.ts", "");
+	await put("core/dist/test/no.test.js", 'throw new Error("core ran");');
+	for (const name of ["w1", "w2"]) {
+		await put(`extensions/${name}/package.json`, { name: `tau-${name}`, type: "module" });
+		await put(`extensions/${name}/tsconfig.json`, { compilerOptions: { noEmit: true } });
+		await put(`extensions/${name}/test/ok.test.ts`, `import { test } from "node:test"; test("${name} selected", () => {});`);
+	}
+	const result = run("tests.mjs", root, "extensions");
+	assert.equal(result.status, 0, result.stderr);
+	assert.match(result.stdout, /w1 selected/);
+	assert.match(result.stdout, /w2 selected/);
+	assert.doesNotMatch(result.stdout, /core ran/);
+});
+
 test("every declared workspace dependency is installed at its declared version", async () => {
 	const root = path.resolve(tools, "..");
 	const manifest = JSON.parse(
@@ -319,7 +358,9 @@ for (const name of ["websearch", "w2", "w1"]) {
 					types: [],
 				},
 				extends: path.join(tools, "../tsconfig.base.json"),
-				references: [{ path: path.join(tools, "../extension-package") }],
+				references: config.references.map((reference) => ({
+					path: path.resolve(tools, `../extensions/${name}`, reference.path),
+				})),
 			});
 			await put("core/src/index.ts", source);
 			const result = spawnSync(
@@ -610,72 +651,41 @@ for (const [name, directory, specifier, allowed] of [
 	["tau-websearch", "src", "tau/testing", false],
 	["tau-w2", "src", "tau/testing", false],
 	["tau-w1", "src", "tau/testing", false],
-	["tau-websearch", "test", "tau-kit", false],
-	["tau-websearch", "src", "tau-kit", false],
-	["tau-w2", "test", "tau-kit", false],
+	["tau-websearch", "test", "tau-extension/private", false],
+	["tau-websearch", "src", "tau-extension/testing", false],
+	["tau-w2", "test", "tau-extension/private", false],
 	["tau-w2", "test", "tau", false],
+
+	["tau-extension", "src", "tau/server", false],
+	...["tau-websearch", "tau-w2", "tau-w1"].flatMap((name) =>
+		["src", "test"].flatMap((directory) =>
+			["tau", "tau/server", "tau/testing"].map((entry) => [name, directory, entry, false]),
+		),
+	),
+	...["test"].flatMap((directory) =>
+		["tau", "tau/testing", "tau/server", "tau-w1"].map((entry) => [
+			"tau-journeys", directory, entry, entry === "tau/server",
+		]),
+	),
 ]) {
 	test(`${name} ${directory} import of ${specifier} is ${allowed ? "allowed" : "forbidden"}`, async (t) => {
-		const { root, put, manifest, store } = await fixture(t);
-		await put(
-			"boundaries.json",
-			await readFile(path.join(tools, "../boundaries.json"), "utf8"),
-		);
-		const hostStore = {
-			...store,
-			exports: {
-				...store.exports,
-				"./server": "./dist/src/server.js",
-				"./testing": "./dist/src/testing.js",
-			},
-			name: "tau",
-		};
-		const dependency = specifier.split("/")[0];
-		const extension = {
-			dependencies: { [dependency]: "0.0.0" },
-			name,
-		};
-		const facade = {
-			exports: { "./testing": "./dist/src/testing.js" },
-			name: "tau-extension",
-		};
-		await put("extensions/facade/package.json", facade);
-		await put("extensions/facade/tsconfig.json", {});
-		await put("core/package.json", hostStore);
-		await put("extension-package/package.json", extension);
-		await put("extension-package/tsconfig.json", {});
-
-		await put("tsconfig.json", {
-			references: ["core", "extension", "facade"].map((dir) => ({
-				path:
-					dir === "core"
-						? dir
-						: dir === "extension"
-							? "extension-package"
-							: `extensions/${dir}`,
-			})),
-		});
-		await put("package-lock.json", {
-			lockfileVersion: 3,
-			packages: {
-				"": manifest,
-				core: hostStore,
-				"extension-package": extension,
-				"extensions/facade": facade,
-			},
-		});
-		await put(
-			`extension-package/${directory}/${directory === "test" ? "access.test.ts" : "access.ts"}`,
-			`import "${specifier}";`,
-		);
-		const result = run("check-boundaries.mjs", root);
-		assert.equal(result.status, allowed ? 0 : 1, result.stderr);
-		if (!allowed)
-			assert.match(
-				result.stderr,
-				/forbidden extension import.*use tau-extension/,
-			);
-		assert.equal(run("check-lock.mjs", root).status, 0);
+		const { root, put } = await fixture(t);
+		const repository = path.resolve(tools, "..");
+		for (const file of ["package.json", "boundaries.json", "tsconfig.json", "tsconfig.base.json"])
+			await put(file, await readFile(path.join(repository, file), "utf8"));
+		const manifest = JSON.parse(await readFile(path.join(repository, "package.json"), "utf8"));
+		let target;
+		for await (const workspace of glob(manifest.workspaces, { cwd: repository })) {
+			const pkg = JSON.parse(await readFile(path.join(repository, workspace, "package.json"), "utf8"));
+			await put(`${workspace}/package.json`, pkg);
+			await put(`${workspace}/tsconfig.json`, await readFile(path.join(repository, workspace, "tsconfig.json"), "utf8"));
+			if (pkg.name === name) target = workspace;
+		}
+		assert.ok(target);
+		await put(`${target}/${directory}/access.ts`, `import "${specifier}";`);
+		const errors = (await check(root)).join("\n");
+		if (allowed) assert.equal(errors, "");
+		else assert.match(errors, /forbidden (extension import|workspace capability)/);
 	});
 }
 
