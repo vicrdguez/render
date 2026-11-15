@@ -84,7 +84,7 @@ Each row gives fields in the JSON body and fields inside `result`. A question ma
 | `continue` | `project, conversation, requestId` | `submission` | `unknown_project`, `unknown_conversation`, `event_log`, `busy` |
 | `stop` | `project, conversation` | `{}` | `unknown_project`, `unknown_conversation`, `event_log` |
 | `setModel` | `project, conversation, model, thinkingLevel?` | `{}` | `unknown_project`, `unknown_conversation`, `event_log`, `unknown_model` |
-| `inbox` | `{}` | stream | none |
+| `inbox` | `{}` | stream | `busy` |
 | `decision` | `project, decision` | `decision, text, then?` | `unknown_project`, `unknown_decision` |
 | `answer` | `project, decision, basis, choice, annotations` | `decision, repeated` | `unknown_project`, `unknown_decision`, `not_open`, `stale_basis`, `unknown_choice`, `bad_annotation`, `conflict`, `extension_not_loaded` |
 | `timeline` | `project, after?` | stream | `unknown_project` |
