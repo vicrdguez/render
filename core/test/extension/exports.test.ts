@@ -10,20 +10,20 @@ import * as nodeEnv from "@earendil-works/pi-durable/env/node";
 import * as sqlite from "@earendil-works/pi-durable/storage/sqlite/node";
 import * as durableTools from "@earendil-works/pi-durable/tools";
 import * as piSchema from "@earendil-works/pi-schema";
-import * as decisions from "../../src/store/decisions.js";
-import * as events from "../../src/store/events.js";
-import * as admin from "../../src/host/admin.js";
-import * as host from "../../src/host/index.js";
-import * as loader from "../../src/host/loader.js";
-import * as storeTesting from "../../src/store/testing.js";
-import * as server from "tau/server";
 import * as root from "tau";
 import * as chord from "tau/chord";
 import * as durable from "tau/durable";
 import * as schema from "tau/schema";
+import * as server from "tau/server";
 import * as testing from "tau/testing";
 import ts from "typescript";
 import * as helpers from "../../src/extension/helpers.js";
+import * as admin from "../../src/host/admin.js";
+import * as host from "../../src/host/index.js";
+import * as loader from "../../src/host/loader.js";
+import * as decisions from "../../src/store/decisions.js";
+import * as events from "../../src/store/events.js";
+import * as storeTesting from "../../src/store/testing.js";
 
 const directory = resolve(import.meta.dirname, "../../..");
 const manifest = JSON.parse(

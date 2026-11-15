@@ -17,8 +17,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { defineTask } from "@earendil-works/pi-durable";
 import { obj } from "@earendil-works/pi-schema";
-import { type ExtensionScan, fromDirectory } from "tau/server";
 import { request } from "tau";
+import { type ExtensionScan, fromDirectory } from "tau/server";
 import { type Journey, journey as start, until } from "./journey.ts";
 
 type Reply = Awaited<ReturnType<Journey["call"]>>;
