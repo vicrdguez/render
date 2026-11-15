@@ -81,6 +81,15 @@ test("request opens one decision on a subject with no open decision", async () =
 	});
 });
 
+test("request rejects an empty subject without opening a decision or writing", async () => {
+	const s = await setup();
+	const draft = await s.draft({ subject: "" });
+	const before = s.commits();
+	await assert.rejects(s.ask(draft));
+	assert.deepEqual(await openList(s.store), {});
+	assert.equal(s.commits(), before);
+});
+
 test("an equal draft returns the open decision and writes nothing, whatever requestedAt", async () => {
 	const s = await setup();
 	const draft = await s.draft();
