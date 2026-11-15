@@ -26,7 +26,7 @@ export type Reply = {
 	};
 };
 
-export const newHome = () => mkdtemp(path.join(tmpdir(), "tau-host-"));
+export const newHome = () => mkdtemp(path.join(tmpdir(), "tau-server-"));
 
 export function faux(ids: readonly string[] = ["a", "b", "c"]): {
 	faux: FauxProviderHandle;

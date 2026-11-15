@@ -3,9 +3,10 @@ import { builtinModules } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
+import { selectPackages, workspaces } from "./workspaces.mjs";
 
 // Build tooling, not Tau runtime. No lint suppression can bypass this check.
-export async function check(root) {
+export async function check(root, selections = []) {
 	const policy = JSON.parse(
 		await readFile(path.join(root, "boundaries.json"), "utf8"),
 	);
@@ -22,15 +23,17 @@ export async function check(root) {
 	);
 	const packages = [];
 	const errors = [];
-	const workspace = JSON.parse(
-		await readFile(path.join(root, "package.json"), "utf8"),
+	const all = await workspaces(root);
+	const selected = new Set(
+		selectPackages(all, selections, root).map((pkg) => pkg.manifest.name),
 	);
-	for await (const entry of glob(workspace.workspaces, { cwd: root })) {
+	for (const { directory: entry } of all) {
 		const directory = await realpath(path.join(root, entry));
 		const manifest = JSON.parse(
 			await readFile(path.join(directory, "package.json"), "utf8"),
 		);
 		packages.push({ directory, manifest });
+		if (!selected.has(manifest.name)) continue;
 		if (!references.has(directory))
 			errors.push(
 				`${manifest.name}: missing from root tsconfig.json references`,
@@ -57,7 +60,7 @@ export async function check(root) {
 	function forbiddenExtensionDependency(name) {
 		return (
 			name.startsWith("@earendil-works/") ||
-			["tau-store", "tau-host", "tau", "tau-kit"].includes(name) ||
+			name === "tau" ||
 			(name !== "tau-extension" && Object.hasOwn(policy, name))
 		);
 	}
@@ -110,7 +113,10 @@ export async function check(root) {
 				errors.push(`${label}: absolute/file imports forbidden`);
 				return;
 			}
-			if (permissions?.extension && !spec.endsWith(".ts"))
+			if (
+				(permissions?.extension || permissions?.source) &&
+				!spec.endsWith(".ts")
+			)
 				errors.push(`${label}: extension relative imports must end in .ts`);
 			const target = path.resolve(path.dirname(file), spec);
 			if (!target.startsWith(pkg.directory + path.sep))
@@ -233,6 +239,7 @@ export async function check(root) {
 		}
 	}
 	for (const pkg of packages) {
+		if (!selected.has(pkg.manifest.name)) continue;
 		for (const field of [
 			"dependencies",
 			"devDependencies",
@@ -290,7 +297,7 @@ if (
 	process.argv[1] &&
 	import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-	const errors = await check(process.cwd());
+	const errors = await check(process.cwd(), process.argv.slice(2));
 	if (errors.length) {
 		console.error(errors.join("\n"));
 		process.exitCode = 1;

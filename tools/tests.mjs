@@ -2,11 +2,15 @@ import { spawnSync } from "node:child_process";
 import { access, glob, readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { selectPackages, workspaces } from "./workspaces.mjs";
+
 const root = process.cwd();
-const manifest = JSON.parse(await readFile("package.json", "utf8"));
+const selected = process.argv.slice(2);
 const tests = [];
-for await (const directory of glob(manifest.workspaces)) {
-	const pkg = JSON.parse(await readFile(`${directory}/package.json`, "utf8"));
+for (const { directory, manifest: pkg } of selectPackages(
+	await workspaces(),
+	selected,
+)) {
 	const config = JSON.parse(
 		await readFile(`${directory}/tsconfig.json`, "utf8"),
 	);
@@ -27,7 +31,6 @@ for await (const file of glob("tools/**/*.test.mjs")) {
 		directory: "tools",
 	});
 }
-const selected = process.argv.slice(2);
 const files = new Set();
 for (const selection of selected) {
 	const candidates = [
@@ -36,6 +39,9 @@ for (const selection of selected) {
 	];
 	const matches = tests.filter(
 		(test) =>
+			selection === "workspace" ||
+			selection === test.directory ||
+			test.directory.startsWith(`${selection}/`) ||
 			selection === test.packageName ||
 			selection === path.basename(test.directory) ||
 			candidates.includes(path.resolve(test.source)) ||

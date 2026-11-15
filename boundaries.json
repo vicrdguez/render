@@ -1,7 +1,9 @@
 {
 	"tau": {},
 	"tau-journeys": {
-		"tau": ["./server"]
+		"source": true,
+		"tau": ["./server"],
+		"testOnly": { "tau-extension": ["."] }
 	},
 	"tau-extension": {
 		"tau": [".", "./testing"]

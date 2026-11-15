@@ -10,7 +10,7 @@
 	"include": ["test/**/*.ts"],
 	"references": [
 		{
-			"path": "../core"
+			"path": "../extension-package"
 		}
 	]
 }
