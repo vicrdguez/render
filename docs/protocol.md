@@ -44,7 +44,7 @@ Only the body counts. A missing, unreadable, or unrecognized body also leaves th
 
 ## Transcript
 
-The following exchange uses the bind request and exact response body in `core/test/host/transcripts.test.ts`. The token is a placeholder for a paired device's token.
+The following exchange binds a project. The token is a placeholder for a paired device's token.
 
 ```http
 POST /v1/bind HTTP/1.1

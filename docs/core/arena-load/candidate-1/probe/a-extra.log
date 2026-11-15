@@ -1,3 +1,0 @@
-cheat {"loaded":false,"type":"Error","message":"tau-extension/testing is for tests. An extension cannot import it at run time."}
-direct {"loaded":false,"type":"Error","message":"Cannot find module '@earendil-works/pi-durable'"}
-fsCache:false wrote {"tmpdir":"/tmp/c1-probe.kDWNfm/p/tmpdir3","newEntries":[],"jitiDirInTmp":false,"nodeModulesCache":false}

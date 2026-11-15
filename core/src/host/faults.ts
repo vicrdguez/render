@@ -10,7 +10,7 @@ import type {
 import { type DecisionId, decision } from "../store/index.js";
 import type { OpenProject } from "./projects.js";
 
-// docs/core/host.md, "Faulted tasks".
+// docs/host.md.
 export type Fault = {
 	task: TaskId;
 	kind: string;

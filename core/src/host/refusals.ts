@@ -1,6 +1,6 @@
 import type { AnswerResult } from "../store/host.js";
 
-// docs/core/protocol.md, "A call". The HTTP layer takes each status from here.
+// docs/protocol.md. The HTTP layer takes each status from here.
 export const statusOf = {
 	bad_request: 400,
 	bad_cursor: 400,
