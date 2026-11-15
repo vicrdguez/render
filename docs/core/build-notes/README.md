@@ -17,5 +17,19 @@ Each build unit writes its own file. A line names the place in the design, the t
 | [Unit 5](unit-5-w1.md) | W1 |
 | [Unit 6](unit-6-integration.md) | The import map, the journeys through the server, and the build of `tau` |
 | [Unit 7](unit-7-shell.md) | The dev shell no longer needs the built package |
+| [R1](unit-r1.md) | The faux answer and the store's testing entry |
+| [R2](unit-r2.md) | The package `tau-extension` |
+| [R3](unit-r3.md) | Extensions import only `tau-extension`; the kit removed |
+| [R4](unit-r4.md) | The host takes extensions from a source and checks each module |
+| [R5](unit-r5.md) | The directory loader |
+| [R6](unit-r6.md) | The queue for structural calls and the catalogue snapshot |
+| [R7](unit-r7.md) | Reload |
+| [R8](unit-r8.md) | `tau extension reload`, the reports of blocked tasks, `install-extension` with reload |
+| [R9](unit-r9.md) | `tau` loads from the directory; one flake output per extension |
+| [R10](unit-r10.md) | Extensions run from source |
+| [R11](unit-r11.md) | One core package in `core/` |
+| [R12](unit-r12.md) | The four sides and one check per side |
+
+The R units are the restructure the owner asked for after reading the first build. See [Layout, loading, and reload](../load.md).
 
 `../build-log.tsv` is the decision trail of the whole run, one row per decision.

@@ -51,3 +51,20 @@ After the reviewer flagged this, two more verifiers gave the missing verdicts on
 ## Not proven
 
 A real model call and a real login refresh. A live search provider. A running pi beside Tau. A second machine, a phone, or a TLS proxy. Linux. The Nix sandbox on. Power loss. Two servers started in the same instant on an empty home. A workflow upgrade with a decision open. A login refresh that hangs.
+
+## After the restructure
+
+**Decided and reported.** On 2026-11-15 the owner changed the layout and how extensions load. [Layout, loading, and reload](../load.md) has those decisions. The restructure ran as twelve units, R1 to R12. Each merged on an independent pass at the merged head. This section lists what the owner should know from it. Nothing here blocks use.
+
+| What | Where | What it means |
+| --- | --- | --- |
+| An unsafe extensions folder stops the server | `core/src/host/loader.ts` | If `~/.tau/extensions/` is writable by group or others, is owned by another user, or is not a folder, `tau` refuses to start and says how to fix it. The coordinator specified this. The owner's decision covered one broken extension, not the folder itself. The alternative is to start with nothing loaded. |
+| Loaded code is trusted | `unit-r5.md`, limits | An extension whose top level calls `process.exit()` ends the server. One whose top level waits for ever stops the start. There is no sandbox and no deadline. |
+| A refused install rolls back | `tools/install-extension.mjs` | When a running server refuses the reload, `install-extension` puts the previous store link back, so a restart still loads the last version that worked. |
+| A flake sees only tracked files | `install-extension` | A new file in an extension is left out of an install until it is `git add`ed. The command warns. |
+| Only TypeScript, and only `.ts` relative imports | `AGENTS.md` | An extension cannot hold a `.js` file, use an `enum`, or import a relative `.json` file. |
+| Two links to one folder | `unit-r5.md` | The second name, in sorted order, is refused. A link that sorts before the real folder takes its place and then fails its name check, so neither loads. |
+| Journeys under very heavy load | `unit-r12.md` | At a load average of 50 to 60, three W1 journeys failed inside the sandboxed check with a reset connection after 17 to 36 seconds. At 36 to 45 they passed. The cause was not found, and no retry was added. |
+| The key filter, the same tool name twice, a schema that drops a secret marking | [Layout, loading, and reload](../load.md) | Accepted by the owner as they are. |
+
+**Not proven by the restructure:** Linux; the Nix sandbox turned on; a real model or search provider; a real garbage collection while an install runs; a kill between two arbitrary instructions of a reload's publish step (it was killed while held inside one).
