@@ -1,12 +1,10 @@
 {
 	"files": [],
 	"references": [
-		{ "path": "packages/store" },
+		{ "path": "core" },
 		{ "path": "packages/extension" },
 		{ "path": "packages/w1" },
 		{ "path": "packages/websearch" },
-		{ "path": "packages/w2" },
-		{ "path": "packages/host" },
-		{ "path": "packages/tau" }
+		{ "path": "packages/w2" }
 	]
 }

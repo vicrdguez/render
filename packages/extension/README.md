@@ -8,22 +8,22 @@ These names are re-exports. They do not shield an extension from a change in pi-
 
 | Name | Kind | Origin |
 | --- | --- | --- |
-| `Annotation` | type | `tau-store` |
-| `Decision` | type | `tau-store` |
-| `DecisionId` | type | `tau-store` |
-| `DecisionInput` | type | `tau-store` |
-| `EventData` | type | `tau-store` |
-| `RequestDraft` | type | `tau-store` |
+| `Annotation` | type | `tau` |
+| `Decision` | type | `tau` |
+| `DecisionId` | type | `tau` |
+| `DecisionInput` | type | `tau` |
+| `EventData` | type | `tau` |
+| `RequestDraft` | type | `tau` |
 | `RoleSettings` | type | `./helpers.js` |
-| `decision` | value | `tau-store` |
-| `emit` | value | `tau-store` |
-| `eventLog` | value | `tau-store` |
+| `decision` | value | `tau` |
+| `emit` | value | `tau` |
+| `eventLog` | value | `tau` |
 | `modelRef` | value | `./helpers.js` |
 | `options` | value | `./helpers.js` |
 | `prose` | value | `./helpers.js` |
-| `request` | value | `tau-store` |
+| `request` | value | `tau` |
 | `role` | value | `./helpers.js` |
-| `withdraw` | value | `tau-store` |
+| `withdraw` | value | `tau` |
 
 ## `tau-extension/durable`
 
@@ -99,14 +99,14 @@ These names are re-exports. They do not shield an extension from a change in pi-
 
 | Name | Kind | Origin |
 | --- | --- | --- |
-| `AnswerInput` | type | `tau-store/testing` |
-| `AnswerResult` | type | `tau-store/testing` |
+| `AnswerInput` | type | `tau/testing` |
+| `AnswerResult` | type | `tau/testing` |
 | `FauxResponseStep` | type | `@earendil-works/pi-ai/providers/faux` |
-| `Store` | type | `tau-store/testing` |
+| `Store` | type | `tau/testing` |
 | `createModels` | value | `@earendil-works/pi-ai/models` |
-| `fauxAnswer` | value | `tau-store/testing` |
+| `fauxAnswer` | value | `tau/testing` |
 | `fauxAssistantMessage` | value | `@earendil-works/pi-ai/providers/faux` |
 | `fauxProvider` | value | `@earendil-works/pi-ai/providers/faux` |
 | `fauxText` | value | `@earendil-works/pi-ai/providers/faux` |
 | `fauxToolCall` | value | `@earendil-works/pi-ai/providers/faux` |
-| `openStore` | value | `tau-store/testing` |
+| `openStore` | value | `tau/testing` |

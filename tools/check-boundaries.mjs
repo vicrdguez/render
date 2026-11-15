@@ -22,11 +22,11 @@ export async function check(root) {
 	);
 	const packages = [];
 	const errors = [];
-	for (const entry of await readdir(path.join(root, "packages"), {
-		withFileTypes: true,
-	})) {
-		if (!entry.isDirectory()) continue;
-		const directory = await realpath(path.join(root, "packages", entry.name));
+	const workspace = JSON.parse(
+		await readFile(path.join(root, "package.json"), "utf8"),
+	);
+	for await (const entry of glob(workspace.workspaces, { cwd: root })) {
+		const directory = await realpath(path.join(root, entry));
 		const manifest = JSON.parse(
 			await readFile(path.join(directory, "package.json"), "utf8"),
 		);
@@ -95,6 +95,19 @@ export async function check(root) {
 			const target = path.resolve(path.dirname(file), spec);
 			if (!target.startsWith(pkg.directory + path.sep))
 				errors.push(`${label}: cross-package relative import`);
+			if (pkg.manifest.name === "tau") {
+				const from = path
+					.relative(path.join(pkg.directory, "src"), file)
+					.split(path.sep)[0];
+				const to = path
+					.relative(path.join(pkg.directory, "src"), target)
+					.split(path.sep)[0];
+				if (
+					(from === "store" && (to === "host" || to === "command")) ||
+					(from === "host" && to === "command")
+				)
+					errors.push(`${label}: forbidden core layer import`);
+			}
 			const testDirectory = path.join(pkg.directory, "test");
 			if (
 				file.startsWith(path.join(pkg.directory, "src") + path.sep) &&

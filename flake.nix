@@ -22,6 +22,7 @@
             fileset = lib.fileset.unions [
               ./package.json
               ./package-lock.json
+              ./core/package.json
               (lib.fileset.fileFilter (file: file.name == "package.json") ./packages)
             ];
           };
@@ -29,8 +30,8 @@
             npmRoot = npmRootSrc;
             inherit nodejs;
             derivationArgs = {
-              postPatch = "cp -R --no-preserve=mode ${npmRootSrc}/packages packages";
-              postInstall = "find $out/node_modules -maxdepth 2 -type l -lname '*packages/*' -delete";
+              postPatch = "cp -R --no-preserve=mode ${npmRootSrc}/{core,packages} .";
+              postInstall = "find $out/node_modules -maxdepth 2 -type l \\( -lname '*packages/*' -o -lname '*core' \\) -delete";
             };
           };
           enterRoot = ''
@@ -116,7 +117,7 @@
                 set -- "''${outputs[@]}"
               fi
               ${commands.typecheck}/bin/typecheck
-              node packages/tau/dist/test/verify-build.js "$executable" "$@"
+              node core/dist/test/journeys/verify-build.js "$executable" "$@"
             '';
             check = mkCommand "check" [ ] ''
               ${commands.lint}/bin/lint
@@ -171,9 +172,7 @@
                 ./tsconfig.base.json
                 ./tools/link-node-modules.mjs
                 ./tools/assets.mjs
-                ./packages/tau
-                ./packages/host
-                ./packages/store
+                ./core
                 ./packages/extension
               ];
             };
@@ -184,21 +183,21 @@
             buildPhase = ''
               runHook preBuild
               node tools/link-node-modules.mjs ${npmDeps}/node_modules
-              node node_modules/typescript/bin/tsc -b packages/tau packages/extension
+              node node_modules/typescript/bin/tsc -b core packages/extension
               runHook postBuild
             '';
             installPhase = ''
               runHook preInstall
               mkdir -p $out/lib/tau $out/bin
               cp package.json $out/lib/tau/
-              for name in tau host store extension; do
-                mkdir -p "$out/lib/tau/packages/$name/dist"
-                cp "packages/$name/package.json" "$out/lib/tau/packages/$name/"
-                cp -R "packages/$name/dist/src" "$out/lib/tau/packages/$name/dist/"
+              for directory in core packages/extension; do
+                mkdir -p "$out/lib/tau/$directory/dist"
+                cp "$directory/package.json" "$out/lib/tau/$directory/"
+                cp -R "$directory/dist/src" "$out/lib/tau/$directory/dist/"
               done
               linker="$PWD/tools/link-node-modules.mjs"
               (cd $out/lib/tau && node "$linker" ${npmDeps}/node_modules)
-              makeWrapper ${nodejs}/bin/node $out/bin/tau --add-flags $out/lib/tau/packages/tau/dist/src/main.js
+              makeWrapper ${nodejs}/bin/node $out/bin/tau --add-flags $out/lib/tau/core/dist/src/command/main.js
               runHook postInstall
             '';
           };

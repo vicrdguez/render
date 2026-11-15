@@ -4,6 +4,7 @@
 		"node": ">=24 <25"
 	},
 	"workspaces": [
+		"core",
 		"packages/*"
 	],
 	"scripts": {

@@ -5,8 +5,8 @@ export type {
 	DecisionInput,
 	EventData,
 	RequestDraft,
-} from "tau-store";
-export { decision, emit, eventLog, request, withdraw } from "tau-store";
+} from "tau";
+export { decision, emit, eventLog, request, withdraw } from "tau";
 export {
 	modelRef,
 	options,

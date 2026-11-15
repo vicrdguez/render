@@ -1,10 +1,7 @@
 {
-	"tau-store": {},
-	"tau-host": {
-		"tau-store": [".", "./host"]
-	},
+	"tau": {},
 	"tau-extension": {
-		"tau-store": [".", "./testing"]
+		"tau": [".", "./testing"]
 	},
 	"tau-websearch": {
 		"extension": true,
@@ -26,8 +23,5 @@
 		"testOnly": {
 			"tau-extension": ["./testing"]
 		}
-	},
-	"tau": {
-		"tau-host": ["."]
 	}
 }

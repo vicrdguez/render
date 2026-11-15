@@ -135,14 +135,32 @@ for (const [layer, targets] of [
 ]) {
 	test(`core ${layer} cannot import upper layers`, async (t) => {
 		const { root, put, manifest } = await fixture(t);
-		await put("package.json", { ...manifest, workspaces: ["core", "packages/*"] });
-		await put("core/package.json", { name: "tau", exports: { ".": "./dist/src/index.js", "./server": "./dist/src/server.js", "./testing": "./dist/src/testing.js" } });
+		await put("package.json", {
+			...manifest,
+			workspaces: ["core", "packages/*"],
+		});
+		await put("core/package.json", {
+			name: "tau",
+			exports: {
+				".": "./dist/src/index.js",
+				"./server": "./dist/src/server.js",
+				"./testing": "./dist/src/testing.js",
+			},
+		});
 		await put("core/tsconfig.json", {});
-		await put("tsconfig.json", { references: [{ path: "core" }, { path: "packages/store" }] });
+		await put("tsconfig.json", {
+			references: [{ path: "core" }, { path: "packages/store" }],
+		});
 		await put("boundaries.json", { tau: {}, "tau-store": {} });
 		for (const target of targets) {
-			await put(`core/src/${layer}/access.ts`, `export * from "../${target}/index.js";`);
-			assert.match((await check(root)).join("\n"), /forbidden core layer import/);
+			await put(
+				`core/src/${layer}/access.ts`,
+				`export * from "../${target}/index.js";`,
+			);
+			assert.match(
+				(await check(root)).join("\n"),
+				/forbidden core layer import/,
+			);
 		}
 		await put(`core/src/${layer}/access.ts`, 'import "./local.js";');
 		assert.deepEqual(await check(root), []);
@@ -151,11 +169,25 @@ for (const [layer, targets] of [
 
 test("tau-extension cannot import tau/server", async (t) => {
 	const { root, put } = await extensionFixture(t);
-	await put("packages/store/package.json", { name: "tau", exports: { "./server": "./dist/src/server.js" } });
-	await put("packages/extension/package.json", { name: "tau-extension", dependencies: { tau: "0.0.0" } });
-	await put("boundaries.json", { tau: {}, "tau-extension": { tau: [".", "./testing"] }, "tau-w2": {}, "tau-w1": {} });
+	await put("packages/store/package.json", {
+		name: "tau",
+		exports: { "./server": "./dist/src/server.js" },
+	});
+	await put("packages/extension/package.json", {
+		name: "tau-extension",
+		dependencies: { tau: "0.0.0" },
+	});
+	await put("boundaries.json", {
+		tau: {},
+		"tau-extension": { tau: [".", "./testing"] },
+		"tau-w2": {},
+		"tau-w1": {},
+	});
 	await put("packages/extension/src/access.ts", 'import "tau/server";');
-	assert.match((await check(root)).join("\n"), /access.ts: tau\/server: forbidden workspace capability/);
+	assert.match(
+		(await check(root)).join("\n"),
+		/access.ts: tau\/server: forbidden workspace capability/,
+	);
 });
 
 for (const statement of [
@@ -564,22 +596,22 @@ test("boundaries accept nested test files and ignore generated tests", async (t)
 });
 
 for (const [name, directory, specifier, allowed] of [
-	["tau-websearch", "src", "tau-store/host", false],
-	["tau-w2", "src", "tau-store/host", false],
-	["tau-w1", "src", "tau-store/host", false],
-	["tau-websearch", "test", "tau-store/host", false],
-	["tau-w2", "test", "tau-store/host", false],
-	["tau-w1", "test", "tau-store/host", false],
+	["tau-websearch", "src", "tau/server", false],
+	["tau-w2", "src", "tau/server", false],
+	["tau-w1", "src", "tau/server", false],
+	["tau-websearch", "test", "tau/server", false],
+	["tau-w2", "test", "tau/server", false],
+	["tau-w1", "test", "tau/server", false],
 	["tau-websearch", "test", "tau-extension/testing", true],
 	["tau-w2", "test", "tau-extension/testing", true],
 	["tau-w1", "test", "tau-extension/testing", true],
-	["tau-websearch", "src", "tau-store/testing", false],
-	["tau-w2", "src", "tau-store/testing", false],
-	["tau-w1", "src", "tau-store/testing", false],
+	["tau-websearch", "src", "tau/testing", false],
+	["tau-w2", "src", "tau/testing", false],
+	["tau-w1", "src", "tau/testing", false],
 	["tau-websearch", "test", "tau-kit", false],
 	["tau-websearch", "src", "tau-kit", false],
 	["tau-w2", "test", "tau-kit", false],
-	["tau-w2", "test", "tau-host", false],
+	["tau-w2", "test", "tau", false],
 ]) {
 	test(`${name} ${directory} import of ${specifier} is ${allowed ? "allowed" : "forbidden"}`, async (t) => {
 		const { root, put, manifest, store } = await fixture(t);
@@ -589,9 +621,10 @@ for (const [name, directory, specifier, allowed] of [
 		);
 		const hostStore = {
 			...store,
+			name: "tau",
 			exports: {
 				...store.exports,
-				"./host": "./dist/src/host.js",
+				"./server": "./dist/src/server.js",
 				"./testing": "./dist/src/testing.js",
 			},
 		};
@@ -606,14 +639,13 @@ for (const [name, directory, specifier, allowed] of [
 		};
 		await put("packages/facade/package.json", facade);
 		await put("packages/facade/tsconfig.json", {});
-		const host = { name: "tau-host", exports: { ".": "./dist/src/index.js" } };
+		const host = { name: "tau", exports: { ".": "./dist/src/index.js" } };
 		await put("packages/store/package.json", hostStore);
 		await put("packages/extension/package.json", extension);
 		await put("packages/extension/tsconfig.json", {});
-		await put("packages/host/package.json", host);
-		await put("packages/host/tsconfig.json", {});
+
 		await put("tsconfig.json", {
-			references: ["store", "extension", "host", "facade"].map((dir) => ({
+			references: ["store", "extension", "facade"].map((dir) => ({
 				path: `packages/${dir}`,
 			})),
 		});
@@ -623,7 +655,6 @@ for (const [name, directory, specifier, allowed] of [
 				"": manifest,
 				"packages/store": hostStore,
 				"packages/extension": extension,
-				"packages/host": host,
 				"packages/facade": facade,
 			},
 		});
@@ -642,9 +673,10 @@ for (const [name, directory, specifier, allowed] of [
 	});
 }
 
-for (const name of ["tau-store", "tau-host", "tau"]) {
+for (const layer of ["store", "host", "command"]) {
+	const name = "tau";
 	for (const directory of ["src", "test"]) {
-		test(`${name} ${directory} cannot import tau-extension`, async (t) => {
+		test(`tau ${layer} ${directory} cannot import tau-extension`, async (t) => {
 			const { root, put } = await fixture(t);
 			await put(
 				"boundaries.json",

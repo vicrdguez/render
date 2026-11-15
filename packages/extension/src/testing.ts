@@ -12,4 +12,4 @@ export {
 	fauxAnswer,
 	openStore,
 	type Store,
-} from "tau-store/testing";
+} from "tau/testing";
