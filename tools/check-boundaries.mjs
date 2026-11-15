@@ -81,6 +81,26 @@ export async function check(root) {
 		const label = `${path.relative(root, file)}: ${spec}`;
 		const isTest = file.startsWith(path.join(pkg.directory, "test") + path.sep);
 		const permissions = policy[pkg.manifest.name];
+		if (pkg.manifest.name === "tau") {
+			const source = path.join(pkg.directory, "src");
+			const from = path.relative(source, file).split(path.sep)[0];
+			const target =
+				spec === "tau/server"
+					? path.join(source, "host", "index.ts")
+					: spec.startsWith(".")
+						? path.resolve(path.dirname(file), spec)
+						: undefined;
+			const to =
+				target === undefined
+					? undefined
+					: path.relative(source, target).split(path.sep)[0];
+			if (
+				(from === "store" &&
+					["host", "server.js", "server.ts", "command"].includes(to)) ||
+				(from === "host" && to === "command")
+			)
+				errors.push(`${label}: forbidden core layer import`);
+		}
 		if (
 			spec.startsWith(".") ||
 			path.isAbsolute(spec) ||
@@ -95,19 +115,6 @@ export async function check(root) {
 			const target = path.resolve(path.dirname(file), spec);
 			if (!target.startsWith(pkg.directory + path.sep))
 				errors.push(`${label}: cross-package relative import`);
-			if (pkg.manifest.name === "tau") {
-				const from = path
-					.relative(path.join(pkg.directory, "src"), file)
-					.split(path.sep)[0];
-				const to = path
-					.relative(path.join(pkg.directory, "src"), target)
-					.split(path.sep)[0];
-				if (
-					(from === "store" && (to === "host" || to === "command")) ||
-					(from === "host" && to === "command")
-				)
-					errors.push(`${label}: forbidden core layer import`);
-			}
 			const testDirectory = path.join(pkg.directory, "test");
 			if (
 				file.startsWith(path.join(pkg.directory, "src") + path.sep) &&

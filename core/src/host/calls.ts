@@ -29,8 +29,8 @@ import {
 	union,
 	unknown,
 } from "@earendil-works/pi-schema";
-import { type DecisionId, decision } from "../store/index.js";
 import { answer } from "../store/host.js";
+import { type DecisionId, decision } from "../store/index.js";
 import type { Catalogue } from "./catalogue.js";
 import { decodeCursor, encodeCursor } from "./cursors.js";
 import type { Devices } from "./devices.js";

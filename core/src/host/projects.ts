@@ -12,8 +12,8 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { arr, compile, obj, str } from "@earendil-works/pi-schema";
-import { eventLog } from "../store/index.js";
 import { openStore, type Store } from "../store/host.js";
+import { eventLog } from "../store/index.js";
 import type { Catalogue } from "./catalogue.js";
 import type { ServerOptions } from "./index.js";
 import { acquireLock } from "./lock.js";

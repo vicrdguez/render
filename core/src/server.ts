@@ -1,4 +1,4 @@
-export { startServer } from "./host/index.js";
+export { requestAdmin } from "./host/admin.js";
 export type {
 	AdminRequest,
 	AdminResult,
@@ -10,5 +10,5 @@ export type {
 	Server,
 	ServerOptions,
 } from "./host/index.js";
+export { startServer } from "./host/index.js";
 export { fromDirectory } from "./host/loader.js";
-export { requestAdmin } from "./host/admin.js";
