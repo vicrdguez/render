@@ -124,12 +124,6 @@
               ${commands.typecheck}/bin/typecheck "$@"
               node tools/tests.mjs "$@"
             '';
-            spikes = mkCommand "spikes" [ ] ''
-              export PI_MODULES="${npmDeps}/node_modules/@earendil-works"
-              for spike in substrate two-harnesses crash host ext wire; do
-                node "docs/core/spikes/$spike.mjs"
-              done
-            '';
             verify-build = mkCommand "verify-build" [ pkgs.nix ] ''
               executable="''${1:-}"
               if [ -z "$executable" ]; then
@@ -151,7 +145,6 @@
               fi
               ${commands.lint}/bin/lint
               ${commands.test}/bin/test
-              ${commands.spikes}/bin/spikes
               ${commands.verify-build}/bin/verify-build
             '';
           };
@@ -178,10 +171,6 @@
                 node tools/assets.mjs core
                 node tools/tests.mjs e2e
               '';
-            };
-            spikes = {
-              source = self;
-              run = "${commands.spikes}/bin/spikes";
             };
             verify-build = {
               source = sourceFor [ "e2e/test/verify-build.ts" ];
