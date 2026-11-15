@@ -62,7 +62,7 @@ export async function check(root) {
 		);
 	}
 	function extensionEntry(name, spec = name) {
-		if (spec === "tau-store/testing") return "tau-extension/testing";
+		if (spec === "tau/testing") return "tau-extension/testing";
 		const deepEntry =
 			/^tau-extension\/dist\/src\/(durable|schema|chord|testing)\.js$/.exec(
 				spec,

@@ -334,7 +334,7 @@ for (const [specifier, replacement] of [
 	["@earendil-works/chord/context", "tau-extension/chord"],
 	["@earendil-works/pi-ai/providers/faux", "tau-extension/testing"],
 	["@earendil-works/future", "tau-extension"],
-	["tau/testing", "tau-extension"],
+	["tau/testing", "tau-extension/testing"],
 	["tau/dist/src/store/decisions.js", "tau-extension"],
 	["tau/server", "tau-extension"],
 	["tau", "tau-extension"],
