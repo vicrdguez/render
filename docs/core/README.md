@@ -34,7 +34,7 @@ The first version welded one software-development workflow into its authority an
 - The core grows only by the admission rule below.
 - The language is strict TypeScript, with pi-schema at each boundary where outside data enters. Effect and Vite are out.
 - Prose belongs to the workflow that uses it.
-- One kit sits beside the core, the package `tau-kit`. It holds `prose()`, `role()`, and `options()`. The core never imports it.
+- One package, `tau-extension`, is what an extension imports: the core's five functions, the helpers `prose()`, `role()`, `options()`, and `modelRef()`, and curated re-exports of pi. The core never imports it. The core loads extensions at run time from `~/.tau/extensions/`.
 - One server hosts all projects. Each project selects its extensions, workflows among them. You connect to that one server from several machines.
 - The bare agent follows its project's default selection: pi-durable's `coding-tools`, then the extensions the owner added to the project that are not workflows. Codemode is an optional extension.
 - A client that reconnects gets the current state, not a replay.
@@ -68,11 +68,11 @@ After each arena the picker ran a spike of the moves the merged design makes: `s
 | Store layer | One store. It opens a pi-durable harness and adds Decision and Event. | Decided |
 | pi-durable | Conversations, submissions, tasks, documents, extensions, and the registry. | Decided |
 | Extensions | Workflows, and extensions that do other jobs, such as web search. Each one is a pi-durable `Extension`. | Decided |
-| Kit | `prose()`, `role()`, and `options()`, for workflow authors. | Decided |
+| Extension package | `tau-extension`: the five functions, the helpers `prose()`, `role()`, `options()`, `modelRef()`, and the re-exports of pi, for extension authors. | Decided |
 
 "The core" means the host layer and the store layer together. Both follow the admission rule. The first draft let the host layer escape it, and the judge was right to object.
 
-The layers keep one import rule. The store layer knows no project. The host layer knows no particular extension. Neither imports an extension or the kit.
+The layers keep one import rule. The store layer knows no project. The host layer knows no particular extension. Neither imports an extension or `tau-extension`.
 
 With no workflow, a project can create a conversation, pick a model, send input, watch progress, abort, and reconnect. That is W0 in [Proving workflows](workflows.md). It is a chat with a coding agent, as in pi, that lives on the server.
 
@@ -158,7 +158,11 @@ How the current parts score:
 | A secret is an option with the format `secret`, stored in the project's store | Decided | [Extensions](extensions.md) |
 | Check 4 of the admission rule speaks of two extensions | Decided | This file |
 | Lane is not in the core and not in the kit | Decided | [Lane](lane.md) |
-| The kit is the package `tau-kit` | Decided | [Kit](kit.md) |
+| The kit is the package `tau-kit` | Replaced on 2026-11-15 by `tau-extension` | [Kit](kit.md), [Layout, loading, and reload](load.md) |
+| The core, the extension package, and the extensions are separate directories, each with its own check | Decided | [Layout, loading, and reload](load.md) |
+| The core is one package, and `answer` is exported from no entry point | Decided | [Layout, loading, and reload](load.md) |
+| Extensions load at run time from `~/.tau/extensions/`, and reload with `tau extension reload` | Decided | [Layout, loading, and reload](load.md) |
+| A test answers a decision with `fauxAnswer`, stamped `!test` | Decided | [Layout, loading, and reload](load.md) |
 | `bind`, the `Project` document, and a directory per project as the catalogue | Decided | [Host](host.md), [Topology](topology.md) |
 | `bind` takes the working directory as a path on the server | Decided | [Host](host.md) |
 | An extension is added to a project and never removed | Decided, as a limit | [Host](host.md) |
