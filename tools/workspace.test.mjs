@@ -84,6 +84,61 @@ test("side selection runs extension tests without unrelated packages", async (t)
 	assert.doesNotMatch(result.stdout, /core ran/);
 });
 
+test("workspace help describes selectors without preparing or running a package", async (t) => {
+	const { root, put } = await fixture(t);
+	await put(
+		"core/test/must-not-run.test.ts",
+		'throw new Error("help ran a test");',
+	);
+	const result = run("workspaces.mjs", root, "--help");
+	assert.equal(result.status, 0, result.stderr);
+	assert.match(result.stdout, /Usage:/);
+	for (const selection of ["core", "tau", "extensions", "e2e", "tools"])
+		assert.ok(result.stdout.includes(selection), selection);
+	await assert.rejects(lstat(path.join(root, "node_modules")), {
+		code: "ENOENT",
+	});
+	await assert.rejects(lstat(path.join(root, "core/dist")), { code: "ENOENT" });
+});
+
+test("workspace list discovers package names and directories", async (t) => {
+	const { root, put } = await fixture(t);
+	await put("extensions/example/package.json", { name: "tau-example" });
+	const result = run("workspaces.mjs", root, "--list");
+	assert.equal(result.status, 0, result.stderr);
+	assert.deepEqual(result.stdout.trim().split("\n"), [
+		"core\ttau",
+		"extensions/example\ttau-example",
+		"tools\ttools",
+	]);
+});
+
+test("workspace help rejects unsupported or mixed arguments", async (t) => {
+	const { root } = await fixture(t);
+	for (const args of [["--unknown"], ["--list", "core"], ["--help", "core"]]) {
+		const result = run("workspaces.mjs", root, ...args);
+		assert.equal(result.status, 2);
+		assert.match(result.stderr, /Usage:/);
+	}
+});
+
+test("workspace selection validates every additional selector", async (t) => {
+	const { root } = await fixture(t);
+	const packages = await workspaces(root);
+	assert.deepEqual(
+		selectPackages(packages, ["workspace", "core"], root),
+		packages,
+	);
+	for (const selections of [
+		["workspace", "missing"],
+		["missing", "workspace"],
+	])
+		assert.throws(
+			() => selectPackages(packages, selections, root),
+			/no package selected by missing/,
+		);
+});
+
 test("every declared workspace dependency is installed at its declared version", async () => {
 	const root = path.resolve(tools, "..");
 	const manifest = JSON.parse(
