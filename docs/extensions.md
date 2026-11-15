@@ -28,7 +28,7 @@ function role(
 
 Call `prose` at module scope to read and check the template before rendering a section. Its declared slots must match the `{{name}}` placeholders in the file. The returned function substitutes each placeholder once without escaping or interpreting inserted text. `role` creates and configures a conversation in the caller's transaction. Its settings require a model and an extension selection. Supplied settings do not clear inherited settings in task-owned conversations.
 
-Mark a secret string with `format: "secret"`. The host returns `true` for a set secret instead of its value. The project store and its backups contain the secret in plain text. Read it when needed and keep it out of tool results, entries, events, sections, errors, and logs.
+Mark a secret string with `format: "secret"`. The host returns `true` for a set top-level secret instead of its value. The extension's `set` owns storage. The options helper stores secrets in the project store, not a separate vault. The store and its backups contain secrets in plain text. Read it when needed and keep it out of tool results, entries, events, sections, errors, and logs.
 
 ## Agent selection
 
@@ -61,7 +61,8 @@ An open role follows changes to the default on its next model request. An in-fli
 - Reconfigure existing roles from current options before submitting to them because changing options does not update their stored settings.
 - Name a newly dispatched conversation in its event because clients need its ID to join the agent.
 - Give added options defaults because existing tasks can otherwise fault when `read` finds an incomplete options document.
-- Use background tasks for work that waits beyond an agent run. A conversation can become idle while the work waits.
+- Use `tx.createTask(task, input, { ownership: { kind: "conversation" }, conversationId, background: true })` in a commit for work that waits beyond an agent run. The task survives a stop, and the conversation can become idle while the work waits.
+- Obtain a role handle with `await runtime.conversation(conversationId, context)` before a commit. In the commit, call `await configure(tx, conversationId, { model: modelRef(model) })` before `await handle?.submit(tx, { type: "input", content, requestId: causeId })`.
 - Create and configure a conversation in one commit, then submit its first input in a later commit. Submission cannot follow the conversation table write in the same commit.
 - Keep top-level code free of durable writes and external side effects. The server runs it on load and reload, including a reload that it later refuses.
 
@@ -132,7 +133,9 @@ export async function entry(tx: Tx) {
 }
 ```
 
-A timer phase calls `runtime.sleepUntil(deadline, nextCheckpoint, context)` and returns immediately. Create the task with `{ ownership: { kind: "conversation" }, conversationId, background: true }` so it survives a stop. A versioned task can provide `migrate(input, checkpoint, fromVersion)` returning `{ input, checkpoint }`.
+For an open role and separate closed roles, see [W1](../extensions/w1/README.md). [W2](../extensions/w2/README.md) uses a background timer and scoring.
+
+A timer phase calls `runtime.sleepUntil(deadline, nextCheckpoint, context)` and returns immediately. A versioned task can provide `migrate(input, checkpoint, fromVersion)` returning `{ input, checkpoint }`.
 
 ## Test without a server
 
@@ -193,7 +196,7 @@ Run `tau extension reload` against a running server after changing an extension.
 
 Reload refuses duplicate task names, dropped task kinds, lower task versions, and phases removed without a version increase. An in-flight tool call or task phase finishes with its old code. A waiting task uses new code when it wakes. An existing conversation keeps its stored instructions. New conversations use the new instructions.
 
-A task with a higher installed version uses `migrate` when next reserved. Without a migration it blocks. Task warnings name the project, task, kind, conversation, stored and installed versions, and blocked or migration-needed status. Reservation failures print `migration_failed` or `task_outdated`. Missing task definitions do not appear in migration warnings; inspect the project's `missing` list. If publication fails partway, the server requires a restart rather than rolling back.
+A task with a higher installed version uses `migrate` when next reserved. Without a migration it blocks. Task warnings name the project, task, kind, conversation, stored and installed versions, and blocked or migration-needed status. Reservation failures print `migration_failed` or `task_outdated`. Missing task definitions do not appear in migration warnings; inspect the project's `missing` list. If publication fails partway, the server stops and requires a restart rather than rolling back.
 
 The command prints `added`, `replaced`, or `kept` for each extension, task warnings, skipped projects, and totals. Exit status 0 means applied, 3 means applied with warnings, 1 means refused, restart required, or an error reaching the server, and 2 means invalid usage. Changes to the server itself require a restart.
 

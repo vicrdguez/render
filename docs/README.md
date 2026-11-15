@@ -5,3 +5,4 @@
 - [Host](host.md) covers projects, conversations, options, and client calls.
 - [Protocol](protocol.md) covers HTTP, streams, devices, and pairing.
 - [Extensions](extensions.md) covers writing, loading, and reloading extensions.
+- Samples include [W1](../extensions/w1/README.md), [W2](../extensions/w2/README.md), and [web search](../extensions/websearch/README.md).

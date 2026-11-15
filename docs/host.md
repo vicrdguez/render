@@ -10,13 +10,14 @@ From the repository, start the server and administer it in another terminal:
 nix run .#tau -- --port 0
 nix run .#tau -- device pair phone
 nix run .#tau -- device list
+# Exchange the pairing code with a client before revoking phone.
 nix run .#tau -- device revoke phone
 nix run .#tau -- extension reload
 ```
 
-Or run `nix build` and use `result/bin/tau` in place of `nix run .#tau --` for each command. The server uses `~/.tau` under the process home and has no `--home` flag. `--port PORT` selects a port from 0 through 65535. Port 0 asks the OS to choose one. Repeat `--allow-host NAME` to allow additional Host and Origin names. The pair command prints a one-use code. Exchange it as described in [pairing](protocol.md#devices-and-administration).
+Or run `nix build` and use `result/bin/tau` in place of `nix run .#tau --` for each command. The server uses `~/.tau` under the process home and has no `--home` flag. `--port PORT` selects a port from 0 through 65535. Port 0 asks the OS to choose one. Repeat `--allow-host NAME` to allow additional Host and Origin names. The pair command prints a one-use code. The device exists only after a client exchanges the code as described in [pairing](protocol.md#devices-and-administration).
 
-Tau reads `${PI_CODING_AGENT_DIR:-~/.pi/agent}/auth.json` and writes refreshed credentials there. No client call sets a login.
+Log in to model providers with pi's `/login` on the server machine as the server's OS user, or set a provider's API key variable in the server's environment. Tau reads `${PI_CODING_AGENT_DIR:-~/.pi/agent}/auth.json`, creates it if absent, and writes refreshed credentials there. No client call sets a login.
 
 ## Data and backup
 
@@ -60,7 +61,7 @@ export type ExtensionModule = {
 
 `options` returns each available project's extension schema, set values, and validation errors. `setOptions` merges a patch with the value from `get`. A `null` patch value deletes the key. The host checks the merged value with top-level schema defaults, ignores required-field errors for a patch, and calls `set` only if other checks pass. Defaults are not inserted into the stored value. `create` checks required fields too.
 
-The `model` format checks `provider/modelId` against the server's models. For a top-level property with format `secret`, replies replace a set value with `true`. The extension's `set` owns storage of the value. The options helper stores it in the project's store, not in a separate secret vault. See [extensions](extensions.md).
+The `model` format checks `provider/modelId` against the server's models. For secret storage and masking, see [extension options](extensions.md#imports-and-helpers).
 
 ## Calls
 
@@ -126,4 +127,4 @@ The decision appears only when its current continuation is that task. Faults of 
 
 `bind`, `addExtensions`, `options`, `setOptions`, `create`, and reload share a queue. They run one at a time. When the server is stopping, queued or new structural calls return `busy`.
 
-Reload scans and validates extension code before publishing it to project registries. A failed validation refuses the reload. A publication failure requires a restart and causes the server to stop. See [extension loading and reload](extensions.md).
+See [extension loading and reload](extensions.md#load-and-reload) for validation and publication failures.
