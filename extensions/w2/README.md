@@ -18,6 +18,5 @@ W2 is a sample workflow for testing Tau's core, not a product. It records foreca
 1. The agent records a forecast and W2 schedules a background task.
 2. When it is due, W2 asks the human to resolve it.
 3. A yes or no answer records a Brier score. Void records no score. Not yet schedules another request seven days after the answer.
-4. The agent can call `calibration` to read the project totals.
 
 To try it, install `w2` with the [installer](../../docs/extensions.md#install-an-extension), start a local server, and add it to a project. Set its model through a client, create a conversation with W2, and ask for a forecast. See [Host](../../docs/host.md) for project calls.

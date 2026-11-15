@@ -13,8 +13,4 @@ Web search is a sample extension for testing Tau's core, not a product. It gives
 | Task | None | |
 | Decision | None | |
 
-1. An agent calls `web_search` with a query.
-2. The tool reads project options and sends the query to the provider.
-3. The tool returns titles, URLs, and snippets, or an error.
-
 To try it, install `websearch` with the [installer](../../docs/extensions.md#install-an-extension), start a local server, and add the extension to a project. Set its options through a client and ask an agent to search. See [Host](../../docs/host.md) for project calls.

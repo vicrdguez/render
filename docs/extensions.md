@@ -67,60 +67,122 @@ An open role follows changes to the default on its next model request. An in-fli
 
 ## Write a workflow
 
-This module defines a closed workflow and a task suitable for the `then` field of a [Decision](primitives.md). Replace the task body with the work that handles the answer. The model must be available on the server.
+Copy these files into a folder named `example`. The tool requests a decision and creates a role. The continuation records the answer in the conversation document.
 
-```ts
-import { type DecisionInput } from "tau";
-import { defineExtension, defineTask, type AgentChange } from "tau/durable";
+`package.json`:
 
-export const afterAnswer = defineTask<DecisionInput<string>, { phase: "act" }, null>({
-	name: "example.after_answer",
-	version: 1,
-	initial: () => ({ phase: "act" }),
-	phases: {
-		act: (_task, runtime, context) => runtime.commit(() => ({
-			status: "terminal",
-			outcome: { status: "completed", result: null },
-		}), context),
-	},
-	abort: (_task, runtime, context) => runtime.commit(() => ({
-		status: "terminal", outcome: { status: "aborted" },
-	}), context),
-});
-export const extension = defineExtension({ name: "example", tasks: [afterAnswer] });
-export const entry: AgentChange = {
-	model: { provider: "faux", modelId: "faux-1" },
-	extensions: [extension],
-};
+```json
+{"name":"tau-example","private":true,"type":"module"}
 ```
 
-A task or tool can call `request` in a transaction with `then: afterAnswer`. The answer creates the continuation task. For an open role and separate closed roles, see [W1](../extensions/w1/README.md).
+`agent.md`:
 
-The connected [W2 workflow](../extensions/w2/src/index.ts) shows the other operations. Its [book](../extensions/w2/src/book.ts) uses `defineDoc` for state and `defineEntry` for forecast and event types. Its [forecast tools](../extensions/w2/src/forecast.ts) use `defineTool` and schemas from `tau/schema` to append an entry, save a receipt, create a background task, and call `emit` in one commit. Its [tasks](../extensions/w2/src/tasks.ts) use `defineTask`, `request`, and `emit` to ask and process the answer. `api.now()` and `runtime.now()` supply request and event times.
+```md
+Use the publish tool when asked to request a review.
+```
+
+`index.ts`:
+
+```ts
+import { decision, emit, modelRef, options as defineOptions, prose, request, role, type DecisionId, type DecisionInput, type EventData } from "tau";
+import { defineDoc, defineEntry, defineExtension, defineTask, defineTool, type EntryId, type Tx } from "tau/durable";
+import { obj, str } from "tau/schema";
+
+type Choice = "approve" | "cancel";
+export const Book = defineDoc<{ receipts: Record<string, EntryId>; open?: DecisionId; done: Record<string, Choice> }>({
+ kind: "example.book", version: 1, scope: "conversation", history: "latest", fork: "current",
+ initial: () => ({ receipts: {}, done: {} }), checkpointWhen: () => false,
+});
+const Basis = defineEntry<{ text: string }>("example.basis");
+const Published = defineEntry<EventData>("example.published");
+const completed = { status: "terminal", outcome: { status: "completed", result: null } } as const;
+const after = defineTask<DecisionInput<Choice>, { phase: "act" }, null>({
+ name: "example.after", version: 1, initial: () => ({ phase: "act" }),
+ phases: { act: (task, runtime, ctx) => runtime.commit(async tx => {
+  const d = await decision(tx, task.input.decision), book = await tx.doc(Book, runtime.conversationId);
+  if (d?.status === "answered" && d.choice === task.input.choice && book.open === d.id && !book.done[d.id]) {
+   book.done[d.id] = task.input.choice; delete book.open;
+  }
+  return completed;
+ }, ctx) },
+ abort: (_task, runtime, ctx) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), ctx),
+});
+const publish = defineTool({
+ name: "publish", description: "Ask the human to review text.", parameters: obj({ text: str() }),
+ callers: ["model"], executionMode: "sequential", replay: "safe",
+ execute: async (args, api, ctx) => {
+  const id = await api.commit(async tx => {
+   const book = await tx.doc(Book, api.conversationId), saved = book.receipts[api.taskId];
+   if (saved !== undefined) return saved;
+   const agent = await role(tx, { model: modelRef((await options.read(tx)).model), extensions: [extension], tools: [publish], instructions }, { kind: "ownerless" });
+   const basis = await tx.appendEntry(Basis, api.conversationId, { data: { text: args.text } });
+   const d = await request(tx, { subject: `example:${api.conversationId}`, title: "Review", basis, choices: ["approve", "cancel"], conversation: api.conversationId, then: after, requestedAt: api.now() });
+   book.open = d.id; book.receipts[api.taskId] = basis.id;
+   await emit(tx, Published, { text: `Review requested. Agent ${agent} created.`, at: api.now(), conversation: agent });
+   return basis.id;
+  }, ctx);
+  return { output: [{ type: "text", text: `Published ${id}.` }] };
+ },
+});
+export const extension = defineExtension({ name: "example", tools: [publish], tasks: [after] });
+export const options = defineOptions("example", obj({ model: str({ format: "model" }) }));
+const instructions = prose(import.meta.dirname, "agent.md", [])({});
+export async function entry(tx: Tx) {
+ return { model: modelRef((await options.read(tx)).model), extensions: [extension], tools: [publish], instructions };
+}
+```
 
 A timer phase calls `runtime.sleepUntil(deadline, nextCheckpoint, context)` and returns immediately. Create the task with `{ ownership: { kind: "conversation" }, conversationId, background: true }` so it survives a stop. A versioned task can provide `migrate(input, checkpoint, fromVersion)` returning `{ input, checkpoint }`.
 
 ## Test without a server
 
-Create a registry with `createRegistry()` and install the extension with `registry.install(extension)`. Create `faux = fauxProvider()` and `models = createModels()`, then call `models.setProvider(faux.provider)`. Pass `new MemoryStorage()`, `{ registry, models }`, and `BACKGROUND_CONTEXT` from `tau/chord` to `openStore`. Use `store.harness` to configure the conversation. Call `store.harness.resume()` before waiting for independently scheduled tasks. `fauxAnswer` supplies the human answer in tests and is not available to loaded extensions. The [W2 harness](../extensions/w2/test/harness.ts) has the complete setup and uses this answer step:
+Build Tau with `nix build`. Link the build's `result/lib/tau/node_modules` into the example folder as `node_modules`. The build supplies `tau` and its dependencies. With Node 24, run `./node_modules/.bin/tsc -p .` and `node --test example.test.ts` in that folder. The test resumes the scheduler and uses `fauxAnswer` to supply the human answer.
+
+`tsconfig.json`:
+
+```json
+{"compilerOptions":{"target":"ES2023","module":"NodeNext","moduleResolution":"NodeNext","strict":true,"noEmit":true,"allowImportingTsExtensions":true,"erasableSyntaxOnly":true,"skipLibCheck":true,"types":["node"]},"include":["*.ts"]}
+```
+
+`example.test.ts`:
 
 ```ts
-const d = await read(id);
-assert.ok(d);
-const result = await fauxAnswer(
-	store,
-	id,
-	{ basis: d.basis, choice, annotations: [] },
-	context,
-);
-assert.equal(result.kind, "answered", JSON.stringify(result));
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { decision } from "tau";
+import { BACKGROUND_CONTEXT as ctx } from "tau/chord";
+import { configure, createRegistry, MemoryStorage } from "tau/durable";
+import { createModels, fauxAnswer, fauxAssistantMessage, fauxProvider, fauxToolCall, openStore } from "tau/testing";
+import { Book, entry, extension, options } from "./index.ts";
+
+test("publish and answer", async () => {
+ const registry = createRegistry(); registry.install(extension);
+ const faux = fauxProvider(), models = createModels(); models.setProvider(faux.provider);
+ const store = await openStore(new MemoryStorage(), { registry, models }, ctx), h = store.harness;
+ await h.commit(tx => options.set(tx, { model: "faux/faux-1" }), ctx);
+ const root = await h.root(ctx); await h.commit(async tx => configure(tx, root.id, await entry(tx)), ctx);
+ await h.resume();
+ faux.setResponses([fauxAssistantMessage([fauxToolCall("publish", { text: "Review this" })], { stopReason: "toolUse" }), fauxAssistantMessage("done")]);
+ const submission = await root.submit({ type: "input", content: "publish" }, ctx);
+ await submission.wait(ctx); await root.waitForIdle(ctx);
+ const id = await h.commit(async tx => (await tx.doc(Book, root.id)).open!, ctx);
+ const d = await h.commit(tx => decision(tx, id), ctx); assert.ok(d);
+ const answer = await fauxAnswer(store, d.id, { basis: d.basis, choice: "approve", annotations: [] }, ctx);
+ assert.equal(answer.kind, "answered"); if (answer.kind !== "answered") throw Error("not answered");
+ for (let i = 0; i < 100; i++) {
+  const done = await h.commit(async tx => (await tx.doc(Book, root.id)).done[d.id], ctx);
+  if (done) { assert.equal(done, "approve"); return; }
+  await new Promise(resolve => setTimeout(resolve, 10));
+ }
+ assert.fail("continuation did not finish");
+});
 ```
 
 ## Load and reload
 
 The server scans `~/.tau/extensions/` at start. Each visible entry other than `node_modules` must resolve to a distinct folder with `index.ts`. The loader rejects JavaScript files outside `node_modules`, bad imports, invalid module shapes, mismatched names, invalid options, and conflicting tasks. An extension supplies its own npm dependencies. The loader aliases Tau imports to the server's package.
 
-The server reports each failure on standard error as `tau: extension NAME [STAGE]: MESSAGE`, with an optional path after the name. A failed extension does not prevent the server or other extensions from starting. An extension is trusted code and is not sandboxed.
+The server reports each failure on standard error as `tau: extension NAME [STAGE]: MESSAGE`, with an optional path after the name. A failed extension does not prevent the server or other extensions from starting. An extension is [trusted code](design.md#limits).
 
 Run `tau extension reload` against a running server after changing an extension. Reload follows this order:
 
@@ -131,7 +193,7 @@ Run `tau extension reload` against a running server after changing an extension.
 
 Reload refuses duplicate task names, dropped task kinds, lower task versions, and phases removed without a version increase. An in-flight tool call or task phase finishes with its old code. A waiting task uses new code when it wakes. An existing conversation keeps its stored instructions. New conversations use the new instructions.
 
-A task with a higher installed version uses `migrate` when next reserved. Without a migration it blocks. Task warnings name the project, task, kind, conversation, stored and installed versions, and blocked or migration-needed status. Reservation failures print `migration_failed` or `task_outdated`. Missing task definitions do not appear in migration warnings; inspect the project's `missing` list. Withdraw open decisions before an incompatible upgrade because their stored continuation may depend on the old task. If publication fails partway, the server requires a restart rather than rolling back.
+A task with a higher installed version uses `migrate` when next reserved. Without a migration it blocks. Task warnings name the project, task, kind, conversation, stored and installed versions, and blocked or migration-needed status. Reservation failures print `migration_failed` or `task_outdated`. Missing task definitions do not appear in migration warnings; inspect the project's `missing` list. If publication fails partway, the server requires a restart rather than rolling back.
 
 The command prints `added`, `replaced`, or `kept` for each extension, task warnings, skipped projects, and totals. Exit status 0 means applied, 3 means applied with warnings, 1 means refused, restart required, or an error reaching the server, and 2 means invalid usage. Changes to the server itself require a restart.
 
@@ -142,7 +204,7 @@ For an extension from another repository, place or symlink its folder at `~/.tau
 The repository installer handles the samples. From the development shell, run:
 
 ```sh
-install-extension --home /tmp/tau-docs2c-example/.tau
+install-extension --home /tmp/tau-example/.tau
 ```
 
 The command lists the samples. Pass a sample name to install it into the same home that the server uses. Omit `--home` to use `~/.tau`. The installer builds a source snapshot and links it at `<home>/extensions/<name>`. The link is a Nix garbage-collection root. The snapshot prevents unfinished source edits from reaching a running server. The flake sees only tracked files, so add new extension files to Git before installing them.

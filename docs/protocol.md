@@ -46,7 +46,7 @@ Every refusal has string `code` and `message` fields. The table names all additi
 
 ## Transcript
 
-The following exchange binds a project. The token is a placeholder for a paired device's token.
+The following exchange binds a project with `websearch` and `w1` installed. The token is a placeholder for a paired device's token.
 
 ```http
 POST /v1/bind HTTP/1.1
@@ -116,7 +116,7 @@ The owner-only Unix socket is `~/.tau/admin.sock`. The `tau device pair`, `tau d
 
 The path and reply header identify protocol version 1. Clients ignore fields they do not know and display unknown refusal codes as refusals. The server rejects unknown request fields with `bad_request`.
 
-Tau uses pi-durable 1.5.2. Times are Unix epoch milliseconds unless a field states otherwise. IDs are numbers scoped to the project store. `Decision` and `OpenDecisions` are defined in the [Decision reference](primitives.md). `ProjectView` is defined in the [host reference](host.md#calls).
+Tau uses pi-durable 1.5.2. Times are Unix epoch milliseconds unless a field states otherwise. Conversation, entry, task, and submission IDs are numbers scoped to the project store. A decision ID is a string of the form `subject#n`. `Decision` and `OpenDecisions` are defined in the [Decision reference](primitives.md). `ProjectView` is defined in the [host reference](host.md#calls).
 
 The following shapes are the JSON records sent by the host. JSON values can be objects, arrays, strings, numbers, booleans, or null.
 

@@ -12,7 +12,7 @@ Tau is a small server on pi-durable for delegated agent work. It keeps decisions
 ```sh
 /nix/var/nix/profiles/default/bin/nix develop
 /nix/var/nix/profiles/default/bin/nix flake check -L
-/nix/var/nix/profiles/default/bin/nix run .#tau -- --port 0
+/nix/var/nix/profiles/default/bin/nix run .#tau -- --port 0 # uses ~/.tau
 ```
 
 See the [documentation index](docs/README.md) and [install an extension](docs/extensions.md#install-an-extension).

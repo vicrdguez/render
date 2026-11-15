@@ -4,11 +4,19 @@ The Tau host opens projects and offers calls to clients. Use this reference with
 
 ## Run the server
 
-Run `tau` on the server machine. It uses `~/.tau` under the process home and has no `--home` flag. `--port PORT` selects a port from 0 through 65535. Port 0 asks the OS to choose one. Repeat `--allow-host NAME` to allow additional Host and Origin names. See [network access and pairing](protocol.md#devices-and-administration).
+From the repository, start the server and administer it in another terminal:
 
-With the server running, `tau device pair phone` prints a one-use code for a device named `phone`. Exchange it as described in [pairing](protocol.md#devices-and-administration).
+```sh
+nix run .#tau -- --port 0
+nix run .#tau -- device pair phone
+nix run .#tau -- device list
+nix run .#tau -- device revoke phone
+nix run .#tau -- extension reload
+```
 
-Log in to model providers through pi on the server machine. Tau reads `${PI_CODING_AGENT_DIR:-~/.pi/agent}/auth.json` and writes refreshed credentials there. No client call sets a login.
+Or run `nix build` and use `result/bin/tau` in place of `nix run .#tau --` for each command. The server uses `~/.tau` under the process home and has no `--home` flag. `--port PORT` selects a port from 0 through 65535. Port 0 asks the OS to choose one. Repeat `--allow-host NAME` to allow additional Host and Origin names. The pair command prints a one-use code. Exchange it as described in [pairing](protocol.md#devices-and-administration).
+
+Tau reads `${PI_CODING_AGENT_DIR:-~/.pi/agent}/auth.json` and writes refreshed credentials there. No client call sets a login.
 
 ## Data and backup
 
@@ -56,7 +64,7 @@ The `model` format checks `provider/modelId` against the server's models. For a 
 
 ## Calls
 
-Each row gives fields in the JSON body and fields inside `result`. A question mark marks an optional field. Project and conversation IDs are scoped to a project. Pages are `{ items, next? }`; the default limit is 50. All calls can return transport or validation refusals described in the [protocol](protocol.md). The last column lists additional call-specific refusals.
+Each row gives fields in the JSON body and fields inside `result`. A question mark marks an optional field. Conversation, entry, and decision IDs are scoped to a project. Pages are `{ items, next? }`; the default limit is 50. All calls can return transport or validation refusals described in the [protocol](protocol.md). The last column lists additional call-specific refusals.
 
 | Call | Body | Result | Additional refusals |
 | --- | --- | --- | --- |
@@ -87,7 +95,7 @@ Each row gives fields in the JSON body and fields inside `result`. A question ma
 
 `create` with a model creates an ownerless bare conversation and configures its working directory and model. With a workflow name, it checks options, creates an ownerless conversation, and configures it with the working directory and the workflow's `entry`. An `entry` function runs in the same transaction. A repeated `create` can create another conversation.
 
-The default selection contains coding tools followed by available project extensions that have no `entry`. Workflows are not in the default selection. A conversation can use an explicit selection instead.
+A conversation can use the [default or an explicit extension selection](extensions.md#agent-selection).
 
 `conversations` reports `running`, `failed`, or `idle` and omits the event log. `open` watches any conversation, including one created by a workflow. `input` submits text. `whenBusy` accepts `steer` or `followUp` and defaults to `followUp`. A steer joins at a tool boundary. A follow-up waits for another run. A steer to an idle conversation starts a run unless `whenIdle: "reject"` is set. `continue` submits a continuation and refuses a busy conversation.
 
