@@ -1,6 +1,6 @@
 {
 	"tau": {},
-	"tau-journeys": {
+	"tau-e2e": {
 		"source": true,
 		"tau": ["./server"],
 		"testOnly": {

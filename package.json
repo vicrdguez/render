@@ -6,7 +6,7 @@
 	"workspaces": [
 		"core",
 		"extensions/*",
-		"journeys"
+		"e2e"
 	],
 	"scripts": {
 		"build": "typecheck",
