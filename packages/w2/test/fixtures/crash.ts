@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { writeSync } from "node:fs";
 import type { Storage } from "tau-extension/durable";
 import { openNodeSqliteStorage } from "tau-extension/durable";
-import { score } from "../../src/tasks.js";
-import { args, Clock, context, open, START, until, WEEK } from "../harness.js";
+import { score } from "../../src/tasks.ts";
+import { args, Clock, context, open, START, until, WEEK } from "../harness.ts";
 
 const [scenario = "", file = "", step = ""] = process.argv.slice(2);
 const clock = new Clock();

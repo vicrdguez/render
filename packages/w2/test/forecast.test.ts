@@ -3,9 +3,9 @@ import { test } from "node:test";
 import { emit } from "tau-extension";
 import { configure, defineEntry, defineExtension } from "tau-extension/durable";
 import { fauxAssistantMessage } from "tau-extension/testing";
-import { entry, extension, options } from "../src/index.js";
-import { due, score } from "../src/tasks.js";
-import { args, context, open, START, until, WEEK } from "./harness.js";
+import { entry, extension, options } from "../src/index.ts";
+import { due, score } from "../src/tasks.ts";
+import { args, context, open, START, until, WEEK } from "./harness.ts";
 
 test("walk rows 1 to 15: record, due, not yet, revision, stale timer, yes and calibration", async (t) => {
 	const f = await open();

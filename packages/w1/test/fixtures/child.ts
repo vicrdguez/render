@@ -11,7 +11,7 @@ import {
 	subjects,
 	toolResults,
 	world,
-} from "../setup.js";
+} from "../setup.ts";
 
 // One run of a crash scenario on a SQLite store and a real repository in `dir`. This process kills itself with
 // SIGKILL at the point under test; the parent opens the same files again in a new process and looks.

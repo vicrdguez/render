@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-const child = fileURLToPath(new URL("./fixtures/crash.js", import.meta.url));
+const child = fileURLToPath(new URL("./fixtures/crash.ts", import.meta.url));
 type Seen = {
 	forecasts: number;
 	recorded: number;

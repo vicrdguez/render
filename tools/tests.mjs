@@ -7,17 +7,22 @@ const manifest = JSON.parse(await readFile("package.json", "utf8"));
 const tests = [];
 for await (const directory of glob(manifest.workspaces)) {
 	const pkg = JSON.parse(await readFile(`${directory}/package.json`, "utf8"));
+	const config = JSON.parse(
+		await readFile(`${directory}/tsconfig.json`, "utf8"),
+	);
 	for await (const source of glob(`${directory}/test/**/*.test.ts`)) {
-		const emitted = source
-			.replace(`${directory}/test/`, `${directory}/dist/test/`)
-			.replace(/\.([cm]?)ts$/, ".$1js");
-		tests.push({ source, emitted, packageName: pkg.name, directory });
+		const runnable = config.compilerOptions?.noEmit
+			? source
+			: source
+					.replace(`${directory}/test/`, `${directory}/dist/test/`)
+					.replace(/\.([cm]?)ts$/, ".$1js");
+		tests.push({ source, runnable, packageName: pkg.name, directory });
 	}
 }
 for await (const file of glob("tools/**/*.test.mjs")) {
 	tests.push({
 		source: file,
-		emitted: file,
+		runnable: file,
 		packageName: "tools",
 		directory: "tools",
 	});
@@ -34,13 +39,13 @@ for (const selection of selected) {
 			selection === test.packageName ||
 			selection === path.basename(test.directory) ||
 			candidates.includes(path.resolve(test.source)) ||
-			candidates.includes(path.resolve(test.emitted)),
+			candidates.includes(path.resolve(test.runnable)),
 	);
 	if (!matches.length) throw new Error(`no tests selected by ${selection}`);
-	for (const test of matches) files.add(test.emitted);
+	for (const test of matches) files.add(test.runnable);
 }
-if (!selected.length) for (const test of tests) files.add(test.emitted);
-if (!files.size) throw new Error("no emitted tests selected");
+if (!selected.length) for (const test of tests) files.add(test.runnable);
+if (!files.size) throw new Error("no tests selected");
 for (const file of files) {
 	await access(file).catch((error) => {
 		throw new Error(

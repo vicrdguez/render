@@ -1,7 +1,7 @@
 import { defineExtension, defineTool } from "tau-extension/durable";
 import { arr, compile, lit, obj, oneOf, opt, str } from "tau-extension/schema";
 import { createWebfox } from "webfox";
-import { options } from "./options.js";
+import { options } from "./options.ts";
 
 const response = compile(
 	obj({

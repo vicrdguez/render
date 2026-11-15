@@ -1,9 +1,9 @@
 import { modelRef } from "tau-extension";
 import type { AgentChange, Tx } from "tau-extension/durable";
-import { designer } from "./roles.js";
-import { W1Options } from "./work.js";
+import { designer } from "./roles.ts";
+import { W1Options } from "./work.ts";
 
-export { W1 as extension } from "./extension.js";
+export { W1 as extension } from "./extension.ts";
 export const options = W1Options;
 
 /** The designer's settings for the conversation the host creates. The host adds the project's `cwd`. */

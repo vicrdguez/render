@@ -7,7 +7,7 @@ import {
 	Rescheduled,
 	Resolved,
 	Voided,
-} from "./book.js";
+} from "./book.ts";
 
 export type Choice = "yes" | "no" | "void" | "not yet";
 export type DueInput = { subject: string; forecast: EntryId; dueAt: number };

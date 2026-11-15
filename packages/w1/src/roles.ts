@@ -1,8 +1,8 @@
 import { prose, type RoleSettings } from "tau-extension";
 import type { ModelRef } from "tau-extension/durable";
 import { CodingTools } from "tau-extension/durable";
-import { W1 } from "./extension.js";
-import { publishBuild, publishReview, showDiff, showFile } from "./tools.js";
+import { W1 } from "./extension.ts";
+import { publishBuild, publishReview, showDiff, showFile } from "./tools.ts";
 
 const dir = import.meta.dirname;
 const designerProse = prose(dir, "designer.md", [])({});

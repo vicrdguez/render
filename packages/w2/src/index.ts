@@ -5,8 +5,8 @@ import {
 	type Tx,
 } from "tau-extension/durable";
 import { obj, str } from "tau-extension/schema";
-import { calibration, recordForecast, reviseForecast } from "./forecast.js";
-import { due, score } from "./tasks.js";
+import { calibration, recordForecast, reviseForecast } from "./forecast.ts";
+import { due, score } from "./tasks.ts";
 
 export const extension = defineExtension({
 	name: "w2",

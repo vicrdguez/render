@@ -10,8 +10,8 @@ import {
 	fauxProvider,
 	fauxToolCall,
 } from "tau-extension/testing";
-import { options } from "../src/index.js";
-import { createSearchExtension } from "../src/web-search.js";
+import { options } from "../src/index.ts";
+import { createSearchExtension } from "../src/web-search.ts";
 
 const [file, url] = process.argv.slice(2);
 if (!file || !url) throw new Error("file and URL required");

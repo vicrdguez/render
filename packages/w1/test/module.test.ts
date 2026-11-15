@@ -7,7 +7,7 @@ import type {
 	Tx,
 } from "tau-extension/durable";
 import type { JsonSchema } from "tau-extension/schema";
-import * as W1 from "../src/index.js";
+import * as W1 from "../src/index.ts";
 
 // Copied from docs/core/extensions.md, "What an extension is".
 type ExtensionModule = {
