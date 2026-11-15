@@ -1,6 +1,6 @@
 # Layout, loading, and reload
 
-**Decided.** The owner made these decisions on 2026-11-14 and 2026-11-15, after reading the built layout. They replace parts of [Extensions](extensions.md), [Host](host.md), [Kit](kit.md), [Primitives](primitives.md), and [Code arena](arena-code.md). [Loader arena](arena-load.md) records how the details were chosen. The detailed design is `arena-load/candidate-2/design.md`. Where this note differs from it, this note wins.
+**Decided.** The owner made these decisions on 2026-11-14, after reading the built layout. The restructure that carried them out ran on 2026-11-14 and 2026-11-15, and is merged. They replace parts of [Extensions](extensions.md), [Host](host.md), [Kit](kit.md), [Primitives](primitives.md), and [Code arena](arena-code.md). [Loader arena](arena-load.md) records how the details were chosen. The detailed design is `arena-load/candidate-2/design.md`. Where this note differs from it, this note wins.
 
 Nothing here changes the 20 calls, the protocol, devices, projects, options, or the accepted limits.
 
@@ -41,11 +41,11 @@ Nothing here changes the 20 calls, the protocol, devices, projects, options, or 
 2. **Check.** Install everything into a scratch registry. Refuse a task name that two extensions share, a dropped task kind, a lowered version, and a phase removed at the same version.
 3. **Refuse or go on.** If anything in steps 1 and 2 failed, nothing changes, the old code keeps running, and the command says why.
 4. **Publish**, in one step with no waiting inside it: install each extension in every open project that lists it, rebuild each project's default selection, and swap the catalogue and the options together.
-5. **Report.** One line for each extension that was added, replaced, or kept. One line for each task that is blocked, or that will block when it next wakes because its version rose with no `migrate`. One line for each skipped project.
+5. **Report.** One line for each extension that was added, replaced, or kept. One line for each task that is blocked for want of a migration, or that will block when it next wakes because its version rose with no `migrate`. A task that waits because its extension is missing is not listed here. `projects` shows the missing extension. One line for each skipped project.
 
 One queue orders reload with `bind`, `addExtensions`, `options`, `setOptions`, and `create`. Model requests, tools, tasks, and answers are not in that queue and keep running. If publishing fails part way, the server stops and says that a restart is needed. It does not roll back.
 
-Reload writes nothing to disk. After a crash the next start loads what the directory holds.
+Reload writes nothing to a store and keeps no record of itself. It creates `~/.tau/extensions/` if that folder is absent. After a crash the next start loads what the directory holds.
 
 ## Measured, and behind these choices
 

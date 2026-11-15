@@ -1,6 +1,6 @@
 # Loader arena
 
-**Decided.** This is the seventh arena, run on 2026-11-15. It chose how to carry out the owner's decisions in [Layout, loading, and reload](load.md). The folder `arena-load/` holds the brief, the rubric, the probe report, both candidates with their probes, and the judge's verdict.
+**Decided.** This is the seventh arena, run on 2026-11-14. It chose how to carry out the owner's decisions in [Layout, loading, and reload](load.md). The folder `arena-load/` holds the brief, the rubric, the probe report, both candidates with their probes, and the judge's verdict.
 
 Candidate 1 ran on `claude-opus-5-5`, candidate 2 on `gpt-6.1-sol`. The judge ran on `gpt-6-astra`. The picker wrote no candidate.
 

@@ -2,7 +2,7 @@
 
 This folder tracks Tau, a redesign of Render from zero. `docs/spec.md` does not bind it.
 
-**It is built.** On 2026-11-14 the design was implemented, one unit at a time, each checked by an agent on another model family before it merged into `render-core`. On 2026-11-15 and 2026-11-16 it was restructured as the owner decided in [Layout, loading, and reload](load.md): the core is one package in `core/`, `tau-extension` is in `extension-package/`, the three sample extensions are in `extensions/`, and the journeys through a real server are in `journeys/`. `nix flake check` is the gate. It has one check for each side, and it builds the installed `tau`, loads the three samples into it, and reloads them. [Build notes](build-notes/README.md) lists each place where the build met a gap or a small contradiction in this design and what it took. `build-log.tsv` is the decision trail. The other notes in this folder were written before the build and still say that nothing is implemented. They are corrected when the folder is consolidated.
+**It is built.** On 2026-11-14 the design was implemented, one unit at a time, each checked by an agent on another model family before it merged into `render-core`. On 2026-11-14 and 2026-11-15 it was restructured as the owner decided in [Layout, loading, and reload](load.md): the core is one package in `core/`, `tau-extension` is in `extension-package/`, the three sample extensions are in `extensions/`, and the journeys through a real server are in `journeys/`. `nix flake check` is the gate. It has one check for each side, and it builds the installed `tau`, loads the three samples into it, and reloads them. [Build notes](build-notes/README.md) lists each place where the build met a gap or a small contradiction in this design and what it took. `build-log.tsv` is the decision trail. The other notes in this folder were written before the build and still say that nothing is implemented. They are corrected when the folder is consolidated.
 
 **The design is locked.** On 2026-11-13 the owner went through every entry that was still Proposed and every open point, and decided each one. What stays open or deferred is listed under "Open and deferred" below. A part that the build shows to be wrong comes back to the owner.
 
@@ -158,7 +158,7 @@ How the current parts score:
 | A secret is an option with the format `secret`, stored in the project's store | Decided | [Extensions](extensions.md) |
 | Check 4 of the admission rule speaks of two extensions | Decided | This file |
 | Lane is not in the core and not in the kit | Decided | [Lane](lane.md) |
-| The kit is the package `tau-kit` | Replaced on 2026-11-15 by `tau-extension` | [Kit](kit.md), [Layout, loading, and reload](load.md) |
+| The kit is the package `tau-kit` | Replaced on 2026-11-14 by `tau-extension` | [Kit](kit.md), [Layout, loading, and reload](load.md) |
 | The core, the extension package, and the extensions are separate directories, each with its own check | Decided | [Layout, loading, and reload](load.md) |
 | The core is one package, and `answer` is exported from no entry point | Decided | [Layout, loading, and reload](load.md) |
 | Extensions load at run time from `~/.tau/extensions/`, and reload with `tau extension reload` | Decided | [Layout, loading, and reload](load.md) |

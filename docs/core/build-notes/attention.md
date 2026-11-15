@@ -54,7 +54,7 @@ A real model call and a real login refresh. A live search provider. A running pi
 
 ## After the restructure
 
-**Decided and reported.** On 2026-11-15 the owner changed the layout and how extensions load. [Layout, loading, and reload](../load.md) has those decisions. The restructure ran as twelve units, R1 to R12. Each merged on an independent pass at the merged head. This section lists what the owner should know from it. Nothing here blocks use.
+**Decided and reported.** On 2026-11-14 the owner changed the layout and how extensions load. [Layout, loading, and reload](../load.md) has those decisions. The restructure ran as twelve units, R1 to R12. Each merged on an independent pass at the merged head. This section lists what the owner should know from it. Nothing here blocks use.
 
 | What | Where | What it means |
 | --- | --- | --- |
@@ -66,5 +66,18 @@ A real model call and a real login refresh. A live search provider. A running pi
 | Two links to one folder | `unit-r5.md` | The second name, in sorted order, is refused. A link that sorts before the real folder takes its place and then fails its name check, so neither loads. |
 | Journeys under very heavy load | `unit-r12.md` | At a load average of 50 to 60, three W1 journeys failed inside the sandboxed check with a reset connection after 17 to 36 seconds. At 36 to 45 they passed. The cause was not found, and no retry was added. |
 | The key filter, the same tool name twice, a schema that drops a secret marking | [Layout, loading, and reload](../load.md) | Accepted by the owner as they are. |
+
+A second review of the trail, by `gpt-6-astra`, confirmed that all twelve merges had an independent pass at the merged head. It added these choices from the build notes as ones the owner may want to make:
+
+| Choice | Where | The alternative |
+| --- | --- | --- |
+| `tau-extension/durable` also exports the names only tests use, such as the SQLite storage opener and the Node execution environment | `unit-r3.md` | Put them in `tau-extension/testing`. |
+| A change to an extension's own npm dependency needs a restart, not a reload | `unit-r5.md` | Refuse to reload an extension that has dependencies of its own. |
+| On shutdown the server finishes the structural call that is running and refuses the ones that wait, with `busy` | `unit-r6.md` | Let the waiting ones run too before closing. |
+| The test-only export of web search was removed. The search journey writes a small entry file instead. | `unit-r9.md` | Keep the export the owner had accepted. |
+| `tau/testing` has `fauxAnswer` and `openStore` and no `watchOpen` | `unit-r11.md` | Export `watchOpen` too, as the arena's design did. |
+| The journeys' time limits went from 15 and 20 seconds to 180, with waits of up to 60 seconds on each event | `unit-r12.md` | Keep short limits and accept failures on a loaded machine. |
+
+One window is still open in `install-extension`. If the process is killed with `SIGKILL` in the fraction of a second between placing a new link and learning that the server refused it, the refused version stays linked, and the next start does not load that extension. The link itself is never missing.
 
 **Not proven by the restructure:** Linux; the Nix sandbox turned on; a real model or search provider; a real garbage collection while an install runs; a kill between two arbitrary instructions of a reload's publish step (it was killed while held inside one).

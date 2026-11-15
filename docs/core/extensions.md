@@ -2,13 +2,13 @@
 
 **Decided.** The extension is the main unit. A workflow is one kind of extension, the kind that Tau names and supports. Other extensions do other jobs. Web search is the first one planned, and sandboxing may follow.
 
-**Decided.** Everything else in this file, too. The owner locked the design on 2026-11-13. It comes from the fourth arena, and [Extension arena](arena-ext.md) says which part came from where. The moves it leans on ran in `spikes/ext.mjs`, checks E1 to E12, with stand-ins for the host. No Tau code exists.
+**Decided.** Everything else in this file, too. The owner locked the design on 2026-11-13. It comes from the fourth arena, and [Extension arena](arena-ext.md) says which part came from where. The moves it leans on ran in `spikes/ext.mjs`, checks E1 to E12, with stand-ins for the host. That file was written before any Tau code existed. The extensions' own tests and the journeys now cover the same moves on the real code.
 
 The earlier notes were written around workflows. This file corrects that, and [Host](host.md), [Primitives](primitives.md), and [Kit](kit.md) now use its names.
 
 ## What an extension is
 
-An extension is a pi-durable `Extension` with no wrapper: a name with optional tools, prompt sections, hooks, wraps, and tasks (measured, `src/harness/types.ts:424-433`). The host knows one module for each name: the folder `~/.tau/extensions/<name>/`, loaded when the server starts and again at each `tau extension reload`. The owner changed this on 2026-11-15. Before, an import map in code named each extension. See [Layout, loading, and reload](load.md).
+An extension is a pi-durable `Extension` with no wrapper: a name with optional tools, prompt sections, hooks, wraps, and tasks (measured, `src/harness/types.ts:424-433`). The host knows one module for each name: the folder `~/.tau/extensions/<name>/`, loaded when the server starts and again at each `tau extension reload`. The owner changed this on 2026-11-14. Before, an import map in code named each extension. See [Layout, loading, and reload](load.md).
 
 ```ts
 type ExtensionModule = {

@@ -4,11 +4,11 @@ After the [walk](walk.md), the owner answered its open questions. The answers le
 
 **Decided.** The owner's rulings below.
 
-**Decided.** Everything else in this file, too. The owner locked the design on 2026-11-13. Nothing is implemented. Each change to the core carries its five checks from the admission rule in the [README](README.md).
+**Decided.** Everything else in this file, too. The owner locked the design on 2026-11-13. It is built: see the [README](README.md). Each change to the core carries its five checks from the admission rule in the [README](README.md).
 
 Two later passes changed this file. [Extensions](extensions.md) made the extension the unit that a project selects, so `workflows` became `extensions`, `addWorkflows` became `addExtensions`, and `WorkflowModule` became `ExtensionModule`. [Protocol](protocol.md) says how each call travels, and it changed `open`, `timeline`, and the request ID.
 
-The moves this file leans on ran on pi-durable 1.5.2 with SQLite files, in `spikes/host.mjs`, checks H1 to H12. That file uses stand-ins shaped like the design. No Tau code exists.
+The moves this file leans on ran on pi-durable 1.5.2 with SQLite files, in `spikes/host.mjs`, checks H1 to H12. That file uses stand-ins shaped like the design, and was written before any Tau code existed. The host's own tests now cover the same moves on the real code.
 
 ## The owner's rulings
 

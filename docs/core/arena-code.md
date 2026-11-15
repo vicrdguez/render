@@ -1,6 +1,6 @@
 # Code arena
 
-**Decided.** This is the sixth arena, run on 2026-11-13 and 2026-11-14. It chose how the code is laid out. It changes no behaviour of the locked design.
+**Decided, and then replaced in part.** This is the sixth arena, run on 2026-11-13 and 2026-11-14. It chose how the code is laid out. It changes no behaviour of the locked design. On 2026-11-14 the owner replaced its layout: [Layout, loading, and reload](load.md) has what stands now. The seven packages under `packages/`, the split of the store and the host, the kit, and the emitted extensions described below are how the first build was laid out, and are no longer true of the code.
 
 The folder `arena-code/` holds the brief, the rubric, both candidates with their sketches and probes, and the judge's verdict.
 
