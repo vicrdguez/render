@@ -33,7 +33,7 @@ export { fromDirectory } from "./loader.js";
 export type { ReloadReport } from "./reload.js";
 export { taskLine } from "./task-reports.js";
 
-// docs/core/host.md, "Options per project".
+// docs/host.md, "Options".
 export type ExtensionModule = {
 	readonly extension: Extension;
 	readonly entry?: AgentChange | ((tx: Tx) => Promise<AgentChange>);

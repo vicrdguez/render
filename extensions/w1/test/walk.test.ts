@@ -20,7 +20,7 @@ import {
 	world,
 } from "./setup.ts";
 
-// docs/core/walk.md, "W1, design to merge", one row at a time on one piece of work. Each test continues the last.
+// extensions/w1/README.md. Each test continues the last on one piece of work.
 const V1 =
 	"Output: print one JSON object per row.\nErrors: exit 2 on a bad flag.";
 const PASSAGE_0 = "print one JSON object per row";

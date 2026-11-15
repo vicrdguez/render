@@ -1,4 +1,0 @@
-before any read, snapshot: undefined
-read in a commit, unchanged: {}
-after the read, snapshot: {}
-after a write of another key, snapshot: { record: { status: 'open' } }
