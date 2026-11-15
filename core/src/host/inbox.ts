@@ -85,6 +85,7 @@ export async function watchInbox(
 		},
 		closed,
 		start(next) {
+			if (ended) return;
 			listener = next;
 			for (const [project, watch] of watches) follow(project, watch);
 		},
