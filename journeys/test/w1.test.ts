@@ -37,7 +37,10 @@ test("W1: approve an annotated design from the phone, build, review the SHA and 
 			call("show_diff"),
 			call("show_file", { path: "export.ts" }),
 			(request) => {
-				assert.ok(JSON.stringify(request).includes("export const format = 42"));
+				assert.match(
+					JSON.stringify(request.messages.at(-1)),
+					/export const format = 42/,
+				);
 				return pass;
 			},
 		]);
@@ -85,6 +88,10 @@ test("W1: approve an annotated design from the phone, build, review the SHA and 
 		assert.equal(merge.data.review, reviews[0].id);
 		assert.equal(merge.data.sha, reviews[0].data.sha);
 		git(repo, "cat-file", "-e", `${merge.data.sha}^{commit}`);
+		assert.equal(
+			git(repo, "diff", "--name-status", "main", merge.data.sha),
+			"M\texport.js",
+		);
 		assert.equal(git(repo, "rev-parse", `w1/${conversation}`), merge.data.sha);
 		const base = git(repo, "rev-parse", "main");
 		const accepted = await j.ok("answer", answer(final, "approve"), j.laptop);

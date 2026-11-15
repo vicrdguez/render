@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { check } from "./check-boundaries.mjs";
+import { selectPackages, workspaces } from "./workspaces.mjs";
 
 const tools = import.meta.dirname;
 
@@ -995,6 +996,36 @@ test("test selection accepts package names and source files and rejects unknown 
 	assert.equal(result.status, 0, result.stderr);
 	assert.match(result.stdout, /selected first/);
 	assert.doesNotMatch(result.stdout, /selected second/);
+	for (const [label, caller, selection, count] of [
+		["relative file", "core", "test/first.test.ts", 1],
+		["parent path", "extensions/w2", "../../core/test/first.test.ts", 1],
+		["directory", "core", "test", 2],
+		["missing path", "core", "test/absent.test.ts", 0],
+	]) {
+		await t.test(label, async (row) => {
+			const invocation = path.join(root, caller);
+			const previous = process.env.TAU_INVOCATION_DIR;
+			process.env.TAU_INVOCATION_DIR = invocation;
+			row.after(() => {
+				if (previous === undefined) delete process.env.TAU_INVOCATION_DIR;
+				else process.env.TAU_INVOCATION_DIR = previous;
+			});
+			const packages = await workspaces(root);
+			if (count === 0)
+				assert.throws(() => selectPackages(packages, [selection], root), /no package selected/);
+			else
+				assert.deepEqual(selectPackages(packages, [selection], root).map((pkg) => pkg.manifest.name), ["tau"]);
+			const result = spawnSync(process.execPath, [path.join(tools, "tests.mjs"), selection], {
+				cwd: root,
+				encoding: "utf8",
+				env: { ...env, TAU_INVOCATION_DIR: invocation },
+			});
+			assert.equal(result.status, count ? 0 : 1, result.stderr);
+			if (count) assert.match(result.stdout, /selected first/);
+			if (count === 2) assert.match(result.stdout, /selected second/);
+			else assert.doesNotMatch(result.stdout, /selected second/);
+		});
+	}
 	assert.equal(run("tests.mjs", root, "missing").status, 1);
 	assert.equal(run("tests.mjs", root, "store", "missing").status, 1);
 });
