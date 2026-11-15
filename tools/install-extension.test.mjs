@@ -83,7 +83,13 @@ test("install-extension replaces a link atomically and reports that it loads at 
 	assert.equal(join(args[3], ".."), join(link, ".."));
 	assert.notEqual(args[3], link);
 	assert.equal(await readlink(link), f.target);
-	assert.deepEqual(JSON.parse((await readFile(f.roots, "utf8")).trim()), ["--add-root", link, "--indirect", "--realise", f.target]);
+	assert.deepEqual(JSON.parse((await readFile(f.roots, "utf8")).trim()), [
+		"--add-root",
+		link,
+		"--indirect",
+		"--realise",
+		f.target,
+	]);
 	assert.equal((await lstat(join(f.home, "extensions"))).mode & 0o777, 0o700);
 	assert.match(installed.stdout, /next start/);
 	await rm(link);
@@ -169,7 +175,22 @@ test("install-extension warns that untracked extension files are excluded by the
 
 for (const [status, tasks, expected] of [
 	["applied", [], 0],
-	["applied", [{ project: "p", task: 33, kind: "w2.due", conversation: 12, stored: 1, installed: 2, status: "migration-needed-on-reservation", reason: "migration_failed" }], 3],
+	[
+		"applied",
+		[
+			{
+				project: "p",
+				task: 33,
+				kind: "w2.due",
+				conversation: 12,
+				stored: 1,
+				installed: 2,
+				status: "migration-needed-on-reservation",
+				reason: "migration_failed",
+			},
+		],
+		3,
+	],
 	["refused", [], 1],
 ]) {
 	test(`install-extension reloads a running home and returns ${expected}`, async (t) => {
@@ -180,7 +201,10 @@ for (const [status, tasks, expected] of [
 			tasks,
 			extensions: [{ name: "w2", status: "added", projects: ["p"] }],
 			skipped: [],
-			failures: status === "refused" ? [{ name: "w2", stage: "import", message: "syntax error" }] : [],
+			failures:
+				status === "refused"
+					? [{ name: "w2", stage: "import", message: "syntax error" }]
+					: [],
 		};
 		let request;
 		const server = net.createServer({ allowHalfOpen: true }, (socket) => {
@@ -218,13 +242,21 @@ for (const [status, tasks, expected] of [
 			);
 			assert.equal(result.code, expected, result.stderr);
 			assert.deepEqual(request, { command: "extension_reload" });
-			assert.match(result.stdout + result.stderr, status === "applied" ? /added w2; projects: p/ : /install refused.*previous version.*installed/i);
+			assert.match(
+				result.stdout + result.stderr,
+				status === "applied"
+					? /added w2; projects: p/
+					: /install refused.*previous version.*installed/i,
+			);
 			assert.doesNotMatch(result.stdout, /"status"/);
 			if (status === "refused") {
-				await assert.rejects(lstat(join(f.home, "extensions/w2")), { code: "ENOENT" });
+				await assert.rejects(lstat(join(f.home, "extensions/w2")), {
+					code: "ENOENT",
+				});
 				assert.doesNotMatch(result.stdout, /Installed/);
 				assert.match(result.stderr, /syntax error/);
-			} else assert.equal(await readlink(join(f.home, "extensions/w2")), f.target);
+			} else
+				assert.equal(await readlink(join(f.home, "extensions/w2")), f.target);
 			assert.doesNotMatch(result.stdout, /next start/);
 		} finally {
 			await new Promise((resolve) => server.close(resolve));
@@ -258,27 +290,65 @@ test("install-extension restores and roots the previous version after refusal", 
 	await mkdir(join(f.home, "extensions"), { recursive: true });
 	const link = join(f.home, "extensions/w2");
 	await symlink(f.root, link);
-	const server = net.createServer({ allowHalfOpen: true }, socket => {
+	const server = net.createServer({ allowHalfOpen: true }, (socket) => {
 		socket.resume();
-		socket.on("end", () => socket.end(JSON.stringify({ reload: {
-			status: "refused", extensions: [], tasks: [], skipped: [],
-			failures: [{ name: "w2", stage: "import", message: "syntax error" }]
-		} }) + "\n"));
+		socket.on("end", () =>
+			socket.end(
+				JSON.stringify({
+					reload: {
+						status: "refused",
+						extensions: [],
+						tasks: [],
+						skipped: [],
+						failures: [
+							{ name: "w2", stage: "import", message: "syntax error" },
+						],
+					},
+				}) + "\n",
+			),
+		);
 	});
-	await new Promise(resolve => server.listen(join(f.home, "admin.sock"), resolve));
+	await new Promise((resolve) =>
+		server.listen(join(f.home, "admin.sock"), resolve),
+	);
 	try {
-		const result = await new Promise(resolve => execFile(process.execPath,
-			[installer, names, "--home", f.home, "w2"],
-			{ cwd: f.root, env: { ...process.env, PATH: `${join(f.root, "bin")}${delimiter}${process.env.PATH}` } },
-			(error, stdout, stderr) => resolve({ code: error?.code, stdout, stderr })));
+		const result = await new Promise((resolve) =>
+			execFile(
+				process.execPath,
+				[installer, names, "--home", f.home, "w2"],
+				{
+					cwd: f.root,
+					env: {
+						...process.env,
+						PATH: `${join(f.root, "bin")}${delimiter}${process.env.PATH}`,
+					},
+				},
+				(error, stdout, stderr) =>
+					resolve({ code: error?.code, stdout, stderr }),
+			),
+		);
 		assert.equal(result.code, 1, result.stderr);
 		assert.equal(await readlink(link), f.root);
-		const roots = (await readFile(f.roots, "utf8")).trim().split("\n").map(line => JSON.parse(line));
-		assert.deepEqual(roots.at(-1), ["--add-root", link, "--indirect", "--realise", f.root]);
-		assert.match(result.stderr, /install refused.*previous version.*installed/i);
+		const roots = (await readFile(f.roots, "utf8"))
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		assert.deepEqual(roots.at(-1), [
+			"--add-root",
+			link,
+			"--indirect",
+			"--realise",
+			f.root,
+		]);
+		assert.match(
+			result.stderr,
+			/install refused.*previous version.*installed/i,
+		);
 		assert.doesNotMatch(result.stdout, /Installed/);
 		assert.deepEqual(await readdir(join(f.home, "extensions")), ["w2"]);
-	} finally { await new Promise(resolve => server.close(resolve)); }
+	} finally {
+		await new Promise((resolve) => server.close(resolve));
+	}
 });
 
 test("install-extension removes only its own stale temporary links at startup", async (t) => {
@@ -292,21 +362,36 @@ test("install-extension removes only its own stale temporary links at startup", 
 	assert.deepEqual(await readdir(dir), [".w2-not-ours"]);
 });
 
-for (const signal of ["SIGTERM", "SIGINT"]) test(`install-extension cleans its temporary root on ${signal}`, async (t) => {
-	const f = await fixture(t);
-	const child = spawn(process.execPath, [installer, names, "--home", f.home, "w2"], {
-		cwd: f.root, env: { ...process.env, WAIT_BUILD: "1", PATH: `${join(f.root, "bin")}${delimiter}${process.env.PATH}` },
-		stdio: "ignore"
+for (const signal of ["SIGTERM", "SIGINT"])
+	test(`install-extension cleans its temporary root on ${signal}`, async (t) => {
+		const f = await fixture(t);
+		const child = spawn(
+			process.execPath,
+			[installer, names, "--home", f.home, "w2"],
+			{
+				cwd: f.root,
+				env: {
+					...process.env,
+					WAIT_BUILD: "1",
+					PATH: `${join(f.root, "bin")}${delimiter}${process.env.PATH}`,
+				},
+				stdio: "ignore",
+			},
+		);
+		t.after(() => child.kill("SIGKILL"));
+		const dir = join(f.home, "extensions");
+		for (let n = 0; ; n++) {
+			if (
+				(await readdir(dir).catch(() => [])).some((name) =>
+					name.startsWith(".w2-"),
+				)
+			)
+				break;
+			assert.ok(n < 200, "temporary out-link created");
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		const ended = new Promise((resolve) => child.once("exit", resolve));
+		child.kill(signal);
+		await ended;
+		assert.deepEqual(await readdir(dir), []);
 	});
-	t.after(() => child.kill("SIGKILL"));
-	const dir = join(f.home, "extensions");
-	for (let n = 0; ; n++) {
-		if ((await readdir(dir).catch(() => [])).some(name => name.startsWith(".w2-"))) break;
-		assert.ok(n < 200, "temporary out-link created");
-		await new Promise(resolve => setTimeout(resolve, 10));
-	}
-	const ended = new Promise(resolve => child.once("exit", resolve));
-	child.kill(signal);
-	await ended;
-	assert.deepEqual(await readdir(dir), []);
-});

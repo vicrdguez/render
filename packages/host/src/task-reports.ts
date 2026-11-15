@@ -31,7 +31,11 @@ export const safeMessage = (error: unknown) =>
 	)[0] ?? "Unknown error";
 
 export function taskLine(task: TaskWarning): string {
-	return `${task.status} ${task.project} task=${task.task} kind=${task.kind} conversation=${task.conversation} version=${task.stored}->${task.installed} ${task.reason}${task.until === undefined ? "" : ` wake=${new Date(task.until).toISOString()}`}${task.message === undefined ? "" : `: ${task.message}`}`;
+	const reason =
+		task.status === "migration-needed-on-reservation"
+			? `will block when it next wakes: no migration from ${task.stored} to ${task.installed}`
+			: task.reason;
+	return `${task.status} ${task.project} task=${task.task} kind=${task.kind} conversation=${task.conversation} version=${task.stored}->${task.installed} ${reason}${task.until === undefined ? "" : ` wake=${new Date(task.until).toISOString()}`}${task.message === undefined ? "" : `: ${task.message}`}`;
 }
 
 export async function inspectTasks(projects: Projects): Promise<TaskWarning[]> {

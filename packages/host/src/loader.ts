@@ -17,7 +17,7 @@ export function fromDirectory(directory: string): ExtensionSource {
 	return async () => {
 		const names = await list(directory).catch((error: Error) => {
 			throw new Error(
-				`The extension directory ${directory} is unsafe or unreadable. The server does not start until the directory's permissions are fixed: ${error.message}`,
+				`The extension directory ${directory} is unsafe or unreadable. ${error.message}`,
 				{ cause: error },
 			);
 		});

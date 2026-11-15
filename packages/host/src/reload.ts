@@ -145,7 +145,12 @@ export async function reload(
 			: current.get(name) === undefined
 				? ("added" as const)
 				: ("replaced" as const),
-		projects: installed.get(name) ?? [],
+		projects: !found.has(name)
+			? projects
+					.all()
+					.filter((p) => p.record.extensions.includes(name))
+					.map((p) => p.name)
+			: (installed.get(name) ?? []),
 	}));
 	return {
 		status: "applied",
