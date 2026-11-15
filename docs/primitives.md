@@ -134,4 +134,4 @@ Within a commit, perform table reads first, then at most one `submit(tx, draft)`
 
 ## Tests
 
-`tau/testing` exports `openStore` and `fauxAnswer`. `openStore` opens a harness, creates the store documents and event log when absent, and leaves the scheduler paused. `fauxAnswer` uses the real answer logic with the fixed device ID `!test`. See [Extensions](extensions.md) for extension tests.
+`fauxAnswer` uses the real answer logic with the fixed device ID `!test`. See [extension tests](extensions.md#test-without-a-server).
