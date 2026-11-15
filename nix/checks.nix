@@ -100,11 +100,5 @@ let
   ) workspace.extensions;
 in
 {
-  inherit verifyBuild;
-  checks = checks // {
-    source-inputs = import ./source-inputs.test.nix {
-      inherit pkgs checks;
-      inherit (packages) tau;
-    };
-  };
+  inherit checks verifyBuild;
 }

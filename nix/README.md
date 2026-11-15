@@ -43,7 +43,6 @@ Help and package listing do not link dependencies into the checkout or compile s
 | `extension-w1`, `extension-w2`, `extension-websearch` | Core dependency compilation and the selected extension's typechecking and tests. |
 | `e2e` | Typechecking and real-server tests, including restart and extension-loading behavior. |
 | `verify-build` | Actual installed executable and extension artifact verification. |
-| `source-inputs` | Required source files and isolation of the checks' source snapshots. |
 
 Workspace lint needs the whole tracked tree. Other checks include selected package inputs and explicit runner files, not arbitrary root files or the whole tools directory. Core's export tests read `core/README.md`, so that README remains a real input. E2E loads the extension source trees at runtime, even though its TypeScript project references only core.
 
@@ -53,16 +52,6 @@ Successful checks produce cacheable markers. They do not publish compiler output
 
 Artifact verification receives package store paths from the current flake evaluation. The app works without checkout preparation. It is not installed in the development shell because a shell can outlive source edits.
 
-## Regression evidence
-
-`source-inputs.test.nix` tests the actual source snapshots without running Nix inside a check. The tooling suite covers selectors, help, assets, failure propagation, and import enforcement.
-
-For dependency-identity regression checks, run:
-
-```sh
-nix develop -c node tools/verify-nix.mjs
-```
-
-The probe copies tracked working files into a temporary Git repository. It checks named apps, help before checkout preparation, and independent artifact graphs, then changes one file at a time. Assertions cover unrelated documentation and Nix comments, source, assets, configuration, dependency locks, and E2E fixtures. It checks derivation identities and does not build the modified fixtures. The probe is separate from sandboxed acceptance to avoid recursive Nix.
+## Platforms and cache reuse
 
 Supported systems are `x86_64-linux`, `aarch64-linux`, and `aarch64-darwin`. A plain acceptance run selects the host system. Evaluation on another system does not prove that its tests execute successfully. CI cache reuse requires a persistent store or binary cache. Declaring a cacheable check alone does not distribute its result.
