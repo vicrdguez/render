@@ -56,7 +56,7 @@ for (const [label, report, code, output] of [
 			],
 		},
 		3,
-		/migration-needed-on-reservation.*wake=/,
+		/will block when it next wakes.*no migration from 1.*wake=/,
 	],
 	[
 		"newer stored task",

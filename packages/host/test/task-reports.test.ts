@@ -186,6 +186,45 @@ test("onReport logs a running task left on its old definition", async (t) => {
 	}
 });
 
+test("reload inspects soon-to-block tasks in every open project", async (t) => {
+	let projects!: Projects;
+	const original = Projects.prototype.start;
+	t.mock.method(Projects.prototype, "start", function (this: Projects) {
+		projects = this;
+		return original.call(this);
+	});
+	const definition = (version: number) => defineTask({
+		name: "both.due", version,
+		initial: () => ({ phase: "sleep" as const }),
+		phases: { sleep: async (_task, runtime, c) => {
+			await runtime.sleepUntil(runtime.now() + 60000, { phase: "sleep" }, c);
+		} },
+		abort: async () => {}
+	});
+	let task = definition(1);
+	const s = await start({ source: () => ({
+		modules: { both: { extension: defineExtension({ name: "both", tasks: [task] }) } }, failures: []
+	}) });
+	try {
+		for (const project of ["p", "q"]) {
+			await s.call("bind", { project, workdir: `/${project}`, extensions: ["both"] });
+			const conversation = (await s.call("create", { project, model: "faux/a" })).body.result.conversation as ConversationId;
+			const p = projects.get(project)!;
+			const id = await p.store.harness.commit(tx => tx.createTask(task, {}, {
+				ownership: { kind: "conversation" }, conversationId: conversation, background: true
+			}), context);
+			await until("sleeping", async () => (await p.store.harness.inspect(context)).tasks.some(t => t.record.id === id && t.state.kind === "sleeping"));
+		}
+		task = definition(2);
+		const result = await requestAdmin(s.home, { command: "extension_reload" });
+		assert.ok("reload" in result);
+		assert.deepEqual(result.reload.tasks.map(t => [t.project, t.kind, t.status]), [
+			["p", "both.due", "migration-needed-on-reservation"],
+			["q", "both.due", "migration-needed-on-reservation"]
+		]);
+	} finally { await s.close(); }
+});
+
 for (const migrate of [false, true])
 	test(`reload reports sleeping and blocked tasks and repairs them with migrate ${migrate}`, async (t) => {
 		let projects!: Projects;

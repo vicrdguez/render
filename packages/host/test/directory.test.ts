@@ -74,6 +74,7 @@ test("a directory source lists extension folders in sorted name order and skips 
 		node_modules: { "index.ts": "throw new Error('node_modules ran');\n" },
 	});
 	await writeFile(path.join(dir, ".notes"), "x", { mode: 0o644 });
+	await symlink("/missing-install-output", path.join(dir, ".w2-00000000-0000-4000-8000-000000000000"));
 	const scan = await fromDirectory(dir)();
 	assert.deepEqual(scan.failures, []);
 	assert.deepEqual(Object.keys(scan.modules), ["alpha", "beta"]);
@@ -178,7 +179,7 @@ test("a directory path that is a file refuses the scan and says so", async () =>
 			assert.ok(error.message.includes(file), error.message);
 			assert.match(error.message, /extension directory/);
 			assert.match(error.message, /replace.*folder/i);
-			assert.doesNotMatch(error.message, /chmod/);
+			assert.doesNotMatch(error.message, /chmod|until.*permissions are fixed/);
 			return true;
 		},
 	);

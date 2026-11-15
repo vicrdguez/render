@@ -531,7 +531,7 @@ test("reload keeps absent names and names skipped stores but not stores since bo
 		current = {} as typeof current;
 		const report = await reload(s);
 		assert.deepEqual(report.result?.extensions, [
-			{ name: "demo", status: "kept", projects: [] },
+			{ name: "demo", status: "kept", projects: ["p"] },
 		]);
 		assert.deepEqual(
 			report.result?.skipped.map((p) => p.project),
