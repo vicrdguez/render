@@ -9,7 +9,7 @@ W1 is a sample workflow for testing Tau's core, not a product. It uses designer,
 | `reviewer` | Reviewer model |
 | `base` | Git base branch, default `main` |
 
-Models use `provider/modelId` form.
+Models use `provider/modelId` form. The designer is an open role that follows the project default with a tool filter. The implementer and reviewer are closed roles with exact extension and tool lists.
 
 | Kind | Name | Purpose |
 | --- | --- | --- |
