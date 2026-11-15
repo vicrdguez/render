@@ -121,7 +121,13 @@ Tau uses pi-durable 1.5.2. Times are Unix epoch milliseconds unless a field stat
 The following shapes are the JSON records sent by the host. JSON values can be objects, arrays, strings, numbers, booleans, or null.
 
 ```ts
-type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+type JsonValue =
+	null
+	| boolean
+	| number
+	| string
+	| JsonValue[]
+	| { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
 type ConversationRecord = {
 	id: number;
@@ -148,7 +154,10 @@ type ConversationView = {
 	docs: Record<string, JsonObject>;
 };
 type OpenDecisions = Record<string, {
-	id: string; title: string; requestedAt: number; conversation: number;
+	id: string;
+	title: string;
+	requestedAt: number;
+	conversation: number;
 }>;
 ```
 
@@ -157,18 +166,44 @@ type OpenDecisions = Record<string, {
 The `input` and `continue` results contain a submission. `requestId`, when present, is the prefixed ID stored by the host. The `trace` field is optional telemetry context.
 
 ```ts
-type SubmissionBase = { id: number; conversationId: number; requestId?: string; trace?: Record<string, string> };
+type SubmissionBase = {
+	id: number;
+	conversationId: number;
+	requestId?: string;
+	trace?: Record<string, string>
+};
 type SubmissionRecord = SubmissionBase & (
 	| { type: "input"; status: "queued" }
 	| { type: "input"; status: "placed"; entry: number }
-	| { type: "input"; status: "done"; entry: number; answer: number }
-	| { type: "input"; status: "unanswered"; entry?: number; reason: string; detail?: JsonValue }
+	| {
+		type: "input";
+		status: "done";
+		entry: number;
+		answer: number
+	}
+	| {
+		type: "input";
+		status: "unanswered";
+		entry?: number;
+		reason: string;
+		detail?: JsonValue
+	}
 	| { type: "continue"; status: "placed" }
 	| { type: "continue"; status: "done"; answer: number }
-	| { type: "continue"; status: "unanswered"; reason: string; detail?: JsonValue }
+	| {
+		type: "continue";
+		status: "unanswered";
+		reason: string;
+		detail?: JsonValue
+	}
 	| { type: "write"; status: "queued" }
 	| { type: "write"; status: "done"; entry: number }
-	| { type: "write"; status: "unanswered"; reason: string; detail?: JsonValue }
+	| {
+		type: "write";
+		status: "unanswered";
+		reason: string;
+		detail?: JsonValue
+	}
 );
 ```
 
@@ -183,7 +218,12 @@ type TaskOutcome =
 	| { status: "faulted"; error: { message: string; detail?: JsonValue } };
 type TaskState =
 	| { status: "pending" | "running"; checkpoint: JsonValue }
-	| { status: "waiting"; checkpoint: JsonValue; on: number[]; policy: "failFast" | "allSettled" }
+	| {
+		status: "waiting";
+		checkpoint: JsonValue;
+		on: number[];
+		policy: "failFast" | "allSettled"
+	}
 	| { status: "sleeping"; checkpoint: JsonValue; until: number }
 	| { status: "completing" | "terminal"; outcome: TaskOutcome };
 ```
@@ -195,22 +235,128 @@ type TaskState =
 ```ts
 type TextContent = { type: "text"; text: string; textSignature?: string };
 type ImageContent = { type: "image"; data: string; mimeType: string };
-type ThinkingContent = { type: "thinking"; thinking: string; thinkingSignature?: string; redacted?: boolean };
-type ToolCall = { type: "toolCall"; id: string; name: string; arguments: JsonObject; thoughtSignature?: string; namespace?: string; argumentsError?: string };
-type Usage = {
-	input: number; output: number; cacheRead: number; cacheWrite: number;
-	cacheWrite1h?: number; reasoning?: number; totalTokens: number;
-	cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number; totalFromProvider?: boolean };
+type ThinkingContent = {
+	type: "thinking";
+	thinking: string;
+	thinkingSignature?: string;
+	redacted?: boolean
 };
-type Tool = { name: string; description: string; parameters: JsonObject; constrainedSampling?: false | { type: "json_schema"; strict: "prefer" | "require" } | { type: "grammar"; variants: { openai_lark?: string; openai_regex?: string } } };
-type AssistantDiagnostic = { type: string; timestamp: number; error?: { name?: string; message: string; stack?: string; code?: string | number }; details?: JsonObject };
-type DeferredHandle = { provider: string; modelId: string; api: string; id: string; expiresAt?: number; pollAfterMs?: number; data?: JsonValue };
-type NestedToolCalls = { calls: { id: string; name: string; arguments?: JsonObject; argumentsBytes?: number; status: "ok" | "error" | "unfinished"; durationMs?: number; error?: string }[]; complete: boolean };
+type ToolCall = {
+	type: "toolCall";
+	id: string;
+	name: string;
+	arguments: JsonObject;
+	thoughtSignature?: string;
+	namespace?: string;
+	argumentsError?: string
+};
+type Usage = {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	cacheWrite1h?: number;
+	reasoning?: number;
+	totalTokens: number;
+	cost: {
+		input: number;
+		output: number;
+		cacheRead: number;
+		cacheWrite: number;
+		total: number;
+		totalFromProvider?: boolean
+	};
+};
+type Tool = {
+	name: string;
+	description: string;
+	parameters: JsonObject;
+	constrainedSampling?:
+		false
+		| { type: "json_schema"; strict: "prefer" | "require" }
+		| { type: "grammar"; variants: { openai_lark?: string; openai_regex?: string } }
+};
+type AssistantDiagnostic = {
+	type: string;
+	timestamp: number;
+	error?: {
+		name?: string;
+		message: string;
+		stack?: string;
+		code?: string | number
+	};
+	details?: JsonObject
+};
+type DeferredHandle = {
+	provider: string;
+	modelId: string;
+	api: string;
+	id: string;
+	expiresAt?: number;
+	pollAfterMs?: number;
+	data?: JsonValue
+};
+type NestedToolCalls = {
+	calls: {
+		id: string;
+		name: string;
+		arguments?: JsonObject;
+		argumentsBytes?: number;
+		status: "ok" | "error" | "unfinished";
+		durationMs?: number;
+		error?: string
+	}[];
+	complete: boolean
+};
 type Message =
-	| { role: "system"; content: string | TextContent[]; sections?: Record<string, string | null>; toolsAdded?: Tool[]; toolsRemoved?: { name: string }[]; timestamp: number }
+	| {
+		role: "system";
+		content: string | TextContent[];
+		sections?: Record<string, string | null>;
+		toolsAdded?: Tool[];
+		toolsRemoved?: { name: string }[];
+		timestamp: number
+	}
 	| { role: "user"; content: string | (TextContent | ImageContent)[]; timestamp: number }
-	| { role: "assistant"; content: (TextContent | ThinkingContent | ToolCall)[]; api: string; provider: string; model: string; responseModel?: string; responseId?: string; providerThinkingLevel?: string; thinkingLevel?: string; diagnostics?: AssistantDiagnostic[]; usage: Usage; stopReason: "pending" | "stop" | "length" | "toolUse" | "error" | "aborted" | "deferred"; deferred?: DeferredHandle; errorMessage?: string; rawStopReason?: string; endTurn?: boolean; timestamp: number; durationMs?: number }
-	| { role: "toolResult"; toolCallId: string; toolName: string; content: (TextContent | ImageContent)[]; details?: JsonValue; usage?: Usage; nestedCalls?: NestedToolCalls; isError: boolean; timestamp: number; durationMs?: number };
+	| {
+		role: "assistant";
+		content: (TextContent | ThinkingContent | ToolCall)[];
+		api: string;
+		provider: string;
+		model: string;
+		responseModel?: string;
+		responseId?: string;
+		providerThinkingLevel?: string;
+		thinkingLevel?: string;
+		diagnostics?: AssistantDiagnostic[];
+		usage: Usage;
+		stopReason:
+			"pending"
+			| "stop"
+			| "length"
+			| "toolUse"
+			| "error"
+			| "aborted"
+			| "deferred";
+		deferred?: DeferredHandle;
+		errorMessage?: string;
+		rawStopReason?: string;
+		endTurn?: boolean;
+		timestamp: number;
+		durationMs?: number
+	}
+	| {
+		role: "toolResult";
+		toolCallId: string;
+		toolName: string;
+		content: (TextContent | ImageContent)[];
+		details?: JsonValue;
+		usage?: Usage;
+		nestedCalls?: NestedToolCalls;
+		isError: boolean;
+		timestamp: number;
+		durationMs?: number
+	};
 ```
 
 ### Conversation documents
@@ -220,27 +366,117 @@ Only present documents appear in `docs`. `pi.agent` holds stored settings. `pi.i
 ```ts
 type AgentState = {
 	model?: { provider: string; modelId: string };
-	thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-	extensions?: string[] | { add?: string[]; remove?: string[] };
-	tools?: string[] | { remove: string[] };
-	modelTools?: string[] | { remove?: string[]; add?: string[] };
-	instructions?: string; cwd?: string; maxTurns?: number;
-	compaction?: { enabled?: boolean; reserveTokens?: number; keepRecentTokens?: number; backgroundTokens?: number; modelOverrides?: Record<string, { enabled?: boolean; reserveTokens?: number; keepRecentTokens?: number; backgroundTokens?: number }> };
+	thinkingLevel?:
+		"off"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max";
+	extensions?:
+		string[]
+		| { add?: string[]; remove?: string[] };
+	tools?:
+		string[]
+		| { remove: string[] };
+	modelTools?:
+		string[]
+		| { remove?: string[]; add?: string[] };
+	instructions?: string;
+	cwd?: string;
+	maxTurns?: number;
+	compaction?: {
+		enabled?: boolean;
+		reserveTokens?: number;
+		keepRecentTokens?: number;
+		backgroundTokens?: number;
+		modelOverrides?: Record<string, {
+			enabled?: boolean;
+			reserveTokens?: number;
+			keepRecentTokens?: number;
+			backgroundTokens?: number
+		}>
+	};
 };
-type InboxState = { items: (
-	| { id: number; mode: "steer" | "followUp"; content: string | (TextContent | ImageContent)[]; entry?: { kind: string; data?: JsonValue } }
-	| { id: number; mode: "write"; entry: JsonObject }
-)[] };
+type InboxState = {
+	items: (
+		| {
+			id: number;
+			mode: "steer" | "followUp";
+			content: string | (TextContent | ImageContent)[];
+			entry?: { kind: string; data?: JsonValue }
+		}
+		| { id: number; mode: "write"; entry: JsonObject }
+	)[]
+};
 type UsageState = { models: Record<string, Usage>; tools: Record<string, Usage> };
 type ToolDiagnostic = { severity: "info" | "warn" | "error"; message: string; code?: string };
-type ToolSlot = { callId: string; name: string; status: "pending" | "running" | "done"; output?: string; droppedBytes?: number; droppedLines?: number; details?: JsonValue; diagnostics?: ToolDiagnostic[]; taskId?: number; unoffered?: true; entry?: number };
-type NestedToolSlot = Omit<ToolSlot, "taskId" | "unoffered" | "entry"> & { parentCallId: string; parentTaskId: number; taskId: number; arguments: JsonObject; summary?: { isError: boolean; durationMs?: number; usage?: Usage; error?: string } };
+type ToolSlot = {
+	callId: string;
+	name: string;
+	status: "pending" | "running" | "done";
+	output?: string;
+	droppedBytes?: number;
+	droppedLines?: number;
+	details?: JsonValue;
+	diagnostics?: ToolDiagnostic[];
+	taskId?: number;
+	unoffered?: true;
+	entry?: number
+};
+type NestedToolSlot = Omit<ToolSlot, "taskId" | "unoffered" | "entry"> & {
+	parentCallId: string;
+	parentTaskId: number;
+	taskId: number;
+	arguments: JsonObject;
+	summary?: {
+		isError: boolean;
+		durationMs?: number;
+		usage?: Usage;
+		error?: string
+	}
+};
 type LiveState = {
-	run?: { taskId: number; inputs: number[]; turns: number; first?: number; afterRun?: { tasks?: number[] } };
-	generation?: { attempt: number; message?: Extract<Message, { role: "assistant" }>; retry?: { at: number; error: string }; deferred?: { pollAt: number } };
-	tools?: ToolSlot[]; nestedTools?: NestedToolSlot[];
-	compactions?: { taskId: number; trigger: "manual" | "threshold" | "overflow"; blocking: boolean; attempt: number; retry?: { at: number; error: string } }[];
+	run?: {
+		taskId: number;
+		inputs: number[];
+		turns: number;
+		first?: number;
+		afterRun?: { tasks?: number[] }
+	};
+	generation?: {
+		attempt: number;
+		message?: Extract<Message, { role: "assistant" }>;
+		retry?: { at: number; error: string };
+		deferred?: { pollAt: number }
+	};
+	tools?: ToolSlot[];
+	nestedTools?: NestedToolSlot[];
+	compactions?: {
+		taskId: number;
+		trigger: "manual" | "threshold" | "overflow";
+		blocking: boolean;
+		attempt: number;
+		retry?: { at: number; error: string }
+	}[];
 	compactionFailure?: { taskId: number; trigger: "manual" | "threshold" | "overflow"; error: string };
-	runFailure?: { taskId: number; inputs: number[]; reason: "model_error" | "no_model" | "aborted" | "reset" | "faulted" | "orphaned" | "interrupted" | "restart_limit" | "nothing_to_answer" | "turn_limit"; detail?: string; first?: number };
+	runFailure?: {
+		taskId: number;
+		inputs: number[];
+		reason:
+			"model_error"
+			| "no_model"
+			| "aborted"
+			| "reset"
+			| "faulted"
+			| "orphaned"
+			| "interrupted"
+			| "restart_limit"
+			| "nothing_to_answer"
+			| "turn_limit";
+		detail?: string;
+		first?: number
+	};
 };
 ```
