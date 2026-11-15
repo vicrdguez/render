@@ -93,7 +93,7 @@ export async function createDecisionDocs(tx: Tx): Promise<void> {
 }
 
 /**
- * Documents only. The `request` table of primitives.md:
+ * Documents only. See `request` in docs/primitives.md:
  * | The subject has no open decision. | Opens one. |
  * | An open decision, and every field of the draft but requestedAt is equal. | Returns it. Writes nothing. |
  * | An open decision, and any other field differs. | Marks it superseded. Opens a new one. |
@@ -172,7 +172,7 @@ export async function decision(
 
 /**
  * The only writer of answers. One commit: table reads, then at most one table write. The `answer` table of
- * primitives.md, row by row. A storage failure rejects instead, and its outcome is unknown.
+ * docs/primitives.md, row by row. A storage failure rejects instead, and its outcome is unknown.
  */
 export function answer(
 	store: Store,

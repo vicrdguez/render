@@ -1,1 +1,0 @@
-{"name":"tau-store","exports":{".":{"import":"./dist/index.js"},"./host":{"import":"./dist/host.js"}},"dependencies":{}}

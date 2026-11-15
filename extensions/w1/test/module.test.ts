@@ -4,7 +4,6 @@ import type { AgentChange, Extension, JsonObject, Tx } from "tau/durable";
 import type { JsonSchema } from "tau/schema";
 import * as W1 from "../src/index.ts";
 
-// Copied from docs/core/extensions.md, "What an extension is".
 type ExtensionModule = {
 	readonly extension: Extension;
 	readonly options?: {

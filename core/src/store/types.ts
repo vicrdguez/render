@@ -4,7 +4,7 @@ import type {
 	TaskId,
 } from "@earendil-works/pi-durable";
 
-// Copied from docs/core/primitives.md. IDs are local to one store.
+// IDs are local to one store.
 export type DecisionId = `${string}#${number}`;
 export type DeviceId = string;
 export type Annotation = {
