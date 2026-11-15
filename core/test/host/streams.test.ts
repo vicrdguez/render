@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { calls } from "../../src/host/calls.js";
 import { requestAdmin } from "../../src/host/index.js";
+import { Projects } from "../../src/host/projects.js";
 import { gate, modules } from "./extensions.js";
 import { type Running, start, until } from "./helpers.js";
 
@@ -26,6 +27,172 @@ test("the inbox holds each project under its name, and a project bound later joi
 		inbox.close();
 	} finally {
 		gate.release();
+		await s.close();
+	}
+});
+
+test("a bind waits for the inbox snapshot and joins its stream", {
+	timeout: 5000,
+}, async (t) => {
+	const s = await start();
+	let release = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let entered = () => {};
+	const snapshot = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
+	let accepted = () => {};
+	const dispatched = new Promise<void>((resolve) => {
+		accepted = resolve;
+	});
+	const inboxCall = calls.inbox;
+	const bindCall = calls.bind;
+	assert.ok(inboxCall?.stream);
+	assert.ok(bindCall);
+	const dispatchInbox = inboxCall.dispatch;
+	const dispatchBind = bindCall.dispatch;
+	let binding = false;
+	const bind = Projects.prototype.bind;
+	t.mock.method(
+		Projects.prototype,
+		"bind",
+		function (this: Projects, ...args: Parameters<typeof bind>) {
+			binding = true;
+			return bind.apply(this, args);
+		},
+	);
+	t.mock.method(
+		inboxCall,
+		"dispatch",
+		async (...args: Parameters<typeof dispatchInbox>) => {
+			const project = args[0].projects.get("p");
+			assert.ok(project);
+			const watchDoc = project.store.harness.watchDoc;
+			t.mock.method(
+				project.store.harness,
+				"watchDoc",
+				async (...watchArgs: unknown[]) => {
+					entered();
+					await held;
+					return Reflect.apply(watchDoc, project.store.harness, watchArgs);
+				},
+			);
+			return dispatchInbox(...args);
+		},
+	);
+	let inbox: ReturnType<Running["watch"]> | undefined;
+	let pending: ReturnType<Running["call"]> | undefined;
+	try {
+		await s.call("bind", { project: "p", workdir: "/p", extensions: [] });
+		binding = false;
+		inbox = s.watch("inbox", {});
+		await snapshot;
+		t.mock.method(
+			bindCall,
+			"dispatch",
+			(...args: Parameters<typeof dispatchBind>) => {
+				const result = dispatchBind(...args);
+				accepted();
+				return result;
+			},
+		);
+		pending = s.call("bind", { project: "q", workdir: "/q", extensions: [] });
+		await dispatched;
+		await s.call("models", {});
+		assert.equal(
+			binding,
+			false,
+			"bind must wait until the inbox has captured projects and subscribed",
+		);
+		release();
+		assert.equal((await pending).status, 200);
+		await inbox.until(
+			(w) => w.value?.q !== undefined,
+			"the concurrent project",
+		);
+		assert.deepEqual(inbox.value, { p: {}, q: {} });
+	} finally {
+		release();
+		await pending;
+		inbox?.close();
+		await s.close();
+	}
+});
+
+test("a project bound after inbox dispatch but before stream start is included", async (t) => {
+	const s = await start();
+	const inboxCall = calls.inbox;
+	assert.ok(inboxCall?.stream);
+	const dispatch = inboxCall.dispatch;
+	t.mock.method(
+		inboxCall,
+		"dispatch",
+		async (...args: Parameters<typeof dispatch>) => {
+			const opened = await dispatch(...args);
+			assert.equal(
+				(await s.call("bind", { project: "q", workdir: "/q", extensions: [] }))
+					.status,
+				200,
+			);
+			return opened;
+		},
+	);
+	const inbox = s.watch("inbox", {});
+	try {
+		await inbox.until(
+			(w) => w.value?.q !== undefined,
+			"the project bound before stream start",
+		);
+		assert.deepEqual(inbox.value, { q: {} });
+	} finally {
+		inbox.close();
+		await s.close();
+	}
+});
+
+test("a project watch failure before inbox start ends the stream as failed", async (t) => {
+	const s = await start();
+	const onBind = Projects.prototype.onBind;
+	t.mock.method(
+		Projects.prototype,
+		"onBind",
+		function (this: Projects, join: Parameters<typeof onBind>[0]) {
+			return onBind.call(this, (open) => {
+				t.mock.method(open.store.harness, "watchDoc", async () => {
+					throw new Error("controlled project watch failure");
+				});
+				join(open);
+			});
+		},
+	);
+	const inboxCall = calls.inbox;
+	assert.ok(inboxCall?.stream);
+	const dispatch = inboxCall.dispatch;
+	t.mock.method(
+		inboxCall,
+		"dispatch",
+		async (...args: Parameters<typeof dispatch>) => {
+			const opened = await dispatch(...args);
+			assert.ok("result" in opened);
+			assert.equal(
+				(await s.call("bind", { project: "q", workdir: "/q", extensions: [] }))
+					.status,
+				200,
+			);
+			assert.equal((await opened.result.closed).kind, "failed");
+			return opened;
+		},
+	);
+	let inbox: ReturnType<Running["watch"]> | undefined;
+	try {
+		await s.call("bind", { project: "p", workdir: "/p", extensions: [] });
+		inbox = s.watch("inbox", {});
+		await inbox.until((w) => w.closed, "the failed stream to close");
+		assert.equal(inbox.end, "failed");
+	} finally {
+		inbox?.close();
 		await s.close();
 	}
 });

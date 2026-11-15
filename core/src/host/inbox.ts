@@ -72,20 +72,22 @@ export async function watchInbox(
 		if (ended) return void watch.stop();
 		watches.set(open.name, watch);
 		value = { ...value, [open.name]: watch.value };
+		if (listener === undefined) return;
 		await push([["s", [open.name], watch.value]]);
 		follow(open.name, watch);
 	};
+	unjoin = projects.onBind((open) => {
+		join(open).catch((error: unknown) => end({ kind: "failed", error }));
+	});
 	return {
 		get value() {
 			return value;
 		},
 		closed,
 		start(next) {
+			if (ended) return;
 			listener = next;
 			for (const [project, watch] of watches) follow(project, watch);
-			unjoin = projects.onBind((open) => {
-				join(open).catch((error: unknown) => end({ kind: "failed", error }));
-			});
 		},
 		stop: async () => {
 			end({ kind: "stopped" });

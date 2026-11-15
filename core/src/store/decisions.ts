@@ -104,6 +104,8 @@ export async function request<
 	R,
 	H extends object,
 >(tx: Tx, draft: RequestDraft<C, S, R, H>): Promise<Decision<C>> {
+	if (draft.subject === "")
+		throw new TypeError("A decision subject must not be empty.");
 	const open = await tx.doc(Open);
 	const slot = own(open, draft.subject);
 	const current = slot && (await tx.doc(Decisions, slot.id, null));

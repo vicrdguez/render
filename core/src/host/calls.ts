@@ -529,9 +529,11 @@ export const calls: Readonly<Record<string, Call>> = {
 			return { result: {} };
 		}),
 	),
-	inbox: stream(obj({}), async (host) => ({
-		result: await watchInbox(host.projects),
-	})),
+	inbox: stream(obj({}), (host) =>
+		host.structural.run(async () => ({
+			result: await watchInbox(host.projects),
+		})),
+	),
 	decision: unary(
 		obj({ project, decision: str() }),
 		inProject(async (_host, _device, input, open) => {

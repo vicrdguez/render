@@ -68,7 +68,7 @@ export type RequestDraft<
 };
 ```
 
-The caller supplies the time. The typed basis comes from an entry read or append. `request` stores its ID, not its text.
+The caller supplies the time. The typed basis comes from an entry read or append. `request` stores its ID, not its text. An empty subject makes `request` throw `TypeError` before changing any documents.
 
 | Open decision for the subject | Result |
 | --- | --- |
