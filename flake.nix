@@ -27,6 +27,14 @@
               workspace
               ;
           };
+          image =
+            if pkgs.stdenv.hostPlatform.isLinux then
+              import ./nix/image.nix {
+                inherit pkgs;
+                inherit (packages) tauRuntime;
+              }
+            else
+              null;
           dev = import ./nix/dev.nix { inherit pkgs nodejs workspace; };
           validation = import ./nix/checks.nix {
             inherit
@@ -35,6 +43,7 @@
               root
               workspace
               packages
+              image
               ;
             inherit (dev) lintAction;
           };
@@ -43,6 +52,7 @@
           inherit
             pkgs
             packages
+            image
             dev
             validation
             ;
@@ -69,6 +79,9 @@
           default = value.packages.tau;
         }
         // lib.mapAttrs' (name: lib.nameValuePair "extension-${name}") value.packages.extensions
+        // lib.optionalAttrs value.pkgs.stdenv.hostPlatform.isLinux {
+          docker-image = value.image;
+        }
       ) perSystem;
       devShells = lib.mapAttrs (_: value: { default = value.dev.shell; }) perSystem;
       checks = lib.mapAttrs (_: value: value.validation.checks) perSystem;

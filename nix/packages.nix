@@ -7,7 +7,7 @@
 let
   inherit (pkgs) lib;
 in
-{
+rec {
   tau = pkgs.stdenvNoCC.mkDerivation {
     pname = "tau";
     version = "0.0.0";
@@ -48,6 +48,24 @@ in
       runHook postInstall
     '';
   };
+  tauRuntime =
+    pkgs.runCommand "tau-runtime"
+      {
+        nativeBuildInputs = [ pkgs.makeWrapper ];
+        disallowedRequisites = [
+          tau
+          workspace.npmDeps
+          nodejs
+        ];
+      }
+      ''
+        mkdir -p "$out/lib/tau" "$out/bin"
+        cp ${tau}/lib/tau/package.json "$out/lib/tau/"
+        cp -R ${tau}/lib/tau/core "$out/lib/tau/"
+        ln -s ${workspace.runtimeModules}/node_modules "$out/lib/tau/node_modules"
+        makeWrapper ${pkgs.nodejs-slim_24}/bin/node "$out/bin/tau" \
+          --add-flags "$out/lib/tau/core/dist/src/command/main.js"
+      '';
   extensions = lib.mapAttrs (
     name:
     { directory, manifest }:

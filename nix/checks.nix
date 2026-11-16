@@ -4,6 +4,7 @@
   root,
   workspace,
   packages,
+  image ? null,
   lintAction,
 }:
 let
@@ -88,6 +89,23 @@ let
     verify-build = mkCheck "verify-build" verifySource ''
       node e2e/test/verify-build.ts ${verifyArguments}
     '';
+    verify-runtime = mkCheck "verify-runtime" verifySource ''
+      node e2e/test/verify-build.ts ${packages.tauRuntime}/bin/tau ${
+        toString (map (name: packages.extensions.${name}) verifiedExtensions)
+      }
+    '';
+    runtime-content = import ./runtime-check.nix {
+      inherit pkgs;
+      runtime = packages.tauRuntime;
+      excluded = [
+        packages.tau
+        workspace.npmDeps
+        nodejs
+      ];
+    };
+  }
+  // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+    docker-image = import ./image-check.nix { inherit pkgs image; };
   }
   // lib.mapAttrs' (
     name: extension:
