@@ -1,0 +1,28 @@
+{
+	"name": "tau-workspace",
+	"engines": {
+		"node": ">=24 <25"
+	},
+	"workspaces": [
+		"core",
+		"extensions/*",
+		"e2e"
+	],
+	"scripts": {
+		"build": "typecheck",
+		"typecheck": "typecheck",
+		"test": "env test",
+		"fmt": "fmt",
+		"lint": "lint",
+		"check": "nix flake check -L"
+	},
+	"devDependencies": {
+		"typescript": "5.9.3",
+		"@types/node": "24.10.1"
+	},
+	"private": true,
+	"type": "module",
+	"dependencies": {
+		"@earendil-works/pi-durable": "1.5.2"
+	}
+}

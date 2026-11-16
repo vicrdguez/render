@@ -1,0 +1,31 @@
+{
+	"tau": {},
+	"tau-e2e": {
+		"source": true,
+		"tau": ["./server"],
+		"testOnly": {
+			"tau": ["."]
+		}
+	},
+	"tau-websearch": {
+		"extension": true,
+		"tau": [".", "./durable", "./schema", "./chord"],
+		"testOnly": {
+			"tau": ["./testing"]
+		}
+	},
+	"tau-w2": {
+		"extension": true,
+		"tau": [".", "./durable", "./schema", "./chord"],
+		"testOnly": {
+			"tau": ["./testing"]
+		}
+	},
+	"tau-w1": {
+		"extension": true,
+		"tau": [".", "./durable", "./schema", "./chord"],
+		"testOnly": {
+			"tau": ["./testing"]
+		}
+	}
+}

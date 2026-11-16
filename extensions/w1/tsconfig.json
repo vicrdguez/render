@@ -1,0 +1,12 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"rootDir": ".",
+		"noEmit": true,
+		"allowImportingTsExtensions": true,
+		"erasableSyntaxOnly": true,
+		"tsBuildInfoFile": "../../node_modules/.cache/tau-w1.tsbuildinfo"
+	},
+	"include": ["src/**/*.ts", "test/**/*.ts"],
+	"references": [{ "path": "../../core" }]
+}

@@ -1,0 +1,20 @@
+{
+	"files": [],
+	"references": [
+		{
+			"path": "core"
+		},
+		{
+			"path": "extensions/w1"
+		},
+		{
+			"path": "extensions/websearch"
+		},
+		{
+			"path": "extensions/w2"
+		},
+		{
+			"path": "e2e"
+		}
+	]
+}

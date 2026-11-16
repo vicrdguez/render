@@ -1,0 +1,11 @@
+import { modelRef } from "tau";
+import type { AgentChange, Tx } from "tau/durable";
+import { designer } from "./roles.ts";
+import { W1Options } from "./work.ts";
+
+export { W1 as extension } from "./extension.ts";
+export const options = W1Options;
+
+/** The designer's settings for the conversation the host creates. The host adds the project's `cwd`. */
+export const entry = async (tx: Tx): Promise<AgentChange> =>
+	designer(modelRef((await W1Options.read(tx)).designer));
