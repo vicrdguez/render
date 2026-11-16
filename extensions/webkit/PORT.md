@@ -45,4 +45,4 @@ Behavioral and failure cases preceded production changes. Tests cover routing, e
 
 A live installed-artifact smoke check fetched a public page through the direct transport and returned three anonymous Exa MCP search hits without credentials. The short example page also triggered the extractor's incompleteness warning. This is a workflow check, not an extraction-quality benchmark or an availability guarantee.
 
-The acceptance command is `/nix/var/nix/profiles/default/bin/nix flake check -L`. Packaging alone is not validation. Current verification results belong in the pull request, not as a permanent claim that a future tree has passed.
+Extension-only changes use focused package tests, affected extension integration checks, and installed-artifact verification. Core tests and the full workspace gate are for changes that also affect core behavior. Packaging alone is not validation. Current verification results belong in the pull request, not as a permanent claim that a future tree has passed.

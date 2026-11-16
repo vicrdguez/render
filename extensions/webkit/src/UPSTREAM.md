@@ -32,7 +32,7 @@ List significant declined changes with a reason. Do not recommend an update mere
 1. Write the regression cases before changing production logic. Reuse relevant upstream fixtures where their license and behavior fit.
 2. Apply the smallest change that preserves Tau's project isolation, secret handling, cancellation, snapshots, and replay policy.
 3. Run focused package tests. Add real-server or installed-artifact checks when the changed guarantee crosses those boundaries.
-4. Run `/nix/var/nix/profiles/default/bin/nix flake check -L` on the final tracked candidate.
+4. Verify the affected extension tests and installed artifacts on the final tracked candidate. Run core tests or the full workspace gate only when the change also affects core behavior.
 5. Update the source map if files moved. Record incorporated fixes and significant declined changes. Advance `reviewedThrough.commit` only after the declared retained scope has been reviewed.
 
 Preserve `LICENSE` and source attribution. Keep the original source revision separate from the review cursor and local change history. Do not merge upstream wholesale or configure automatic upgrades.

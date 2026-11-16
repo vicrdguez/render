@@ -45,13 +45,13 @@ Replies contain bounded previews and a response ID. Stored source text remains a
 
 Network tools are replay-unsafe. If a server interruption leaves a request uncertain, Tau reports interruption rather than automatically repeating a potentially billed operation. Stored-result retrieval performs no network request.
 
-Do not select `webkit` and the old `websearch` sample in the same conversation. Both define `web_search`. The old sample remains available for core tests.
+Webkit replaces the former `websearch` sample. Existing projects must select `webkit` instead. Set `exaApiKey` or `tavilyApiKey` if you want keyed search. Old project options are not migrated automatically.
 
 ## Install and verify
 
 Use the [extension installation workflow](../../docs/extensions.md#install-an-extension) with the name `webkit`. To try the extension without changing your normal Tau home, pass a temporary directory with `install-extension --home`.
 
-Run focused checks with `/nix/var/nix/profiles/default/bin/nix develop -c env test webkit e2e/test/webkit.test.ts`. Run the full acceptance gate with `/nix/var/nix/profiles/default/bin/nix flake check -L`. Packaging alone does not validate the extension.
+Run focused checks with `/nix/var/nix/profiles/default/bin/nix develop -c env test webkit e2e/test/webkit.test.ts`. Verify installed artifacts with `/nix/var/nix/profiles/default/bin/nix run .#verify-build`. Extension-only changes do not require core tests or the full workspace gate. Packaging alone does not validate the extension.
 
 The installed artifact includes declared Git and curl paths. A configured curl executable can supply browser-style request behavior, but it does not guarantee access to bot-protected sites.
 

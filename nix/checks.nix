@@ -13,7 +13,6 @@ let
     "w1"
     "w2"
     "webkit"
-    "websearch"
   ];
   verifySource = lib.fileset.toSource {
     inherit root;

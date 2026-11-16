@@ -23,7 +23,6 @@ test("every source workspace references its emitted dependency", async () => {
 	for (const directory of [
 		"extensions/w1",
 		"extensions/w2",
-		"extensions/websearch",
 		"extensions/webkit",
 		"e2e",
 	]) {
@@ -223,7 +222,7 @@ async function extensionFixture(t) {
 		},
 	};
 	const extension = {
-		dependencies: { tau: "0.0.0", webfox: "4.11.0" },
+		dependencies: { tau: "0.0.0", library: "1.0.0" },
 		devDependencies: { "test-helper": "1.0.0" },
 		name: "tau-w2",
 	};
@@ -418,7 +417,7 @@ test("assets preserve emitted prose and leave noEmit packages without dist", asy
 	});
 });
 
-for (const name of ["websearch", "w2", "w1"]) {
+for (const name of ["webkit", "w2", "w1"]) {
 	for (const [label, source, diagnostic] of [
 		["no output", "export const value: number = 1;", null],
 		["type errors", 'export const value: number = "wrong";', /TS2322/],
@@ -552,8 +551,8 @@ test("extensions accept only canonical facade entries with testing limited to te
 			"./local.ts",
 			"node:fs",
 			"path",
-			"webfox",
-			"webfox/subpath",
+			"library",
+			"library/subpath",
 			"tau",
 			"tau/durable",
 			"tau/schema",
@@ -716,7 +715,7 @@ test("boundaries accept nested test files and ignore generated tests", async (t)
 });
 
 for (const [name, directory, specifier, allowed] of [
-	...["tau-websearch", "tau-w2", "tau-w1"].flatMap((name) => [
+	...["tau-webkit", "tau-w2", "tau-w1"].flatMap((name) => [
 		[name, "src", "tau/server", false],
 		[name, "test", "tau/server", false],
 		[name, "test", "tau/testing", true],

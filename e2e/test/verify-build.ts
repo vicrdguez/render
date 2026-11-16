@@ -20,11 +20,7 @@ import { promisify } from "node:util";
 
 const [command, ...outputs] = process.argv.slice(2);
 assert.ok(command, "Pass the installed tau executable.");
-assert.equal(
-	outputs.length,
-	4,
-	"Pass the w1, w2, webkit and websearch source outputs.",
-);
+assert.equal(outputs.length, 3, "Pass the w1, w2 and webkit source outputs.");
 const root = await mkdtemp(join(tmpdir(), "tau-installed-"));
 const home = join(root, ".tau");
 const env = {
@@ -103,7 +99,7 @@ async function check(initial: "empty" | "writable" | "file" = "empty") {
 			return;
 		}
 		process.stdout.write("empty extensions []\n");
-		for (const [i, name] of ["w1", "w2", "webkit", "websearch"].entries()) {
+		for (const [i, name] of ["w1", "w2", "webkit"].entries()) {
 			const output = outputs[i]!;
 			await access(join(output, "index.ts"));
 			for await (const file of glob("**/*.{js,mjs,cjs}", {
@@ -117,7 +113,7 @@ async function check(initial: "empty" | "writable" | "file" = "empty") {
 		assert.equal(
 			added.stdout.split("\n").filter((line) => line.startsWith("added "))
 				.length,
-			4,
+			3,
 			added.stdout,
 		);
 		process.stdout.write(added.stdout);
@@ -129,7 +125,6 @@ async function check(initial: "empty" | "writable" | "file" = "empty") {
 					["w1", true],
 					["w2", true],
 					["webkit", false],
-					["websearch", false],
 				],
 				stderr,
 			);
@@ -137,11 +132,7 @@ async function check(initial: "empty" | "writable" | "file" = "empty") {
 				items
 					.filter((item: any) => item.name !== "webkit")
 					.map((item: any) => item.schema.required),
-				[
-					["designer", "implementer", "reviewer", "base"],
-					["model"],
-					["provider", "apiKey"],
-				],
+				[["designer", "implementer", "reviewer", "base"], ["model"]],
 			);
 			assert.ok(
 				items.every(
@@ -154,15 +145,12 @@ async function check(initial: "empty" | "writable" | "file" = "empty") {
 			assert.equal(items[1].schema.properties.model.format, "model");
 			assert.equal(items[2].schema.properties.exaApiKey.format, "secret");
 			assert.equal(items[2].schema.properties.tavilyApiKey.format, "secret");
-			assert.equal(items[3].schema.properties.apiKey.format, "secret");
 			assert.equal(items[2].schema.properties.provider.default, "auto");
-			process.stdout.write(
-				"loaded w1, w2, webkit, websearch with options schemas\n",
-			);
+			process.stdout.write("loaded w1, w2, webkit with options schemas\n");
 			const bound = await post(
 				url,
 				"bind",
-				{ project: "p", workdir: root, extensions: ["w2", "websearch"] },
+				{ project: "p", workdir: root, extensions: ["w2", "webkit"] },
 				token,
 			);
 			assert.deepEqual(bound.project.missing, []);
@@ -244,7 +232,7 @@ try {
 		if (!/\.(?:js|json)$/.test(file)) continue;
 		assert.doesNotMatch(
 			await readFile(resolve(command, "../..", file), "utf8"),
-			/tau-w1|tau-w2|tau-webkit|tau-websearch/,
+			/tau-w1|tau-w2|tau-webkit/,
 			file,
 		);
 	}
