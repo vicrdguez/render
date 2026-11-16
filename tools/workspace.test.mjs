@@ -24,6 +24,7 @@ test("every source workspace references its emitted dependency", async () => {
 		"extensions/w1",
 		"extensions/w2",
 		"extensions/websearch",
+		"extensions/webkit",
 		"e2e",
 	]) {
 		const config = JSON.parse(

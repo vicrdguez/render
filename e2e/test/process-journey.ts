@@ -14,13 +14,13 @@ import { post, watch } from "./journey.ts";
 import { serverAddress } from "./readiness.ts";
 
 export async function processJourney(
-	config: { now?: () => number; searchUrl?: string } = {},
+	config: { now?: () => number; searchUrl?: string; webkitUrl?: string } = {},
 ) {
 	const root = await realpath(
 		await mkdtemp(join(tmpdir(), "tau-process-journey-")),
 	);
 	const home = join(root, "home");
-	await linkExtensions(home, config.searchUrl);
+	await linkExtensions(home, config.searchUrl, config.webkitUrl);
 	let child: ChildProcess;
 	let url = "";
 	const wire: string[] = [];

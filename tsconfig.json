@@ -11,6 +11,9 @@
 			"path": "extensions/websearch"
 		},
 		{
+			"path": "extensions/webkit"
+		},
+		{
 			"path": "extensions/w2"
 		},
 		{

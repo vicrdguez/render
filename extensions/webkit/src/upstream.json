@@ -1,0 +1,64 @@
+{
+	"repository": "https://github.com/nicobailon/pi-web-access",
+	"tag": "v0.46.0",
+	"commit": "4af1a7f7757d450ba0afefe2d98737384dc9a9b4",
+	"license": "MIT",
+	"reviewedThrough": {
+		"commit": "4af1a7f7757d450ba0afefe2d98737384dc9a9b4",
+		"scope": "Retained functionality. Removed providers, media, Pi UI, and model-assisted features are excluded."
+	},
+	"modules": {
+		"domain.ts": [
+			"web-tool-contract.ts",
+			"storage.ts",
+			"render-search-error.ts"
+		],
+		"net.ts": ["ssrf-protection.ts", "utils.ts", "abortable.ts"],
+		"runtime.ts": ["utils.ts", "github-extract.ts"],
+		"search.ts": [
+			"gemini-search.ts",
+			"tavily.ts",
+			"domain-filter-normalization.ts",
+			"search-result-count-normalization.ts"
+		],
+		"exa.ts": ["exa.ts"],
+		"extract.ts": ["extract.ts", "declared-web-links.ts"],
+		"rsc-extract.ts": ["rsc-extract.ts"],
+		"pdf.ts": ["pdf-extract.ts"],
+		"github.ts": ["github-extract.ts", "github-api.ts", "github-issue-pr.ts"],
+		"content.ts": ["content-find.ts", "web-tool-core.ts"],
+		"evidence.ts": ["source-check.ts", "web-tool-core.ts"],
+		"tools.ts": [
+			"web-tool-core.ts",
+			"fetch-params.ts",
+			"mcp-tool-definitions.ts"
+		]
+	},
+	"tauOwned": ["index.ts", "options.ts", "native-tools.json"],
+	"intentionalDifferences": [
+		"Project-scoped options replace global configuration and environment credentials.",
+		"Request-local network policy replaces the process-global fetch wrapper.",
+		"RSC recovery has fixed work, depth and generated-text limits. Malformed HTML tag scans advance without repeated suffix searches.",
+		"Conversation-scoped snapshots replace Pi session persistence and cache files.",
+		"Public GitHub access only. Browser-cookie authentication and private repository authentication are excluded.",
+		"Evidence passages are unassessed. No model-based truth verification is performed.",
+		"Explicit providers are strict. Authentication, configuration, unsupported requests and caller cancellation never trigger fallback.",
+		"Provider filters are not silently converted into query hints.",
+		"Pi UI, media, model-assisted modes, provider fan-out, unused providers and standalone MCP server distribution are removed."
+	],
+	"dependencyPolicy": "Direct parser versions originate from the v0.46.0 resolved lock. The workspace package-lock.json pins the installed dependency tree. Security exceptions require a recorded motivating fix.",
+	"dependencyExceptions": [
+		{
+			"package": "undici",
+			"upstreamVersion": "8.11.2",
+			"version": "8.12.2",
+			"reason": "Minimum 8.x security release covering applicable TLS renegotiation and excessive content-encoding failures.",
+			"fixes": [
+				"e257e9f8fb42eedd50727b9cf65e548c8925e4a8",
+				"b5084c7dc239172d75c336b1cd51ddac023938a5"
+			],
+			"regression": "test/dependency.test.ts",
+			"review": "Motivating patches, selected runtime changes, package manifests and install hooks reviewed. Not a complete commit or bundled parser audit."
+		}
+	]
+}
