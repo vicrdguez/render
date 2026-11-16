@@ -1,153 +1,206 @@
 # Render client UI specification
 
-**Status:** final design, updated 2026-11-01 to serve the accepted server spec. The rules below are decided. Their evidence is in [`evidence.md`](evidence.md), which keeps **measured**, **proposed** and **pending** apart and lists everything still owed in one place (§3 there). None of what is owed blocks building. Defaults the user may still change are in [`open-questions.md`](open-questions.md).
+**Status:** adopted 2026-11-06 ("the Brief"). It replaces the earlier design, which survives in git history at `fd270d7`. The client is built on **rune**. Evidence is in [`evidence.md`](evidence.md), which labels every claim **measured**, **looked** or **reasoned** and lists what is still owed. Open questions and answered decisions are in [`open-questions.md`](open-questions.md).
 
-**What this is.** The user interface of Render's native desktop client, built on **GPUI**, with a future terminal client (TUI) sharing the same grammar and keymap. Render's server, protocol and authority model are specified in the accepted server spec, `docs/spec.md` on `main` at `768f43c`. The `docs/spec.md` on this branch predates acceptance; every `S§… L…` citation here refers to the accepted text. This document specifies what the client shows and how it is driven, and what it needs from the host.
+**What this is.** The user interface of Render's desktop client. A future terminal client (TUI) shares the grammar and keymap, not the layout. Render's server, protocol and authority model are in the accepted server spec, [`../spec.md`](../spec.md); `S§… L…` cites it. Domain terms follow [`../../CONTEXT.md`](../../CONTEXT.md).
 
 **How to read it:**
-- §1–§3: identity, layout, grammar.
-- §4: every screen, with a mockup and a wireframe.
+- §1–§3: principles, frame, grammar.
+- §4: every screen.
 - §5–§6: visual language and copy.
 - §7–§12: architecture, stack, protocol, failures, accessibility, open questions.
+- Appendix A maps every retired or merged ID to what replaced it.
 
 **Supporting files:**
 
 | File | What it holds |
 |---|---|
-| [`keymap.toml`](keymap.toml) | The one declarative keymap: 122 commands, 189 bindings, lint-clean |
-| [`ember-tokens.json`](ember-tokens.json) | Every colour, tint, syntax, type, spacing and radius token for the three theme variants, loadable by a client |
-| [`protocol-requirements.md`](protocol-requirements.md) | What the host must send and accept, RQ-01…RQ-49 |
-| [`failure-catalogue.md`](failure-catalogue.md) | 201 failure cases, each with its design defence and the check that guards it |
-| [`open-questions.md`](open-questions.md) | Decisions, the user's answers and the current defaults |
-| [`evidence.md`](evidence.md) | Measured, proposed and pending |
-| [`mockups/`](mockups/) | Renders of the **HTML prototype**, not GPUI. They predate parts of this spec; each caption and the README say what differs, and the text wins |
-| [`wireframes/`](wireframes/) | The normative pixel layout (`layout.md`), text grids for every screen (`text-mocks.md`), and the user-approved tldraw drawings, which are older than this spec |
-| [`reference/`](reference/) | The full design references: `visual-language.md`, `grammar.md` and `stack.md`. This spec condenses them; where a detail is not here, it is there |
+| [`keymap.toml`](keymap.toml) | The one declarative keymap: 109 commands and 6 modal key sets, 176 bindings, lint-clean |
+| [`ember-tokens.json`](ember-tokens.json) | Colour, tint, syntax, type, spacing and radius tokens for the three theme variants |
+| [`protocol-requirements.md`](protocol-requirements.md) | What the host must send and accept, RQ-01…RQ-50, each checked against the server spec |
+| [`failure-catalogue.md`](failure-catalogue.md) | The failure cases, each with its defence and check |
+| [`open-questions.md`](open-questions.md) | Decisions, the owner's answers, open items |
+| [`evidence.md`](evidence.md) | Measured, looked and reasoned; what is owed |
+| [`mockups/`](mockups/) | Renders of the HTML prototype, not rune. The text wins over any image |
+| [`wireframes/`](wireframes/) | The normative pixel layout (`layout.md`), text grids for every screen on one fixture (`text-mocks.md`), annotated layout renders |
+| [`reference/`](reference/) | `visual-language.md`, `grammar.md` and `stack.md` in full. This spec condenses them |
 
-**Notation:** `␣` = Space (the leader); `⏎` = Enter; `C-x` = Ctrl-x; `M-x` = Alt/Option-x. `FC-…` are failure cases, `RQ-…` protocol requirements, `Q…` open questions, `T…` tasks, `S§… L…` the accepted server spec.
+**Notation:** `␣` = Space (the leader); `⏎` = Enter; `C-x` = Ctrl-x; `M-x` = Alt/Option-x; `D-x` = Cmd-x. `FC-…` are failure cases, `RQ-…` protocol requirements, `KL…` lint rules, `T…` tasks.
 
 ---
 
 ## 1. Identity and principles
 
-**Identity: Ember.** Warm graphite, ivory text, and coral, which marks where your keyboard is and, as a solid shape, what needs you. Ember's other accents name things, so the eye can tell parts of the screen and kinds of text apart by colour, not only by brightness, without the screen turning into a rainbow. The palette is MIT, © 2026 Hossam Saraya.
+**Identity: Ember, as a modern keyboard tool.**
+- Warm graphite, ivory text, and coral for what needs you and where your keyboard is.
+- Real type with a scale, icons, square shapes, straight hairlines, surfaces separated by steps rather than rules.
+- It keeps the cues power users rely on: tabs, a statusline with a mode badge, `:w`, the ex line rising from the bottom, the ledger seq, a gutter and a block caret.
+- It drops the limits of a text grid (one type size, fields pinned to columns, box-drawn bands) and clutter (every fact and key on every screen).
+- No pill buttons, cards, translucency, gradients as decoration, oversized buttons or emoji in chrome. (rune's in-text pills, which keep IDs whole, are a recorded deviation: §5.6.)
 
-The client is **keyboard-native and dense**, in the spirit of nvim and Doom Emacs, but a modern GUI:
-- real type and icons;
-- sharp 1 px lines and small radii (0–4 px);
-- calm surfaces.
-
-It is neither a terminal clone nor the macOS default or a SaaS dashboard: no pills, sheets, translucency, gradients, oversized cards or emoji in chrome.
+**The landing view is a shift-handover brief.** Render promises that you can leave, come back and resume without reconstructing what happened.
 
 **Principles:**
-1. **The five handover facts are always one glance away:** accepted commitment, active owner, latest evidence, blocker, and next human action. They come from structured host fields, never from reading chat.
-2. **Quiet means nothing asks.** Colour tells parts apart everywhere; only the flag asks for you (§5.3). A calm screen has colour, and nothing on it reads as needs-you: **no coral tag, diamond or caption**.
-3. **Authority is a separate dialect.** Every command that binds human authority lives under `␣a`. It reads back its exact basis and is confirmed with `y`. Nothing else reaches authority: not counts, `.`, macros, hints, links, `Esc`, `C-c` or host events.
-4. **You can only approve what you have been shown.** Authority keys work only in views that show the basis. A readback binds the basis you acknowledged, and an unacknowledged change makes it STALE.
-5. **Targets are pinned at the first key, against what was painted.** Host updates never retarget a key in flight.
-6. **Chrome and content never mix.** Agent bytes are untrusted. Content can't produce an icon, a tint, a chrome face, a chrome region or a reference style of its own.
+1. **Abnormal handover facts show at zero keys; all five are one key away.** The facts are accepted commitment, active owner, latest evidence, blocker and next human action. An abnormal fact lights the Track row on a work view; `K` or `gk` shows all five in full, and lists show them in the peek. They come from structured host fields, never from chat.
+2. **Quiet means nothing asks.** A calm screen has colour and nothing that reads as needs-you: no coral fill, diamond or count tag.
+3. **Authority is a separate dialect.** Every command that binds human authority lives under `␣a`, reads back its exact basis, and is confirmed with `y`. Nothing else reaches authority: not counts, `.`, macros, hints, links, `Esc`, `C-c`, pointer clicks or host events.
+4. **You can only approve what you have been shown.** Authority keys work only in views that show the basis. A readback binds the basis you acknowledged; an unacknowledged change makes it STALE.
+5. **Targets are pinned at the first key, against what was drawn.** Host updates never retarget a key in flight.
+6. **Chrome and content never mix.** Agent-written bytes are untrusted. They render only in content lanes, and on the Brief only on the content bar. Content can't produce an icon, a fill, a chip, a chrome face or region, or a reference style.
 7. **One state, one number.** A count of one state reads the same everywhere it appears.
-8. **The same table, two renderers.** One keymap drives GPUI now and a TUI later.
-9. **A printed key works where it is printed.** A key printed as an invitation to press it is a chip, and it resolves in the context that is active there (§3.9).
+8. **The same table, two renderers.** One keymap drives rune now and a TUI later.
+9. **A printed key works where it is printed, and few are printed.** A key printed as an invitation is a chip and resolves in its active context; a disabled action prints none. The leader menu is the main way to find keys.
 
 ---
 
-## 2. Layout and regions
+## 2. Frame and regions
 
 Logical px in a maximised 1512 × 982 window (14″ MacBook Pro). The normative pixel spec per screen is [`wireframes/layout.md`](wireframes/layout.md).
 
-| Region | Height | Surface | Contents |
+| Region | Box | Surface | Holds |
 |---|---|---|---|
-| **Bufferline** | 30 | `surface.bar`, bottom 1 px `border.subtle` | Open views as tabs (orange number, 16 px icon, `ui` label; the active tab has a 2 px coral underline). Right end: attention counts as solid count tags (§5.3), then the **host segment** |
-| **Handover strip** (workflow views only) | 48 | `surface.bar` | Five columns, COMMITMENT · OWNER · EVIDENCE · BLOCKER · NEXT; caption `ui.label`, value `ui`. Values follow §2.1. NEXT prints its key (§3.9) |
-| **Panes** | rest | main pane `surface.read`, side panes `surface.side` | The reading area is the surface with the most contrast against text; side areas are one step quieter |
-| **Statusline** | 24 | `surface.bar` | Mode badge, breadcrumb, SAVE segment; right: ledger seq, the read-basis token on workflow views, position. Host time only when the view isn't live (below) |
-| **Echo / minibuffer** | 26 | `surface.side` | Transient messages; the `:` command line in `mono` |
+| **Tab bar** | 0, 0, 1512, 36 | `surface.side` | Window controls; nav icons, each running one command (Slices `␣os`, Proposals `␣oP`, Agents `␣oa`, Find `␣.`); open views as numbered tabs; count tags at the right |
+| **Track row** (work views only) | 0, 36, 1512, 40 | `surface.read` | Track · abnormal-fact slot (§2.3) · action segments |
+| **Stage** | work views 0, 76, 1512, 854; Brief and lists 0, 36, 1512, 894 | `surface.read` | One page |
+| **Peek** (lists, ≥ 1180 px) | 972, 36, 540, 894; content 500 px wide after its 40 px right padding | `surface.read` | The cursor row's handover |
+| **Bottom float** | above the statusline, full width, up to 40 % | `surface.readback`, 2 px coral top rule | Leader menu, palette, `:` line, pickers, handover, filter, readback, stale reply, outbox, URL confirm |
+| **Statusline** | 0, 930, 1512, 26 | `surface.bar` | Mode badge, breadcrumb, save state, pending keys, basis token, host segment, seq |
+| **Echo row** | 0, 956, 1512, 26 | `surface.side` | Transient messages, one line, ellipsis; an empty reserved row when there is none |
 
-**Floats** (which-key, pickers at 30 % height, peek, readback) dock full-width above the statusline and never cover the bufferline or statusline. **When a readback opens, the focused pane scrolls so the pinned target sits fully above it.** A target taller than the space puts its first line at the pane top.
+Regions are separated by surface steps, never by rules. The bottom float covers the stage, never the tab bar, statusline or echo row.
 
-**Host segment.** It reads `homeserver · protected to seq 18340 (2 m)`:
-- `fg.muted` while the host is active and its last verified off-host backup is within the host's exposed-work target (300 s).
-- Unprotected acknowledged work shows calmly as `+3 unprotected` until it is older than the target. Then the segment takes the stale mark and names the problem in plain words, e.g. `unprotected since seq 18340 · 7 m`, `catching up after a restore` or `backup unavailable`.
-- Per `hostMode`: `not accepting changes` (admission-disabled), `catching up after a restore` (recovery-reconciling), `blocked on the host` (blocked). After a restore, before pairing: `restored · pair this device again`.
-- `K` on the segment shows the target (`target ≤ 5 min`), the protection (`protected to seq N, verified <time>`), `restore not yet verified` or `verified <time>`, and the host's reason. The target is shown as a target, apart from achieved protection (S§5.3.1 L503).
-- It never drops on a narrow window while it is not calm.
+**Tabs:**
+- Each tab is an orange number, a 14 px icon for the view kind, and a label: `Modules r2 · review`, `render-host · chat`. Local drafts show as a sage `edit` mark and a count.
+- The active tab fills with `surface.read` and carries a 2 px coral top rule.
+- `{N}gt` goes to tab N, `gt`/`gT` step, `␣␣` lists open views.
+- The Brief is tab 1. Lists and work views open as tabs; `␣oc`, `␣oe`, `␣oo` open or focus that object's tab.
+- On a narrow window, tabs shrink to number and icon before the tags drop. When even those don't fit, the bar keeps the Brief, the active tab and every tab with drafts, and folds the rest into a `+N` mark that counts them; `␣␣` lists every open view (FC-M74).
 
-**Attention counts** in the bufferline:
-- `◆` = NEEDS YOU (decisions and acts only you take);
-- `✗` = ON THE HOST (operator remedies);
-- `?` = unknown outcomes.
+**Count tags** sit at the tab bar's right end on every screen while the count is above 0:
+- `◆ 4` coral: needs you;
+- `× 1` rose: on the host;
+- `? 1` mauve: unknown outcomes.
 
-Each is shown only when non-zero, and each equals its section header on the queue.
+Each tag is 34 × 16 with radius 2, icon and number knocked out, and equals its Brief group count (FC-M35).
 
-**Host time** appears where freshness is claimed: `seq N · as of T` in the statusline when the view isn't live (offline, reconnecting, catching up), the readback's STATE line, stale and offline notices, and `K` on the seq. A live view is current by definition. Ages in rows are computed from host time, never the local clock.
+**Statusline:**
 
-**Panes and density:**
-- Every pane has a 40 px gutter, a chrome lane for node IDs, note bars, role icons and marks.
-- List rows are 26 px; dense tables 24 px.
-- Pane padding: 16 px horizontal, 12 px top.
-- At least 28 list rows show at full size (34 measured).
+| Segment | Content |
+|---|---|
+| Mode badge | Square, 26 px tall, Iosevka 11/14 600 tracked +0.08 em, on `surface.cursor.side`, with a 2 px left edge in the mode's colour (§3.1) |
+| Breadcrumb | `Brief › Needs you › 2 of 4`, `render-host › modules › r2 › M4 · observable` |
+| Save state | `✎ 2 not saved :w`, while drafts exist. The `:w` chip is live only in Normal and Visual, while writes are on and no float is open; in Insert and COMMAND, and under any float, it is muted and inert (§3.9) |
+| Pending keys | As typed, e.g. `␣a` |
+| Basis token | On authority views: `basis r2 v3 pol3`; with an unacknowledged change `basis r2 v3→v4 [!] pol3 ]d` (`]d` a chip, omitted while a readback is open) |
+| Host segment | See below |
+| Seq | `seq 18342`; when the view isn't live, `seq 18350 · as of 14:05:31` |
 
-**Narrow windows:**
-- Fields declare min, max and priority. Optional fields drop first, then fields truncate by kind; IDs are never cut.
-- Column captions may wrap to two lines at a word boundary, never truncate.
-- **Statusline drop order:** cursor position → SAVE label → the breadcrumb truncates from the left, so its tail survives. Mode and seq never drop.
-- **Bufferline:** tabs shrink to icon + number before the counts or host segment drop.
-- **Queue:** under a 1180 px pane the card sits below the list, so rows keep their width and widths degrade monotonically.
+- **Drop order** on a narrow window: the breadcrumb first (truncating from the left), then the save label, then a calm host segment. The mode badge, the seq and a host segment that isn't calm never drop. The save state outlives the breadcrumb because it guards drafts (FC-M02, FC-M06).
+- **The echo row** shows transient messages and never repeats what the statusline shows. It prints no key chips: a key worth printing belongs in a notice. Every message is kept in `:messages`. Anything the user must act on is a notice, never only an echo (FC-L14).
 
-![SC-01 frame, HTML-prototype render](mockups/proto-SC-01-frame-ember.png)
-*SC-01 frame, HTML-prototype render, not GPUI. **This render predates the current frame:** the statusline has no DECISION segment, the bufferline prints no seq or time, and a live statusline no host time. Wireframe: [`wireframes/wireframe-00-frame.png`](wireframes/wireframe-00-frame.png) ([`layout.md` §0](wireframes/layout.md) is current).*
+**Host segment:** `homeserver · protected to seq 18340 (2 m) · +2 unprotected`.
+- `fg.muted` while the host is active and its last verified off-host backup is within the exposed-work target (300 s). Unprotected acknowledged work shows calmly as `+2 unprotected` until it is older than the target.
+- When not calm, it turns `fg` with the `time` mark and plain words:
+  - `unprotected since seq 18340 · 7 m`;
+  - `backup unavailable`;
+  - per `hostMode`: `not accepting changes`, `catching up after a restore`, `blocked on the host`;
+  - after a restore and before pairing: `restored · pair this device again`;
+  - offline: `○ offline 2 m`.
+- `K` on the segment opens the float with the target as a target (`target ≤ 5 min`), the protection (`protected to seq N, verified <time>`), `restore not yet verified` or `verified <time>`, and the host's reason (S§5.3.1 L503).
 
-### 2.1 Handover strip values
+**Host time** appears where freshness is claimed: `seq N · as of T` when the view isn't live, the readback's state line, notices, and `K` on the seq. An age is the host time at receipt plus the local monotonic time elapsed since, never the local wall clock (FC-M12), so it keeps advancing offline.
 
-Each value has **240 px with an icon or mark, 262 px without** at 1512 (137/159 at 1000, 97/119 at 800). A value drops **whole parts** down its ladder; a part or an ID is never cut. Only host free text (a blocker's reason) truncates, at its end, with `K`.
+**Window widths** ([`wireframes/layout.md`](wireframes/layout.md) §0.1 has the formulas and worked values at 1512, 1200, 1000 and 800 px):
+- **1180 to 1512 px:** the work-view axis keeps its 640 px gutter and text column; the paddings shrink first, then the right margin from 320 to 240 px, then the left margin. The Brief's columns keep a 60:40 split. The list peek shrinks to a 440 px minimum.
+- **Under 1180 px:** margin notes fold inline, the left margin hides and the text column is centred; the Brief's columns stack; the list peek gives way to the `K` float.
+- Fields declare min, max and priority; optional fields drop first; IDs are never cut.
 
-| Cell | Scope | Forms, widest first |
+### 2.1 Selection, focus and coral
+
+**Selection:**
+- A cursor row is a **square band** on `surface.cursor.read` with a **2 px coral bar** on its left edge, full band height.
+- On a **needs-you row** the head is **solid coral, square, full band width**, with text knocked out in `surface.read` and no bar. A row is needs-you when the host says the next act is yours:
+  - the Brief: the Needs you group;
+  - Slices: wait class `human`;
+  - Proposals: an eligible package whose merge you owe (`◆1 merge main · on the forge`);
+  - Agents: an assignment waiting on you.
+- In documents: a full-width current-line band, the 2 px bar at the gutter, and a coral block caret. The caret is the keyboard, never content.
+- One keyboard cursor per window. An unfocused region keeps its band and loses the bar.
+
+**Solid coral** appears only:
+- on the `◆` count tag while above 0;
+- on the cursor head of a needs-you row;
+- on the primary action at the NEXT target when it is one act;
+- on an open readback's verb tag and `READBACK` badge, which count as one pair.
+
+Outside a readback there is at most one cursor-borne coral mass, and none on a calm screen.
+
+**Thin coral** (≤ 2 px) is the keyboard only: caret, cursor bar, active-tab rule, the Normal badge edge, the float's top rule, the current search match. Agent content, the streaming tail and a Track stage that isn't yours never draw coral.
+
+### 2.2 Handover values
+
+The five facts as shown in full: in the handover float, the list peek and the Track row's abnormal slot. A field drops whole parts, never characters of an ID.
+
+| Fact | Scope | Full form, then shorter forms |
 |---|---|---|
-| COMMITMENT | Contract | `Contract K·40cc · by you` → `K·40cc · by you` → `K·40cc` |
+| commitment | Contract | `Contract K·40cc · B1–B5 A1–A6 · accepted by you 10-03 14:32` → `K·40cc · by you` → `K·40cc` |
 | | Checkpoint, human | `seams r3 · by you` → `seams r3` |
 | | Checkpoint, delegated | `modules r1 · delegated (s3)` → `modules r1 · agent` → `modules r1` |
-| | Proposal | `intake K·7d21 · by you` → `K·7d21 · by you` → `K·7d21` |
-| OWNER | Any | `you · implementer as31·g2 blocked`, `no owner · waits for a slot`, `you · main merge` |
-| EVIDENCE | Slice | `pass 2 · no Watchdog on 3be1f0c [!]` or `pass 1 · Watchdog r3 rework on e3f9b60`; `pass 2 ·` drops, then `no Watchdog on`; the digest never drops |
-| | Proposal | `R41 published #135 · 41/41 Watchdog pass` → `R41 published · 41/41 Watchdog pass` → `R41 · 41/41 Watchdog pass` → `R41 · 41/41 pass` → `R41`. Never a bare verdict |
-| BLOCKER | Any | `none`; `none · p2 running (advisory)`; the wait class; a typed blocker |
-| | Eligible proposal | `none · 1 uncertainty` → `none`. An uncertainty is not a blocker (S§9.3 L1136) |
-| NEXT | Any | `◆ answer Q1 · 3 options`, `◆ decide modules r2`, `nothing for you yet`; the key per §3.9 |
-| | Main merge | `◆ merge main · on the forge` → `◆ merge main` |
+| | Proposal | `intake K·7d21 · 43 Slices · accepted by you 10-03 14:32` → `K·7d21` |
+| owner | Any | `you · implementer as31·g2 blocked`, `no owner · waits for a slot`, `you · main merge` |
+| evidence | Slice | `pass 2 · no Watchdog on 3be1f0c` with `◷ not yet shown to you` when unacknowledged; the digest never drops |
+| | Proposal | `R4 published #44 · 7/7 Watchdog pass` → `R4 · 7/7 pass` → `R4`. Never a bare verdict |
+| blocker | Any | `none`; `none · p2 running (advisory)`; the wait class; a typed blocker (`F16 HARD · aliased callee Axes undefined`) |
+| | Eligible proposal | `none · 1 uncertainty`. An uncertainty is reported, not a blocker: eligibility is the host's own view (S§9.3 L1134) |
+| next | Any | `Answer Q1 · 3 options`, `Review Modules r2`, `Merge main · on the forge`, `nothing for you yet`. Never the recommendation |
 
-**Who decided.** The object's ID and the icon never drop: `user` for a human decision, `bot` in `fg.alt` for a machine one, never the human band or coral. A delegated decision records a machine actor and the captured settings; it is not a human signature (S§6.4 L696). The card and `K` hold the full forms: `Contract K·40cc · B1–B5 A1–A6 · accepted by you 10-03 14:32`, `modules r1 · advanced by as27 · delegated (s3) · 10-27 14:03`, and for a proposal `intake K·7d21 · 41 Slices · accepted by you 10-03 14:32`.
+**Who decided:** `user` icon for a human decision; `bot` in `fg.alt` for a machine one, never coral. A delegated decision records a machine actor and the captured settings, not a human signature (S§6.4 L696).
 
-**Review count** (card meta, readback): `reviews N of L`, counting every completed Watchdog review including passing drift re-reviews, and nothing else (S§6.4 L708). At or over the limit: `reviews N · limit L reached`, with `no automatic rework · a passing review still counts` on its own line. At limit 0: `reviews N · limit 0`, then `one review, no automatic rework`.
+**Review count:** `reviews N of L`, counting every completed Watchdog review including passing drift reviews (S§6.4 L708). At or over the limit: `reviews N · limit L reached`, then `no automatic rework · a passing review still counts`.
+
+### 2.3 The abnormal-fact slot
+
+The Track row's slot shows **one** entry: the highest rung that applies, from host fields (and, for rung 1, this device's outbox), never from chat. `gk` shows all five facts in full.
+
+| Rung | Applies when | Form |
+|---|---|---|
+| 1. Unknown outcome | a command from this device on this object has no reply, or an effect has an unknown outcome or a duplicate risk | `? rework request · no reply since 14:09:30`; `? duplicate risk since 12:40 · auto-recheck 14:15` |
+| 2. Typed blocker | the host's `blocker` isn't `none` | `● F16 HARD · aliased callee Axes undefined` |
+| 3. Evidence not yet shown | the latest evidence is newer than what this device has shown you | `◷ pass 2 evidence not yet shown to you` |
+| 4. Delegated route | the current stage is delegated | `delegated (s3) · agent decides · saved notes must be answered first` |
+| 5. **Calm:** owner or turn state | none of the above | `your review · captured s2`; `turn t42 running · 11 m · 5 tools` |
+
+Rungs 1–4 draw in `fg` with their mark; the calm form draws in `fg.alt` with no mark. Applied to the screens: chat (SC-03) and review (SC-04) are calm; a delegated review is rung 4; evidence (SC-07) and the decision (SC-09) show the F16 blocker, which outranks the evidence not yet shown; the unknown outcome (SC-10d) and the operation view (SC-10e) are rung 1.
 
 ---
 
 ## 3. Interaction grammar
 
-The complete table is [`keymap.toml`](keymap.toml); the full semantics are in [`reference/grammar.md`](reference/grammar.md). This section is what a builder must implement.
+The complete table is [`keymap.toml`](keymap.toml); the full semantics are in [`reference/grammar.md`](reference/grammar.md).
 
 ### 3.1 Modes
 
-| Mode | Badge | Entered by | Left by | Keys do |
+| Mode | Badge | Edge | Entered by | Left by |
 |---|---|---|---|---|
-| Normal | `[N]` | default, `Esc` | — | motions, operators, leader, `g z ] [` families |
-| Visual | `[V]`/`[VL]` | `v`, `V` | `Esc`, an operator | extend a selection anchored to immutable bytes |
-| Operator-pending | `[O]` | `c`, `gc`, `y` | a motion or object, `Esc` | wait for an object |
-| Insert | `[I]` | `i a o I A O` in editors; `c{obj}`/`cc` (opens a composer) | `Esc`, `jk` | text only; the leader is inactive |
-| Command line | `[:]` | `:`, `␣;`, `␣.`, pickers | `⏎`, `Esc`, `C-c` | minibuffer editing |
-| Hint | `[H]` | `gs` | a label, `Esc` | every key selects a label |
-| Readback | `[◆]` | an authority command | `y`, cancel | confirm, cancel, inspect only |
+| Normal | `NORMAL` | coral | default, `Esc` | — |
+| Visual | `VISUAL`, `V-LINE` | steel | `v`, `V` | `Esc`, an operator |
+| Operator-pending | `NORMAL` + pending keys | coral | `c`, `gc`, `y` | a motion or object, `Esc` |
+| Insert | `INSERT` | sage | `i a o I A O` in editors; `c{obj}`, `cc` | `Esc`, `jk` |
+| Command | `COMMAND` | orange | `:`, `␣;`, `␣.`, pickers | `⏎`, `Esc`, `C-c` |
+| Hint | `HINT` | orange | `gs` | a label, `Esc` |
+| Readback | `READBACK` (solid coral, word knocked out) | — | an authority command | `y`, cancel |
 
-Mode badges are outlined chips with a coral border and an `fg` word, except Insert (sage border) and Readback (solid coral, the word knocked out).
+The caret shape follows the mode: block, bar, underline, none.
 
-**Contexts** form a tree. A command applies in its listed contexts and all their descendants; an inner context may shadow an outer binding only by declaring `shadows = "parent"`.
+**Contexts** form a tree. A command applies in its listed contexts and their descendants; an inner context may shadow an outer binding only with `shadows = "parent"`.
 
 ```
 global
-├─ list     (queue, outline, outbox) └─ explorer └─ filter
-├─ reader   └─ review · diff · evidence · decision · chat · diagram (full view)
+├─ list     (Brief, outline, outbox) └─ explorer (Slices, Proposals, Agents lists) └─ slices └─ filter
+├─ reader   └─ review · diff · evidence · decision · chat · diagram · settings
 ├─ editor   └─ prompt · composer · editbuf
 ├─ picker · readback · hint
+handover    (a root of its own: the K / gk float's key set, §3.7)
 ```
 
 ### 3.2 Verbs and objects
@@ -155,20 +208,21 @@ global
 vim's operator + motion grammar, with Render's nouns as objects.
 
 **Verbs:**
-- `c{obj}`/`cc` annotate in review and diff; `gc` is its alias. `␣mn` notes the paragraph (Normal) or the selection (Visual); it is the discoverable entry, listed in which-key.
-- `y` yanks, `␣y` to the clipboard, and `gy` yanks the object's stable reference.
-- `dd` discards a local draft, and `u` undoes that.
-- `gd`/`gi`/`gD`: go to definition / evidence / the bound basis.
-- `K` peeks; `gk` shows blocker details; `gx` opens the external link under the cursor with a URL confirm.
+- `c{obj}` / `cc` annotate in review; `gc` is its alias; `␣mn` notes the paragraph or selection.
+- `y` yanks, `␣y` to the clipboard, `gy` yanks the object's stable reference.
+- `dd` discards a local draft, `u` undoes that.
+- `gd` / `gi` / `gD`: definition, evidence, the bound basis.
+- `K`: peek a reference, or open the handover float on a list row. `gk`: the handover with the blocker in full.
+- `gx`: external link, with a URL confirm.
 - `⏎`/`l` opens the row under the cursor; `-` goes to the parent; `␣n` goes to NEXT (§3.9).
 
-**Objects**, as `]x`/`[x` motions and text objects where they apply:
+**Objects** (`]x`/`[x`, and text objects where they apply):
 
 | Key | Object |
 |---|---|
 | `n` | node |
 | `a` | unresolved annotation |
-| `h` | hunk |
+| `h` | hunk, or change bar in review |
 | `f` | finding |
 | `o` | obligation |
 | `m` | message |
@@ -178,9 +232,9 @@ vim's operator + motion grammar, with Render's nouns as objects.
 | `g` | list group |
 | `p s w` | paragraph, sentence, word |
 
-**Readers:** `j`/`k` without a count move by visual (wrapped) line, as the user's nvim `j`→`gj` does; with a count they move by logical line.
+`j`/`k` without a count move by visual line in readers.
 
-**Display forms** are namespaced and atomic; they never break across lines.
+**Display forms** are atomic:
 
 | Object | Form | Object | Form |
 |---|---|---|---|
@@ -188,41 +242,49 @@ vim's operator + motion grammar, with Render's nouns as objects.
 | annotation-set revision | `v3` | digest | `9f3c·a1e2` |
 | policy revision | `pol3` | assignment · generation | `as31·g2` |
 | policy binding revision | `bind1` | annotation | `@7` |
-| node, finding, obligation | as authored (`M2`, `F16`, `B3`, `C`) | decision question | `Q1` |
-| commit | 7 hex | command / receipt | `cmd …7Q4K` |
-| checkpoint settings revision | `s3` | checkpoint request | `C1` |
+| node, finding, obligation | as authored (`M2`, `F16`, `B3`) | decision question | `Q1` |
+| commit | 7 hex | command | `cmd …7Q4K` |
+| checkpoint settings revision | `s3` | checkpoint request | `C2` |
 | canonical proposal revision | `R7` | implementation pass | `pass 2` |
-| web observation | `o2`, a host short label | PR | `#41` |
+| web observation | `o2` | PR | `#44` |
 
 ### 3.3 Leader and which-key
 
-Grounded in the user's nvim: `mapleader = " "`, `timeoutlen = 300`, fzf-lua leaders, `C-h/j/k/l`, `]d`, `gd gi gD gk K`, Insert `jk`.
-
 ```
-a ◆authorize  c +chat  d +diagnose  f +find  h +help  m +local  o +open  r +recover  s +search  t +toggle  w +window
-␣ views  . find  / lines  ; commands  : history  ' resume  n next action  q needs-me  u history  y clipboard
+a ◇ authorize       c chat              d diagnose          f find              h help
+m local             o open              r recover           s search            t toggle
+␣ views             n next action       q the Brief         u revision history  y clipboard
+. find anything     / lines             ; commands          : command history   ' resume
 ```
 
-- **`␣m` (local, review):** `n` note on paragraph or selection · `s` save annotations (= `:w`) · `e` edit emission bytes · `d` diff with previous · `o` outline.
-- **`␣o` (open):** overview, chat, evidence, dispositions · `s` slice explorer · `a` its Agents tab · `p` project settings · `l` local-verification prompt.
-- **`␣r` (recover):** `r` refresh · `u` outbox · `q` query receipt · `t` retry with the original ID · `c` reconnect now.
+Leaves print each command's `desc` from `keymap.toml`. `␣w` is reserved for splits, which are not in v1 (§3.7).
+
+- **`␣o` (open):** overview, chat, evidence, dispositions; `s` Slices list; `P` Proposals list; `a` Agents list; `p` project settings; `l` local-verification prompt.
+- **`␣s` (search):** `g` search everything; `f` the Slices filter float (Slices list only; unbound on Proposals and Agents).
+- **`␣m` (local, review):** `n` note on paragraph or selection; `s` save (= `:w`); `e` edit emission bytes; `d` diff lens; `o` outline.
+- **`␣r` (recover):** `r` refresh, `u` outbox, `q` query receipt, `t` retry with the original ID, `c` reconnect now.
 - **`␣t` (toggle):** follow, measure (`␣tw`), prose face (`␣tp`), Mermaid source (`␣tm`). `␣ht` picks the theme variant live.
-- **which-key** opens after 300 ms on any proper prefix. It is a non-modal, display-only panel that never consumes a key. Authority leaves carry `◆` in `fg.alt`, never coral. Its entries and the head's `Esc` are chips; `Esc` cancels the pending prefix.
+- **`⌘K`** opens the same bottom float as `␣;`.
+
+**which-key** opens in the bottom float 300 ms after any proper prefix. It is display-only and never consumes a key.
+- The root head reads `display only · decides nothing`, with `Esc` `closes`.
+- The `␣a` head reads "authorize — every command reads back its exact basis before it binds". It lists all eight authority commands with outlined diamonds in `fg.alt`. A command that can't run here stays listed, greyed, with either a context reason (`settings only`, `not on this view`) or the host's reason (`no task shape to confirm`).
 
 ### 3.4 Pinning and the frame boundary
 
 ```text
-on frame boundary:  apply all queued host messages; apply deferred layout after 1.5 s without a key; paint
-on key(e):          handled immediately against the last painted frame
-  first key of a sequence captures the pin {pane, object id, revision, read basis, anchor, layout epoch, ledger seq, authority epoch}
-  dispatch resolves the target by object id and revision, never by row index
+on frame boundary:  apply queued host messages; apply deferred layout after 1.5 s without a key; draw
+on key(e):          resolved against the last drawn frame
+  first key of a sequence pins {pane, object id, revision, read basis, anchor, layout epoch, ledger seq, authority epoch}
+  dispatch resolves by object id and revision, never by row index
 ```
 
-- **Host messages apply only at frame boundaries.** So the state a key meets is the frame the user saw.
-- **List inserts and reorders freeze** while keys arrive. They apply 1.5 s after the last key, even with a prefix pending.
+- **Host messages apply only at frame boundaries.** On rune a key runs in the next frame after `poll` has applied host events, so `poll` copies the drawn cursor-target state first and keys resolve against that copy ([`reference/stack.md`](reference/stack.md) §3).
+- **List inserts and reorders freeze while keys arrive,** and apply 1.5 s after the last key.
 - **The cursor is attached to an object ID.** A removed row becomes a tombstone (`resolved elsewhere`) until the next unfreeze.
 - **No host event moves focus or opens a modal or readback.**
-- **The send mode is pinned.** A prompt or steer decided in the frame the user saw travels in the envelope, and a mismatch is refused (`turn_state_changed`); the draft is kept.
+- **Every float keeps the cursor in view** (FC-T19): when a bottom float opens, or the cursor moves under one, the page or list scrolls so the cursor row or pinned target sits fully above it.
+- **The send mode is pinned.** A prompt or steer decided in the drawn frame travels in the envelope; a mismatch is refused (`turn_state_changed`) and the draft is kept.
 
 ### 3.5 One authority tier: readback + `y`
 
@@ -232,805 +294,645 @@ on key(e):          handled immediately against the last painted frame
 | `␣ar` | request rework | review, diff |
 | `␣ad` | answer a decision (option + note) | decision |
 | `␣as` | confirm task shape (Ground) | decision, review |
-| `␣ac` | accept intake / Contract / amendment | review, evidence |
+| `␣ac` | accept an intake, a Contract or an amendment; or supersede a Contract. The host's decidable says which: the verb tag reads `◆ ACCEPT` or `◆ SUPERSEDE`, and a supersession's BINDS names the Contract revision it replaces and the new intake, with the host's EFFECT and NOT (assigned work keeps its frozen Contract, S§8 L949) | review, evidence |
 | `␣ax` | cancel work: an assignment, or a pending checkpoint request | lists, chat, evidence, review |
-| `␣at` | change checkpoint routing (SC-17) | settings |
-| `␣ap` | review policy: save a new default, or adopt a revision for a workflow (SC-17) | settings |
+| `␣at` | change checkpoint routing | settings |
+| `␣ap` | review policy: save a default, or adopt a revision. Editing the draft is a composer; the second `␣ap`, which reads it back, comes after `Esc Esc` returns to settings, because authority never runs in an editor (KL4) | settings |
 
-- **From a list row**, `␣aa ␣ar ␣ad ␣ac` echo `open it first · ⏎` and do nothing. `␣ax` works from lists, because its readback (the work, its generation, effects in flight) is the whole object.
-- **Every authority command needs a host decidable:** a basis digest and fields, plus EFFECT and NOT text. Without one, the action shows as unavailable, with the host's reason. The client never derives a basis or invents a consequence.
-- **Unsaved drafts first.** If the target has unsaved local drafts, `␣aa`/`␣ar` first offer `save 3 drafts (v3→v4)? y/n`. The readback appears only after the save receipt.
+- **From a list row,** `␣aa ␣ar ␣ad ␣ac` echo `open it first · ⏎` and do nothing. `␣ax` works from lists.
+- **Every authority command needs a host decidable:** a basis digest and fields, plus EFFECT and NOT text. Without one the action is unavailable, with the host's reason. The client never derives a basis or invents a consequence.
+- **Unsaved drafts first.** If the target has unsaved local drafts, `␣aa`/`␣ar` first offer `save 2 drafts (v3→v5)? y/n`. The readback appears only after the save receipt.
 
-**Read basis.** Each open view keeps, per basis field, the revision and digest it has shown. A field advances **only on an explicit act**:
-- `]d` landing on the change;
-- `d` in a STALE readback;
-- opening the stale diff.
+**Read basis.** Each open view keeps, per basis field, the revision and digest it has shown. A field advances only on an explicit act: `]d` landing on the change, `d` in a STALE readback, or opening the stale diff. Scrolling does not count. Until then the change is marked `[!]` in the gutter and the basis token.
 
-Scrolling does not count. Until then the change is *not yet acknowledged*: marked `[!]` in the sign column and the strip, shown in the statusline's basis token (`basis r2 v3→v4 [!] pol3 ]d`, with `]d` a chip), and reachable with `]d`. While a readback is open the token omits `]d`; the STALE line's `d` chip is the invitation there.
-
-**Readback** (a float on the grey `surface.readback`, 2 px coral top rule, a solid coral verb tag with `◆` and the verb knocked out; no coral fill on the panel):
+**Readback**, in the bottom float on `surface.readback` with the 2 px coral top rule:
 
 ```
-◆ APPROVE render-host · modules r2
-  BINDS   request C2 · captured s2 · human · emission r2 9f3c·a1e2 · manifest 51d0·08ce · annotations v5 · decisions 2a83·34a6 · intake none · policy pol3 · binding bind1
-  CARRIES 4 saved notes as non-binding
-  EFFECT  <host text>
-  NOT     <host text, fixed per command type>
-  STATE   fresh · seq 18356 · host 14:07:10 (0 s ago) · every basis field acknowledged
-  y confirm · n Esc q cancel · K full basis
+▓◆ APPROVE▓ render-host · modules r2                fresh · every basis field acknowledged · seq 18356 · host 14:07:10 (0 s ago)
+binds                                   carries  3 saved notes as non-binding
+request      C2 · captured s2 · human   effect   <host text>
+emission     r2  9f3c·a1e2              not      <host text, fixed per command type>
+manifest     51d0·08ce
+annotations  v5                         [y] confirm   [n] [Esc] [q] cancel   [K] full basis        pinned 14:07:09 at modules r2
+decisions    2a83·34a6
+intake       none
+policy       pol3
+binding      bind1
 ```
 
-- **BINDS** renders **every field of the host's basis**, known or not, in the host's order, wrapped in one block. A digest without a revision shows the digest alone; a missing value shows `none`, never a dash.
-- **Size:** the float grows to fit, up to 40 % of the window.
-- **The basis names the request and its captured settings**, never the current dial: changing checkpoint settings alone stales nothing (S§5.3 L473).
-- **STALE** (any field differs from what was acknowledged): `annotations v4 not yet acknowledged · d shows it`, with `d` a chip, and `y` is disabled; the key bar reads `confirm disabled`.
-- **CHANGED** (a field moves while the readback is open): `y` is disabled, and the key bar reads the same.
-- **Modal:** while a readback is open, chips outside it draw dimmed (`fg.muted`) and do nothing.
-- **Typeahead:** keys timestamped before the readback was presented are discarded. Auto-repeat and `⏎` never confirm.
-- **On confirm** the envelope carries a fresh command ID, the pinned basis and the pinned `authorityEpoch`. A timeout becomes `[?] unknown` in the outbox, never "failed".
+- **BINDS** shows every field of the host's basis, known or not, one per line, in the host's order. A missing value reads `none`; a digest without a revision shows the digest alone.
+- **Size:** it grows to fit, up to 40 % of the window. The focused pane scrolls so the pinned target sits fully above the float (FC-T19).
+- **The basis names the request and its captured settings,** never the current dial (S§5.3 L473).
+- **STALE** (a field differs from what was acknowledged): `annotations v6 not yet acknowledged · d shows it`, with `d` a chip; the key bar reads `confirm disabled`.
+- **CHANGED** (a field moves while it is open): `y` is disabled the same way.
+- **Modal:** while any bottom float is open (readback, `:` line, palette, pickers, which-key, filter, outbox, URL confirm, stale reply, handover), every chip and action segment outside it is `fg.muted` and inert. Under a readback the save chip is hidden.
+- **Confirm** is a chip, never a filled button, and only `y` confirms. **A pointer click never confirms authority:** a click on the confirm chip does nothing and echoes `press y to confirm`.
+- **Discards:** keys timestamped before the readback was drawn are discarded (FC-T06). Pointer clicks within 400 ms of any float opening are discarded too, so a click can't land in a float that just opened under the pointer (FC-T22). Auto-repeat and `⏎` never confirm. A key arming delay is Q06.
+- **On confirm** the envelope carries a fresh command ID, the pinned basis and the pinned `authorityEpoch`. A timeout becomes `? unknown` in the outbox, never "failed".
 - **Decision notes** are local drafts until `␣ad y` sends them.
 
-### 3.6 Editors, pickers, hints, recovery
+### 3.6 Editors, floats, hints, recovery
 
-- **Editors** (prompt, composer, decision note, edit buffer, policy draft) share one modal controller with a vim subset (`h j k l w b e`, `d c y` with `iw ip i" i(`…, `dd yy cc D C x p P J u C-r .`, `v V`, `jk`/`Esc`).
-  - Composers open inline under their range. Their footer reads `Esc Esc done · :w saves · ␣ar sends with rework`.
-  - `⏎` in a Normal prompt sends; `M-⏎` queues a follow-up.
-  - Editors never host authority.
-- **Pickers** follow the user's fzf-lua layout: bottom-docked, full width, 30 % height, preview at 50 %.
-  - Keys: `C-j/C-k` move, `⏎` opens, `C-v/C-s` split, `C-l` sends the results to the explorer.
-  - Results freeze once the user moves.
-  - `␣.` finds any object; a typed prefix filters by kind (`slice:`, `doc:`, `agent:`).
-  - Previews render content as content.
-- **Hint mode** `gs` labels visible targets with home-row chips placed after the row's state icon. Labels are chips in context `hint`, drawn in the hint style. Selecting a label moves the cursor and never acts.
-- **Jumplist and marks:** `C-o/C-i` (100 entries per device) and `m{a-z}`/`m{A-Z}`, persisted per device.
-- **Recovery verbs:** `␣rr` refresh · `␣ru` outbox · `␣rq` query a receipt without executing · `␣rt` retry with the original ID and identical bytes (refused for entries from before a host restore) · `␣rc` reconnect.
+- **Editors** (prompt, composer, decision note, edit buffer, policy draft) share one modal controller with a vim subset (`h j k l w b e`, `d c y` with `iw ip i" i(`…, `dd yy cc D C x p P J u C-r .`, `v V`, `jk`/`Esc`). Editors never host authority.
+  - The prompt sends with `⏎` in Normal or `⌘⏎` in Insert; `M-⏎` queues a follow-up.
+  - **A composer's footer prints only keys bound in Insert** where it is printed: leaving Insert (`Esc`, `jk`), and in the chat composer `⌘⏎` and `M-⏎`. After `Esc`, the statusline's `:w` chip and the Track row's segments carry the rest; in Insert they are muted and inert, because they don't resolve there (KL17).
+- **The bottom float** holds the palette and pickers: input on its last line, results growing upward, preview on the right half.
+  - Keys: `C-j/C-k` move, `⏎` opens, `C-l` sends results to the Slices list. `C-v`/`C-s` are reserved for splits.
+  - Results freeze once you move. `␣.` finds any object, and a typed prefix filters by kind. `:` puts a `:` prompt on the last line.
+  - The palette lists all 109 commands with their keys, unavailable ones with the reason.
+- **Hint mode** `gs` labels visible targets with home-row chips after the row's state icon. A label moves the cursor and never acts.
+- **Jumplist and marks:** `C-o/C-i` and `m{a-z}`/`m{A-Z}`, persisted per device.
+- **Recovery:** `␣rr` refresh, `␣ru` outbox, `␣rq` query a receipt (never executes), `␣rt` retry with the original ID and identical bytes (refused for entries from before a host restore), `␣rc` reconnect.
 
-### 3.7 Explorer and diagram keys
+### 3.7 List and diagram keys
 
-- **Explorer (SC-16):**
-  - `␣os` opens it and `␣oa` opens its Agents tab; `gt`/`gT` switch tabs.
-  - Panes: `C-h/C-l` between panes, `C-j/C-k` inside the sidebar.
-  - Filters: `x` toggles a state, `X` shows only it; `:filter a,b`, `+x`, `-x`, `clear`, `save <name>`, `<name>`, `forget <name>`.
-  - `]g`/`[g` move between groups.
-  - A filter change keeps the cursor on the same slice when it is still visible.
-- **Diagram full view** is a float: `h j k l` pan, `+ - =` zoom (fit to 200 %), and `q`, `Esc` or `⏎` leave it.
+**Lists** (Slices, Proposals, Agents):
+- `␣os`, `␣oP`, `␣oa` open them as tabs.
+- `␣sf` opens the filter float on the Slices list only (context `slices`); on Proposals and Agents it is unbound. In the float `x` toggles a state and `X` shows only it. `:filter a,b`, `+x`, `-x`, `clear`, `save <name>`, `<name>`, `forget <name>` work from `:` on the Slices list.
+- `]g`/`[g` move between groups. A filter change keeps the cursor on the same slice when it is still visible.
+- **The handover float** (`K` on a row, `gk` on a work view) has its own key set (context `handover`): `j`/`k` move the list cursor and the float follows; `⏎` opens the row's object; `␣n` opens its next action; `K`, `q` and `Esc` close it. Every other key is inert. The badge stays `NORMAL`. The list scrolls so the cursor row stays above the float.
+
+**Splits are not in v1.** `C-h/j/k/l`, the `␣w` and `C-w` groups, and `C-v`/`C-s` in pickers are reserved for them and bound to nothing else ([`reference/grammar.md`](reference/grammar.md) §6). That is why the filter float opens with `␣sf`, not `C-j`.
+
+**Diagram full view** is a float over the window: `h j k l` pan, `+ - =` zoom, and `q`, `Esc` or `⏎` leave it.
 
 ### 3.8 The keymap file and its lint
 
-`keymap.toml` holds `[meta]`, `[contexts]`, `[groups]` (which-key labels), `[builtin]` and one `[[command]]` per command:
-- **Fields:** `id`, `ex`, `desc` ≤ 32, `tier` (local / write / decide), `kind`, `ctx`, optional `wire`, and `keys` with `mode`, `ctx`, `seq` and optional `shadows = "parent"`, `alias_of`, `tui`, `tui_alt`.
-
-**Lint rules:**
+`keymap.toml` holds `[meta]`, `[contexts]`, `[groups]`, `[builtin]` and one `[[command]]` per command, with `id`, `ex`, `desc` ≤ 32, `tier` (local / write / decide), `kind`, `ctx`, optional `wire`, and `keys` with `mode`, `ctx`, `seq` and optional `shadows`, `alias_of`, `tui`, `tui_alt`. Key syntax adds `<D-x>` (Cmd), GUI-only.
 
 | Rule | Checks |
 |---|---|
-| KL0 | Schema: only known fields, keys parse, the context tree is acyclic |
+| KL0 | Schema: known fields, keys parse, acyclic context tree |
 | KL1 | Reachability: unique `id`/`ex`, everything in the palette |
 | KL2 | Prefix-freedom per mode and overlapping context, unless `shadows` |
-| KL4 | Authority: decide-tier only under `␣a`, never countable or repeatable, never in editors, backed by a host decidable (`wire`), no `readback` field, and no `list` context except cancel; `auth.routing` and `auth.policy` only in `settings` |
+| KL4 | Authority: decide tier only under `␣a`, never countable or repeatable, never in editors, backed by a host decidable (`wire`), no `readback` field, no `list` context except cancel; routing and policy only in `settings` |
 | KL5 | Reserved keys bind only local commands |
 | KL7 | Every wire type is in the protocol catalogue |
 | KL8 | which-key labels exist |
-| KL9 | Terminal representability; no Option + printable key in an `editor` context (GPUI routes those to an input method) |
+| KL9 | Terminal representability. A `<D-x>` binding passes only as an alias of a command that also has a terminal-representable binding. No Option + printable key in an `editor` context |
 | KL10 | Docs drift |
 | KL12 | One object char means one object |
-| KL17 | **Render-time, in the screens suite.** Every printed chip resolves in its active context. Chips are collected from what the renderer prints across every screen fixture; a view template with no fixture fails. While a modal is open, only its surfaces are judged |
+| KL14 | Insert bindings are editing keys, `Esc`, `jk`, `<C-CR>`, `<M-CR>` or `<D-CR>` |
+| KL16 | `alias_of` names a command of the same tier with overlapping context |
+| KL17 | **At render:** every visible chip resolves in its active context (stage tab, Insert, float, statusline, writes off, readback). Strict in Insert: a composer footer's chip must be bound in Insert. While any bottom float is open, only its own chips are judged; the rest must be dimmed |
 | KL18 | No Vim built-in (`gn gN gv gJ gu gU g~ g? gq gw g; g,`) is bound to another meaning |
-| KL19 | Over the chrome copy table: a key display form (`␣…`, `C-…`, `M-…`, `⏎`, `Esc`, `:name`) outside a chip slot fails; `(^\|· )[A-Za-z]( \w\|$)` is flagged for human review |
+| KL19 | Over the chrome copy table: a key display form outside a chip slot fails |
+| KL20 | **Chip budget:** at most 3 chips in the stage at first sight, plus at most 1 in the statusline, and none in the echo row. Floats and composer footers are exempt; tab numbers aren't chips |
 
 ### 3.9 Printed keys and NEXT
 
-**The rule: a key printed as an invitation to press it must work where it is printed.** An invitation is chrome text that tells the user to press a key, or pairs a key with what pressing it does. It is written `<keys> <action>`, with the keys in chips. KL17 and KL19 guard this. Any other mention of a key in chrome is phrased without the key. The keys view (`␣hk`) comes from the keymap and replayed echoes are records, so neither is chrome copy. **Host text never names a client key;** where a line needs a key, the host's sentence and the client's chip are separate.
+**The rule: a key printed as an invitation must work where it is printed,** written `<keys> <action>` with the keys in chips. Few are printed:
+- the primary action's key;
+- `⏎` on the cursor head;
+- the first-note hint `c`;
+- `:w` while drafts exist and writes are on;
+- `]d` while a basis field is unacknowledged;
+- `␣rc` on the offline notice;
+- `:filter clear` and `]g` on a filtered list.
 
-**NEXT** (strip and card) prints the authority key or keys **only when the current view is the NEXT target and the keys resolve there**. Everywhere else it prints **`␣n`**.
+Key lines appear in floats and composer footers. A disabled action prints no chip. The echo row prints none. Everything else is found through the leader menu, the palette and `␣hk`. **Tooltips** on nav icons, tabs and segments only repeat what which-key shows (the command's `desc` and keys); no information exists only in a tooltip. Host text never names a client key. The one plain-word key is the echo after a click on the confirm chip, `press y to confirm`, because the `y` chip it points to is on screen.
 
-**`␣n`** (`next.go`, local, a jump, so `C-o` returns) opens the NEXT target of the current workflow, or of the cursor row when a card is showing. The package's NEXT has a target outside Render, so there `␣n` opens the URL confirm (SC-19). `⏎` acts on the row under the cursor and never stands in for NEXT. `␣n` lives under the leader because `gn` is a Vim built-in that a user of `/` search and `c` would reach for.
+**NEXT** is the Track row's primary action segment:
+- It prints the authority key only when this view is the NEXT target and the key resolves here; everywhere else it prints `␣n`.
+- The label names the act, never the option (`◆ ␣ad Answer Q1`); the readback names the option.
+- It never carries the recommendation.
 
-**Key lines** (key bars, footers, hint lines, chip lines; one row each) drop whole parts from the end until they fit inside the pane's content box. The written order is the order. The first part never drops, a chip is never cut or touching a border, and nothing wraps. Grids (`ACTIONS`, which-key) wrap by cell; their chips are never cut either.
+**`␣n`** (`next.go`, a jump, so `C-o` returns) opens the NEXT target of the current workflow, or of the cursor row. When the target is outside Render (main merge), `␣n` opens the URL confirm. `⏎` acts on the row under the cursor and never stands in for NEXT.
 
 ---
 
 ## 4. Screens
 
-Each screen gives its purpose, regions and behaviour, then its mockup (an **HTML-prototype render**, not GPUI) and its wireframe. **The text here wins over any image;** a caption says what its render gets wrong. [`wireframes/layout.md`](wireframes/layout.md) is the normative pixel spec. The tldraw drawings are older; [`wireframes/README.md`](wireframes/README.md) lists what changed since. [`wireframes/text-mocks.md`](wireframes/text-mocks.md) has a text grid for every screen.
+Each screen gives its purpose, layout and rules. [`wireframes/layout.md`](wireframes/layout.md) is the pixel spec and [`wireframes/text-mocks.md`](wireframes/text-mocks.md) has every screen on one fixture. Renders are listed in [`mockups/README.md`](mockups/README.md); **the text wins over any image.**
 
-### SC-01 Workspace frame
+**Shared work-view axis:**
+- left margin x 172–372;
+- gutter x 396–436;
+- text x 436–1036 (600 px);
+- right margin x 1076–1396.
 
-The frame every view uses (§2): bufferline, handover strip on workflow views, gutter-led panes, statusline, echo. Floats dock above the statusline.
+### SC-01 Frame
 
-![SC-01 at 800 px](mockups/proto-SC-01-frame-ember-800.png)
-*HTML-prototype render, 800 px window; it predates the current frame (see §2). Wireframe: [`wireframe-00-frame.png`](wireframes/wireframe-00-frame.png).*
+The frame of §2: tab bar, Track row on work views, stage, peek on lists, bottom float, statusline, echo row.
 
-### SC-02 Needs-me queue (the landing view)
+![The Brief](mockups/brief-landing.png)
 
-The andon board that answers "what needs me" with zero keys (T01). Proposal progress lives in the explorer's Proposals tab (SC-16), not here.
+### SC-02 The Brief (landing view)
 
-**Layout:** the queue list is the main pane, `surface.read`, 992 px. The handover card is the side pane, 519 px. Under a 1180 px pane the card sits below the list.
+Answers "what is mine, what is stuck, who is working, what changed" with zero keys (T01). It replaces the queue and its card: the row carries the ask, so no card is needed.
 
-**List** (rows 26 px, group header 24 px). The columns are:
-- state icon;
-- project (`ui.small` sage);
-- item (path truncation `…/leaf`);
-- reason (`fg.alt`), truncating at its end;
-- waiting (`mono.small`, 60 px);
-- downstream (`mono.small`, 84 px, the host's transitive count).
+**Layout:**
+- Left column x 48–868: Needs you, On the host, Waiting.
+- Right column x 924–1464: Running, Done.
+- Reading order matches `j` order. Under 1180 px the columns stack.
+- Title `Needs you 4` in `page.title` rose with a coral count. Calm: `Nothing needs you`.
+
+**Needs you** (oldest first). Each entry is square and hairline-separated:
+- **Head:** state mark, then the **move** (14/20 600) built from the host's typed `next` fields (`actionKind`, `target`, `why`, `options`), then the time. Examples: `Answer Q1 · 3 options`, `Merge main · on the forge`.
+- **Byline:** work title, plus project and proposal in sage.
+- **Ask:** shown only when the host marks the field as content (RQ-50), such as a decision's `question` or a coordinator sentence. It sits on the 2 px content bar in `prose.small` (13/19), at most two lines; a longer text is cut at the last whole word that fits and ends in `…`. The whole text is read in the handover float (`K`) and on the object itself (`⏎`) (FC-Q29). A host value keeps its label: `blocker none · 1 uncertainty`.
+- **Foot:** the Track and `blocks N`, when the host gives them.
 
 **Groups:**
-- **NEEDS YOU · 3**: decisions and acts only you take, each with the coral diamond, oldest first. The caption and count are coral while the count is above 0; every other caption is steel. This includes the main merge: `merge main · on the forge`.
-- **ON THE HOST · 1**: operator remedies such as a quarantine, with the failed octagon and no diamond.
-- **WAITING · NOT ON YOU**: dependencies, slots and the forge, oldest first. "Awaiting publication" waits here, never in NEEDS YOU. A delegated checkpoint request waits here too: `delegated (s3) · agent decides`, dropping `· agent decides` first and then `(s3)`, while `delegated` stays whole.
-- **RUNNING · 4 · slots 4/4**: rows first, slots named. They differ while a cancelled assignment holds its slot through the grace period. Implementation rows name the pass: `implementer as19·g3 · pass 2`.
-- **DONE · LAST 24H**: `integrated into proposal`, `merged main (observed)`, `merged main (observed) · merged source differs from reviewed R7`, `modules r1 · advanced · delegated (s3)`.
-
-**Persistent state words lead a row's reason**, so truncation can't remove them: `duplicate risk · effect · forge reply lost · op9 reconciling`, with the `?` mark on the row.
+- **On the host:** operator remedies, with the failed mark and the host's words (`still running after grace · inspect or restart the sandbox runtime`).
+- **Waiting, not on you:** 28 px dense rows (title, reason, time). A persistent state word leads the reason (`duplicate risk · effect · forge reply lost · op9 reconciling`), with the `?` mark. A delegated request waits here: `delegated (s3) · agent decides`.
+- **Running:** three-line rows.
+  - Line 1, chrome: title, project, and the time running.
+  - Line 2, chrome: role in its hue, then `pass N`.
+  - Line 3: `lastActivity` is agent-reported (RQ-50), so it is **content**: one line of `prose.small` on the 2 px content bar, as sent, ending in `…` when long (`rework: Contract IR 0.3.0 · editing evaluate.go`). Its host timestamp (RQ-33) stays in chrome at the right of that line, in `mono.small` `fg.muted`: `1 m ago`.
+  - **Slot pips:** one per slot, 12 × 5, role hue, plus the words `slots 4/4`.
+  - A cancelled run holding its slot is an outlined pip: `slots 4/4 · 1 held by a cancelled run` (FC-M36).
+- **Done, last 24 h:** collapsed. A row carrying `merged source differs from reviewed R7` stays visible under the header.
 
 **Which group** comes only from the host's `mode` and `nextHumanAction`, never from slice-state heuristics.
 
-**Card:** the five facts for the cursor row (§2.1, in their full forms), meta (`reviews 1 of 2 · downstream 4 · 25 in all`), QUESTION in `prose.small` on a content bar, `coordinator recommends 1`, option titles with a `recommended` chip, and ACTIONS with key chips.
-- NEXT prints `␣n` (§3.9). ACTIONS are the row's own: `⏎ open …`, local keys, `␣ax`.
-- The strip's and card's NEXT never carry the recommendation; it is the coordinator's, not the system's.
-- No field is a bare dash: `no owner · waits for a slot`, `none yet`, `none` or the wait class, `nothing for you yet`.
-- **A delegated request's card** adds one line: the host's sentence `notes you save must be answered before it advances`, then the chip `␣ax` and `cancels the request`. These are the human's two levers (S§6.4 L694, L696).
+**Keys:**
+- The landing cursor sits on the oldest Needs you entry.
+- `j k ⏎ ␣n ]g za K`.
+- `K` opens the handover float, with its own key set (§3.7): `j`/`k` move and the float follows, `⏎` opens, `␣n` opens next, `K`/`q`/`Esc` close.
+- An authority key on a row echoes `open it first · ⏎`.
 
-**Statusline on the queue:** mode, `queue › NEEDS YOU › 2 of 3`, seq, position. The group counts appear on the headers and in the bufferline, nowhere else.
+**Since you left** answers "what changed while I was away" from what the client can observe.
+- **Presence:** you are present while the window is key and visible, the screen awake and unlocked, a key or pointer event arrived within the last 5 min, and the Brief tab is focused.
+- **Recording:** while you are present, each drawn frame updates `seenBrief = {authorityEpoch, seq, host time, rows [{id, group, stateClass}]}` in the device-local store.
+- **The line:** when presence ends, that record is frozen as the return base. On your next return the line reads `Since 13:03 on this device · away 1 h · 1 new for you · 1 on the host · 3 started` (host times), or, when no row moved, `Since 13:03 on this device · away 1 h · nothing changed`. It counts row moves between groups, not every event in between, and stays until you leave again. When you never left, there is no line.
+- **Changed rows** take a `ui.strong` title until the cursor visits them. `za` lists exactly the counted rows, old group → new group.
+- **On this device:** the record is device-local, so what you did on another device isn't known here.
+- **After a restore** (new epoch): `the host was restored · rows as they stand now`, with no counts.
+- **No host requirement:** the line compares two snapshots the client already holds.
 
-**Calm state:** NEEDS YOU empty, and nothing reads as needs-you: no coral tag, diamond or caption. The keyboard's thin coral remains.
+![Calm](mockups/frame-tags-calm.png)
 
-![SC-02 queue](mockups/proto-SC-02-queue-merge-row-ember.png)
-*HTML-prototype render from the package build, with the main-merge row selected. **Not drawn here:** its BLOCKER should read `none · 1 uncertainty`; the statusline should have no group counts; the bufferline no seq or time. [Light](mockups/proto-SC-02-queue-ember-light.png), [800 px](mockups/proto-SC-02-queue-ember-800.png) and [calm](mockups/proto-CALM-queue-ember.png) are **older and wrong** on: the PROPOSALS block and legend (gone), `rework 1/2` (now `reviews 1 of 2`), and a card NEXT of `␣ad` (now `␣n`). Wireframe: [`wireframe-SC-02.png`](wireframes/wireframe-SC-02.png) (older still).*
+### SC-03 Chat, prompt and steering
 
-### SC-03 Chat reader, prompt and steering
-
-**Layout:** the transcript is the main pane, 1171 px, with the prompt docked under it on `surface.bar`. The info pane is the side pane, 340 px: CONVERSATION, STEERING QUEUE, ARTIFACTS IN THIS TURN, OTHER CONVERSATIONS, OUTLINE.
+**Layout:**
+- **Roster** in the left margin: `coordinator`, `a candidate queued 10m`, `b candidate running 3m`, `c candidate queued 10m`, `challenger r1 done 2h`, in role hues. The key never truncates (FC-Q18).
+- **Transcript** on the text axis. **Artifacts** in the right margin, beside the message that produced them.
+- **Composer** at the page foot.
 
 **Messages:**
-- Text column x 331–879 (548 px measure) with a 40 px gutter.
-- Every message's text starts on that one left edge. **There is no per-message author bar.**
-- The header band holds the role icon in the gutter, the name (you steel, reviewers mauve, workers sage, the coordinator neutral `fg`), then model, assignment and time in `ui.small`.
-- The human message alone sits on the 8 % steel band. Only a host `human` role produces it.
-- Gap between messages: 24 px.
+- Header band: role icon in the gutter, name in its hue (you steel, reviewers mauve, workers sage, the coordinator neutral `fg`), and time. Model, assignment, turn and receipt are on `K`.
+- The human message sits on the 8 % steel band; only a host `human` role produces it.
 
 **Tool calls:**
-- Collapsed to one 28 px row on a tint chosen by the host's recorded outcome, with a 1 px `border.strong` edge and **no icon**.
-- Tool name in `mono` `fg`; arguments `fg.alt`, truncated.
-- A fixed 216 px **outcome column**: the outcome word first (`ok`, `exit 1`, `running · 40 s`, `unknown`, `cancelled`), then detail and duration. Failed and unknown words are bold `fg`.
-- `za` expands the output (`mono` 13/20, at most 12 lines, then `… 37 more lines · K`, with `K` a chip). `]t`/`[t` move between tool calls.
-- **Web calls:** the detail is `<provider> · <primary> <primary outcome> · <duration>`, e.g. `ok · Tavily · Exa failed · 2.4 s`, with the primary's outcome in bold `fg`.
-  - `<primary outcome>` is `failed` for a classified failure, or `timed out` for a per-attempt timeout, which the spec calls uncertain and possibly charged (S§6.6 L768). The primary's failure shows even when the fallback succeeds (S§6.6 L767).
-  - **Drop order:** the duration, then the fallback provider's name. The outcome word and the primary's phrase never drop, at any block width. Below a 480 px block the arguments drop first and the tool name then truncates.
-  - `K` and `za` give the class: `failed: allowance`, or `timeout · outcome uncertain · may have been charged`.
-  - **`za` rows:** `provider · observation · outcome · completeness · digest · time`, e.g. `Tavily  o2  ok  partial  9f2c·4e1a  09:31:00`. Outcomes are `ok`, `partial`, `failed: <class>`, `timed out`, `cancelled`, `interrupted`, `not attempted`. A missing digest reads `none`. A refetch of identical bytes shows as a new observation over the same digest (S§6.6 L774, L782).
-  - An expired result handle reads `full result expired · the committed output above stays · a new fetch is a new observation`.
+- One 28 px square row on a tint chosen by the host's recorded outcome, with a 1 px `border.strong` edge and no icon.
+- The outcome word sits at a fixed x, bold when failed or unknown.
+- Two or more adjacent `ok` calls fold to `2 tool calls · ok`. Failed and unknown never fold.
+- `za` expands, `]t`/`[t` move.
+- **Web calls:** the detail is `<provider> · <primary> <primary outcome> · <duration>`, e.g. `ok · Tavily · Exa failed · 2.4 s`. The primary's phrase never drops. `K` and `za` give the class (`failed: allowance`, `timeout · outcome uncertain · may have been charged`) and one row per attempt.
 
-**Code blocks** grow right from x 331 up to x 1155, with a 2 px gold left rule, a gold language label and syntax highlighting. **Inline code** is Iosevka 14 gold on a `surface.code` chip. **References** are salmon Iosevka 500 with a solid underline.
+**Streaming tail:** a `fg.muted` block, never coral.
 
-**Prompt:**
-- Its header says before you send whether `⏎` prompts or steers (`→ steer · turn t42 running · delivers after the current tool call`).
-- `␣cx` interrupts; `Esc` never does.
-- A steer that arrives after the turn ended is refused with `turn_ended`; the client keeps it as a draft and offers it as a follow-up.
+**Composer:**
+- Square, on `surface.side`, with no icon. Its footer, in Insert: `Esc jk leave Insert · ⌘⏎ sends · M-⏎ queue as follow-up`. Its header says before you send whether the send prompts or steers:
+  - `→ steer · turn t42 running · delivers after the current tool call`;
+  - `→ prompt · turn t42 ended · sending starts a new turn`.
+- Pending steers sit directly above it with their delivery state. `␣cx` interrupts; `Esc` never does.
+- A steer that arrives after the turn ended is refused with `turn_ended`; it is kept as a draft and offered as a follow-up.
 
-**Info pane rows are structured:** key · role · state · time (`b · candidate · running · 3m`), from host fields.
-- Whole fields drop from the right.
-- The key (candidate letter, assignment) never truncates.
-- Steering excerpts are `prose.small` on the content bar, clamped to 3 lines.
+**Track row:** the workflow's Track (`◆ Modules r2 awaiting you`), the slot's calm form, the turn state (`turn t42 running · 11 m · 5 tools`), and `◆ ␣n Modules r2`.
 
-![SC-03 chat](mockups/proto-SC-03-chat-ember.png)
-*HTML-prototype render. Also [tool expanded](mockups/proto-SC-03-chat-tool-expanded-ember.png), [candidate, Soft](mockups/proto-SC-03-chat-candidate-ember-soft.png), [Light](mockups/proto-SC-03-chat-ember-light.png), [800 px](mockups/proto-SC-03-chat-ember-800.png). Wireframe: [`wireframe-SC-03.png`](wireframes/wireframe-SC-03.png) (older; it still draws author bars, gutter dots and a gold coordinator).*
+**Follow:** follow is on while the cursor is on the last message. Any upward motion pauses it, `37 new ↓` sits at the column foot, and `G` resumes.
 
-### SC-04 Checkpoint review, annotation and documents
+![Chat](mockups/chat-steer.png)
 
-**Layout:** outline is a side pane (220 px); the document is the main pane (930 px; text x 432–980, gutter x 392–432 with node IDs and note bars); notes are a side pane (360 px).
+### SC-04 Review (absorbs SC-05 diff and SC-06 dispositions)
 
-**Header** (top of the outline column): revision, digest, emission time and author, then whose decision it is, from the request's capture:
-- `your review · captured s2`;
-- or `delegated (s3) · agent decides`, followed by the host's sentence `notes you save must be answered before it advances` and the chip `␣ax` `cancels the request`. `K` shows the agreed scope reference.
+One page for reading an emission, seeing what changed since the previous round, and checking your notes were answered.
 
-A settings change never changes this line: a pending request keeps what it captured (S§6.4 L694).
+**Left margin:**
+- Header: `modules r2`, the digest, the emission time.
+- Outline of nodes with note marks.
+- Round summary: `Previous round r1 · 6 notes · 4 acted on · 1 considered · 1 dismissed · 0 unanswered`.
+- Challenger summary, experiments.
 
-**Outline:** node ID, title and notes. The title gets the full width: 125 px, less any note. A cut title ends in `…`; `]n` reaches its node, whose heading shows it whole.
+**Document:**
+- The emission's own `h1` (20/28 rose, with its rule) and `h2` orange.
+- Node IDs in the gutter; the class word (`observable`, `judgment`, `product`) at the heading row's right end.
+- Change bars in the gutter, `fg.muted`, from host byte ranges, stepped with `]h`.
+- Frontmatter collapsed to one line.
 
-**Node class** (`observable`, `judgment`, `product`) is a word on the node's heading row, at the right end of the heading rule, `ui.small` `fg.muted`. It is client chrome from the manifest, and the heading text wraps before it. The sticky heading band repeats it. The statusline breadcrumb's tail also names it for the cursor's node (`… › r2 › M4 · observable`), and a `K` peek on a reference to a node lists it.
+**Margin notes:**
+- Saved notes (`@7 M2 ¶3 · saved v3 · 14:01`) and local drafts (sage `edit` · `not saved`).
+- From round 2 on, previous-round notes that need a read: `dismissed · read the reason`, `product question`.
+- Each note sits at its anchor's y, or below the previous one. A wide block is an obstacle.
+- A note pushed more than about two lines below its anchor collapses to its header line, unless the cursor is on its anchor; notes pushing the cursor's note collapse too.
+- Under 1180 px notes fold inline under their paragraph.
 
-**Notes:**
-- `c{motion}`, `gc{motion}` or `␣mn` opens an inline composer anchored to the bytes of `r2`. `Esc Esc` keeps the note as a local draft `[+]`, and `:w`/`␣ms` saves the set.
-- The NOTES pane ends with `␣mn note this paragraph · c{motion} any range`. Its empty state reads `No notes on r2 yet` with the same key line and `V…c notes a selection`.
-- Note bodies are `prose.small` on the content bar.
+**Writing a note:**
+- `c{motion}`, `gc{motion}` or `␣mn` opens the composer in the margin at the anchor: 320 px wide, up to 8 lines, footer in Insert `Esc jk leave Insert · stays on this device until you save`.
+- `Esc Esc` keeps a local draft; `:w`/`␣ms` saves the set.
+- First-note hint: a ghost `+ note c` at the cursor line, until 3 notes on this device (FC-K19).
 
-**Intake views** show the fresh fidelity review's verdict as an evidence row before `␣ac` (S§8 Proposal L945).
+**Lenses:**
+- `␣md` shows a side-by-side prose diff r1 → r2 at full stage width, with `]h` between hunks. When the source changes `.gitattributes` or `.gitmodules`, a chrome notice from a host flag says so.
+- `␣om` lists every note of the previous round with the host's disposition; `⏎` the note on r1, `gd` the reference on r2.
 
-**Documents** render Markdown per §5.6:
-- headings with rules;
-- tables and code that grow right from the text column (x 432–1135, never over the gutter);
-- sticky section headings whose band covers the pane and whose text aligns with the column;
-- frontmatter collapsed to one line.
+**Track row:**
+- `✓ Ground — ✓ Seams — ◆ Modules — ◌ Proposal — ◌ Record`, then the slot's calm form `your review · captured s2`, then `␣ar rework` and `␣aa approve`.
+- The two actions have equal, neutral weight.
+- **Delegated:** the stage draws the `bot` icon, never coral, and the slot (rung 4) reads `delegated (s3) · agent decides · saved notes must be answered first`, then the segment `␣ax cancel`.
 
-![SC-04 review](mockups/proto-SC-04-review-ember.png)
-*HTML-prototype render. **Older and wrong on:** class letters and their legend in the outline (now a word on the heading row), the DECISION segment (gone), and bufferline seq and time. Also [note here](mockups/proto-SC-04-note-here-ember.png), [notes empty](mockups/proto-SC-04-notes-empty-ember.png), [Markdown, Light](mockups/proto-SC-04-markdown-ember-light.png), [Markdown with references](mockups/proto-SC-04-markdown-cursor-ember.png), [breakout](mockups/proto-SC-04-markdown-breakout-ember.png), [code](mockups/proto-SC-04-markdown-code-ember.png), [table at 800 px](mockups/proto-SC-04-markdown-table-ember-800.png). Wireframe: [`wireframe-SC-04.png`](wireframes/wireframe-SC-04.png) (older).*
+**Intake views** show the fresh fidelity review's verdict as an evidence row before `␣ac`.
 
-### SC-05 Emission diff r1 → r2
+![Review](mockups/review-notes.png)
 
-Side-by-side prose diff:
-- Each side wraps at words, and only the first line of each source line carries its sign.
-- Hunks are the client's own; the host cites nodes and byte ranges (RQ-32).
-- `]h` moves between hunks; notes anchor on the new side.
-- Diff lines use the `diff.add`/`diff.del` tints with `+`/`−` signs.
-- When the source changes `.gitattributes` or `.gitmodules`, a chrome notice from a host flag says so: `this source changes .gitattributes · inert on the host` (S§7.2 L829). SC-07 carries the same notice.
+![Approve readback](mockups/review-readback-fresh.png)
 
-![SC-05 diff](mockups/proto-SC-05-diff-ember.png)
-*HTML-prototype render. Text grid: [`text-mocks.md` SC-05](wireframes/text-mocks.md).*
+### SC-07 Evidence
 
-### SC-06 Annotation disposition map
-
-Every note of the previous round, mapped to the host's disposition (acted on, considered, dismissed) and to where in the new emission it went.
-- The host enforces completeness.
-- Dismissals and product questions are flagged by their words in the CHECK column (`dismissal: read the reason`, `product question`); no icon, no flag.
-- Host objection text is shown as sent (`C: incidental choice · four executing attempts`); the client never rewrites it.
-- The footer prints `⏎ the note on r1 · gd the reference on r2`. Approving and rework happen on the review, which the strip's `␣n` opens.
-
-![SC-06 dispositions](mockups/proto-SC-06-dispositions-ember.png)
-*HTML-prototype render. Text grid: [`text-mocks.md` SC-06](wireframes/text-mocks.md).*
-
-### SC-07 Evidence and receipts
-
-The **PASS block** comes first, then the obligation × source matrix of host summaries (`K` gives the full text) and findings.
+**Proof chain:** the Track at pass zoom, vertical on the text axis, with marks in the gutter:
 
 ```
-PASS 2 · opened by Watchdog r1 rework · Audit done
-  Audit examined   a6dcb53   standards ✓ · contracts ✓ · 6 findings: 4 fixed, 1 considered, 1 needs you
-  submitted        5712d1a   after fixes and rechecks
-  prepared         3be1f0c   = 5712d1a + target 06500de · checks pass · attempt 2 (target moved once)
-  Watchdog         none yet on 3be1f0c                                                reviews 1 of 2
+✓ Audit examined a6dcb53   standards ✓ · contracts ✓ · 6 findings: 4 fixed, 1 considered, 1 needs you
+✓ submitted      5712d1a   after fixes and rechecks
+✓ prepared       3be1f0c   = 5712d1a + target 06500de · checks pass · attempt 2 (target moved once)
+◌ Watchdog       none yet on 3be1f0c                                                     reviews 1 of 2
 ```
 
-- **The record says what each role saw** (S§6.2.1 L632). The Audit line carries no staleness word or mark, ever: A differing from the submitted source is expected, and no re-Audit follows.
-- The pass line names its cause: Watchdog rework, a preparation conflict, or source/verifier repair. Deterministic retries keep the pass (S§6.2.1 L624).
-- Preparation attempts sit on the `prepared` line and are never drawn or counted as reviews. A churn pause is a typed blockage.
-- The letters A, B and X appear only in `K`; chrome says `Audit examined`, `submitted`, `prepared`.
-- **REPORTS** are grouped by pass: `pass 2 current`, then `pass 1 historical`, which collapses to its header and its Watchdog rounds, because they still count. Each round shows its verdict and a counted mark (`Watchdog r2 · pass · drift · counted`).
-- **FINDINGS** print the host's disposition word: fixed, considered, dismissed, needs-human.
-- Finding ↔ obligation links appear only where the report records one.
-- Gate passes use the olive `checkmark`.
-- **Catalog rows** carry their kind (`executed`, `journey`, `generated · no proof rank`, `human · advisory`), and a maintenance report's `clean`, `changed` or `blocked` per row.
-- **Web evidence** is an item of its own: header `WEB PASSAGE retained for F16`, chrome `partial · Tavily · obs o2 · 10-25 09:31 · 9f2c·4e1a` and `URL → final URL`, with the passage as content on the content bar.
-- **Native checks** that can't run on Linux read `unrun on Linux · see local prompt` with the chip `␣ol`. They are advisory: never passed, never a readiness gap. The advisory line reads `local check (advisory) · prompt 3 for R7` with `␣ol`, or `not available yet: <what is missing>`.
-- At 800 px REPORTS sits under the main column.
+- The record says what each role saw (S§6.2.1 L632). The Audit node never carries staleness (FC-M40).
+- **Findings** follow, with the host's disposition words (`Audit 6 · Watchdog r1 1`). Then the obligation × source matrix, whose Watchdog column reads `none yet` until a round exists.
+- After the matrix: gate receipt, catalog rows with their kind, web passages as content with chrome provenance, native checks (`unrun on Linux · see local prompt`, `␣ol`).
+- **Left margin:** passes (`pass 2 current`, `pass 1 historical` with its counted rounds), obligations, findings.
 
-![SC-07 evidence](mockups/proto-SC-07-pass-lineage-ember.png)
-*HTML-prototype render from the lineage build: the PASS block, REPORTS by pass and the web passage are current. **Not drawn here:** the strip's NEXT should print `␣n`, not `␣ad`, and COMMITMENT should follow §2.1; the bufferline has no seq or time; the INTEGRATION panel's wording is older.*
+![Evidence](mockups/evidence-chain.png)
 
-### SC-08 Assignments and agents (the explorer's Agents tab)
+### SC-08 Agents list
 
-The same table is the main list of SC-16's Agents tab (`␣oa`):
-- `EXECUTING · 4 · slots 4/4`;
-- ON THE HOST, holding the quarantine and any `orphaned · cleanup unresolved` (S§6.3 L640);
-- HELD (ownership kept, no slot);
-- QUEUED.
+The spec's groups:
+- `Executing 4 · slots 4/4 · retained workspaces 7 · 2.3 of 20 GiB`;
+- On the host (quarantine, `orphaned · cleanup unresolved`);
+- Held;
+- Queued.
 
-Each row: icon, slot, assignment `mono`, workflow path, role, state, since. Model and last activity move to the preview. The preview holds the lifecycle list.
+**Rows:** mark, slot, assignment, workflow, role in its hue, state, since. State is the host's execution fact plus its cancellation state.
 
-**State** is the host's execution fact (planned, starting, running, submitted, blocked, recovering; S§6.1 L590) plus its cancellation state (cancel-requested, quiescing, canceled, quarantined). "Idle between turns" is a conversation state and shows in chat only. The statusline reads `4 executing · slots 4/4`, never a bare ratio.
-
-![Agents tab](mockups/proto-SC-16-agents-ember.png)
-*HTML-prototype render; older wording. Also [the standalone table](mockups/proto-SC-08-agents-ember.png).*
+**Peek:** last activity as content on the 2 px content bar with its host time in chrome (as on the Brief), the lifecycle, and the host's remedy (`your move, on the host: inspect or restart the sandbox runtime · a replacement needs a new generation`). A row is needs-you when the assignment waits on you, and then takes the solid head.
 
 ### SC-09 Decision with readback
 
-**Layout:** decision text is the main pane (text x 311–859); the context column is a side pane (380 px).
-- The question, then EVIDENCE bullets with references.
-- OPTIONS: each title in Etoile 15/24 700 on its own line, its body below, a `recommended` outlined chip, and the cursor bar on the current option. No diamond.
-- YOUR ANSWER: a local draft.
+**Layout:**
+- The question as content `h1`, then its lede.
+- Provenance: `blocking decision Q1 · from implement report r1 · 10-25 09:52 · waiting 2d 4h · blocks 25 · reviews 1 of 2`.
+- Evidence bullets with references.
+- Options under `coordinator recommends 1`. Each has its number, title (14/20 600), body (14/21) and a square `recommended` tag; the cursor is the band with the 2 px bar.
+- Your answer, as a composer: header `your answer · local · editing`, footer in Insert `Esc jk leave Insert · stays on this device until you answer`. The Track row's `◆ ␣ad Answer Q1` sends it with the option.
+- **Margins:** left `This Slice` and `History`; right related references (`gd`).
 
-**Readback:** 1512 × 200 from y 732, growing to fit; as in §3.5. When it opens, the pane scrolls so the cursor option, title and body, sits above it.
+**Track row:** `◆ ␣ad Answer Q1`, solid coral. The readback names the option: `answer option 1 · accept the current dispositions · your note, 2 lines, sent with the answer`.
 
-**Recovery decisions** use this view. For an uncertain external effect the host offers a decision (`kind: recovery`) with options such as recheck, associate a verified object, authorize another attempt, or accept a stated remaining risk. The header names the operation, the side pane holds its facts, BINDS includes the observations, and each option kind has its own fixed NOT text.
+**Recovery decisions** (`kind: recovery`) use this view. The operation's facts are in the margin, BINDS includes the observations, and each option kind has its own fixed NOT text.
 
-![SC-09 decision readback](mockups/proto-SC-09-decision-readback-ember.png)
-*HTML-prototype render. Also [decision](mockups/proto-SC-09-decision-ember.png), [approve readback, Light](mockups/proto-SC-09-approve-readback-ember-light.png), [stale readback](mockups/proto-SC-09-stale-readback-ember.png). **Older and wrong on the authority surface:** BINDS must render every field the host sends, including `request C2 · captured s2 · human`, and a missing value reads `none`, never a dash. The stale readback's `d` is a chip and its key bar reads `confirm disabled`. Wireframe: [`wireframe-SC-09.png`](wireframes/wireframe-SC-09.png) (older; it draws a coral fill, but the readback is grey).*
+![Decision](mockups/decision-q1.png)
 
-### SC-10 Reconnect, stale and unknown-outcome states
+### SC-10 States
 
-| State | What the user sees |
+| State | What shows |
 |---|---|
-| **a. Offline** | `○ offline 2m` in the bufferline; one notice line (`OFFLINE since … · showing seq … · 2 local drafts safe · host writes and decisions disabled`, then the chip `␣rc` `retry`); the statusline reads `seq N · as of T`. `:w` is not sent and there is no offline queue |
-| **a′. Fresh snapshot** | After a reconnect or a sequence gap, one echo: `<cause> → fresh snapshot at seq N · drafts, marks, jumplist and pins kept`. Changes stay *not yet acknowledged* until `]d`/`d`. The "what changed" list ends with `complete through seq N` or `partial · more on the host` |
-| **b. `stale_basis`** | "your approval was NOT recorded · nothing was approved"; YOU SENT vs HOST HAS, in display forms (`r2`, `v3`, `pol3`); what changed; permitted next actions |
-| **c. Unknown outcome** | The outbox (`␣ru`): `[?]` entries read `no reply · the host may have accepted it`. The chip line below prints `␣rq` `query the receipt (never executes)` and `␣rt` `retry with the same ID and bytes`. Other decisions on that object are disabled until it settles. `not_found` is not proof it wasn't accepted. `command_conflict` reads "the host already has a different request under this ID · nothing new was done · open the object and act again" |
-| **d. Uncertain external effect** | The operation view: kind (`create draft proposal PR`, `update PR summary`, `publish source`, `mark proposal ready`), attempts, observations, `blocks: publishing and ready promotion for this proposal · local work and integration continue`, safe choices, and the `DECIDE` line, which opens the host's recovery decision in SC-09 with `⏎`. A sticky duplicate risk reads `? duplicate risk · since … · stays until the host records a resolution` here, and leads the row elsewhere. Only a host-recorded resolution clears it |
-| **e. Revoked** | The client stops retrying; drafts are kept on the device; the view is frozen |
-| **f. Unsupported** | `unsupported by this client (v0.3)` for unknown resource kinds, with decisions on that object disabled. An unknown *basis field name* never disables a command. A protocol frame version the client can't read gives one whole-client state: `this client (v0.3) is too old for the host's protocol · update it`, with no resnapshot loop |
-| **i. Can't show this** | A read's outcome, shown where the content would be: `content missing on the host · <ref> <digest>`; `the host can't read this record's format (schema N)`; `not visible to this device`. Decisions on it are disabled, and it never falls back to another revision (S§5.3.1 L497; S§10 L1246) |
+| **a. Offline** | Statusline `○ offline 1 m · seq 18356 · as of 14:06:58`. Notice band at the top of the stage: `Offline since 14:06:59 · showing seq 18356 · 1 local draft safe · saving and deciding are off` with `␣rc retry`. Actions show `· off`; the save state drops its `:w` chip; `:w` echoes `not sent, offline`. No offline queue |
+| **b. Fresh snapshot** | Echo: `reconnected after 1m22s → fresh snapshot at seq 18364 · drafts, marks, jumplist and pins kept`. Changes stay unacknowledged (`[!]`, basis token `]d`). The "what changed" list ends with `complete through seq N` or `partial · more on the host` |
+| **c. `stale_basis`** | The float becomes the reply: `Your approval was NOT recorded. Nothing was approved.` You sent beside host has, one row per field, in display forms; what changed; the note. Its key line: `⏎ open @11 (acknowledges it)`, then the words `approve or rework again after you read @11` with no chips, because the authority keys don't resolve in the float. The draft is kept |
+| **d. Unknown outcome** | Track-row slot (rung 1): `? rework request · no reply since 14:09:30`, with both segments `· off`. The outbox float (`␣ru`): `no reply · the host may have accepted it · other decisions on modules r2 are off until this settles`, with `␣rq query the receipt (never executes)` and `␣rt retry with the same ID and bytes`. `not_found` is not proof it wasn't accepted. `command_conflict` reads `the host already has a different request under this ID · nothing new was done · open the object and act again` |
+| **e. Uncertain external effect** | The operation view: Track `✓ admitted 12:40 — ? outcome unknown — ◌ resolved`, slot `? duplicate risk since 12:40 · auto-recheck 14:15`; kind `create draft proposal PR`; observations; what it blocks and what continues; safe choices; and the Decide row, whose `⏎` opens the host's recovery decision (SC-09). A sticky duplicate risk stays until the host records a resolution |
+| **f. Revoked** | Notice band, frozen view, statusline `✗ revoked 14:20:05 · seq 18402 · as of 14:20:05`, segments `· off`. The client stops retrying; drafts are kept on the device |
+| **g. Unsupported** | `unsupported by this client (v0.3)` for unknown resource kinds, shown as metadata with decisions on that object off. An unknown basis field name never disables a command. An unreadable protocol version gives one whole-client state: `this client (v0.3) is too old for the host's protocol · update it` |
+| **i. Can't show** | Where the content would be: `content missing on the host · <ref> <digest>`, `the host can't read this record's format (schema N)`, or `not visible to this device`. Decisions on it are off; it never falls back to another revision |
 
-![SC-10c outbox](mockups/proto-SC-10c-outbox-unknown-ember.png)
-*HTML-prototype render; the note's wording is older. Also [offline](mockups/proto-SC-10a-offline-ember.png) (older: it marks every strip value stale, and the spec has one notice), [stale basis](mockups/proto-SC-10b-stale-basis-ember.png), [revoked](mockups/proto-SC-10e-revoked-ember.png). Text grids: [`text-mocks.md` SC-10](wireframes/text-mocks.md).*
-
-![SC-10d operation view](mockups/proto-SC-10d-op9-recovery-ember.png)
-*HTML-prototype render from the readiness build: blocks line, safe choices and DECIDE line are current. **Not drawn here:** the DECIDE line prints only `⏎` `open` (no `then ␣ad`), and the title should read `create draft proposal PR`.*
+![Stale basis reply](mockups/states-stale-basis.png)
 
 ### SC-10h Host restored from a backup
 
-Two states in sequence (§10.1). All copy uses plain words: no epoch, deduplication or cutoff. Each line stays within the text column, and the message appears **once**, in a notice under the strip; the echo shows only the key hint.
+The message appears once, in a notice band on the Brief, in plain words.
 
 1. **Not paired.**
-   - **Bufferline:** `homeserver · restored · pair this device again`, stale mark.
-   - **Notice:** "The host was restored from a backup and no longer knows this device. Ask the host's admin to pair it again. It reconnects by itself after that. Nothing on this device is lost: your 2 drafts and 1 unsent request stay here."
-   - **Echo:** `␣rc try now`.
+   - Host segment: `restored · pair this device again`.
+   - Notice: "The host was restored from a backup and no longer knows this device. Ask the host's admin to pair it again. It reconnects by itself after that. Nothing on this device is lost: your drafts and unsent requests stay here." The notice carries `␣rc try now`; the echo row prints no chip.
 2. **Catching up.**
-   - **Bufferline:** `homeserver · catching up after a restore`. The seq shown is older than before, and is accepted because the host was restored.
-   - **Notice:** "The host was restored from a backup, so recent changes may be missing. It is catching up. Until it finishes you can read and draft, but not save or decide."
-   - **Outbox:** "This request may or may not have reached the host before the restore. It can't be sent again as it was. When the host is ready, open modules r2 and ask again if you still need to." The entry's note reads `can't be sent again after a restore`. `␣rt` is refused; `␣rq` asks the host.
+   - Host segment: `catching up after a restore`. The seq shown may be older than before; it is accepted because the epoch changed.
+   - Notice: "The host was restored from a backup, so recent changes may be missing. It is catching up. Until it finishes you can read and draft, but not save or decide."
+   - Outbox entries read `can't be sent again after a restore`. `␣rt` is refused; `␣rq` asks the host, and the outbox float's key line prints it.
+   - The since-line reads `the host was restored · rows as they stand now`.
 
-![SC-10h catching up](mockups/proto-SC-10h-restore-reconciling-ember.png)
-*HTML-prototype render, made **before** the copy above was rewritten: it still shows internal terms and a repeated message. Also [not paired](mockups/proto-SC-10h-restore-refused-ember.png), [Light](mockups/proto-SC-10h-restore-reconciling-ember-light.png). Current copy: [`layout.md` SC-10h](wireframes/layout.md), [`text-mocks.md` SC-10h](wireframes/text-mocks.md).*
+### SC-11 Palette and pickers
 
-### SC-11 Picker (`␣.` find any object)
+The bottom float, with input on the last line:
+- `␣;` commands (also `⌘K`), `␣.` any object with a kind prefix (`slice:`, `doc:`, `agent:`), `:` the ex line.
+- Results show their keys; unavailable commands are listed with the reason.
+- The preview renders content as content.
+- The theme picker (`␣ht`) uses the same float and switches the variant live.
 
-The user's fzf-lua layout:
-- bottom-docked, 30 % height, list left and preview right;
-- a typed prefix filters by kind;
-- `C-l` sends the results to the explorer as a scope.
-
-The theme picker (`␣ht`) uses the same float and switches the variant live.
-
-![SC-11 picker](mockups/proto-SC-11-picker-ember.png)
-*HTML-prototype render. Also [theme picker](mockups/proto-SC-11-theme-picker-ember.png).*
+![Palette](mockups/frame-cmdline.png)
 
 ### SC-12 which-key
 
-A display-only panel above the statusline:
-- the `␣a` header reads "authorize — every command reads back its exact basis before it binds", once, with no footer;
-- authority leaves carry the diamond **outline** in `fg.alt`;
-- the root's head reads `display only · decides nothing`, then the chip `Esc` `closes`.
+The bottom float, display-only (§3.3).
 
-![SC-12 which-key](mockups/proto-SC-12-whichkey-authorize-ember.png)
-*HTML-prototype render. Also [root, Soft](mockups/proto-SC-12-whichkey-ember-soft.png). Wireframe: [`wireframe-SC-12.png`](wireframes/wireframe-SC-12.png).*
+![which-key under ␣a](mockups/frame-leader-a.png)
 
 ### SC-13 Hint mode (`gs`)
 
-Labels sit at the start of each target's text after its state icon, shift right to avoid overlap, and are frozen at `gs`. A label moves the cursor; it never acts. Labels are chips in context `hint`, and the echo prints the chip `Esc` `cancels`.
-
-![SC-13 hints](mockups/proto-SC-13-hints-ember-light.png)
-*HTML-prototype render, Light.*
+Labels sit at the start of each target's text after its state icon, shift right to avoid overlap, and are frozen at `gs`. A label moves the cursor and never acts. The statusline reads `hints · 16 targets · a label moves there and never acts`; `Esc` cancels, and nothing prints it as a chip.
 
 ### SC-14 Mermaid diagrams
 
-Diagrams render on open (`␣tm` shows the source).
-- **Width:** a figure spans from the text column's left edge to the pane's right content edge (703 px in SC-04). It is drawn at natural size when it fits.
-- **Scaling:** otherwise it is scaled down while every label stays ≥ 12 px (scale ≥ 0.86 for 14 px edge labels, ≥ 0.92 for 13 px fragment labels).
-- **Wider still:** a 96 px **"wider than view"** panel: 20 px `diagram` icon, caption, natural width, "labels would be N px here", node and edge counts, `⏎ full view`. Never a clipped picture.
-- **Full view** is a float over the window (§3.7).
-- **Parse errors** show the source with `stop-sign--filled` and the line and column.
-- **Tokens:**
-  - nodes `surface.bar` with `border.strong`;
-  - text `fg`;
-  - edges `fg.muted`;
-  - edge labels `fg.alt`;
-  - the frame `surface.code`.
-
-![SC-14 diagram](mockups/proto-SC-14-mermaid-ember.png)
-*HTML-prototype render with **mermaid.js as a stand-in for Pele**. Also [scaled](mockups/proto-SC-14-mermaid-scaled-ember.png), [wider than view, 800 px](mockups/proto-SC-14-mermaid-wider-ember-800.png), [full view](mockups/proto-SC-14-mermaid-full-ember.png). Wireframe: [`wireframe-SC-14.png`](wireframes/wireframe-SC-14.png) (older; its widths and centring are superseded).*
+Diagrams render in place with rune-mermaid; `␣tm` shows the source.
+- Styles (`style`, `classDef`, `class`, `:::class`, `linkStyle`, `rect` tints) are stripped before layout.
+- A figure spans from the text column's left edge to the pane's right content edge, at natural size when it fits, otherwise scaled down while every label stays ≥ 12 px.
+- Wider still: a "wider than view" panel with natural width, label size, node and edge counts and `⏎ full view`. Never a clipped picture.
+- A parse error shows the source with the line and column.
 
 ### SC-15 Reading layout
 
-The reading rules on one page (§5.5):
-- the measure as a maximum, centred in a wide pane;
-- word wrap with atomic IDs;
-- a long URL breaks with a continuation mark;
-- blocks that grow right and scroll with the overflow cue.
+The measure as a maximum, centred in a wide pane; native word wrap with IDs, key names, paths and inline code kept whole; blocks that grow right and scroll with the clip cue (§5).
 
-![SC-15 reading](mockups/proto-SC-15-reading-ember-light.png)
-*HTML-prototype render, Light. Also [800 px](mockups/proto-SC-15-reading-800-ember.png).*
+### SC-16 Slices and Proposals lists
 
-### SC-16 Slice explorer
+**Slices** (`␣os`):
+- Title `Slices 3 of 72`; filter words (`needs human × · awaiting review ×`) and `saved: review-queue`; `Filter` (`␣sf`, Slices only).
+- A row whose wait class is `human` takes the solid needs-you head when the cursor is on it.
+- 28 px dense rows with hairlines, grouped by proposal in dependency order: mark, slice, status, waiting, blocks.
+- Hint line: `69 open slices hidden by the filter · :filter clear shows them · ]g next group`.
+- **Filter float** (`␣sf`): a scope tree with small multiples, states with counts in scope, and saved filters, with `x` and `X`.
+- **Empty state:** names the scope and filter, shows matches elsewhere, prints `:filter clear`, and keeps the needs-you count. Count tags never follow a filter (FC-R07).
 
-**Layout:** sidebar 280 px (minimum 240), the filtered list 750 px (main pane), and the preview 480 px (the SC-02 card).
+**Proposals** (`␣oP`): two-line rows of 52 px, exactly two lines at every width.
+- **Line 1:** name, then the progress strip (the Slices' small multiples, or for a phased workflow the shape and the host's path: `design · ✓ Ground ✓ Seams ◆ Modules ◌ Proposal ◌ Record`), counts printed only when non-zero, and status.
+- **Line 2:** `[? duplicate risk · ]ready: <eligibility>[ (<first gap>)] · forge: <state>`.
+  - `ready:` is eligibility only.
+  - The forge field carries promotion and the observed forge (`draft #41 · promoting (for R7)`, `ready #44`, `open #41`, `PR unknown`).
+  - Narrow widths drop whole parts. The line never wraps.
+- A legend sits under the rows; superseded is drawn `−`. `⏎` opens the Proposal page.
+- A row is needs-you when it is an eligible package whose merge you owe (`◆1 merge main · on the forge`); with the cursor on it, it takes the solid head.
 
-**Sidebar:**
-- Tabs: **Slices** · Proposals · Agents.
-- **SCOPE tree:** All open → project → proposal, with counts that match the filter. Each proposal name gets its own line, and its small-multiple strip sits on a second line.
-- **SAVED** filters, kept on this device.
-- **STATES:** a multi-select filter with counts in scope. The order and labels come from the host's vocabulary; its state icons are drawn in `fg.alt` (controls, not live states).
+**Peek** (both lists, ≥ 1180 px): the cursor row's handover. On Proposals this is the four readiness views and the Slice counts. `K` opens the float instead, and the peek gives way while it is open.
 
-**List:** the queue's row anatomy, grouped by proposal, in dependency order. Filter chips sit above it; the hint line sits below it.
-
-**Hint line:** `69 open slices hidden by the filter`, then the chip `:filter clear` `shows them`, then the chip `]g` `next group`. It is a key line: `]g next group` drops first.
-
-**Empty state:** names the scope and filter, shows matches elsewhere, and prints the chip `:filter clear`. It keeps the needs-you count. The bufferline count never follows a filter.
-
-**Proposals tab: the one home for proposal progress.** Rows are exactly two lines (52 px) at every width. A legend of the marks sits under the rows, with the diamond in `fg.alt`, because the small multiples are the only unlabelled glyphs.
-- **Line 1:** name, progress strip, counts, status. The progress strip is the slice small multiples or, for a workflow with phases, the shape word and the host's path: `design · Ground ✓ Seams ✓ Modules ◆ Proposal · Record ·`, `bug · Ground ✓ Contract ◆ Implement · Review ·`. Phases come only from the host's path, so a shortened path shows no Seams or Modules. When the full strip doesn't fit it becomes `design · Modules ◆ · 3 of 5`. It is never cut.
-- **Line 2, readiness:** `[? duplicate risk · ]ready: <eligibility>[ (<first blocker>)] · forge: <state>`.
-  - **`<eligibility>`** is eligibility only: `not eligible`, `eligible`, `eligible (promotion unsupported)`.
-  - **`<first blocker>`** is the first of the host's ordered gaps, in its short form of at most 18 characters: `29 not integrated`, `◷ diverged`, `R12 unpublished`, `PR unknown`, `evidence missing`, `evidence stale`.
-  - **`forge: <state>`** carries promotion and the observed forge: `none`, `draft #41`, `draft #41 · promoting`, `draft #41 · promotion unknown`, `ready #41`, `ready #41 (for R5)`, `open #41` (a non-draft PR on a no-draft forge; never `ready`), `closed #41`, `PR unknown`. A state on an older basis keeps its qualifier on the same line.
-  - **Together, as S§9.3 L1134 requires:** `ready: not eligible (R8 unpublished) · forge: draft #41 · promoting (for R7)`.
-  - **After an observed main merge,** the line is `merged main (observed)`, plus `· merged source differs from reviewed R7` when it does. That gap is automated evidence, never a NEEDS YOU item.
-  - **Narrow widths drop whole parts,** in order: the forge field while it agrees with eligibility; the blocker; the `ready:` label. A promotion in flight on an ineligible source counts as disagreeing. The sticky risk leads the line, so it is never what gets cut; it, the eligibility word, the merge line and a disagreeing forge field never drop. The line never wraps.
-- **Card READINESS holds the spec's four views,** one labelled field each, with every gap, the lag and the host's free text:
-  - **ELIGIBLE:** `eligible · 41/41 integrated`, or every gap;
-  - **PUBLISHED:** `R5 of R7 · 12m behind`, or `diverged: the remote moved`;
-  - **PROMOTION:** `none`, `pending for R7`, `unknown`, `observed for R41`, `unsupported`;
-  - **ON THE FORGE:** `ready #135 · observed 2m ago`, or `not observed yet`.
-
-![SC-16 explorer](mockups/proto-SC-16-slices-ember.png)
-*HTML-prototype render; its hint line is older. Also [Proposals tab with readiness](mockups/proto-SC-16-proposals-readiness-ember.png) (package build; current for line 2), [empty](mockups/proto-SC-16-empty-ember.png), [calm, Light](mockups/proto-SC-16-calm-ember-light.png). Wireframe: [`wireframe-SC-16.png`](wireframes/wireframe-SC-16.png) (older).*
+![Slices](mockups/list-slices.png)
 
 ### SC-17 Project settings
 
-One reader view per project (`␣op`, context `settings`). It holds checkpoint routing and review policy, and it shows the basis before any authority key.
+One reader view per project (`␣op`, context `settings`), on the text axis. It holds checkpoint routing and review policy and shows the basis before any authority key.
 
 ```
-CHECKPOINT ROUTING · render · s3 · by you 10-31 09:12
+Checkpoint routing · render · s3 · by you 10-21 09:12
   seams      delegated        modules   delegated        proposal  human · always
   applies to new checkpoint requests · pending ones keep what they captured
-  PENDING   seams C1 · captured s2 · human
-REVIEW POLICY · default pol3 · for new workflows
+  pending   seams C1 · captured s2 · human
+Review policy · default pol3 · for new workflows
   completed-review limit 2 · minimum evidence rank tests · reviewer diversity different family
-  WORKFLOWS
-    render-host          pol2 (bind1)
-    minos/native-engine  pol3 (bind2)
-HISTORY  s3 by you 10-31 · pol3 by you 10-30 · s2 by local admin import 10-20
+  workflows    render-host pol3 (bind1) · minos/native-engine pol3 (bind2)
+History  s3 by you 10-21 · pol3 by you 10-20 · s2 by local admin import 10-12
 ```
 
-- `j`/`k` step field by field. The field under the cursor is bold.
-- **`␣at`** on `seams` or `modules` toggles human ↔ delegated. `proposal` is always human, so the key echoes `the proposal field is not editable · final acceptance is always yours`.
-  - **Readback:** BINDS names the settings revision shown and the field (`settings s2 · field modules human → delegated`). PENDING lists the requests that keep their capture. Host EFFECT: `new Modules requests capture delegated`. Host NOT: `does not reroute pending requests · final acceptance stays yours`.
-- **`␣ap`** on REVIEW POLICY opens the policy as a local draft in the editor (`Esc Esc` keeps it). `␣ap` again reads back old → new in a CHANGES row and saves a new default revision. Host NOT: `active workflows keep their binding until you adopt · counts and findings stay`.
-- **`␣ap`** on a WORKFLOWS row adopts the current default for that workflow. Host EFFECT names the pending decisions that go stale; NOT: `counts and findings stay`. `:policy adopt pol2` adopts another revision.
-- **Stale or concurrent changes** refuse through the SC-10b panel; the draft is kept. **`d` on a STALE policy readback** shows the change, acknowledges it and rebases the draft field by field: fields you edited keep your values, others take the new revision's, and a field both changed shows `[≠]` with both values. `y` stays disabled until you edit that field. The readback then reads back old → new.
-- **Key budgets:** T27 (routing) ≤ 8 keys, `␣op j ␣at y`. T27b (policy save and adopt) ≤ 21 command keys from anywhere.
-
-![SC-17 settings](mockups/proto-SC-17-settings-ember.png)
-*HTML-prototype render from the settings build. Also [routing readback with three pending](mockups/proto-SC-17-routing-readback-ember.png). The frame around it is older (see §2).*
+- `j`/`k` step field by field.
+- **`␣at`** on seams or modules toggles human ↔ delegated. Proposal is always human (`the proposal field is not editable · final acceptance is always yours`). The readback BINDS the settings revision and field; host EFFECT and NOT name the pending requests that keep their capture.
+- **`␣ap`** on Review policy opens a local draft, then reads back old → new. `␣ap` on a workflows row adopts the current default.
+- **Stale or concurrent changes** refuse through the stale reply. `d` on a STALE policy readback rebases the draft field by field; a field both sides changed shows `[≠]` with both values, and `y` stays disabled until you edit it.
+- **Key budgets:** T27 ≤ 8 keys (`␣op j ␣at y`); T27b ≤ 21 command keys.
 
 ### SC-18 Local-verification prompt
 
-An advisory text artifact for a human's local agent (S§5.2.2 L357–386). `␣ol` opens the newest prompt for the current proposal in the reader, with no notes pane. Its body renders as content. The chrome header comes from the artifact's fields:
+An advisory text artifact for a human's local agent (S§5.2.2 L357–386). `␣ol` opens the newest prompt for the current proposal in the reader, with no notes margin. The chrome header comes from the artifact's fields:
 
 ```
-LOCAL CHECK PROMPT 3 · advisory · nothing waits on this
-  source   R7 3be1f0c · published as PR #41 head          (or: not yet published)
+Local check prompt 3 · advisory · nothing waits on this
+  source   R7 7f2c815 · published as PR #41 head
   gaps     macOS framework behaviour · desktop interaction
   missing  documented macOS signing prerequisite
 ```
 
-- The key line prints `gg␣yG` `copies it` and `:request-prompt` `makes a new one for the current source`. Yank copies the artifact's source bytes, never rendered text.
-- **`:request-prompt`** (write tier) sends the proposal, source and basis shown. It has no readback, because it binds no authority. A stale basis refuses through SC-10b.
-- **Regeneration creates a new artifact.** An older prompt says `for an older source (R5) · current is R7`, and older prompts are listed under HISTORY.
-- **Advisory:** it is never a NEEDS YOU row, a blocker or a flag. Results come back as ordinary messages; there is no import or attestation.
-- **Where it is announced:** one advisory line on SC-07, SC-19 and the proposal card (SC-07 gives the wording).
+- Key line: `gg␣yG copies it`, `:request-prompt makes a new one for the current source`. Yank copies the artifact's source bytes.
+- An older prompt says `for an older source (R5) · current is R7`.
+- Advisory: never a Needs you row, a blocker or a flag.
 
-No render exists; this view reuses the SC-04 reader.
+### SC-19 Proposal page (absorbs the merge package and the Proposals card)
 
-### SC-19 Merge package
+"Is this proposal on track?" and "may I merge?" are one page at different times.
+- **Head:** content `h1` (the proposal title) and a subtitle with the intake and acceptance (`skills/fast-full-test-suite · intake K·5b20 · 8 Slices · accepted by you 10-14 11:05`).
+- **Track row:** one tick per Slice, then the primary action.
+  - **When the host's next action is `mergeMain`:** `◆ ␣n Merge main · on the forge` (solid coral), which opens the URL confirm in the float: `open https://github.com/vicrdguez/skills/pull/44 ? y/n`. No machine merges main.
+  - **Not eligible:** no merge action; NEXT is neutral (`◆ ␣n Answer Q1`) when its target is elsewhere.
+- **Body, in order,** all above the fold at 1512:
+  1. **What could stop you,** counted by kind (`findings 1 · uncertainty 1`), never pooled. Not eligible: the gaps lead (`gaps 2 · …`).
+  2. **Source:** `R4 2c91e07 canonical · published · PR #44 ready`.
+  3. **Checks:** `7/7 Slices · required checks pass on their prepared source · weakest rank tests (minimum tests)`.
+  4. **Readiness:** always four rows (eligible, published, promotion, on the forge), never one bar (FC-M49).
+  5. **Advisory:** `suggested · not run`, with no mark, and the local prompt line. Missing advisory observations are never a gap.
+  6. **Slices,** in dependency order: `<name>  K·xxxx  pass 2  Watchdog r2 pass on <digest>  2 fixed`. Columns sit next to the name; `Audit examined` and per-Slice R are on `K`. `⏎` opens that Slice's evidence.
+- **After the host observes the merge,** NEXT reads `nothing for you yet`. A merged source that differs from the reviewed one adds an evidence-gap row to Source (S§9.3 L1136).
 
-**The human's last read before the only irreversible act** (S§9.3 L1136; Fig. 11 L1167–1168). `⏎` and `␣n` on the `merge main · on the forge` row open it; so does `␣oe` from the Proposals tab. `C-o` returns.
-
-**Layout:** one reader column with the proposal-scope strip (§2.1). What could stop you comes first, the Slices last. All sections above SLICES are on the first screen at 1512 and 800.
-
-| Section | Holds |
-|---|---|
-| **SOURCE** | `canonical R41 58b3c69 · published R41 58b3c69 · PR #135 ready` |
-| **CHECKS** | One line, directly under SOURCE: `41/41 Slices · required checks pass on their prepared source · weakest rank tests (minimum tests)` |
-| **READINESS** | ELIGIBLE, PUBLISHED, PROMOTION, ON THE FORGE (SC-16) |
-| **REMAINING FINDINGS** n | ID, severity, Slice, the finding |
-| **DEVIATIONS** n | ID, Slice, what differs from the Contract and in which pass |
-| **UNCERTAINTIES** n | ID with the `?` mark, then the host's words |
-| **ADVISORY CHECKS** n | `macOS native test suite  suggested · not run`, with **no** stale, failed or coral mark and not counted among findings or uncertainties, then the local prompt line. Missing advisory observations are never a gap (S§9.3 L1136) |
-| **SLICES** n | Dependency order; one row each |
-
-**Slice rows:** `<name>  K·40cc  pass 2  Audit examined 7bf2606  Watchdog r2 pass on 4026042  2 fixed`. `⏎` opens that Slice's SC-07 and `C-o` returns. **Colour:** they are the quietest list, because a package repeats them dozens of times. The name is `fg`, the role name takes its hue, `K·40cc` and digests are orange, the verdict `pass` is olive, `2 fixed` and higher is `fg`, and everything else on the row is `fg.muted`.
-- **Columns sit next to the name:** the name column is as wide as the longest name, and the values follow it directly, not at the pane's right edge. A name is never cut.
-- **K is on the row,** because mapping commitments to source is the package's first duty.
-- **Per-Slice R is not on the row.** Its tree is exactly the reviewed source the row already prints (S§9.3 L1122), so it would be a second digest for the same content. It is in that Slice's SC-07 and in `K`.
-- If a pane can't hold the row, `Audit examined …` drops whole first.
-
-**NEXT** prints `◆ merge main · on the forge`, with the chip `␣n`. Here `␣n` opens the URL confirm with the host's `url` (`open https://… ? y/n`): `y` opens it, `n` doesn't. No machine merges main.
-
-**After the host observes the merge,** NEXT reads `nothing for you yet`, and a merged source that differs from the reviewed one adds an evidence-gap row to SOURCE (S§9.2 L1072).
-
-![SC-19 package](mockups/proto-SC-19-package-ember.png)
-*HTML-prototype render from the package build. [800 px](mockups/proto-SC-19-package-ember-800.png). **Not drawn here:** the CHECKS line; BLOCKER should read `none · 1 uncertainty`; Slice columns should sit next to the name, with K; the bufferline has no seq or time, and a live statusline no host time.*
+![Proposal page](mockups/proposal-eligible.png)
 
 ---
 
 ## 5. Visual language
 
-Full rules: [`reference/visual-language.md`](reference/visual-language.md). Every token is in [`ember-tokens.json`](ember-tokens.json).
+Full rules: [`reference/visual-language.md`](reference/visual-language.md). Tokens: [`ember-tokens.json`](ember-tokens.json).
 
-### 5.1 Theme variants
+### 5.1 Variants and surfaces
 
-- **Config:** `ui.theme` in `~/.config/render/client.toml`: `ember` (default), `ember-soft`, `ember-light`, or `auto` (macOS appearance chooses `ember` or `ember-light`).
-- **Live switch:** `␣ht` switches within one frame; type and layout don't change.
-- **Diagrams on a switch:** cached SVGs are re-coloured and re-rasterised, visible ones at once and off-screen ones lazily.
+- `ui.theme` in `~/.config/render/client.toml`: `ember` (default), `ember-soft`, `ember-light`, or `auto`.
+- `␣ht` switches live within one frame (rune `Tx::instant()`); type and layout don't change.
 
-### 5.2 Surfaces and text
-
-Main panes use the surface with the most contrast against text (`surface.read`): the darkest in the dark variants, the lightest in Light. Side panes are one step quieter.
-
-| Token | Ember (dark, default) | Ember Soft | Ember Light |
+| Token | Ember | Ember Soft | Ember Light |
 |---|---|---|---|
-| `surface.read`: main panes | `#151412` | `#1c1b19` | `#f0e8d8` |
-| `surface.side`: side panes, floats, echo | `#1c1b19` | `#242320` | `#e6dac4` |
-| `surface.bar`: bufferline, strip, statusline, chips | `#252422` | `#2c2b28` | `#d8ccb0` |
-| `surface.cursor.read` | `#242320` | `#2a2927` | `#e6dac4` |
-| `surface.cursor.side` | `#2e2d2a` | `#353430` | `#ddd0b8` |
+| `surface.read`: stage, active tab | `#151412` | `#1c1b19` | `#f0e8d8` |
+| `surface.side`: tab bar, echo row, composer | `#1c1b19` | `#242320` | `#e6dac4` |
+| `surface.bar`: statusline, chips | `#252422` | `#2c2b28` | `#d8ccb0` |
+| `surface.cursor.read`: cursor band | `#242320` | `#2a2927` | `#e6dac4` |
+| `surface.cursor.side`: mode badge | `#2e2d2a` | `#353430` | `#ddd0b8` |
 | `surface.code` | `#242320` | `#2a2927` | `#e6dac4` |
-| `surface.readback` | `#252422` | `#2c2b28` | `#ddd0b8` |
-| `surface.selection` | `#3e3c38` | `#444240` | `#b8ac96` |
-| `border.subtle` | `#2e2d2a` | `#353430` | `#cec2a8` |
+| `surface.readback`: bottom float | `#252422` | `#2c2b28` | `#ddd0b8` |
+| `border.subtle`: hairlines | `#2e2d2a` | `#353430` | `#cec2a8` |
 | `border.strong` | `#3e3c38` | `#444240` | `#b8ac96` |
-| `rule.focus` | `#908a7e` | `#908a7e` | `#787060` |
-| `fg` | `#d8d0c0` | `#d8d0c0` | `#282418` |
-| `fg.alt` | `#b0a898` | `#b0a898` | `#585040` |
-| `fg.muted` (nudged to ≥ 4.5:1 everywhere) | `#999489` | `#a19c92` | `#5e5646` |
+| `fg` / `fg.alt` / `fg.muted` | `#d8d0c0` / `#b0a898` / `#999489` | same, muted `#a19c92` | `#282418` / `#585040` / `#5e5646` |
 
-**The cursor row** is the pane's cursor surface plus a 2 px coral bar. In the reading area, the cursor surface equals `surface.code`, so on code lines and inline-code chips the bar is the cursor cue.
+### 5.2 Colour roles
 
-### 5.3 Colour roles
+Each hue names one family, in chrome, on short fields whose type the client knows from a host field.
 
-Every mockup predates this colour system ([`mockups/README.md`](mockups/README.md)). The full rules and every computed pair are in [`reference/visual-language.md`](reference/visual-language.md) §5.3–§5.8.
+| Hue | Means |
+|---|---|
+| **Coral** | what needs you; where your keyboard is (§2.1) |
+| **Steel** | a label; the `you` role |
+| **Orange** | literal machine text: IDs, digests, revisions, key chips, tab numbers |
+| **Gold** | code as a thing: inline code, the code block's rule and language label |
+| **Salmon** | you can go there: references and links, in content only |
+| **Sage** | where it lives (project, host name); the worker role |
+| **Mauve** | independent review: every reviewer's role name |
+| **Olive** | it passed: short typed outcome words |
+| **Rose** | it failed: short typed outcome words |
 
-**Each hue names one family.** In chrome, a piece of text keeps its family's hue wherever the client draws it, on short fields whose type the client knows from a host field.
+- **Titles and headings:**
+  - Page titles: rose 22/28, no rule.
+  - Content `h1`: rose 20/28 with a 1 px rule.
+  - `h2`: orange.
+  - `h3` and below: `fg`. `strong` steel; `em` neutral italic.
+- **Rose titles:** a failed mark always has its icon and word, and a title has neither (FC-S22).
+- **State marks** always carry their icon: needs you (coral filled diamond), failed (rose `stop-sign--filled`), stale (steel `time`), unknown (mauve `help`), local (sage `edit`), ok (olive `checkmark`).
+- **Stays neutral:** body prose, host sentences, row titles, field values, timestamps, counts, surfaces.
+- **The colour budget:**
+  1. Solid coral only as §2.1 lists.
+  2. Thin coral follows the keyboard.
+  3. One hue, one family, in chrome.
+  4. Neutral leads.
+  5. Olive and rose label nothing in chrome except outcomes, plus the rose titles above.
+  6. Tints are block-level only and paired with a word.
+  7. Syntax colour lives only inside code blocks.
 
-| Hue | Means | Token | Ember (dark, default) | Ember Soft | Ember Light |
-|---|---|---|---|---|---|
-| **Steel** | a label: captions, field and strip labels, `SAVE`; the `you` role | `kind.you` | `#8097a6` | `#8a9fac` | `#375a78` |
-| **Orange** | literal machine text: chrome IDs, digests, revisions, key chips, tab numbers | `kind.literal` | `#c09058` | `#c2935c` | `#784e27` |
-| **Gold** | code as a thing: inline code, the code frame's left rule and language label | `kind.code` | `#c8b468` | `#c8b468` | `#65561a` |
-| **Salmon** | you can go there: references and links, in content only | `kind.link` | `#c09080` | `#c09181` | `#844949` |
-| | on hover, or under the document cursor | `kind.link_active` | `#eb9a7f` | `#eb9a7f` | `#913c28` |
-| **Sage** | where it lives: project, host name, first breadcrumb segment; the worker role | `kind.worker` | `#80a090` | `#84a393` | `#335f51` |
-| **Mauve** | independent review: every reviewer's role name (the word separates `Audit` from `Watchdog`) | `kind.reviewer` | `#a38e9b` | `#aa96a2` | `#615361` |
-| **Olive** | it passed: short typed outcome words | `text.ok` | `#8b996a` | `#94a175` | `#445f2c` |
-| **Rose** | it failed: short typed outcome words | `text.failed` | `#b98787` | `#bf9191` | `#814747` |
+### 5.3 Tints
 
-The coordinator is neutral (`fg`). A role name takes its hue wherever it is a host field.
+Tool tints by host outcome:
 
-**State marks** always carry their icon:
-
-| Token | Ember (dark, default) | Ember Soft | Ember Light |
-|---|---|---|---|
-| needs you (`state.attn`, coral) | `#e08060` | `#e08060` | `#af482e` |
-| failed (`state.blocked`, rose) | `#b07878` | `#b07878` | `#905050` |
-| stale (`state.stale`, steel) | `#7890a0` | `#7890a0` | `#3a6080` |
-| unknown (`state.unknown`, mauve) | `#988090` | `#988090` | `#706070` |
-| local (`state.local`, sage) | `#80a090` | `#80a090` | `#386858` |
-| ok (`state.ok`, olive) | `#8a9868` | `#8a9868` | `#4a6830` |
-
-**In content,** after the user's Ember setup: `h1` rose (`content.h1`, the `text.failed` values), `h2` orange (`content.h2`, the `kind.literal` values), `h3` and below `fg`, `strong` steel (`content.strong`, the `kind.you` values), `em` neutral italic. Size, weight and rule carry rank.
-
-**Stays neutral:** body prose, host sentences (colour needs a type, and parsing a sentence for one would assert what the host didn't say), row titles and field values, timestamps, counts, surfaces.
-
-**The flag: what needs you.** A decision that is yours now, from a host wait, in chrome lanes only:
-- the bufferline **count tag**: a solid block 34 × 16 px, radius 2, with `◆` and the number knocked out in `surface.read`, on every screen while the count is above 0. Rose `✗` and mauve `?` counts use the same tag, so coral, the diamond and first place are what say "needs you";
-- the **filled coral diamond** alone, with no background, on rows, strip and card NEXT, and REVISIONS;
-- the `NEEDS YOU` caption and count in coral text, only on `surface.read`;
-- while a readback is open, its verb tag and the solid `READBACK` mode badge.
-
-Legends, which-key and filters draw the diamond in `fg.alt`. Operator remedies get the failed octagon, not the diamond.
-
-**Thin coral: where your keyboard is.** Six elements at most 2 px, one of each per window, moving only on your keys: the caret, the cursor-row bar, the focused pane's top rule, the active tab's underline, the mode badge's border and the current search match's outline. The caret is allowed in text you are typing. What is excluded is **agent content**, which never draws coral.
-
-**The colour budget (no rainbow):**
-1. Solid coral only for a decision that is yours now, in chrome lanes. The count tag is the only coral block outside an open readback.
-2. Thin coral follows the keyboard. The `NEEDS YOU` caption is the one stated exception.
-3. One hue, one family, in chrome. Stated exceptions in content: `h1`, `h2` and `strong`.
-4. Neutral leads: accent text stays the minority of a pane's text. Its share is reported, with no limit.
-5. Olive and rose label nothing in chrome, only outcomes. Rose in content `h1` is the stated exception: a failed mark always has its icon and word, so it doesn't rely on hue.
-6. Tints are block-level only and paired with a word.
-7. Syntax colour lives only inside code frames, with no coral and no background.
-
-### 5.4 Tints and tool-call blocks
-
-| Token | Ember (dark, default) | Ember Soft | Ember Light |
-|---|---|---|---|
-| tool ok (olive hue) | `#212615` | `#292d1b` | `#cfd5b6` |
-| tool failed (rose hue) | `#321f1e` | `#3a2625` | `#e8cbc1` |
-| tool unknown (mauve hue) | `#2a2226` | `#32292d` | `#dacfcb` |
-| tool running (neutral) | `#2e2d2a` | `#353430` | `#d8ccb0` |
-| tool cancelled (neutral) | `#1c1b19` | `#242320` | `#e6dac4` |
-| human message band (steel 8 %) | `#1d1e1d` | `#232424` | `#e1ddd1` |
-| diff add | `#27281f` | `#2d2e25` | `#d7d5bf` |
-| diff del | `#2c2321` | `#322927` | `#e2d1c4` |
-
-**How the tool tints are built.** Each takes the hue of a 36 % accent blend, held at one lightness (`base2` in the dark variants, `bg_alt` in Light). They are "subtle but noticeable" (the user), and text contrast is kept.
-
-**Visibility targets** (ΔE2000; measured equal on pixels; [`evidence.md`](evidence.md) §1.3):
-- ok and failed ≥ 10 from `surface.read`, and ≥ 16 from each other;
-- unknown ≥ 7 from `surface.read`, and ≥ 5 from ok and failed;
-- running ≥ 3 from `surface.code` and ≥ 6 from `surface.read`;
-- a quiet cap of ≤ 14 from `surface.read`.
-
-**Tool blocks** come **only from host tool-call records** with an `outcome` field. They sit between messages, never inside one.
-- No icon; the outcome word carries the outcome for colour-blind readers.
-- A running block is told from a code block by shape: a code block has the gold rule and a language label.
-- Tints change instantly when an outcome arrives.
-
-### 5.5 Typography
-
-**Two families,** both v34.9.1 and SIL OFL 1.1, bundled and checked at startup:
-- **Iosevka Etoile** for chrome and prose;
-- **Iosevka** for code, IDs, keys, key chips, the command line and every fixed numeric column.
-
-Etoile has a 0.520 em x-height, tabular digits, and one advance across weights; Iosevka is exactly 0.5 em (measured, [`evidence.md`](evidence.md) §1.2). Ligatures and contextual alternates are switched off explicitly (Iosevka's default build has them on, measured), and zoom is global only.
-
-| Token | Family | Size / line | Weight | Use |
+| Outcome | Ember | Soft | Light | Word |
 |---|---|---|---|---|
-| `ui.label` | Etoile | 11/14 | 700 | UPPERCASE, +0.06 em: captions, strip labels, field names |
-| `ui.small` | Etoile | 12/16 | 400 | metadata, header bands |
-| `ui` | Etoile | 13/18 | 400 | chrome text, list rows, statusline |
-| `ui.strong` | Etoile | 13/18 | 600 | pane titles, author names, unseen rows (rows are otherwise regular) |
-| `ui.title` | Etoile | 15/20 | 600 | card and view titles |
-| `mono.small` | Iosevka | 12/16 | 500 | key chips, hints, numbers |
-| `mono` | Iosevka | 14/20 | 400 | code blocks, diffs, digests |
-| `prose` | Etoile | **15/24** | 400 | body |
-| `prose.small` | Etoile | 15/24 | 400 | side-pane content, on the content bar |
-| `prose.table` | Etoile | 14/22 | 400 (header 700) | table cells |
-| `prose.h1` … `h6` | Etoile | 24/32, 20/28, 17/26, 15/24, 13/20, 13/20 | 700 (h6 600 italic) | h1 rose and h2 orange, each with a rule under; h3 and below `fg`; h5 uppercase |
-| `prose.code`, `prose.ref` | Iosevka | 14/24 | 400 / 500 | inline code, references |
+| ok | `#212615` | `#292d1b` | `#cfd5b6` | `ok` |
+| failed | `#321f1e` | `#3a2625` | `#e8cbc1` | **bold** `exit 1` |
+| unknown | `#2a2226` | `#32292d` | `#dacfcb` | **bold** `unknown` |
+| running | `#2e2d2a` | `#353430` | `#d8ccb0` | `running · 40 s` |
+| cancelled | `surface.side` | | | `cancelled` |
 
-**Spacing:** 2, 4, 8, 12, 16, 24, 32 px. **Radius:** 0 for panes, 2 px for chips, blocks and tool calls, 4 px for floats.
+Also: the human band (8 % steel) and diff add/del (15 %). The word, at a fixed position, carries the outcome for colour-blind readers.
 
-**Elevation:**
-- floats use `surface.side`, a 1 px `border.strong` edge and a soft shadow;
-- the readback uses `surface.readback`, a 2 px coral top rule and a stronger shadow;
-- no translucency or blur.
+### 5.4 Type
+
+Two families, both v34.9.1, SIL OFL 1.1, bundled: **Iosevka Etoile** for chrome and prose, **Iosevka** for code, IDs, keys and numeric columns. Ligatures and contextual alternates off.
+
+| Token | Size / line | Weight | Use |
+|---|---|---|---|
+| `page.title` | 22/28 | 700 | Brief and list titles; rose, count coral; no rule |
+| `prose.h1` | 20/28 | 700 | Content `h1` and work-view titles; rose; 1 px rule |
+| `prose.h2` | 17/24 | 600 | orange |
+| `prose.h3` / `h4` | 15/22 / 14/20 | 600 | `fg`; h4 has `space.6` above. h5 and h6 are 13/19 600 in `fg.alt`, uppercase and italic |
+| `move` | 14/20 | 600 | Brief entry heads |
+| `group` | 13/18 | 600 | group heads, steel |
+| `prose` | 14/21 | 400 | body |
+| `prose.small` | 13/19 | 400 | content on the 2 px content bar: the Brief's ask, margin notes |
+| `ui` | 13/18 | 400 | rows, tabs |
+| `ui.small` | 12/16 | 400 | bylines, Track, statusline, echo |
+| `mono` | 13/20 | 400 | code blocks, diffs |
+| `mono.small` | 12/16 | 400 | times, digests in rows |
+| `key` | 11.5/16 | 500 | chips (orange) |
+| `badge` | 11/14 | 600, +0.08 em | mode badge, readback verb tag (uppercase) |
+
+**Spacing:** 2, 4, 8, 12, 16, 24, 32.
+
+**Radii:** 0 everywhere, except 2 px on Render-drawn key chips, count tags and hint labels. In-text pills take rune's fixed metrics (§5.6).
+
+**Elevation:** the bottom float casts an upward shadow, drawn with rune's `box_shadow` at a negative y; tooltips are square on `surface.side` with a 1 px `border.strong` and a small shadow.
+
+**Heights:** tab bar 36, Track row 40, statusline 26, echo row 26, dense row 28.
+
+**Separators:** straight 1 px `border.subtle` hairlines between rows and entries.
+
+### 5.5 Action segments
+
+- Square and key-first: `␣aa approve`, `◆ ␣n Modules r2`.
+- **Neutral:** 1 px `border.strong`.
+- **The primary at the NEXT target, one act:** solid coral, text knocked out.
+- **Disabled by host or connection state:** a dashed 1 px `border.subtle` edge (rune's `border_dash`), `fg.muted`, no chip, and `· off` after the verb; the reason is on `K`.
+- **While any bottom float is open, or in Insert:** `fg.muted` and inert, in their usual shape.
 
 ### 5.6 Reading layout and Markdown
 
-**Measure:** `measure.prose` = 68 average characters of the prose face, computed at startup from a bundled reference paragraph, giving **548 px** at 15 px. It is a maximum, and the column is centred in wider panes. Composers are measure + 32 px wide and grow to 8 lines.
-
-**Wrapping:**
-- Prose breaks only at spaces, with no justification and no hyphenation.
-- IDs, key names and inline code up to 40 characters never break.
-- A token longer than the measure breaks after `/ - _ . ·`, with a continuation mark in the gutter.
-- **The renderer never inserts characters into content.**
-
-**Blocks that don't wrap** (code, tables, diagrams) **grow right** from the text column's left edge up to the pane's right content edge, never over the gutter. Beyond that they scroll (`zl`/`zh`; `0` resets), and each clipped edge shows a 32 px fade, a 2 px `fg.muted` edge rule and a 16 px caret at the vertical middle. `K` opens a block full width.
-
-**Markdown** is CommonMark + GFM (tables, task lists, strikethrough, autolinks, footnotes), GFM alerts, YAML frontmatter and `mermaid` fences. Raw HTML, math and wiki links render as literal text.
+- **Measure:** `measure.prose` = 80 × the mean advance of the bundled reference paragraph at 14 px, floored to 4 px: **600 px**. It is a maximum; the column is centred in wider panes.
+- **Wrapping:** prose uses rune's native wrap (UAX #14).
+  - **One pill rule.** Inline code is a drawn pill. IDs, paths and key names in prose and chrome stay whole as transparent pills, but only when they contain an internal break opportunity (`-`, `/`, `.`); a token without one stays whole anyway. Up to 40 characters. This is the default proposed in Q45, which stays open until the SC-04 Markdown test confirms it. Breaks after hyphens in words are fine.
+  - A token longer than the measure wraps anywhere inside the measure. **The renderer never inserts characters.**
+- **Pills:** in-text pills use rune's fixed metrics at the pin (about 7 px a side at 15 px, radius 5 pt). This is a **recorded deviation** from the square chip, because rune's `PillStyle` sets only colours and icon. Inline code is gold on a `surface.code` pill.
+- **Blocks that don't wrap** (code, tables, diagrams) grow right from the text column's left edge up to the pane's right content edge, never over the gutter. Beyond that they scroll, and each clipped edge shows the cue: a 32 px fade to the block's surface, a 2 px `fg.muted` edge rule and a caret.
+- **Code blocks** are Render's own element: `surface.code`, a 2 px gold left rule, a gold language label, Iosevka 13/20, no wrap. They are coloured by rune-kit's scanners through an Ember map: colour only, no per-token bold or italic. TOML, Elixir, Markdown fences, unlabelled fences and other languages render plain, with no guessing.
+- **Markdown** is CommonMark + GFM (tables, task lists, strikethrough, autolinks, footnotes), GFM alerts, YAML frontmatter and `mermaid` fences. Raw HTML, math and wiki links render as literal text.
 
 | Block | Rendering |
 |---|---|
 | Paragraph | `prose`, 12 px between paragraphs |
-| Headings | the type scale; two cues per level; `h1` rose, `h2` orange, `h3` and below `fg` |
-| Lists | markers `• ◦ ▪` in `fg.muted`, 24 px per level, hanging indent |
-| Task lists | 14 px boxes in the marker column, `fg.muted`/`fg.alt`, never olive and never in the gutter |
-| Tables | header rule, row rules, no vertical rules; cells wrap at words; columns ≤ min(measure, 480 px); grow right, then scroll |
-| Blockquote | a 3 px `border.strong` bar on every line; Etoile italic `fg.alt` |
-| Alerts | the quote shape plus the kind word; **no icon, no hue** |
-| Frontmatter | one client-drawn line, `frontmatter · 6 fields`, then the chip `za` `expands`, the width of the text column |
-| Code | `surface.code`, a 2 px gold rule, a gold language label, `mono` 14/20, syntax-highlighted |
-| Inline code | gold on a `surface.code` chip |
-| Links | prose face, salmon with a dotted underline in the same colour, `kind.link_active` on hover or under the cursor; the echo shows the URL; `gx` confirms |
-| Images | not loaded in v1; a placeholder line with alt text and host |
-| Footnotes | superscript markers; `gd` jumps to the note |
-| Sticky headings | the band covers the pane; text and rule align with the column |
+| Headings | `h1` rose with a rule, `h2` orange, `h3` and below `fg`; two cues per level |
+| Lists | markers `• ◦ ▪` in `fg.muted`, 24 px per level |
+| Tables | header rule, row rules, no vertical rules; cells wrap at words; grow right, then scroll |
+| Blockquote | a 3 px `border.strong` bar; Etoile italic `fg.alt` |
+| Alerts | the quote shape plus the kind word; no icon, no hue |
+| Frontmatter | one client-drawn line, `frontmatter · 6 fields`, with `za` |
+| Links | prose face, salmon, solid underline, `kind.link_active` under the cursor; `gx` confirms |
+| Images | not loaded; a placeholder with alt text and host |
 
-**Streaming:** completed blocks freeze, and only the trailing block re-parses. An unclosed fence renders as code so far.
+**Streaming:** completed blocks freeze; the kit re-parses from the start of the last top-level block. An unclosed fence renders as code so far.
 
 ### 5.7 References
 
-A token in content that **exactly matches a label in the host's reference index** for its workflow scope (RQ-42) renders as a reference:
-- **resolved:** Iosevka 500 salmon with a **solid** underline, and no chip; `kind.link_active` on hover or under the document cursor;
-- **dangling** (in the index, but no target): `fg.muted` with a **dashed** underline. `gd` stays put and the echo gives the host's reason.
+A token in content that exactly matches a label in the host's reference index (RQ-42) renders as a reference:
+- **resolved:** Iosevka 500 salmon with a solid underline;
+- **dangling:** Iosevka `fg.muted` with a solid underline, where colour tells it from a resolved one. `gd` stays put and the echo gives the host's reason.
 
-**Matching:**
-- exact and case-sensitive, on whole tokens;
-- ASCII plus `·` and `§` (the display-form characters), so homoglyphs never match;
-- never inside code or tool output, and never in drafts.
+Matching is exact and case-sensitive on whole tokens, ASCII plus `·` and `§`. It never happens inside code, tool output or drafts.
 
-A Markdown link keeps the link style whatever its text. Reference, inline code and link differ by **shape**:
-- a reference has a solid underline and no chip;
-- inline code has a chip and no underline;
-- a link is in the prose face with a dotted underline.
+A Markdown link keeps the link style whatever its text. Reference, inline code and link differ by shape:
+- a reference is Iosevka with an underline;
+- inline code is a pill;
+- a link is in the prose face.
 
-A reference claims only that the label is a real object that `gd` opens, never that the sentence around it is true.
+### 5.8 Icons, marks and motion
 
-### 5.8 Code highlighting
-
-- **Engine:** tree-sitter (`tree-sitter-highlight` 0.27.1).
-- **Colours:** Ember's own nvim capture → colour mapping, with three changes so agent content never draws coral:
-  - keywords are orange bold;
-  - Ember's other coral uses (builtins, macros, tags, labels, diff deletions) are rose;
-  - constants are mauve.
-- **Comments** use `fg.muted` italic.
-- **Contrast:** every syntax token is ≥ 4.5:1 on `surface.code` in all three variants (the `syntax` block of [`ember-tokens.json`](ember-tokens.json)).
-- **Text only:** syntax colour is text colour and weight, never a background. A `diff` fence colours its text, never line backgrounds.
-
-**The 12 v1 languages:**
-
-| Language | Language | Language |
-|---|---|---|
-| rust | typescript + tsx | javascript |
-| json | toml | yaml |
-| bash | sql | python |
-| markdown | diff | elixir (`tree-sitter-elixir` 0.3.5, Apache-2.0: ship its notice) |
-
-Others (fish, go, nix, lua, c, css, html, dockerfile, odin) are the target set: one crate and one alias row each, when needed. **Unlabelled or unknown fences render plain; no guessing.** Highlighting runs off the UI thread; code paints plain first, and only colour and weight change.
-
-### 5.9 Icons and marks
-
-IBM Carbon (`@carbon/icons` 11.90.0, Apache-2.0), monochrome SVG in token colours. Sizes: 16 px in rows, tabs, strip and gutter; 12 px in small multiples; 20 px for empty states. Icons supplement labels, never replace them.
-
-| State | Icon | Colour | TUI |
-|---|---|---|---|
-| needs your decision | ◆ filled diamond (custom glyph) | coral | `◆` |
-| failed / quarantined / refused | `stop-sign--filled` | rose | `✗` |
-| unknown | `help` | mauve | `?` |
-| running | `play--filled--alt` | `fg.alt` | `▸` |
-| waiting | `hourglass` | `fg.muted` | `#` |
-| rework | `renew` | `fg.muted` | `↺` |
-| ready | dot (custom glyph) | olive | `·` |
-| done | `checkmark` | olive | `✓` |
-| superseded | `subtract` | `fg.muted` | `×` |
-| stale / unacknowledged · local draft · conflict · suspicious | `time` · `edit` · `compare` · `warning--alt` | steel · sage · rose · `fg.muted` | `[!] [+] [≠] ⟨!⟩` |
-
-- **Failed vs unknown at a glance.** At 16 px the octagon reads close to a filled disc. The difference from unknown is **filled against outline-with-`?`**: measured silhouette distance 0.736, and it survives every CVD simulation.
+- **Icons:** IBM Carbon 11.90.0 (Apache-2.0), drawn with rune's `icon()` and tinted. Sizes are 14–16 px in rows, tabs and gutter, and 12 px in small multiples.
+- **Failed and unknown** are told apart at a glance by shape: filled octagon against outline-with-`?`.
 - **Role icons:** `user` (you, steel), `bot` (agents; the coordinator's in `fg.alt`), `bare-metal-server` (host).
+- **Motion:** a 600 ms state-change tint on a row (rows never move) and a 90 ms fade for floats. The readback's coral rule is at full opacity from its first frame. Reduced Motion sets both to 0.
 
-### 5.10 Motion
+### 5.9 Chrome versus content
 
-Two meaningful motions:
-- a 600 ms state-change tint on a row (rows never move);
-- 90 ms fades for floats and the readback, whose coral rule is at full opacity from the first frame.
-
-Reduced Motion (or `ui.motion = "off"`) sets both to 0.
-
-### 5.11 Chrome versus content (anti-spoofing)
-
-1. **Lanes.** Gutter, bars, strip, statusline, echo, floats, hint labels, message header bands and tool-call blocks are chrome. Content renders only in content containers.
-2. **Typography.** Content cannot choose a face, size, tracking or colour. Content never takes the chrome caption style (11–12 px uppercase, +0.06 em). Side-pane content sits on the 2 px content bar, which chrome never has.
-3. **Icons, tags and tints are chrome.** Code blocks are always neutral. Emoji stay glyphs inside content. Images are not loaded. Content never draws coral or a background.
-4. **Author, role, the human band, tool outcomes and references** come only from host records. Hue isn't provenance: bold content shares steel with the `you` name, and a content `h1` shares rose with a failed mark, so the header band, role icon and a mark's icon and word carry the proof.
+1. **Lanes.** Tab bar, Track row, statusline, echo row, floats, hint labels, message header bands, tool-call rows, the Brief's heads, bylines and labelled values are chrome. Content renders only in content containers: documents, messages, the content bar.
+2. **Typography.** Content can't choose a face, size or colour. Content sits on the 2 px content bar wherever it appears outside a document or transcript.
+3. **Icons, chips, fills and tints are chrome.** Code blocks are always neutral. Emoji stay glyphs inside content. Images are not loaded.
+4. **Provenance.** Author, role, the human band, tool outcomes, references and readbacks come only from host records. Hue isn't provenance.
 5. **Inert rendering.** No HTML. Bidi, zero-width and control characters show as visible escapes. Lookalike IDs are not linked and get `warning--alt` in the gutter.
-6. **Size caps:** a content block clips at 2,000 lines.
-7. **Client-drawn lines in a content lane** (the frontmatter summary, `… 37 more lines`, the diagram's `⏎ full view`, the class word on a heading row) are chrome. Content can't produce a chip or any of these.
+6. **Titles.** A content `h1` always carries its rule and sits in the text column; the Brief's chrome title has none, sits at the Brief's origin, and carries a coral count when not calm (FC-S23).
+7. **Size cap:** a content block clips at 2,000 lines.
 
 ---
 
 ## 6. Copy rules
 
-- **No bare dash in a field.** Empty values are words built from host nulls and wait classes: `no owner · waits for a slot`, `none yet`, `none`, `nothing for you yet`. In BINDS: `intake none`, or a digest alone when there is no revision. A dash stays only as a value in numeric columns.
-- **One state, one number** wherever it appears (§2). Work counts always name their unit: `RUNNING · 2 · slots 4/4`, `4 executing · slots 4/4`, never a bare `4/4`.
+- **No bare dash in a field.** Empty values are words: `no owner · waits for a slot`, `none yet`, `none`, `nothing for you yet`. In BINDS: `intake none`.
+- **One state, one number.** Work counts name their unit: `Running 4 · slots 4/4`, `4 executing · slots 4/4`, never a bare `4/4`.
 - **Plurals by count:** `1 line`, `2 lines`.
 - **Revision labels** use their display form (`r2`, `v3`, `pol3`, `bind1`, `s3`, `R7`, `K·40cc`).
-- **Role words** come from the host's role label, never a guess.
+- **Role words** come from the host's role label.
 - **The echo never repeats** what the statusline or a notice already shows.
-- **Plain words for failures** the user must act on. Internal terms (epoch, deduplication, cutoff, `recovery-reconciling`) go only in `K` details.
-- **A time that hasn't happened isn't printed:** an unobserved forge reads `not observed yet`, never `observed — ago`.
-- **Host-written text** (EFFECT, NOT, reasons, objections) and **authored IDs** are shown as sent, and never rewritten on display, so what is shown matches what `K`, `y` and citations return. NOT is a fixed set per command type and option kind. Host text never names a client key.
-- **An invitation is written `<keys> <action>`,** with the keys in chips (§3.9). All chrome copy lives in one table, which KL19 lints.
-- **Words for the delivery model:** chrome says `Audit examined`, `submitted`, `prepared`, `reviews N of L`, `your review`, `delegated`, `on the forge`, `duplicate risk`. The letters A, B, X and terms like `passRef` or `association` go only in `K` details.
-- **The recommendation is attributed:** `coordinator recommends 1`. It never appears in the strip's NEXT.
-- **Text never truncates IDs.** Paths truncate as `…/leaf`. Structured rows drop whole fields, never characters of the key. Column captions wrap rather than truncate.
+- **Plain words for failures** the user must act on. Internal terms (epoch, deduplication, cutoff) go only in `K` details.
+- **A time that hasn't happened isn't printed:** `not observed yet`.
+- **Host-written text and authored IDs** are shown as sent, never rewritten. NOT is a fixed set per command type and option kind. Host text never names a client key.
+- **Agent-written text** (a decision's question, a coordinator sentence) is content. On the Brief it appears only on the content bar.
+- **A host value** shown outside its usual place keeps its label: `blocker none · 1 uncertainty`.
+- **`lastActivity`** prints as sent, with its own host time.
+- **An invitation is written `<keys> <action>`,** with the keys in chips. All chrome copy lives in one table, which KL19 lints.
+- **A disabled action** reads `<verb> · off`, with the reason on `K`.
+- **An action names the act, not the option:** `Answer Q1`, `Merge main · on the forge`.
+- **Delivery-model words** in chrome: `Audit examined`, `submitted`, `prepared`, `reviews N of L`, `your review`, `delegated`, `on the forge`, `duplicate risk`.
+- **The recommendation is attributed:** `coordinator recommends 1`. It never appears in NEXT.
+- **Text never truncates IDs.** Paths truncate as `…/leaf`. Rows drop whole fields; column captions don't truncate.
+- **The since-line says what it measures:** `Since 13:03 on this device · away 1 h · …`.
 
 ---
 
 ## 7. Client architecture
 
 ```
- wire ──► HostAdapter ──Inbound──► [queue] ──frame boundary──► reduce(state, msg) ──► ClientState ──► layout ──► paint
+ wire ──► HostAdapter ──Inbound──► [queue] ──frame boundary──► reduce(state, msg) ──► ClientState ──► view ──► rune layout ──► draw
              ▲                                                                              │
-             └──── Outbound ◄── envelope(cmd, pin) ◄── keys (immediate, against the last painted frame)
-          local store (device only): drafts, marks, jumplist, read bases, last-seen, outbox
+             └──── Outbound ◄── envelope(cmd, pin) ◄── keys (resolved against the last drawn frame)
+          local store (device only): drafts, marks, jumplist, read bases, last-seen seqs, seenBrief, outbox
 ```
 
-- **HostAdapter** is the only code that knows wire shapes. A second wire dialect changed only adapter files (measured).
-  - It can `connect`, `subscribe(scope)` (one multiplexed stream when the host offers it), `send`, `query_receipt` (never executes), `fetch` (artifacts by digest and range, message pages, facts since a seq) and `poll`.
-  - **Inbound:** `Snapshot` and `Update` (each with scope, `authority_epoch`, ledger seq, scope seq; snapshots also with host status), `Delta`, `Receipt`, `StaleBasis`, `Fetched`, `Unknown` (adapter-generated on timeout), `Revoked`, `CredentialRefused`, `Disconnected`.
-- **Frame boundary:** host messages are queued and applied between frames. Keys are handled at once against the last painted frame (§3.4).
-- **reduce** is pure: `(ClientState, Inbound | LocalEvent) → ClientState`. The update model is resource-granular typed upserts plus the facts each update commits. Replaying snapshot + updates equals a fresh snapshot (measured).
-- **ClientState:**
-  - `conn` and the host status (`authorityEpoch`, `hostMode`, backup block);
-  - scope cursors per authority epoch;
-  - the attention index, agents, slices (explorer only), workflows and conversations;
-  - the reference index per scope;
-  - immutable artifacts cached by digest;
-  - the outbox (command ID, epoch, envelope bytes, state);
-  - unsupported notes.
-- **Layout** is the client's own block renderer on GPUI's text system. It applies §5.5–§5.6 and exposes every line's source offsets and every element's box, so the reading checks run on real layout output.
-- **The local store** holds device-only state that snapshots never overwrite: drafts (a journal written on every edit pause), marks, jumplist, read bases, last-seen seqs and the outbox. There is no offline command queue and no resume cursor; reconnects take a fresh snapshot, and "what changed" comes from facts since a seq.
+- **HostAdapter** is the only code that knows wire shapes. It can `connect`, `subscribe(scope)`, `send`, `query_receipt` (never executes), `fetch` and `poll`.
+- **reduce** is pure: `(ClientState, Inbound | LocalEvent) → ClientState`. Replaying snapshot + updates equals a fresh snapshot.
+- **The view** is built on rune, using rune-kit's Markdown and rune-mermaid. Render writes:
+  - its prose paragraphs with pills;
+  - its code-block element;
+  - margin-note placement;
+  - the key-pinning copy in `poll`;
+  - the modal controller.
+- **Reading checks** run on rune's own layout: AccessKit line runs and `--tree` element boxes ([`reference/stack.md`](reference/stack.md) §3).
+- **The local store** holds device-only state that snapshots never overwrite: drafts (a journal written on every edit pause), marks, jumplist, read bases, last-seen seqs, `seenBrief` (§SC-02) and the outbox. There is no offline command queue and no resume cursor; reconnects take a fresh snapshot.
+- **Presence** for "since you left" comes from window key and visibility, screen sleep and lock, and input events. Where rune doesn't expose occlusion, key-window plus input idle is enough (open-questions.md).
 
 ---
 
@@ -1038,134 +940,124 @@ Reduced Motion (or `ui.motion = "off"`) sets both to 0.
 
 Full detail: [`reference/stack.md`](reference/stack.md).
 
-| Part | Decision |
-|---|---|
-| UI framework | **GPUI**, one pinned snapshot. **No GPUI Kit**: its TextView measured 35–145× too slow for streaming |
-| Own components | Block renderer with Render's own line breaker (GPUI's wrapper is not used for prose); virtual list keyed by message ID; a modal (vim) controller shared by all editors; text input with IME handled before keys (Render's guard) |
-| Markdown | **`pulldown-cmark` 0.13.5** (MIT): tables, footnotes, strikethrough, task lists, metadata blocks, GFM alert kinds (verify at pin; else a small alert pre-pass). Completed blocks frozen, trailing block re-parsed; non-streaming documents parsed whole |
-| Highlighting | **tree-sitter** + `tree-sitter-highlight` 0.27.1; the 12 v1 grammars (§5.8); on the parse worker |
-| Mermaid | **Pele in the client** via `rquickjs` (about 230 lines plus a 730 KB bundle; C compiler at build time, which tree-sitter needs anyway). The pipeline is `source → strip_styles → Pele (fontSize 16, Etoile measurer) → substitute palette tokens → usvg/resvg (font_size 16, font_family "Iosevka Etoile", bundled fonts loaded) → GPUI image`. SVG is cached per source digest. The host serves source only |
-| Fonts | Iosevka and Iosevka Etoile 34.9.1 TTC, bundled. Collections split at build time; only the faces Render uses are registered. Startup check: each role resolves to its bundled face (by glyph data, not name), mono is monospace, weights keep advance. Fallbacks: mono → Menlo, Etoile → system UI font, with an echo |
-| Icons | Carbon 11.90.0 SVG paths through GPUI `svg()` |
-| Config | `~/.config/render/client.toml`: `ui.theme`, `ui.font.mono`, `ui.motion` |
-
-**Latency targets** (proposed; L1 met offscreen, the rest pending on screen):
-- L1: processing p99 ≤ 4 ms, idle and under a 4 × 2,000 tok/s firehose;
-- L2: key → first presented frame p99 ≤ 2 refresh intervals;
-- L3: ≤ 1 % late frames, no hitch > 50 ms;
-- L4: incremental parse p99 ≤ 2 ms;
-- L5: RSS ≤ 500 MB;
-- L6: cold start ≤ 1 s.
-
-Render at most once per refresh, and never block key handling on drawable acquisition.
+- **rune** (github.com/anomalyco/rune), pinned to `dev` @ `781e2b6d`, with `rune-kit` and `rune-mermaid` from the same revision. Bump deliberately.
+- **Fallbacks:** GPUI first, mygo second. nsh is dropped.
+- **Latency targets** L1–L6 and the E-RUNE-1 results are in `stack.md` §6–§7. Four live streams side by side cost 20–28 ms frame CPU p99, which the owner accepted.
+- **First implementation tests** (`stack.md` §8): on-screen key latency in a real window, real IME, NSEvent `input_time`, and the SC-04 Markdown screen.
 
 ---
 
 ## 9. Protocol requirements
 
-The client is stateless and needs the host to send structured data rather than prose. The full list, with screens and status, is [`protocol-requirements.md`](protocol-requirements.md). The load-bearing ones:
+The client is stateless and needs structured data from the host. The full list, each item checked against the server spec, is [`protocol-requirements.md`](protocol-requirements.md). The load-bearing ones:
 
-- **Indexes:** an attention index across projects with proposal summaries `{id, project, name, title, shape, readiness}` (RQ-01, RQ-27) and slot usage as `slots {used, total}`; agents (RQ-33); the slices scope with a host-owned lifecycle vocabulary and `open` flags, Slice rows only, ≤ 64 KB (RQ-41).
-- **The five facts as data** (RQ-03); a structured next action, including `mergeMain` with its target and `url` (RQ-04); typed blockages with `downstream {direct, transitive}` (RQ-12).
-- **Authority:**
-  - a host-computed decision basis for every decidable object, with per-field revisions and digests (RQ-05, RQ-39). Approve binds the checkpoint request with its captured settings, the artifact and manifest, annotations, decisions, intake, policy and policy binding. The current dial is not in the basis;
-  - permitted actions with EFFECT and NOT text fixed per command type and option kind (RQ-06);
-  - a structured `stale_basis` (RQ-07);
-  - a receipt query that never executes, and refusals as `{code, refs, reason, repair[]}` (RQ-08, RQ-36).
-- **Delivery:** pass lineage per Slice (RQ-44); readiness as four separate views with ordered gaps (RQ-26); web attempts and retained passages (RQ-46); the task shape and its path (RQ-27); the merge package (RQ-49).
-- **Checkpoint routing and policy:** settings, request capture, decision provenance, and the commands to change them (RQ-47), scoped by project (RQ-48).
-- **Local-verification prompt** (RQ-45).
-- **Restore** (S§5.3, S§5.3.1):
-  - `authorityEpoch`, `hostMode` and the backup block on every snapshot (RQ-18);
-  - the epoch in every envelope (RQ-24);
-  - receipt statuses `authority_epoch_mismatch`, `recovery_required` and `outcome_unknown_after_restore` (RQ-08);
-  - read outcomes `missing_content`, `unsupported_schema` and `unauthorized` (RQ-08).
-- **Conversations** (RQ-09): stable message IDs; role class and display label; tool calls with `outcome` (`running | succeeded | failed | cancelled | unknown`), exit code and timing; steering with delivery state; a pinned send mode, refused with `turn_state_changed` on mismatch.
-- **Sibling conversations and artifacts as structured fields** (RQ-30): the `candidate` letter, a role `label`, and artifacts with optional kind and time.
-- **A reference index** per workflow scope (RQ-42): `{label, kind, target | null, state, reason?}`.
-- **One multiplexed stream** for a list of scopes, with per-scope sequence and readiness (RQ-43).
-- **Forward compatibility:** the client declares its version and kinds, the host marks unsupported objects, and an unknown frame version refuses with an upgrade instruction (RQ-20).
+- **Indexes:** the attention index across projects (RQ-01, RQ-27); agents (RQ-33); the slices scope with a host-owned lifecycle vocabulary (RQ-41).
+- **The five facts as data** (RQ-03); a structured next action with `actionKind`, `target`, `why` and `options` (RQ-04); typed blockages with `downstream` (RQ-12).
+- **Authority:** a host-computed basis per decidable object (RQ-05, RQ-39); permitted actions with EFFECT and NOT per command type and option kind (RQ-06); structured `stale_basis` (RQ-07); a receipt query that never executes and typed refusals (RQ-08, RQ-36).
+- **Delivery:** pass lineage per Slice, which draws the Track (RQ-44); readiness as four views (RQ-26); web attempts (RQ-46); task shape and path (RQ-27); the merge package (RQ-49).
+- **The Brief:** `lastActivity` with its own host time (RQ-15, RQ-33); each free-text field marked as content or host value (RQ-50).
+- **Restore:** `authorityEpoch`, `hostMode` and the backup block on every snapshot (RQ-18); the epoch in every envelope (RQ-24).
+- **Conversations** with stable IDs, roles, tool-call outcomes and a pinned send mode (RQ-09); sibling conversations and turn artifacts (RQ-30); a reference index (RQ-42); one multiplexed stream (RQ-43).
+
+Several of these are **open requests to the server spec**, among them RQ-15/33's activity time, RQ-50's authorship mark, RQ-06's EFFECT and NOT text, and the cross-workflow indexes. `protocol-requirements.md` §5 lists them with citations.
 
 ---
 
 ## 10. Failure handling
 
-Every failure case, its defence and its check is in [`failure-catalogue.md`](failure-catalogue.md): 201 cases, in categories M (misleading state), T (wrong target), S (spoofing), K (keyboard), L (lost input), W (wire), R (re-entry), P (performance) and Q (reading quality). The rules a builder must not miss:
+Every failure case, its defence and its check is in [`failure-catalogue.md`](failure-catalogue.md).
 
 ### 10.1 Host restore (S§5.3, S§5.3.1)
 
 - **Epochs:**
   - Within one `authorityEpoch`, a repeated or older sequence is discarded.
-  - A frame with a **new** epoch means the host was restored. The client discards cached sequence comparisons, pins, open readbacks and pending mutation authority; resnapshots every scope; and never rejects the restored snapshot as numerically older.
-  - An ordinary host restart keeps the epoch.
-- **Old outbox entries** become `unknown after restore`.
-  - `␣rt` is refused for them, because the host lost its record of those requests and an identical retry would become a new command.
-  - `␣rq` still asks the host. A missing receipt is "outcome unknown", not "not sent".
-  - The user opens the object and acts afresh on its current basis once the host is active.
+  - A **new** epoch means the host was restored. The client then discards cached sequence comparisons, pins, open readbacks and pending mutation authority; resnapshots every scope; and never rejects the restored snapshot as numerically older.
+- **Old outbox entries** become `unknown after restore`. `␣rt` is refused for them; `␣rq` still asks the host. A missing receipt means "outcome unknown", not "not sent".
 - **Pairing again:**
-  - Backed-up device credentials are refused after a restore.
-  - Pairing again is the host's local-admin enrolment flow, not a client command.
+  - Backed-up device credentials are refused after a restore. Pairing again is the host's local-admin flow.
   - The client keeps its reconnect schedule, re-reads its credential store on each attempt, and `␣rc` tries at once.
-- **While `hostMode` is not `active`:** writes and authority keys are paused, and the echo names why in plain words per mode (§2): `Saving and deciding are paused while the host catches up` for recovery-reconciling, `… while the host isn't accepting changes` for admission-disabled, `… while the host is blocked` for blocked. Drafts keep working.
-- **Copy** is in plain words, shown once (SC-10h).
+- **While `hostMode` is not `active`:** writes and authority keys are paused, and the echo says why per mode (`Saving and deciding are paused while the host catches up`). Drafts keep working.
 
-### 10.2 Other failure rules
+### 10.2 Other rules
 
-- **Unknown outcome:** a timeout is `[?] unknown`, never "failed". Other authority commands on that object are disabled until it settles. Retry reuses the command ID and identical bytes (FC-M04, FC-L03).
-- **Stale basis:** never auto-rebased. The stale panel shows what moved, in display forms, and the permitted next actions (FC-M01, FC-M34). A local policy draft is rebased only on the user's explicit `d`, then read back (SC-17).
-- **Offline:** drafts stay local, and host writes and decisions are disabled. There is no offline queue: `:w` must be repeated after reconnecting.
+- **Unknown outcome:** a timeout is `? unknown`, never "failed". Other authority commands on that object are disabled until it settles. Retry reuses the command ID and identical bytes.
+- **Stale basis:** never auto-rebased. The stale reply shows what moved and the permitted next actions.
+- **Offline:** drafts stay local, and host writes and decisions are off. There is no offline queue.
 - **Revocation:** a distinct event. The client stops retrying and keeps drafts.
 - **Sequence gap:** a fresh snapshot, keeping local state.
-- **Unknown resource kind:** shown as unsupported, with decisions disabled. Unknown basis field names are rendered, never fatal.
-- **Spoofing:** tool outcomes, authors, human bands, references and readbacks come only from host records and chrome regions (§5.11).
-- **Pinning:** keys always act on the painted frame (§3.4).
-- **Reads:** missing, unreadable or unauthorized content shows as itself and never falls back to another revision (SC-10 i).
-- **Advisory is never a gap:** a missing human or macOS observation doesn't block, stale or mark anything (S§9.3 L1136).
+- **Unknown resource kind:** shown as unsupported, decisions off. Unknown basis field names are rendered, never fatal.
+- **Spoofing:** tool outcomes, authors, human bands, references and readbacks come only from host records and chrome lanes. Agent text on the Brief sits on the content bar (§5.9).
+- **Pinning:** keys always act on the drawn frame (§3.4).
+- **Reads:** missing, unreadable or unauthorized content shows as itself and never falls back to another revision.
+- **Advisory is never a gap:** a missing human or macOS observation doesn't block or mark anything.
 
 ---
 
 ## 11. Accessibility, contrast and colour-vision deficiency
 
-- **Contrast** (WCAG 2.x, computed; the prototype's CONTRAST check measured the earlier token set, and the current pairs are owed to the implementation's suite, [`evidence.md`](evidence.md) §3.1):
-  - all text ≥ 4.5:1 on every surface and tint it can sit on, in all three variants (worst 4.50);
-  - marks, underlines and rules ≥ 3:1 (worst: Soft rose 3.44, Light coral 3.48);
-  - syntax ≥ 4.5:1 on code surfaces;
-  - references and links 4.95 / 4.51 / 4.55, on the surfaces where they sit; under `surface.selection` coloured text falls to `fg`;
-  - knocked-out text on count tags ≥ 4.55;
-  - coloured chrome text ≥ 4.5:1 on all six chrome surfaces, each hue raised by the smallest lightness change that gets there.
+- **Contrast:** all text ≥ 4.5:1 and marks ≥ 3:1 on every surface and tint it sits on. Measured on the 76 prototype renders in Ember and Light: 0 failures over 9,985 text elements and 2,386 marks ([`evidence.md`](evidence.md)). The knocked-out text on the coral head is 6.51:1 in Ember and 4.55:1 in Light.
 - **Shape first:**
-  - Every state has a distinct silhouette (measured under protanopia, deuteranopia and tritanopia), and every mark has a word label.
+  - Every state has a distinct icon and a word.
   - Failed vs unknown is filled against outline-with-`?`.
-  - Tool outcomes carry their word at a fixed position, bold for failed and unknown, because the olive and rose tints are only ΔE 3–4 apart for deuteranopes.
-  - Reference vs inline code vs link differ by underline, chip and face.
-  - The cursor in code frames is the 2 px bar.
-- **Keyboard only:** every command is reachable without a pointer (measured on the prototype: 121/121 on the settings build, 0 pointer events). which-key, the palette (`␣;`) and hint mode make keys discoverable.
-- **Motion:** honours Reduced Motion.
-- **Type:** 15/24 prose with a 548 px measure. Chrome text is never below 11 px (captions), and diagram labels never below 12 px.
-- **Known gaps** (pending, [`evidence.md`](evidence.md) §3):
-  - no screen-reader design yet;
-  - real IME is unverified in GPUI, and the user skipped that run for this package (11-02).
+  - Tool outcomes carry their word at a fixed position, bold for failed and unknown.
+  - Reference, inline code and link differ by face and pill, not only by hue.
+- **Keyboard only:** every command is reachable without a pointer, and every printed chip resolves where printed (KL17, measured at render on the prototype with Insert strict). The leader menu, the palette (`␣;`, `⌘K`) and hint mode make keys discoverable.
+- **Pointer:** rows, segments, tabs and nav icons are clickable. A click never confirms authority: on the readback's confirm chip it does nothing and echoes `press y to confirm`. Clicks within 400 ms of a float opening are discarded. Pointer behaviour is unmeasured (Q41).
+- **Motion** honours Reduced Motion.
+- **Type:** prose 14/21 at a 600 px measure; chrome text is never below 11 px, diagram labels never below 12 px.
+- **Known gaps:** no screen-reader design yet; real IME is unverified (`stack.md` §8).
 
 ---
 
-## 12. Open questions and current defaults
+## 12. Open questions
 
-All questions, answers and defaults are in [`open-questions.md`](open-questions.md). None is open. The user took the defaults on the rest for now (11-02), so these stand until they say otherwise:
+All open items, answered questions (with the owner's 11-05 and 11-06 decisions) and defaults are in [`open-questions.md`](open-questions.md). The open items:
+- Q39, the human timing trials: five handover questions in ≤ 10 s, the first-note trial, the alarming-title trial, the grey test;
+- Q40, presence detection for "since you left";
+- Q41, pointer behaviour;
+- Q42, the known key-budget misses: the Slices filter path at 10 keys against 8, since `C-j` stays reserved for splits, and T14 approve (`⏎ ␣aa y`) at 5 keys against 4;
+- Q43, the stack's first implementation tests: on-screen key latency, real IME, NSEvent `input_time`, the SC-04 Markdown screen;
+- Q44, Q45, Q47 and Q48, rune's gaps: pill metrics, the transparent-pill gap, margin-note placement, colour-only syntax (Q46, the float's shadow, is closed: rune has `box_shadow`);
+- Q49, the measure check through rune is owed at 14 px.
 
-| Q | Question | Current default |
+Defaults set on 11-06, open for the owner to overturn: Q50 a pointer click never confirms; Q51 `lastActivity` is content; Q52 footers print only keys that work where printed, and every float mutes the chips outside it; Q53 splits are not in v1; Q54 the abnormal-fact slot's ladder.
+
+---
+
+## Appendix A: retired and merged IDs
+
+| Old | Now | Notes |
 |---|---|---|
-| Q30 | Explorer defaults | `review-queue` on first open; three tabs; saved filters device-local (the user kept named filters) |
-| Q31 | Light variant and `auto` | Light's reading area is its lightest surface; `auto` maps dark → `ember` |
-| Q32 | Slice lifecycle vocabulary | owned by the host, with `open` flags |
-| Q34 | Markdown alerts | neutral (no hue, no icon) |
-| Q06 | Arming delay before `y` counts | none, unless trials show reflexive confirms |
-
-The user has answered: Iosevka / Etoile everywhere (Q01, Q02, Q28), Iosevka for the mono role (Q37), proposals in the Proposals tab (Q38), the reference and link colours (Q33, overriding gold), the languages (Q35, staged to 12), a neutral coordinator and role hues (Q29), the live theme picker kept, named filters kept, Carbon icons (Q24), the two motions for now (Q25), the side-pane size step (Q36), wider use of colour (Q23: the final set is §5.3), and the human trials skipped (Q21).
-
-Everything still unmeasured (checks for the implementation's suite, and the trials and on-screen runs the user skipped) is listed in one place: [`evidence.md`](evidence.md) §3. None of it blocks building.
+| SC-01 frame: bufferline, handover strip, statusline, echo, minibuffer | SC-01 frame: tab bar, Track row, statusline, echo row, bottom float | The strip's facts moved to the Track row (abnormal), the handover float and the list peek. The minibuffer became the bottom float |
+| SC-02 needs-me queue + card | SC-02 the Brief | The card is gone; the row carries the ask |
+| SC-05 emission diff | SC-04, `␣md` lens | merged |
+| SC-06 annotation disposition map | SC-04, `␣om` lens | merged |
+| SC-08 Agents (explorer tab) | SC-08 Agents list, with peek | |
+| SC-16 slice explorer (three panes) | SC-16 Slices and Proposals lists, with peek | Scope tree and state filter moved into the filter float (`␣sf`) |
+| SC-19 merge package; SC-16 Proposals card | SC-19 Proposal page | The package is the proposal's eligible state |
+| §1 principle 1 "five facts always one glance away" | §1 principle 1 | Abnormal facts at 0 keys; all five at 1 key |
+| `explorer.tab_next` / `explorer.tab_prev` | `view.tab_next` / `view.tab_prev` (`gt`/`gT`, global) | The explorer's sidebar tabs are now views |
+| — | `open.proposals` (`␣oP`); `␣sf` on `filter.cmd`; `<D-k>` on `palette`; `<D-CR>` on `chat.send` | added |
+| — | KL20 chip budget | added; KL9 gains the `<D-x>` alias clause; KL14 allows `<D-CR>`; KL17 now runs at render |
+| FC-Q20 side-pane quote scale | FC-S25, FC-Q02 | retired |
+| FC-Q25 strip value ladders | Track row, handover float and peek; FC-Q10 keeps IDs whole | retired |
+| — | FC-T22, T23, M64–M73, S23–S25, K26, K27, L14, Q28 | added (failure-catalogue.md) |
+| — | RQ-50 authorship of text fields | added |
+| `queue.open` "needs-me queue" (`␣q`, `:queue`) | `queue.open` "the Brief" (`␣q`, `:queue`, alias `:brief`); `]q`/`[q` "needs-you entry" | renamed, same IDs and keys |
+| — | Q39–Q54 (open-questions.md) | added: human trials, presence, pointer, the filter path, the stack's first tests, rune's gaps, the measure through rune at 14 px |
+| Q35 v1 languages through tree-sitter | rune-kit's scanners (Q48) | closed |
+| Q36 side-pane content step | the content bar for content outside documents | superseded |
+| `win.left/down/up/right`, `win.vsplit`, `win.split`, `win.close`, `win.balance`, `win.maximize`; picker `C-v`/`C-s` | — | removed: splits are not in v1; their keys are reserved (§3.7) |
+| — | context `handover` and modal `handover.keys`; context `slices` (`␣sf`, `:filter`) | added |
+| — | FC-M74 tab-bar overflow, FC-Q29 the ask clamp | added |
+| Q46 the float's shadow on rune | `box_shadow` at a negative y | closed |
+| Dotted links, dashed dangling references | Solid underlines; colour tells them apart | rune draws solid underlines only |
+| Render-owned line breaker | rune's native wrap with pills | accepted with the rune switch |
+| tree-sitter v1 set of 12 grammars | rune-kit's 13 scanners; TOML, Elixir and Markdown fences plain | tree-sitter optional later |
+| Pele + QuickJS + usvg/resvg Mermaid | rune-mermaid | |
 
 ---
 
-## Appendix: the workbench
+## Appendix B: the workbench
 
-The workbench (`~/dev/render-ui-design/`) also holds the experiments, the prototype, the fake host, the decision records and the changelog, which are history, not requirements. A builder doesn't need them.
+The workbench (`~/dev/render-ui-design/`) holds the experiments, the prototype (`experiments/e10-modern/proto/`), the design record of this direction (`design/alt-modern/direction.md`, with the diagnosis and the challenge), and the decision history. A builder doesn't need them.

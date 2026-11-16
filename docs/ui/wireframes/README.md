@@ -1,18 +1,20 @@
 # Wireframes
 
-Three sources, in order of authority:
+The wireframes for the Brief design. Three sources, in order of authority:
 
-1. **[`layout.md`](layout.md)** is normative: the pixel layout at 1512 × 982, with regions, sizes, tokens and sample content, for every screen including SC-17 to SC-19.
-2. **[`text-mocks.md`](text-mocks.md)** holds 160-column text grids for every screen. They show structure only; a text grid can't show tints, underlines or real proportions.
-3. **`wireframe-*.png`**, exported from [`render-ui-wireframes.tldraw`](render-ui-wireframes.tldraw), are the drawings the user approved on 2026-10-29: the frame, SC-02, SC-03, SC-04, SC-09, SC-12, SC-14 and SC-16. **They are older than the spec, so where they differ the spec and `layout.md` win.** The main differences:
-   - **Fonts:** chrome in Iosevka Etoile, prose 15/24; text columns sit at x 331–879 (chat) and 432–980 (review).
-   - **Frame:** the statusline has no DECISION segment; the bufferline has a host segment and no seq or time.
-   - **SC-02:** an ON THE HOST group; `RUNNING · 4 · slots 4/4`; no PROPOSALS block, which moved to the explorer's Proposals tab; the card sits below the list under a 1180 px pane.
-   - **SC-03:** no per-message author bar; stronger tool tints with a 1 px `border.strong` edge and no icons; a neutral coordinator; references in Iosevka with a solid underline.
-   - **SC-04:** no class letters in the outline; the class word is on the node's heading row.
-   - **Breakout:** code, tables and diagrams grow right from the text column and never cover the gutter.
-   - **SC-09:** the readback is grey, with only a coral top rule and verb tag, and it scrolls its target above itself.
-   - **SC-16:** proposal rows have a second line; the Proposals tab carries readiness.
-   - **SC-07, SC-17, SC-18, SC-19:** no drawing; use `layout.md` and `text-mocks.md`.
+1. **[`layout.md`](layout.md)** is normative. It holds the pixel geometry of the Brief frame at 1512 × 982 and of every screen, with notes for an 800 px window.
+2. **[`text-mocks.md`](text-mocks.md)** holds structure and copy. It has one 160-column text grid for each state that matters, all on one fixture and one timeline. A text grid can't show tints, weight or real proportions.
+3. **The wire renders, `wire-*.png`,** are the drawings. They are greyscale renders of the prototype (`~/dev/render-ui-design/experiments/e10-modern/proto/`, `node build.mjs --wire`). Each frame region is outlined and labelled with its name and its x, y, w and h in px.
 
-The [`mockups/`](../mockups/) folder has HTML-prototype renders; each caption in [`spec.md`](../spec.md) says what its render gets wrong.
+| Render | Screens |
+|---|---|
+| `wire-brief-landing.png` | SC-01 frame, SC-02 the Brief on landing |
+| `wire-frame-cmdline.png` | SC-01 frame with the command line, SC-11 palette |
+| `wire-chat-steer.png` | SC-03 Chat, steering a running turn |
+| `wire-review-notes.png` | SC-04 Review with margin notes |
+| `wire-decision-readback.png` | SC-09 Decision with its readback open |
+| `wire-list-slices.png` | SC-16 Slices list with the peek |
+
+**The text wins over any image.** Where a render differs from `layout.md` or `text-mocks.md`, follow the text. The renders come from the prototype's own data, so their numbers and copy may lag the fixture in `text-mocks.md`. Screens without a render (SC-07, SC-08, SC-10, SC-12 to SC-15, SC-17 to SC-19) are specified by the two text files alone.
+
+**Old drawings.** The tldraw file and its `wireframe-*.png` exports showed the retired design (the queue, the strip and the bufferline). They are removed; they survive in git history at `fd270d7`. The colour renders of the Brief are in [`../mockups/`](../mockups/).

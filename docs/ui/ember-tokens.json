@@ -1,5 +1,5 @@
 {
-  "$schema_note": "Render client tokens, Ember palette (MIT, Hossam Saraya). Variant keys match ui.theme values. Non-Ember values: kind.link and kind.link_active are the user's own link colours (Q33), raised only where visual-language.md §5.7 says.",
+  "$schema_note": "Render client tokens for the Brief (adopted 2026-11-06), Ember palette (MIT, Hossam Saraya). Variant keys match ui.theme values. Non-Ember values: kind.link and kind.link_active are the user's own link colours (Q33), raised only where visual-language.md §5.7 says. Type entries are [family, size px, line px, weight, note]. Syntax: rune-kit's scanners colour only, through syntax_kit_map; the style fields (bold, italic) and the tree-sitter capture names apply only if a tree-sitter highlighter is added later (stack.md §5a).",
   "variants": {
     "ember": {
       "surface": {
@@ -612,136 +612,158 @@
     }
   },
   "type": {
-    "ui.label": [
+    "page.title": [
       "Iosevka Etoile",
-      11,
-      14,
+      22,
+      28,
       700,
-      "uppercase, +0.06em"
+      "Brief and list titles; rose, count coral; no rule"
     ],
-    "ui.small": [
+    "prose.h1": [
       "Iosevka Etoile",
-      12,
-      16,
+      20,
+      28,
+      700,
+      "content h1 and work-view titles; rose; 1 px border.strong rule under"
+    ],
+    "prose.h2": [
+      "Iosevka Etoile",
+      17,
+      24,
+      600,
+      "orange"
+    ],
+    "prose.h3": [
+      "Iosevka Etoile",
+      15,
+      22,
+      600,
+      "fg"
+    ],
+    "prose.h4": [
+      "Iosevka Etoile",
+      14,
+      20,
+      600,
+      "fg; space.6 above"
+    ],
+    "prose.h5": [
+      "Iosevka Etoile",
+      13,
+      19,
+      600,
+      "uppercase, +0.04em, fg.alt"
+    ],
+    "prose.h6": [
+      "Iosevka Etoile",
+      13,
+      19,
+      600,
+      "italic, fg.alt"
+    ],
+    "move": [
+      "Iosevka Etoile",
+      14,
+      20,
+      600,
+      "Brief entry heads"
+    ],
+    "group": [
+      "Iosevka Etoile",
+      13,
+      18,
+      600,
+      "group heads, steel"
+    ],
+    "prose": [
+      "Iosevka Etoile",
+      14,
+      21,
       400,
-      ""
+      "body"
+    ],
+    "prose.small": [
+      "Iosevka Etoile",
+      13,
+      19,
+      400,
+      "content on the 2 px content bar: the Brief's ask, margin notes, previews"
+    ],
+    "prose.table": [
+      "Iosevka Etoile",
+      13,
+      19,
+      400,
+      "table cells; header 600 fg.alt"
+    ],
+    "prose.code": [
+      "Iosevka",
+      13,
+      21,
+      400,
+      "inline code: gold on a surface.code rune pill"
+    ],
+    "prose.ref": [
+      "Iosevka",
+      13,
+      21,
+      500,
+      "references: salmon, solid underline"
     ],
     "ui": [
       "Iosevka Etoile",
       13,
       18,
       400,
-      ""
+      "rows, tabs"
     ],
     "ui.strong": [
       "Iosevka Etoile",
       13,
       18,
       600,
-      "pane titles, author names, unseen rows"
+      "changed rows on the Brief, author names, margin headers"
     ],
-    "ui.title": [
+    "ui.small": [
       "Iosevka Etoile",
-      15,
+      12,
+      16,
+      400,
+      "bylines, Track, statusline, echo row, column captions"
+    ],
+    "mono": [
+      "Iosevka",
+      13,
       20,
-      600,
-      ""
+      400,
+      "code blocks, diffs"
     ],
     "mono.small": [
       "Iosevka",
       12,
       16,
-      500,
-      "keys, numbers, fixed numeric columns"
+      400,
+      "times, digests in rows, gutter IDs, fixed numeric columns"
     ],
-    "mono": [
+    "key": [
       "Iosevka",
+      11.5,
+      16,
+      500,
+      "key chips, orange"
+    ],
+    "badge": [
+      "Iosevka",
+      11,
       14,
-      20,
-      400,
-      "code blocks, diffs, digests"
-    ],
-    "prose": [
-      "Iosevka Etoile",
-      15,
-      24,
-      400,
-      ""
-    ],
-    "prose.small": [
-      "Iosevka Etoile",
-      15,
-      24,
-      400,
-      "side-pane content, with the content bar"
-    ],
-    "prose.table": [
-      "Iosevka Etoile",
-      14,
-      22,
-      400,
-      "header 700"
-    ],
-    "prose.h1": [
-      "Iosevka Etoile",
-      24,
-      32,
-      700,
-      "rule under"
-    ],
-    "prose.h2": [
-      "Iosevka Etoile",
-      20,
-      28,
-      700,
-      "rule under"
-    ],
-    "prose.h3": [
-      "Iosevka Etoile",
-      17,
-      26,
-      700,
-      ""
-    ],
-    "prose.h4": [
-      "Iosevka Etoile",
-      15,
-      24,
-      700,
-      ""
-    ],
-    "prose.h5": [
-      "Iosevka Etoile",
-      13,
-      20,
-      700,
-      "uppercase, +0.04em, fg.alt"
-    ],
-    "prose.h6": [
-      "Iosevka Etoile",
-      13,
-      20,
       600,
-      "italic, fg.alt"
-    ],
-    "prose.code": [
-      "Iosevka",
-      14,
-      24,
-      400,
-      "inline code chip"
-    ],
-    "prose.ref": [
-      "Iosevka",
-      14,
-      24,
-      500,
-      "references, solid underline"
+      "mode badge and readback verb tag; uppercase, +0.08em"
     ]
   },
   "measure": {
-    "prose": "68 × mean advance of tools/measure-sample.txt, floored to 4 px (548 px at 15 px Etoile)",
-    "mono_columns": 100
+    "prose": "80 × mean advance of the bundled reference paragraph at prose size, floored to 4 px: 600 px at 14 px Iosevka Etoile",
+    "mono_columns": 100,
+    "pill_whole_max_chars": 40
   },
   "space": {
     "1": 2,
@@ -753,17 +775,53 @@
     "7": 32
   },
   "radius": {
-    "panes": 0,
-    "chips_blocks": 2,
-    "floats": 4
+    "default": 0,
+    "chips_tags_hints": 2,
+    "in_text_pills": "rune's fixed metrics at the pin: 5 pt, capped at half the chip height (recorded deviation, visual-language.md §4.2)"
+  },
+  "height": {
+    "tab_bar": 36,
+    "track_row": 40,
+    "statusline": 26,
+    "echo_row": 26,
+    "dense_row": 28,
+    "count_tag": 16,
+    "badge": 26
+  },
+  "elevation": {
+    "bottom_float": {
+      "ember": "0 -14px 40px rgba(0,0,0,.45)",
+      "ember-light": "0 -14px 40px rgba(60,48,24,.22)",
+      "note": "upward only, drawn with rune's box_shadow at a negative y (el/visuals.rs at the pin)"
+    },
+    "tooltip": "0 4px 12px rgba(0,0,0,.35)"
   },
   "motion_ms": {
     "state_change_tint": 600,
     "float_fade": 90
   },
   "mermaid": {
-    "pele_font_size": 16,
+    "renderer": "rune-mermaid (stack.md §5)",
     "font_family": "Iosevka Etoile",
+    "node_font_px": 16,
     "min_label_px": 12
+  },
+  "syntax_kit_map": {
+    "Keyword": "keyword",
+    "String": "string",
+    "Number": "constant",
+    "Comment": "comment",
+    "Type": "type",
+    "Function": "function",
+    "Property": "variable",
+    "Punctuation": "punct",
+    "Inserted": "diff.plus",
+    "Deleted": "diff.minus"
+  },
+  "segment_disabled": {
+    "edge": "1 px border.subtle, dashed (rune border_dash)",
+    "text": "fg.muted",
+    "chip": "none",
+    "suffix": "· off"
   }
 }
