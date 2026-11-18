@@ -1,5 +1,5 @@
 import { createRegistry } from "@earendil-works/pi-durable";
-import { CodingTools } from "@earendil-works/pi-durable/tools";
+import { builtInExtensions } from "./catalogue.js";
 import type { ExtensionModule, ServerOptions } from "./index.js";
 import { Options } from "./options.js";
 import { PROJECT } from "./projects.js";
@@ -23,7 +23,10 @@ const object = (value: unknown): value is Record<string, unknown> =>
 const nameRule = new RegExp(PROJECT);
 
 function check(name: string, value: unknown): ExtensionModule {
-	if (!nameRule.test(name) || name === "coding-tools")
+	if (
+		!nameRule.test(name) ||
+		builtInExtensions.some((extension) => extension.name === name)
+	)
 		throw new Error(`Invalid extension name ${name}`);
 	if (!object(value) || !object(value.extension))
 		throw new Error("The extension export must be an object");
@@ -64,7 +67,7 @@ export async function loadExtensions(
 	const options = new Map<string, Options>();
 	const current = typeof models === "function" ? models : () => models;
 	const registry = createRegistry();
-	registry.install(CodingTools);
+	for (const extension of builtInExtensions) registry.install(extension);
 	const owners = new Map<string, string>();
 	for (const name of Object.keys(found.modules).sort()) {
 		const value = found.modules[name];

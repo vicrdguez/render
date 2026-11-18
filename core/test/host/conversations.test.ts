@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	createModels,
 	type FauxResponseFactory,
 	fauxAssistantMessage,
+	fauxProvider,
 	fauxToolCall,
+	type ToolResultMessage,
 } from "@earendil-works/pi-ai";
+import { typesafeProvider } from "@earendil-works/pi-ai/providers/typesafe";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { obj } from "@earendil-works/pi-schema";
 import { gate, modules } from "./extensions.js";
@@ -173,7 +177,7 @@ test("the bare agent follows the project default, and an added extension reaches
 			await idle(s, conversation);
 			return seen.at(-1)?.tools;
 		};
-		const coding = ["bash", "edit", "read", "write"];
+		const coding = ["bash", "codemode", "edit", "read", "write"];
 		assert.deepEqual(await ask(bare), [...coding, "web_search"].sort());
 		const flowTools = ["ask", "explode", "flood", "hold", "schedule"];
 		assert.deepEqual(
@@ -186,6 +190,69 @@ test("the bare agent follows the project default, and an added extension reaches
 		assert.deepEqual(await ask(reviewer), ["show_diff"]);
 	} finally {
 		gate.release();
+		await s.close();
+	}
+});
+
+test("a default conversation classifies a nested tool result with Jev from a codemode script", async (t) => {
+	const transport = t.mock.method(globalThis, "fetch", async () =>
+		Response.json({ answers: { relevant: { type: "noul", noul: 0.875 } } }),
+	);
+	const models = createModels({
+		authContext: {
+			env: async (name) =>
+				name === "TYPESAFE_API_KEY" ? "fixture" : undefined,
+			fileExists: async () => false,
+		},
+	});
+	const faux = fauxProvider({ models: [{ id: "a" }] });
+	models.setProvider(faux.provider);
+	models.setProvider(typesafeProvider());
+	const s = await start({
+		models: { models, faux },
+		source: () => ({ modules, failures: [] }),
+	});
+	try {
+		await project(s, ["search"]);
+		const conversation = await create(s, { model: "faux/a" });
+		let result: ToolResultMessage | undefined;
+		s.faux.setResponses([
+			call("codemode", {
+				code: `
+					const results = await tools.web_search({ query: "Tau" });
+					const available = await models.getAvailableOfType("classifier", "typesafe");
+					const jev = available.find((model) => model.id === "jev-latest");
+					const { answers } = await models.classify(jev, {
+						state: { results },
+						questions: {
+							relevant: {
+								type: "bool",
+								instructions: "Did the search find results?",
+								criteria: { true: "Found results", false: "Found none" },
+							},
+						},
+					});
+					text("Jev probability: " + answers.relevant.probability);
+				`,
+			}),
+			({ messages }) => {
+				result = messages.find((message) => message.role === "toolResult");
+				return fauxAssistantMessage("Done.");
+			},
+		]);
+		const submitted = await send(s, conversation, "Classify the results.");
+		assert.equal(submitted.status, 200);
+		await idle(s, conversation);
+		assert.equal(result?.toolName, "codemode");
+		assert.equal(result?.isError, false, JSON.stringify(result?.content));
+		assert.match(JSON.stringify(result?.content), /Jev probability: 0\.875\b/);
+		const body = transport.mock.calls[0]?.arguments[1]?.body;
+		assert.equal(typeof body, "string");
+		const request = JSON.parse(String(body));
+		assert.equal(request.model, "jev-latest");
+		assert.deepEqual(request.state, { results: "three results" });
+		assert.equal(request.questions.relevant.type, "noul");
+	} finally {
 		await s.close();
 	}
 });

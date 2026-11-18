@@ -1,6 +1,14 @@
+import { CodemodeSandbox } from "@earendil-works/pi-codemode";
+import type { Extension } from "@earendil-works/pi-durable";
+import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import type { ExtensionModule } from "./index.js";
 import type { Options } from "./options.js";
+
+export const builtInExtensions: readonly Extension[] = [
+	CodingTools,
+	createCodemodeExtension({ sandbox: new CodemodeSandbox() }),
+];
 
 type Loaded = {
 	readonly module: ExtensionModule;
@@ -42,7 +50,7 @@ export class Catalogue {
 
 	defaults(names: readonly string[]) {
 		return [
-			CodingTools,
+			...builtInExtensions,
 			...this.selected(names)
 				.filter(({ module }) => module.entry === undefined)
 				.map(({ module }) => module.extension),

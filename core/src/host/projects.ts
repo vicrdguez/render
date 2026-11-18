@@ -10,11 +10,10 @@ import {
 	type Registry,
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { arr, compile, obj, str } from "@earendil-works/pi-schema";
 import { openStore, type Store } from "../store/host.js";
 import { eventLog } from "../store/index.js";
-import type { Catalogue } from "./catalogue.js";
+import { builtInExtensions, type Catalogue } from "./catalogue.js";
 import type { ServerOptions } from "./index.js";
 import { acquireLock } from "./lock.js";
 import { type Outcome, refuse } from "./refusals.js";
@@ -307,7 +306,8 @@ export class Projects {
 			context,
 		);
 		const open = { ...opened, log, record };
-		opened.registry.install(CodingTools);
+		for (const extension of builtInExtensions)
+			opened.registry.install(extension);
 		this.#install(open, catalogue);
 		opened.store.harness.resume();
 		this.#open.set(opened.name, open);

@@ -38,7 +38,7 @@ The server starts in this order:
 1. It loads extensions and prepares the Tau home.
 2. It loads devices and scans project directories. For each project, it takes the lock and opens the store with an empty registry.
 3. It reads the project record and skips directories with invalid names, missing records, or records for another project.
-4. It finds the event log, installs coding tools and available project extensions, builds the default selection, and resumes the project's harness.
+4. It finds the event log, installs the built-in `coding-tools` and `codemode` extensions and the available project extensions, builds the default selection, and resumes the project's harness.
 5. It reports task warnings, opens the admin socket, and listens for HTTP requests.
 
 A repeated `bind` can finish opening a store that has no project record. A project extension absent at startup is not installed, so its tasks cannot run until its code is available.
