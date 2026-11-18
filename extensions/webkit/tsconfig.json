@@ -5,7 +5,7 @@
 		"noEmit": true,
 		"allowImportingTsExtensions": true,
 		"erasableSyntaxOnly": true,
-		"tsBuildInfoFile": "../../node_modules/.cache/tau-websearch.tsbuildinfo"
+		"tsBuildInfoFile": "../../node_modules/.cache/tau-webkit.tsbuildinfo"
 	},
 	"include": ["src/**/*.ts", "test/**/*.ts"],
 	"references": [{ "path": "../../core" }]

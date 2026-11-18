@@ -12,7 +12,7 @@ let
   verifiedExtensions = [
     "w1"
     "w2"
-    "websearch"
+    "webkit"
   ];
   verifySource = lib.fileset.toSource {
     inherit root;
@@ -47,7 +47,8 @@ let
           nodejs
           pkgs.coreutils
           pkgs.git
-        ];
+        ]
+        ++ lib.optional (name == "extension-webkit") pkgs.curl;
         __darwinAllowLocalNetworking = true;
         passthru.source = source;
       }

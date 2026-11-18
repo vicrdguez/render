@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 const installer = fileURLToPath(
 	new URL("./install-extension.mjs", import.meta.url),
 );
-const names = JSON.stringify(["w1", "w2", "websearch"]);
+const names = JSON.stringify(["w1", "w2", "webkit"]);
 
 for (const status of ["applied", "refused"]) {
 	test(`install-extension roots the previous store output during ${status} reload and removes the temporary root`, async (t) => {
@@ -149,10 +149,10 @@ test("install-extension lists repository extensions and marks an installed link"
 	const f = await fixture(t);
 	const empty = f.run();
 	assert.equal(empty.status, 0, empty.stderr);
-	assert.equal(empty.stdout, "w1\nw2\nwebsearch\n");
+	assert.equal(empty.stdout, "w1\nw2\nwebkit\n");
 	await mkdir(join(f.home, "extensions"), { recursive: true });
 	await symlink(f.target, join(f.home, "extensions", "w2"));
-	assert.equal(f.run().stdout, "w1\nw2 (installed)\nwebsearch\n");
+	assert.equal(f.run().stdout, "w1\nw2 (installed)\nwebkit\n");
 });
 
 test("install-extension replaces a link atomically and reports that it loads at the next start", async (t) => {

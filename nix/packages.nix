@@ -78,6 +78,15 @@ rec {
         mkdir -p "$out/node_modules/${dirOf dependency}"
         ln -s ${workspace.npmDeps}/node_modules/${dependency} "$out/node_modules/${dependency}"
       '') (builtins.attrNames (removeAttrs (manifest.dependencies or { }) [ "tau" ]))
+      + lib.optionalString (name == "webkit") ''
+        chmod u+w "$out/native-tools.json"
+        printf '%s\n' '${
+          builtins.toJSON {
+            git = "${pkgs.git}/bin/git";
+            curl = "${pkgs.curl}/bin/curl";
+          }
+        }' > "$out/native-tools.json"
+      ''
     )
   ) workspace.extensions;
 }

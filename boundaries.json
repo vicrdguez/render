@@ -7,7 +7,7 @@
 			"tau": ["."]
 		}
 	},
-	"tau-websearch": {
+	"tau-webkit": {
 		"extension": true,
 		"tau": [".", "./durable", "./schema", "./chord"],
 		"testOnly": {

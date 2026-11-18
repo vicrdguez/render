@@ -20,11 +20,7 @@ import { promisify } from "node:util";
 
 const [command, ...outputs] = process.argv.slice(2);
 assert.ok(command, "Pass the installed tau executable.");
-assert.equal(
-	outputs.length,
-	3,
-	"Pass the w1, w2 and websearch source outputs.",
-);
+assert.equal(outputs.length, 3, "Pass the w1, w2 and webkit source outputs.");
 const root = await mkdtemp(join(tmpdir(), "tau-installed-"));
 const home = join(root, ".tau");
 const env = {
@@ -103,7 +99,7 @@ async function check(initial: "empty" | "writable" | "file" = "empty") {
 			return;
 		}
 		process.stdout.write("empty extensions []\n");
-		for (const [i, name] of ["w1", "w2", "websearch"].entries()) {
+		for (const [i, name] of ["w1", "w2", "webkit"].entries()) {
 			const output = outputs[i]!;
 			await access(join(output, "index.ts"));
 			for await (const file of glob("**/*.{js,mjs,cjs}", {
@@ -128,17 +124,15 @@ async function check(initial: "empty" | "writable" | "file" = "empty") {
 				[
 					["w1", true],
 					["w2", true],
-					["websearch", false],
+					["webkit", false],
 				],
 				stderr,
 			);
 			assert.deepEqual(
-				items.map((item: any) => item.schema.required),
-				[
-					["designer", "implementer", "reviewer", "base"],
-					["model"],
-					["provider", "apiKey"],
-				],
+				items
+					.filter((item: any) => item.name !== "webkit")
+					.map((item: any) => item.schema.required),
+				[["designer", "implementer", "reviewer", "base"], ["model"]],
 			);
 			assert.ok(
 				items.every(
@@ -149,12 +143,14 @@ async function check(initial: "empty" | "writable" | "file" = "empty") {
 			);
 			assert.equal(items[0].schema.properties.designer.format, "model");
 			assert.equal(items[1].schema.properties.model.format, "model");
-			assert.equal(items[2].schema.properties.apiKey.format, "secret");
-			process.stdout.write("loaded w1, w2, websearch with options schemas\n");
+			assert.equal(items[2].schema.properties.exaApiKey.format, "secret");
+			assert.equal(items[2].schema.properties.tavilyApiKey.format, "secret");
+			assert.equal(items[2].schema.properties.provider.default, "auto");
+			process.stdout.write("loaded w1, w2, webkit with options schemas\n");
 			const bound = await post(
 				url,
 				"bind",
-				{ project: "p", workdir: root, extensions: ["w2", "websearch"] },
+				{ project: "p", workdir: root, extensions: ["w2", "webkit"] },
 				token,
 			);
 			assert.deepEqual(bound.project.missing, []);
@@ -200,6 +196,9 @@ async function check(initial: "empty" | "writable" | "file" = "empty") {
 		const listed = await run(command!, ["device", "list"], { env });
 		assert.match(listed.stdout, new RegExp(device));
 		process.stdout.write("models HTTP 200; paired device listed\n");
+	} catch (error) {
+		console.error("Installed verifier failed.", error, { stdout, stderr });
+		throw error;
 	} finally {
 		if (child.exitCode === null && child.signalCode === null) {
 			const exit = once(child, "exit", { signal: AbortSignal.timeout(60_000) });
@@ -233,7 +232,7 @@ try {
 		if (!/\.(?:js|json)$/.test(file)) continue;
 		assert.doesNotMatch(
 			await readFile(resolve(command, "../..", file), "utf8"),
-			/tau-w1|tau-w2|tau-websearch/,
+			/tau-w1|tau-w2|tau-webkit/,
 			file,
 		);
 	}
@@ -268,7 +267,52 @@ try {
 			(await readFile(join(outputs[0]!, `${file}.md`), "utf8")).length > 0,
 		);
 	assert.ok((await readFile(join(outputs[1]!, "agent.md"), "utf8")).length > 0);
-	process.stdout.write("extension source and Markdown installed\n");
+	assert.match(
+		await readFile(join(outputs[2]!, "LICENSE"), "utf8"),
+		/Nico Bailon/,
+	);
+	assert.match(
+		await readFile(join(outputs[2]!, "UPSTREAM.md"), "utf8"),
+		/4af1a7f7757d450ba0afefe2d98737384dc9a9b4/,
+	);
+	const nativeTools = JSON.parse(
+		await readFile(join(outputs[2]!, "native-tools.json"), "utf8"),
+	);
+	for (const tool of ["git", "curl"] as const) {
+		assert.match(nativeTools[tool], /^\/nix\/store\//);
+		const version = await run(nativeTools[tool], ["--version"], {
+			env: { ...env, PATH: "" },
+		});
+		assert.ok(version.stdout.length > 0);
+	}
+	const extraction = await run(
+		process.execPath,
+		[
+			"--input-type=module",
+			"-e",
+			`
+		import assert from "node:assert/strict";
+		for (const name of ["linkedom", "@mozilla/readability", "turndown", "defuddle/node", "p-limit", "unpdf", "unpdf/pdfjs"])
+			await import(name);
+		const { fetchPages } = await import("./extract.ts");
+		const body = "<html><head><title>Installed artifact</title></head><body><article><h1>Installed artifact</h1><p>" + "INSTALLED-EXTRACTION-MARKER The installed parser reads this source text. ".repeat(25) + "</p></article></body></html>";
+		const settings = { provider: "auto", fallbackProviders: "", hostedExtraction: false, timeoutMs: 60000, maxResponseBytes: 5242880 };
+		const result = await fetchPages({ urls: ["https://example.com/article"], mode: "readable", forceClone: false, redirects: "follow" }, {
+			settings, signal: new AbortController().signal, now: () => Date.now(), endpoints: {},
+			http: { request: async () => ({ url: "https://example.com/article", status: 200, headers: { "content-type": "text/html" }, body: new TextEncoder().encode(body) }) },
+		});
+		assert.equal(result.items[0].status, "ok", JSON.stringify(result.items));
+		assert.equal(result.documents[0].extractor, "readability");
+		assert.match(result.documents[0].text, /INSTALLED-EXTRACTION-MARKER/);
+		process.stdout.write("installed webkit extracts HTML and resolves all lazy extraction dependencies\\n");
+	`,
+		],
+		{ cwd: outputs[2], env },
+	);
+	process.stdout.write(extraction.stdout);
+	process.stdout.write(
+		"extension source, notices, upstream guide and native tools installed\n",
+	);
 } finally {
 	await rm(root, { recursive: true, force: true });
 }

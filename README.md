@@ -63,7 +63,7 @@ Use a separate checkout for npm-managed dependencies if you also use the Nix dev
 
 ## Extensions
 
-The repository includes sample extensions. [W1](extensions/w1/README.md) coordinates work using agent roles and human decisions. [W2](extensions/w2/README.md) runs a forecasting workflow. [Web search](extensions/websearch/README.md) adds a search tool.
+The repository includes three extensions. [W1](extensions/w1/README.md) coordinates work using agent roles and human decisions. [W2](extensions/w2/README.md) runs a forecasting workflow. [Webkit](extensions/webkit/README.md) provides zero-config search, page extraction, and durable source retrieval. It is a trimmed, Tau-native derivative of pi-web-access 0.46.0.
 
 Extensions are trusted code and are not sandboxed. Read the [design limits](docs/design.md#limits) before installing them. The same section describes recovery and upgrade limitations.
 

@@ -15,7 +15,7 @@ test("W0: leave, restart, fill the history gap from a second device, and continu
 			[
 				["w1", true],
 				["w2", true],
-				["websearch", false],
+				["webkit", false],
 			],
 		);
 		await j.ok("bind", { project: "p", workdir: j.root, extensions: [] });

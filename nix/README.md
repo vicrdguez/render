@@ -14,7 +14,7 @@ Tau has two execution modes. Checkout commands validate files as you edit them. 
 
 Packages do not depend on checks. Check derivations do not call checkout wrappers or invoke another Nix build. Workspace acceptance and local lint share the lint action, without sharing checkout preparation.
 
-The extension list comes from workspace records in the lockfile. Packages, extension checks, and named test commands use that list. The installed verifier explicitly covers W1, W2, and websearch. Adding another extension must also account for installed verification.
+The extension list comes from workspace records in the lockfile. Packages, extension checks, and named test commands use that list. The installed verifier explicitly covers W1, W2, and webkit. Adding another extension must also account for installed verification.
 
 ## Artifact builds
 
@@ -105,11 +105,11 @@ Help and package listing do not link dependencies into the checkout or compile s
 | --- | --- |
 | `workspace` | Lock consistency, import boundaries, Biome, Nix formatting, and development-tool tests. |
 | `core` | Core compilation, emitted assets, and core tests. |
-| `extension-w1`, `extension-w2`, `extension-websearch` | Core dependency compilation and the selected extension's typechecking and tests. |
+| `extension-w1`, `extension-w2`, `extension-webkit` | Core dependency compilation and the selected extension's typechecking and tests. |
 | `e2e` | Typechecking and real-server tests, including restart and extension-loading behavior. |
 | `verify-build` | Actual public installed executable and extension artifact verification. |
 | `verify-runtime` | The same real-server verifier against the private runtime and all extension artifacts. |
-| `runtime-content` | Runtime closure excludes public Tau, development dependencies, full Node, archives, hidden npm locks, TypeScript, and unrelated websearch packages. |
+| `runtime-content` | Runtime closure excludes public Tau, development dependencies, full Node, archives, hidden npm locks, TypeScript, and selected unrelated provider dependencies. |
 | `docker-image`, Linux only | Archive architecture, layers, entrypoint, user, home volume and ownership, temporary-directory mode, CA configuration, and runtime contents. |
 
 Workspace lint needs the whole tracked tree. Other checks include selected package inputs and explicit runner files, not arbitrary root files or the whole tools directory. Core's export tests read `core/README.md`, so that README remains a real input. E2E loads the extension source trees at runtime, even though its TypeScript project references only core.

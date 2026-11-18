@@ -43,26 +43,26 @@ test("search: project default calls the local provider and no device surface or 
 	const address = provider.address();
 	assert.ok(address && typeof address !== "string");
 	const j = await processJourney({
-		searchUrl: `http://127.0.0.1:${address.port}`,
+		webkitUrl: `http://127.0.0.1:${address.port}`,
 	});
 	try {
 		await j.ok("bind", {
 			project: "p",
 			workdir: j.root,
-			extensions: ["websearch"],
+			extensions: ["webkit"],
 		});
 		assert.deepEqual(
 			(
 				await j.ok("setOptions", {
 					project: "p",
-					extension: "websearch",
-					patch: { provider: "exa", apiKey: key },
+					extension: "webkit",
+					patch: { provider: "exa", exaApiKey: key },
 				})
 			).value,
-			{ provider: "exa", apiKey: true },
+			{ provider: "exa", exaApiKey: true },
 		);
 		const options = await j.ok("options", { project: "p" }, j.phone);
-		assert.equal(options.items[0].value.apiKey, true);
+		assert.equal(options.items[0].value.exaApiKey, true);
 		const { conversation } = await j.ok("create", {
 			project: "p",
 			model: "faux/a",
@@ -93,7 +93,8 @@ test("search: project default calls the local provider and no device surface or 
 		await j.ok("history", { project: "p", conversation, limit: 1000 }, j.phone);
 		await j.restart();
 		assert.equal(
-			(await j.ok("options", { project: "p" }, j.phone)).items[0].value.apiKey,
+			(await j.ok("options", { project: "p" }, j.phone)).items[0].value
+				.exaApiKey,
 			true,
 		);
 		await j.ok("history", { project: "p", conversation, limit: 1000 }, j.phone);
