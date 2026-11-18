@@ -45,11 +45,18 @@ async function post(url: string, name: string, body: object, token?: string) {
 	return reply.result;
 }
 
-async function check(initial: "empty" | "writable" | "file" = "empty") {
-	const child = spawn(command!, ["--port", "0"], {
-		env,
-		stdio: ["ignore", "pipe", "pipe"],
-	});
+async function check(
+	initial: "empty" | "writable" | "file" | "codemode" = "empty",
+) {
+	const fixture = join(root, "installed-codemode.ts");
+	const child = spawn(
+		initial === "codemode" ? process.execPath : command!,
+		initial === "codemode" ? [fixture, home] : ["--port", "0"],
+		{
+			env,
+			stdio: ["ignore", "pipe", "pipe"],
+		},
+	);
 	let stdout = "";
 	let stderr = "";
 	child.stdout.on("data", (chunk) => {
@@ -83,6 +90,51 @@ async function check(initial: "empty" | "writable" | "file" = "empty") {
 			initial === "writable" ? ["w2"] : [],
 			stderr,
 		);
+		if (initial === "codemode") {
+			const project = "smoke";
+			await post(
+				url,
+				"bind",
+				{ project, workdir: root, extensions: [] },
+				token,
+			);
+			const { conversation } = await post(
+				url,
+				"create",
+				{ project, model: "faux/smoke" },
+				token,
+			);
+			await post(
+				url,
+				"input",
+				{
+					project,
+					conversation,
+					text: "Run the smoke script",
+					requestId: "smoke",
+				},
+				token,
+			);
+			const deadline = Date.now() + 10_000;
+			for (;;) {
+				const { items } = await post(
+					url,
+					"history",
+					{ project, conversation },
+					token,
+				);
+				if (JSON.stringify(items).includes("codemode-smoke=42")) break;
+				assert.ok(
+					Date.now() < deadline,
+					`installed Tau did not return the script output: ${JSON.stringify(items)}`,
+				);
+				await new Promise((done) => setTimeout(done, 25));
+			}
+			process.stdout.write(
+				"default conversation ran codemode: codemode-smoke=42\n",
+			);
+			return;
+		}
 		if (initial === "file") {
 			assert.ok(stderr.includes(join(home, "extensions")), stderr);
 			assert.match(stderr, /not a folder/);
@@ -236,6 +288,18 @@ try {
 			file,
 		);
 	}
+	await cp(
+		new URL("./installed-codemode.ts", import.meta.url),
+		join(root, "installed-codemode.ts"),
+	);
+	await mkdir(join(root, "node_modules"));
+	await symlink(join(lib, "core"), join(root, "node_modules/tau"));
+	await symlink(
+		join(lib, "node_modules/@earendil-works"),
+		join(root, "node_modules/@earendil-works"),
+	);
+	await check("codemode");
+	await rm(home, { recursive: true });
 	const directory = join(home, "extensions");
 	await mkdir(directory, { recursive: true });
 	await chmod(directory, 0o777);

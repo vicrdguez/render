@@ -41,7 +41,7 @@ Mark a secret string with `format: "secret"`. The host returns `true` for a set 
 
 ## Agent selection
 
-The project default contains `coding-tools` and available project extensions without `entry`. A workflow is not part of the default.
+The project default contains the built-in `coding-tools` and `codemode` extensions and available project extensions without `entry`. A workflow is not part of the default.
 
 | Agent selection | Extensions received |
 | --- | --- |
@@ -52,6 +52,28 @@ The project default contains `coding-tools` and available project extensions wit
 An open role follows changes to the default on its next model request. An in-flight request keeps its selection. A closed role does not acquire extensions added to the project.
 
 If a role must exclude particular tools, select both its extensions and tools exactly. An open role must remove the other roles' tools from its own extension by name. A prompt section must check its intended audience because a tool filter does not hide sections.
+
+### Decision models in codemode
+
+The `codemode` tool runs JavaScript in a sandbox. A script can call tools that permit nested calls and return just the results the agent needs. `models.getAvailableOfType("classifier")` lists classifiers with configured credentials. Jev uses the server's TypeSafe or OpenRouter credentials and needs no separate extension.
+
+For example, this script asks Jev for the probability that two findings describe the same defect:
+
+```js
+const model = await models.getModelOfType("classifier", "typesafe", "jev-latest");
+const result = await models.classify(model, {
+	state: { first: "Save drops edits", second: "Changes vanish after saving" },
+	questions: {
+		duplicate: {
+			type: "bool",
+			instructions: "Do these findings describe the same defect?",
+			criteria: { true: "Same defect", false: "Separate defects" },
+		},
+	},
+});
+if (result.stopReason !== "stop") throw new Error(result.errorMessage);
+return result.answers.duplicate.probability;
+```
 
 ## Author rules
 
@@ -405,7 +427,7 @@ flowchart TB
 
 To install an extension from another repository:
 
-1. Choose a name that matches `^[a-z0-9][a-z0-9-]{0,62}$` and is not `coding-tools`.
+1. Choose a name that matches `^[a-z0-9][a-z0-9-]{0,62}$` and is neither `coding-tools` nor `codemode`.
 2. Place or symlink the extension folder at `~/.tau/extensions/<name>/`, with `index.ts` and its dependencies at the folder root.
 
 To install a sample from this repository:

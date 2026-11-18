@@ -26,6 +26,12 @@ const refusals: [string, string, unknown, string][] = [
 		{ extension: { name: "coding-tools" } },
 		"shape",
 	],
+	[
+		"the reserved codemode name",
+		"codemode",
+		{ extension: { name: "codemode" } },
+		"shape",
+	],
 	["a missing extension export", "notes", {}, "shape"],
 	["a null extension", "notes", { extension: null }, "shape"],
 	["an array extension", "notes", { extension: [] }, "shape"],

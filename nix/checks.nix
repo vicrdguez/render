@@ -19,6 +19,7 @@ let
     fileset = lib.fileset.unions [
       (root + "/e2e/package.json")
       (root + "/e2e/test/verify-build.ts")
+      (root + "/e2e/test/installed-codemode.ts")
     ];
   };
   verifyArguments =
