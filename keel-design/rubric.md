@@ -1,0 +1,10 @@
+# Rubric for the keel architecture arena
+
+Candidates did not see this. Score each criterion 1 to 5 per candidate, with the evidence (file and section) for the score.
+
+1. **Fit to the settled workflow.** Trace the four scenarios in `task.md` through the candidate's types and signatures. Does every lane, the late-bound plan, rulings and verdicts, convergence, the queue, the three branch tiers, principles delivery and dispatch have a home, without the structure bending or a requirement being quietly dropped or changed?
+2. **Ownership and module depth.** Does each piece of durable state have exactly one owning module? Are public interfaces small relative to what they hide? Can a lane be changed by opening only that lane's files? Is dispatch free of any knowledge of lanes? Screen against `extensions/keel/src/prose/playbooks/architect/design-red-flags.md`.
+3. **Durable correctness by construction.** Are the five running-system properties in `task.md` (exactly-once publication under replay, act-once continuations, plan-before-effect for git, durable cancel before stop, hashes never from a model) each encoded once, in a type or a single mechanism, so a new tool or task cannot forget them? Are situations recorded and never inferred? Is the gap between the store and git handled honestly?
+4. **Least complexity.** The owner is one developer and the repository rule is the least complexity that satisfies the scope, with no speculative robustness without the owner's buy-in. Count the concepts a maintainer must hold. Which mechanisms answer a failure the task names, and which answer a failure nobody has seen? Could the first slice be built and understood in a few days?
+5. **Growth path.** Does the first slice use the same records and modules the later slices need, so that a second item, a second worker, the queue and sub-agents are additions and not rewrites? Is there a stated story for changing a stored shape?
+6. **Honesty to tau.** Does the design use tau's and pi-durable's primitives as `keel-design/grounding.md` describes them, with no core change assumed? Where it relies on behaviour the grounding marks Unknown or absent, does it say so?
