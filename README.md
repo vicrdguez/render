@@ -93,4 +93,4 @@ From a checkout with Nix flakes enabled:
 
 Use `nix develop` for an interactive shell with formatting, lint, typechecking, and test commands. In an interactive shell, use `env test` to avoid the shell builtin. Packaging an extension does not typecheck or test it. The [Nix guide](nix/README.md) describes test selectors, extension builds, and installed-artifact verification. The [documentation index](docs/README.md) links to the architecture and API guides.
 
-The [release workflow](.github/workflows/release.yml) builds and checks the standalone archives on pull requests to `trunk`. Pushing a `vX.Y.Z` tag on a commit in `trunk` publishes the archives and their checksums after all platform checks pass.
+The [release workflow](.github/workflows/release.yml) builds and checks the standalone archives on pull requests to `trunk`. Pushing a `vX.Y.Z` tag publishes the archives and their checksums only if the tagged commit is in `main` and all platform checks pass.
