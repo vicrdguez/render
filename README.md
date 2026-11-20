@@ -31,6 +31,18 @@ See the [design](docs/design.md) for the core layers and their limits, the [prot
 
 The server listens on `127.0.0.1:6283` by default and stores state under `~/.tau`. Starting Tau does not install extensions. Install them separately using the [extension guide](docs/extensions.md#install-an-extension). Model provider credentials live on the server. See the [host reference](docs/host.md) for configuration and credentials.
 
+### From a standalone download
+
+Download the archive for your system from [GitHub Releases](https://github.com/vicrdguez/tau/releases). Choose Apple Silicon macOS or glibc-based Linux on arm64 or x64. The archive includes Node.js 24. You do not need Nix or Docker. Compare the archive's SHA-256 hash with `SHA256SUMS` from the same release.
+
+Extract the archive and run this command from its top-level directory:
+
+```sh
+./bin/tau --port 6283
+```
+
+Keep the extracted files together. Use the same `bin/tau` for [device pairing](docs/host.md#run-the-server).
+
 ### With Nix
 
 With Nix flakes enabled, run Tau from a checkout:
@@ -80,3 +92,5 @@ From a checkout with Nix flakes enabled:
 | Run the full acceptance gate | `nix flake check -L` |
 
 Use `nix develop` for an interactive shell with formatting, lint, typechecking, and test commands. In an interactive shell, use `env test` to avoid the shell builtin. Packaging an extension does not typecheck or test it. The [Nix guide](nix/README.md) describes test selectors, extension builds, and installed-artifact verification. The [documentation index](docs/README.md) links to the architecture and API guides.
+
+The [release workflow](.github/workflows/release.yml) builds and checks the standalone archives on pull requests to `trunk`. Pushing a `vX.Y.Z` tag on a commit in `trunk` publishes the archives and their checksums after all platform checks pass.
