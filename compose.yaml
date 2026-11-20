@@ -1,0 +1,25 @@
+services:
+  tau:
+    image: tau:local
+    pull_policy: never
+    init: true
+    restart: unless-stopped
+    env_file:
+      - path: ./tau.env
+        required: false
+    volumes:
+      - tau-home:/home/tau
+    ports:
+      - "127.0.0.1:${TAU_PORT:-6283}:8080"
+  proxy:
+    image: docker.io/library/caddy:2.11.2-alpine
+    command: [caddy, reverse-proxy, --from, "http://:8080", --to, "http://127.0.0.1:6283"]
+    network_mode: service:tau
+    restart: unless-stopped
+    depends_on:
+      tau:
+        condition: service_started
+        restart: true
+
+volumes:
+  tau-home:

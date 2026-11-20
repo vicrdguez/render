@@ -43,6 +43,32 @@ Extract the archive and run this command from its top-level directory:
 
 Keep the extracted files together. Use the same `bin/tau` for [device pairing](docs/host.md#run-the-server).
 
+#### Run at login on macOS
+
+The macOS archive includes a LaunchAgent that starts Tau at login and restarts it if it exits. Move the extracted directory to its permanent location and stop any Tau server already running. From the extracted directory, run:
+
+```sh
+agent="$HOME/Library/LaunchAgents/dev.tau.server.plist"
+mkdir -p "$(dirname "$agent")"
+install -m 644 ./dev.tau.server.plist "$agent"
+plutil -replace ProgramArguments.0 -string "$PWD/bin/tau" "$agent"
+launchctl bootstrap "gui/$(id -u)" "$agent"
+```
+
+To stop the service, run `launchctl bootout "gui/$(id -u)/dev.tau.server"`. To prevent it from starting at the next login, remove the installed plist. Neither step removes `~/.tau`.
+
+### With Docker Compose
+
+From one [GitHub Release](https://github.com/vicrdguez/tau/releases), download `compose.yaml` and the `tau-docker-linux-*.tar.gz` archive for your Docker engine. Use arm64 on Apple Silicon. From the directory with `compose.yaml`, load the image and start Tau. This example uses arm64:
+
+```sh
+docker load -i tau-docker-linux-arm64.tar.gz
+docker compose up -d
+docker compose exec tau tau device pair phone
+```
+
+Connect your client to `http://127.0.0.1:6283`. Compose keeps project stores and devices in a named Docker volume. It does not share your host's `~/.tau`. Create a local `tau.env` next to `compose.yaml` to supply provider API keys, then start or recreate Tau. If a project needs access to a host checkout, mount it separately and use its container-side path. Use an encrypted tunnel or TLS proxy for access from another machine.
+
 ### With Nix
 
 With Nix flakes enabled, run Tau from a checkout:
@@ -93,4 +119,4 @@ From a checkout with Nix flakes enabled:
 
 Use `nix develop` for an interactive shell with formatting, lint, typechecking, and test commands. In an interactive shell, use `env test` to avoid the shell builtin. Packaging an extension does not typecheck or test it. The [Nix guide](nix/README.md) describes test selectors, extension builds, and installed-artifact verification. The [documentation index](docs/README.md) links to the architecture and API guides.
 
-The [release workflow](.github/workflows/release.yml) builds and checks the standalone archives on pull requests to `trunk`. Pushing a `vX.Y.Z` tag publishes the archives and their checksums only if the tagged commit is in `main` and all platform checks pass.
+The [release workflow](.github/workflows/release.yml) builds and checks the standalone and Docker archives with Nix on pull requests to `trunk`. Pushing a `vX.Y.Z` tag publishes the archives, `compose.yaml`, and their checksums only if the tagged commit is in `main` and all platform checks pass.

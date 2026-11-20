@@ -27,6 +27,10 @@
               workspace
               ;
           };
+          standalone = import ./nix/standalone.nix {
+            inherit pkgs root;
+            inherit (packages) tauRuntime;
+          };
           image =
             if pkgs.stdenv.hostPlatform.isLinux then
               import ./nix/image.nix {
@@ -52,6 +56,7 @@
           inherit
             pkgs
             packages
+            standalone
             image
             dev
             validation
@@ -76,6 +81,7 @@
         _: value:
         {
           inherit (value.packages) tau;
+          inherit (value) standalone;
           default = value.packages.tau;
         }
         // lib.mapAttrs' (name: lib.nameValuePair "extension-${name}") value.packages.extensions
@@ -84,7 +90,13 @@
         }
       ) perSystem;
       devShells = lib.mapAttrs (_: value: { default = value.dev.shell; }) perSystem;
-      checks = lib.mapAttrs (_: value: value.validation.checks) perSystem;
+      checks = lib.mapAttrs (
+        _: value:
+        value.validation.checks
+        // {
+          standalone-archive = value.standalone;
+        }
+      ) perSystem;
       formatter = lib.mapAttrs (_: value: value.pkgs.nixfmt) perSystem;
     };
 }
