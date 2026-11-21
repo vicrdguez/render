@@ -1,0 +1,115 @@
+name: Tau release
+
+on:
+  pull_request:
+    branches: [trunk]
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  package:
+    name: Package and verify (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: darwin-arm64
+          - runner: ubuntu-24.04
+            target: linux-x64
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa
+      - name: Run the Nix acceptance gate
+        run: nix flake check -L
+      - name: Build and smoke-test the standalone archive
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          archive="dist/tau-$TARGET.tar.gz"
+          mkdir -p dist
+          cp "$(nix build .#standalone --no-link --print-out-paths)" "$archive"
+          nix develop -c node tools/verify-standalone.mjs "$archive"
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            tar -xOf "$archive" tau/dev.tau.server.plist | plutil -lint -
+          fi
+      - name: Build and smoke-test the Docker image
+        if: runner.os == 'Linux'
+        env:
+          TARGET: ${{ matrix.target }}
+          TAU_PORT: '16283'
+          COMPOSE_PROJECT_NAME: tau-release-smoke
+        run: |
+          archive="dist/tau-docker-$TARGET.tar.gz"
+          cp "$(nix build .#docker-image --no-link --print-out-paths)" "$archive"
+          docker load -i "$archive"
+          trap 'docker compose logs; docker compose down -v' EXIT
+          docker compose up -d
+          url="http://127.0.0.1:$TAU_PORT/v1"
+          status=000
+          for attempt in {1..30}; do
+            status=$(curl -s --max-time 1 -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d '{}' "$url/projects" || true)
+            if [[ "$status" == 401 ]]; then break; fi
+            sleep 1
+          done
+          [[ "$status" == 401 ]]
+          code=$(docker compose exec -T tau tau device pair release-smoke | grep -Eo '[0-9A-Z]{4}-[0-9A-Z]{4}')
+          token=$(curl -fsS -H 'Content-Type: application/json' -d "{\"code\":\"$code\"}" "$url/pair" | jq -er .result.token)
+          curl -fsS -H 'Content-Type: application/json' -H "Authorization: Bearer $token" -d '{}' "$url/projects" | jq -e '.result.items == []'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: tau-${{ matrix.target }}
+          path: dist/tau-*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+  publish:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm the tagged commit is in main
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          TAG_COMMIT: ${{ github.sha }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git merge-base --is-ancestor "$TAG_COMMIT" HEAD
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          path: release
+          pattern: tau-*
+          merge-multiple: true
+      - name: Publish the release and checksums
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          TAG_COMMIT: ${{ github.sha }}
+        run: |
+          git show "$TAG_COMMIT:compose.yaml" > release/compose.yaml
+          cd release
+          assets=(tau-darwin-arm64.tar.gz tau-linux-arm64.tar.gz tau-linux-x64.tar.gz tau-docker-linux-arm64.tar.gz tau-docker-linux-x64.tar.gz compose.yaml)
+          sha256sum "${assets[@]}" > SHA256SUMS
+          gh release create "$RELEASE_TAG" --verify-tag --generate-notes "${assets[@]}" SHA256SUMS
