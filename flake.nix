@@ -76,6 +76,17 @@
           tau = app "${value.packages.tau}/bin/tau";
           verify-build = app (lib.getExe value.validation.verifyBuild);
         }
+        // lib.optionalAttrs value.pkgs.stdenv.hostPlatform.isDarwin {
+          install-launchagent = app (
+            lib.getExe (
+              import ./nix/launchagent.nix {
+                inherit (value) pkgs;
+                inherit (value.packages) tau;
+                plist = root + "/deploy/macos/dev.tau.server.plist";
+              }
+            )
+          );
+        }
       ) perSystem;
       packages = lib.mapAttrs (
         _: value:

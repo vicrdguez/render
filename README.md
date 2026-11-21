@@ -51,7 +51,8 @@ The macOS archive includes a LaunchAgent that starts Tau at login and restarts i
 agent="$HOME/Library/LaunchAgents/dev.tau.server.plist"
 mkdir -p "$(dirname "$agent")"
 install -m 644 ./dev.tau.server.plist "$agent"
-plutil -replace ProgramArguments.0 -string "$PWD/bin/tau" "$agent"
+plutil -remove ProgramArguments.0 "$agent"
+plutil -insert ProgramArguments.0 -string "$PWD/bin/tau" "$agent"
 launchctl bootstrap "gui/$(id -u)" "$agent"
 ```
 
@@ -82,6 +83,14 @@ You can also run it without a checkout:
 ```sh
 nix run github:vicrdguez/tau#tau -- --port 6283
 ```
+
+On Apple Silicon macOS, stop any Tau server you started in a terminal. To install Tau as a login service, run this from your checkout:
+
+```sh
+nix run .#install-launchagent
+```
+
+Rerun this command after `git pull` to update the service. It uses your existing `~/.tau` and does not require `sudo`. To stop the service, follow the [LaunchAgent instructions](#run-at-login-on-macos).
 
 See the [Nix guide](nix/README.md) for the Linux container image and other build options.
 

@@ -9,6 +9,7 @@ Tau has two execution modes. Checkout commands validate files as you edit them. 
 - `packages.nix` builds the executable, private server runtime, and extension artifacts.
 - `image.nix` owns the Linux container image and its runtime filesystem.
 - `standalone.nix` makes a portable archive from the installed core runtime and an official Node binary.
+- `launchagent.nix` installs the built `tau` package as a macOS login service.
 - `dev.nix` owns checkout preparation and developer commands.
 - `checks.nix` owns isolated acceptance and installed-artifact verification.
 - `runtime-check.nix` and `image-check.nix` inspect the installed runtime and image archive.
@@ -56,6 +57,8 @@ nix run .#tau -- device list
 ```
 
 Extensions are optional and are not installed by `nix run`. An empty extension directory starts an empty server. Use the existing extension installation workflow when needed. The CLI prints usage and exits 2 for `--help`.
+
+On Apple Silicon macOS, `nix run .#install-launchagent` puts the already-built `tau` package in a dedicated `tau-launchagent` Nix profile. The LaunchAgent points to that profile. Rerun the command after pulling updates to switch the profile and restart the service. The command does not build anything after it starts and does not write to the checkout.
 
 ## Build and run the Linux image
 
