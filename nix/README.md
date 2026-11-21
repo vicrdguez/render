@@ -8,6 +8,8 @@ Tau has two execution modes. Checkout commands validate files as you edit them. 
 - `workspace.nix` owns the shared npm dependency tree, workspace discovery, and validation source inputs.
 - `packages.nix` builds the executable, private server runtime, and extension artifacts.
 - `image.nix` owns the Linux container image and its runtime filesystem.
+- `standalone.nix` makes a portable archive from the installed core runtime and an official Node binary.
+- `launchagent.nix` installs the built `tau` package as a macOS login service.
 - `dev.nix` owns checkout preparation and developer commands.
 - `checks.nix` owns isolated acceptance and installed-artifact verification.
 - `runtime-check.nix` and `image-check.nix` inspect the installed runtime and image archive.
@@ -27,6 +29,8 @@ The development npm derivation serves the workspace. It uses root manifests and 
 `workspace.runtimeModules` installs a separate production tree from core's runtime dependency fields and the existing version 3 lockfile. npm selects dependencies with `--omit=dev`. The synthetic root has no workspaces, development dependencies, or executable entry. Workspace-local nested dependency records are rejected rather than relocated. Dependency source files, declarations, and runtime executable links remain intact. Hidden npm locks are removed so their build-time archive paths do not enter the runtime closure.
 
 The private `packages.tauRuntime` copies compiled core and manifests from `tau`, links the production tree, and wraps slim Node 24. Copying core prevents Node's realpath resolution from reaching the public package's development dependencies. Nix rejects references to public `tau`, the development dependency tree, or full Node in the private runtime closure. Compilation still happens only in `tau`.
+
+`nix build .#standalone` archives the compiled core and production dependencies from `tauRuntime`. It uses an official Node 24 binary with a pinned checksum instead of the Nix-built Node and wrapper. It replaces the Nix Node shebangs in dependency commands, and Nix rejects store references in the unpacked tree before archiving it. The users who download the archive do not need Nix. Release runners verify the extracted archive outside the Nix sandbox.
 
 ## Run Tau directly from a flake
 
@@ -53,6 +57,8 @@ nix run .#tau -- device list
 ```
 
 Extensions are optional and are not installed by `nix run`. An empty extension directory starts an empty server. Use the existing extension installation workflow when needed. The CLI prints usage and exits 2 for `--help`.
+
+On Apple Silicon macOS, `nix run .#install-launchagent` puts the already-built `tau` package in a dedicated `tau-launchagent` Nix profile. The LaunchAgent points to that profile. Rerun the command after pulling updates to switch the profile and restart the service. The command does not build anything after it starts and does not write to the checkout.
 
 ## Build and run the Linux image
 
@@ -110,6 +116,7 @@ Help and package listing do not link dependencies into the checkout or compile s
 | `verify-build` | Actual public installed executable and extension artifact verification. |
 | `verify-runtime` | The same real-server verifier against the private runtime and all extension artifacts. |
 | `runtime-content` | Runtime closure excludes public Tau, development dependencies, full Node, archives, hidden npm locks, TypeScript, and selected unrelated provider dependencies. |
+| `standalone-archive` | Builds the standalone archive and rejects Nix store references in its unpacked tree. |
 | `docker-image`, Linux only | Archive architecture, layers, entrypoint, user, home volume and ownership, temporary-directory mode, CA configuration, and runtime contents. |
 
 Workspace lint needs the whole tracked tree. Other checks include selected package inputs and explicit runner files, not arbitrary root files or the whole tools directory. Core's export tests read `core/README.md`, so that README remains a real input. E2E loads the extension source trees at runtime, even though its TypeScript project references only core.
